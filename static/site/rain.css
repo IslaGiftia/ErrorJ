@@ -1,0 +1,148 @@
+/*
+ * 下雨动画公共样式：站点内所有下雨场景共用这一份定义。
+ * 动画参数（雨柱位置/长度/时长、落点爆炸）在 /static/site/rain.js 里，
+ * 两个文件都不要单独改，保证各页面完全一致。
+ */
+:root {
+  --rain-top: #ffffff;
+  --rain-bottom: #f5f5f5;
+  --rain-floor: #f5f5f5;
+}
+
+[data-theme="dark"] {
+  --rain-top: #0a0a0a;
+  --rain-bottom: #262626;
+  --rain-floor: #f5f5f5;
+}
+
+.rain-scene {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: linear-gradient(to bottom, var(--rain-top), var(--rain-bottom));
+}
+
+/* 内容页用法：整屏固定一层雨幕，页面内容压在它上面。 */
+.rain-scene--fixed {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  height: 100%;
+  pointer-events: none;
+}
+
+.rain-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.rain-floor {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 2;
+  height: 0;
+  background: var(--rain-floor);
+  pointer-events: none;
+  box-shadow:
+    0 0 24px rgba(34, 42, 53, 0.06),
+    0 1px 1px rgba(0, 0, 0, 0.05),
+    0 0 0 1px rgba(34, 42, 53, 0.04),
+    0 0 4px rgba(34, 42, 53, 0.08),
+    0 16px 68px rgba(47, 48, 55, 0.05),
+    0 1px 0 rgba(255, 255, 255, 0.1) inset;
+}
+
+.rain-beam {
+  position: absolute;
+  top: 5rem;
+  left: 0;
+  width: 1px;
+  height: 3.5rem;
+  border-radius: 9999px;
+  background: linear-gradient(to top, #6366f1, #a855f7, transparent);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.rain-beam--h6 {
+  height: 1.5rem;
+}
+
+.rain-beam--h12 {
+  height: 3rem;
+}
+
+.rain-beam--h20 {
+  height: 5rem;
+}
+
+.rain-explosion {
+  position: absolute;
+  z-index: 4;
+  width: 0.5rem;
+  height: 0.5rem;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  animation: rain-explosion-fade 3.5s both;
+}
+
+.rain-explosion-flash {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 2.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: linear-gradient(to right, transparent, #6366f1, transparent);
+  filter: blur(4px);
+  transform: translateX(-50%);
+}
+
+.rain-explosion-particle {
+  position: absolute;
+  width: 0.25rem;
+  height: 0.25rem;
+  border-radius: 50%;
+  background: linear-gradient(to bottom, #6366f1, #a855f7);
+  animation-name: rain-particle;
+  animation-timing-function: ease-out;
+  animation-fill-mode: both;
+}
+
+@keyframes rain-explosion-fade {
+  0% {
+    opacity: 0;
+    animation-timing-function: ease-out;
+  }
+
+  42.86% {
+    opacity: 1;
+    animation-timing-function: linear;
+  }
+
+  57.14% {
+    opacity: 1;
+    animation-timing-function: ease-out;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes rain-particle {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(var(--particle-x), var(--particle-y));
+  }
+}

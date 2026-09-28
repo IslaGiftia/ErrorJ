@@ -1,0 +1,15 @@
+data
+__pycache__
+**/__pycache__
+*.py[cod]
+.git
+.gitignore
+.env
+.env.*
+*.pem
+*.key
+*.log
+err-backup
+inventory_backup_*.zip
+errorjiang-backup*.zip
+smoke.js

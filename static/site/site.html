@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <title>Error酱</title>
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
+  <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
+<link rel="stylesheet" href="/static/site/site.css">
+<link rel="stylesheet" href="/static/site/rain.css">
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
+</head>
+<body data-page="home">
+  <button class="theme-float icon-btn" id="themeToggle" aria-label="切换外观" title="外观：跟随系统">
+    <span class="theme-glyph" id="themeGlyph">◑</span>
+  </button>
+
+  <main class="landing landing-three rain-scene" id="rainScene">
+    <div class="rain-layer" id="rainLayer" aria-hidden="true"></div>
+    <div class="landing-inner">
+      <h1 class="landing-title"><span id="landingTitleText">使用Error酱工作和学习</span></h1>
+      <p class="landing-desc" id="landingDesc">Error酱是一个工作和学习平台，目前看来只适合作者自己使用，她全部由ChatGPT和DeepSeek完成，没有原创，全是搬运。不久后，Error酱也会开源</p>
+
+      <div class="repo-grid">
+        <a class="repo-entry" href="/inventory" target="ej-inventory">
+          <span class="repo-entry-label">
+            <span class="repo-entry-text">📦已入库<span id="repoCount">80</span>种元件</span>
+          </span>
+          <span class="repo-thumbs" id="repoThumbs"></span>
+        </a>
+
+        <a class="repo-entry" href="/bookmarks" target="ej-bookmarks">
+          <span class="repo-entry-label">
+            <span class="repo-entry-text">🔖已收藏<span id="bookmarkCount">0</span>个网页</span>
+          </span>
+          <span class="repo-thumbs" id="bookmarkThumbs"></span>
+        </a>
+
+        <a class="repo-entry" href="/notes" target="ej-notes">
+          <span class="repo-entry-label">
+            <span class="repo-entry-text">📝已记<span id="noteCount">0</span>篇笔记</span>
+          </span>
+          <span class="repo-thumbs" id="notesThumbs"></span>
+        </a>
+
+        <a class="repo-entry" href="/workbench" target="ej-workbench">
+          <span class="repo-entry-label">
+            <span class="repo-entry-text">🧰工作台·建设中</span>
+          </span>
+          <span class="repo-thumbs" aria-hidden="true">
+            <span class="repo-thumb">账</span>
+            <span class="repo-thumb">码</span>
+            <span class="repo-thumb">固</span>
+          </span>
+        </a>
+      </div>
+
+      <div class="landing-module-actions" aria-label="工作台功能入口">
+        <a class="landing-module-btn" href="/messages">给Error酱留言</a>
+        <a class="landing-module-btn" href="/games">和Error酱玩游戏</a>
+        <a class="landing-module-btn" href="/moments">看Error酱的日常</a>
+      </div>
+
+      <nav class="landing-links" aria-label="项目相关链接">
+        <a href="/references">参考项目</a>
+        <a href="/source">Error酱源码</a>
+      </nav>
+
+      <p class="landing-footer"><strong>时光流转，愿你与珍爱之人，能够再次重逢。</strong></p>
+    </div>
+    <div class="rain-floor" id="rainFloor" aria-hidden="true"></div>
+  </main>
+
+  <div class="landing-toast" id="landingToast" hidden></div>
+
+<script src="/static/site/rain.js"></script>
+<script src="/static/site/site.js"></script>
+</body>
+</html>

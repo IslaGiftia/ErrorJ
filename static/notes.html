@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <title>学习笔记 · Error酱</title>
+  <meta name="tab-name" content="ej-notes">
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
+  <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
+  <link rel="stylesheet" href="/static/notes.css">
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
+  <script src="/static/site/tabname.js"></script>
+</head>
+<body>
+  <div class="nt-app">
+    <header class="nt-header">
+      <a class="nt-brand" href="/">
+        <span class="nt-brand-icon"><i data-lucide="notebook-pen"></i></span>
+        <strong>学习笔记</strong>
+        <span id="noteCount">0 篇</span>
+      </a>
+
+      <label class="nt-search">
+        <i data-lucide="search"></i>
+        <input id="searchInput" type="search" placeholder="搜索标题、正文或标签...">
+      </label>
+
+      <div class="nt-header-actions">
+        <button class="nt-btn" id="htmlImportBtn" type="button">
+          <i data-lucide="file-code-2"></i><span>导入 HTML</span>
+        </button>
+        <button class="nt-btn nt-btn-primary" id="newNoteBtn" type="button">
+          <i data-lucide="plus"></i><span>新建笔记</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="nt-layout">
+      <aside class="nt-sidebar">
+        <div class="nt-sidebar-head">
+          <div class="nt-sort" id="sortBar">
+            <button class="active" type="button" data-sort="updated">最近更新</button>
+            <button type="button" data-sort="created">最近创建</button>
+            <button type="button" data-sort="title">标题</button>
+          </div>
+          <div class="nt-tags" id="tagFilter"></div>
+        </div>
+        <div class="nt-list" id="noteList"></div>
+        <div class="nt-sidebar-foot" id="listStatus">加载中…</div>
+      </aside>
+
+      <main class="nt-main">
+        <section class="nt-welcome" id="welcomePane">
+          <i data-lucide="notebook-pen"></i>
+          <h2>还没有打开笔记</h2>
+          <p>从左侧选一篇，或者新建一篇。</p>
+        </section>
+
+        <section class="nt-doc" id="docPane" data-mode="read" hidden>
+          <div class="nt-doc-head">
+            <div class="nt-title-row">
+              <button class="nt-icon-btn nt-back" id="backBtn" type="button" title="返回列表">
+                <i data-lucide="arrow-left"></i>
+              </button>
+              <h1 class="nt-title-text" id="titleText"></h1>
+              <input class="nt-title-input" id="titleInput" type="text" maxlength="120" placeholder="笔记标题" hidden>
+              <div class="nt-doc-actions" id="readActions">
+                <button class="nt-btn" id="editBtn" type="button"><i data-lucide="pencil"></i><span>编辑</span></button>
+                <button class="nt-btn nt-btn-danger" id="deleteBtn" type="button"><i data-lucide="trash-2"></i><span>删除</span></button>
+              </div>
+              <div class="nt-doc-actions" id="editActions" hidden>
+                <button class="nt-ghost-btn" id="cancelBtn" type="button">取消</button>
+                <button class="nt-btn nt-btn-primary" id="saveBtn" type="button"><i data-lucide="save"></i><span>保存</span></button>
+              </div>
+            </div>
+            <input class="nt-tags-input" id="tagsInput" type="text" maxlength="200" placeholder="标签，用逗号分隔，例如：STM32, 电源" hidden>
+            <div class="nt-doc-meta" id="docMeta"></div>
+          </div>
+
+          <div class="nt-outline" id="outlineBar" hidden>
+            <button class="nt-outline-toggle" id="outlineToggle" type="button"
+              aria-label="展开大纲" aria-expanded="false" title="大纲">
+              <i data-lucide="list-tree"></i>
+            </button>
+            <nav class="nt-outline-path" id="outlinePath" aria-label="当前阅读位置"></nav>
+            <span class="nt-outline-count" id="outlineCount"></span>
+            <div class="nt-outline-panel" id="outlinePanel" hidden></div>
+          </div>
+
+          <div class="nt-toolbar" id="toolbar">
+            <button class="nt-tool" type="button" data-action="bold" title="加粗"><i data-lucide="bold"></i></button>
+            <button class="nt-tool" type="button" data-action="italic" title="斜体"><i data-lucide="italic"></i></button>
+            <button class="nt-tool" type="button" data-action="heading" title="标题"><i data-lucide="heading"></i></button>
+            <span class="nt-toolbar-sep"></span>
+            <button class="nt-tool" type="button" data-action="ul" title="无序列表"><i data-lucide="list"></i></button>
+            <button class="nt-tool" type="button" data-action="ol" title="有序列表"><i data-lucide="list-ordered"></i></button>
+            <button class="nt-tool" type="button" data-action="quote" title="引用"><i data-lucide="quote"></i></button>
+            <button class="nt-tool" type="button" data-action="code" title="代码块"><i data-lucide="code"></i></button>
+            <span class="nt-toolbar-sep"></span>
+            <button class="nt-tool" type="button" data-action="link" title="链接"><i data-lucide="link"></i></button>
+            <button class="nt-tool" type="button" data-action="image" title="插入图片"><i data-lucide="image"></i></button>
+            <span class="nt-toolbar-hint" id="toolbarHint"></span>
+          </div>
+
+          <div class="nt-doc-body">
+            <div class="nt-pane nt-pane-edit">
+              <textarea class="nt-editor" id="editorInput" spellcheck="false"
+                placeholder="用 Markdown 写笔记：# 标题、**加粗**、- 列表、`代码`，图片可以直接粘贴或拖进来"></textarea>
+            </div>
+            <div class="nt-pane nt-pane-read" id="paneRead">
+              <article class="nt-markdown" id="previewPane"></article>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <input type="file" id="imageInput" accept="image/*" multiple hidden>
+  <input type="file" id="htmlInput" accept=".html,.htm,text/html" hidden>
+
+  <div class="nt-lightbox" id="lightbox" hidden>
+    <img id="lightboxImage" alt="">
+  </div>
+
+  <div class="nt-modal-overlay" id="confirmOverlay" hidden>
+    <div class="nt-modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <h3 id="confirmTitle">删除笔记</h3>
+      <p id="confirmText"></p>
+      <div class="nt-modal-actions">
+        <button class="nt-ghost-btn" id="confirmCancel" type="button">取消</button>
+        <button class="nt-btn nt-btn-primary" id="confirmOk" type="button">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="nt-toast" id="toast" hidden></div>
+
+  <script src="/static/vendor/lucide.min.js"></script>
+  <script src="/static/vendor/marked.min.js"></script>
+  <script src="/static/vendor/purify.min.js"></script>
+  <script src="/static/notes.js"></script>
+</body>
+</html>

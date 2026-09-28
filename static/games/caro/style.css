@@ -1,0 +1,203 @@
+/* --- Reset và các biến --- */
+:root {
+    --board-size: 20;
+    /* BẠN CÓ THỂ THAY ĐỔI SỐ NÀY (VD: 40) */
+    --cell-size: 30px;
+    /* Kích thước mỗi ô */
+    --board-dimension: calc(var(--board-size) * var(--cell-size));
+}
+
+* {
+    font-family: sans-serif;
+    transition: 0.2s ease-in-out;
+    user-select: none;
+    box-sizing: border-box;
+}
+
+/* ... Giữ lại các style cho menu, turn-container, nút bấm ... */
+/* ... Bạn có thể copy-paste từ file cũ ... */
+
+body {
+    background-color: var(--bg);
+    color: var(--text);
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    min-height: 100vh;
+}
+
+.caro-scene {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 20px;
+}
+
+.game-container {
+    position: relative;
+    z-index: 3;
+    display: flex;
+    gap: 30px;
+    align-items: flex-start;
+}
+
+.menu {
+    position: relative;
+    z-index: 3;
+}
+
+.info-panel {
+    width: 200px;
+    text-align: center;
+}
+
+.main-grid {
+    display: grid;
+    /* Grid sẽ được set bằng JS */
+    width: var(--board-dimension);
+    height: var(--board-dimension);
+    background-color: var(--panel);
+    border: 2px solid var(--primary);
+    box-shadow: var(--shadow);
+}
+
+.box {
+    cursor: pointer;
+    font-size: calc(var(--cell-size) * 0.7);
+    /* Kích thước chữ tự động */
+    font-weight: 700;
+    border: 1px solid var(--line);
+    /* Đường kẻ mờ hơn */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.box:hover {
+    background-color: color-mix(in srgb, var(--primary) 14%, var(--panel));
+}
+
+.winning-cell {
+    background-color: #4ade80 !important;
+    color: #000 !important;
+}
+
+.board-locked {
+    pointer-events: none;
+}
+
+/* Các style còn lại cho .hide, .menu, .turn-container, #play-again... */
+/* Bạn có thể giữ nguyên từ phiên bản trước */
+.hide {
+    display: none;
+}
+
+.menu,
+.pvc-options {
+    text-align: center;
+}
+
+.menu h2 {
+    margin-bottom: 20px;
+}
+
+.mode-btn {
+    background-color: var(--primary);
+    color: white;
+    border: none;
+    padding: 15px 30px;
+    font-size: 1.1rem;
+    border-radius: 5px;
+    cursor: pointer;
+    margin: 5px;
+}
+
+.mode-btn:hover {
+    background-color: var(--accent);
+    color: var(--bg);
+}
+
+.pvc-note {
+    margin: 12px 0 0;
+    color: var(--muted);
+    font-size: 0.95rem;
+}
+
+.turn-container {
+    --turn-row-height: 47px;
+    width: 170px;
+    margin: auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto var(--turn-row-height);
+    position: relative;
+}
+
+.turn-container h3 {
+    margin: 0;
+    grid-column-start: 1;
+    grid-column-end: 3;
+}
+
+.turn-container .turn-box {
+    border: 3px solid var(--text);
+    color: var(--text);
+    font-size: 1.6rem;
+    font-weight: 700;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.turn-container .turn-box:nth-child(even) {
+    border-right: none;
+}
+
+.bg {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 50%;
+    height: var(--turn-row-height);
+    background-color: var(--primary);
+    z-index: -1;
+}
+
+#play-again {
+    background-color: var(--primary);
+    color: white;
+    padding: 10px 25px;
+    border: none;
+    font-size: 1.2rem;
+    border-radius: 5px;
+    cursor: pointer;
+    display: none;
+    margin-top: 20px;
+}
+
+#play-again:hover {
+    padding: 10px 40px;
+    background-color: var(--accent);
+    color: var(--bg);
+}
+
+.game-back {
+    position: fixed;
+    top: 18px;
+    left: 20px;
+    z-index: 10;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    color: var(--text);
+    box-shadow: var(--shadow);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.game-back:hover {
+    border-color: var(--primary);
+    color: var(--primary-strong);
+}

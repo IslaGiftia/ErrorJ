@@ -1,0 +1,86 @@
+.mine-wrap {
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.mine-board {
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  box-shadow: var(--shadow);
+  touch-action: manipulation;
+  user-select: none;
+}
+
+.mine-cell {
+  width: var(--cell-size, 30px);
+  height: var(--cell-size, 30px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--muted) 16%, transparent);
+  color: var(--text);
+  font-size: calc(var(--cell-size, 30px) * 0.52);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.mine-cell:hover {
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
+.mine-cell.is-open {
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+  border-color: color-mix(in srgb, var(--line) 60%, transparent);
+  cursor: default;
+}
+
+.mine-cell.is-open:hover {
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+}
+
+.mine-cell.is-flag {
+  color: #d97706;
+}
+
+.mine-cell.is-mine {
+  background: color-mix(in srgb, #ef4444 30%, transparent);
+}
+
+.mine-cell.is-boom {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.mine-cell.is-wrong {
+  background: color-mix(in srgb, #f59e0b 30%, transparent);
+}
+
+.mine-cell[data-count="1"] { color: #2563eb; }
+.mine-cell[data-count="2"] { color: #15803d; }
+.mine-cell[data-count="3"] { color: #dc2626; }
+.mine-cell[data-count="4"] { color: #7c3aed; }
+.mine-cell[data-count="5"] { color: #b45309; }
+.mine-cell[data-count="6"] { color: #0891b2; }
+.mine-cell[data-count="7"] { color: #334155; }
+.mine-cell[data-count="8"] { color: #6b7280; }
+
+[data-theme="dark"] .mine-cell[data-count="1"] { color: #93c5fd; }
+[data-theme="dark"] .mine-cell[data-count="2"] { color: #86efac; }
+[data-theme="dark"] .mine-cell[data-count="3"] { color: #fca5a5; }
+[data-theme="dark"] .mine-cell[data-count="4"] { color: #c4b5fd; }
+[data-theme="dark"] .mine-cell[data-count="5"] { color: #fdba74; }
+[data-theme="dark"] .mine-cell[data-count="6"] { color: #67e8f9; }
+[data-theme="dark"] .mine-cell[data-count="7"] { color: #e2e8f0; }
+[data-theme="dark"] .mine-cell[data-count="8"] { color: #cbd5e1; }
+
+[data-theme="dark"] .mine-board {
+  background: rgba(38, 38, 38, 0.92);
+}

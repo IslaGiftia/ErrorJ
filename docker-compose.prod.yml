@@ -1,0 +1,22 @@
+# 阿里云 / 公网部署用：只监听本机回环，对外由 Nginx 反代 + HTTPS。
+# 用法：
+#   INVENTORY_PASSWORD='你的密码' docker compose -f docker-compose.prod.yml up -d --build
+services:
+  component-inventory:
+    build: .
+    container_name: component-inventory
+    restart: unless-stopped
+    # 只发布到宿主机回环地址，公网无法直连 8000；由 Nginx 转发。
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      INVENTORY_HOST: 0.0.0.0
+      INVENTORY_PORT: 8000
+      TZ: Asia/Shanghai
+      # 设置后启用访问密码（登录页 /login）
+      INVENTORY_PASSWORD: ${INVENTORY_PASSWORD:?请在环境变量里设置 INVENTORY_PASSWORD}
+      # 走 Nginx 反代时打开：读取 X-Forwarded-For / X-Forwarded-Proto
+      INVENTORY_TRUST_PROXY: "1"
+      INVENTORY_ACCESS_LOG: "1"

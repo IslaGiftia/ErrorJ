@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <title>参考项目 · Error酱</title>
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
+  <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
+<link rel="stylesheet" href="/static/site/site.css">
+<link rel="stylesheet" href="/static/site/rain.css">
+  <style>
+.reference-page {
+position: relative;
+z-index: 1;
+width: min(980px, 100%);
+      margin: 0 auto;
+      padding: 64px 20px 64px;
+    }
+
+    .reference-page h1 {
+      margin: 0 0 16px;
+      font-size: 42px;
+      line-height: 1.2;
+      text-align: center;
+    }
+
+    .reference-page > p {
+      margin: 0 auto 34px;
+      max-width: 720px;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.8;
+      text-align: center;
+    }
+
+    .reference-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .reference-item {
+      display: grid;
+      grid-template-columns: minmax(180px, 0.34fr) minmax(0, 1fr);
+      gap: 22px;
+      padding: 20px 22px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--panel) 90%, transparent);
+      box-shadow: var(--shadow);
+    }
+
+    .reference-item a {
+      color: var(--primary-strong);
+      font-weight: 800;
+    }
+
+    [data-theme="dark"] .reference-item a {
+      color: var(--accent);
+    }
+
+    .reference-item p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.75;
+    }
+
+    .reference-back {
+      display: flex;
+      justify-content: center;
+      margin-top: 30px;
+    }
+
+    @media (max-width: 720px) {
+      .reference-page {
+        padding-top: 42px;
+      }
+
+      .reference-page h1 {
+        font-size: 32px;
+      }
+
+      .reference-item {
+        grid-template-columns: 1fr;
+        gap: 8px;
+      }
+    }
+  </style>
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
+</head>
+<body>
+  <div class="rain-scene rain-scene--fixed" id="rainScene" aria-hidden="true">
+    <div class="rain-layer" id="rainLayer"></div>
+    <div class="rain-floor" id="rainFloor"></div>
+  </div>
+
+  <main class="reference-page">
+    <h1>Error酱参考与搬运来源</h1>
+    <p>Error酱并不是从零原创，功能主要参考、搬运并组合以下开源项目。各项目的代码与设计仍遵循其原始许可证。</p>
+
+    <div class="reference-list">
+      <article class="reference-item">
+        <a href="https://github.com/MirrorChyan/user-frontend" target="_blank" rel="noopener noreferrer">MirrorChyan/user-frontend</a>
+        <p>参考并搬运首页雨滴动画、入口悬停展开和卡片层次表现。</p>
+      </article>
+
+      <article class="reference-item">
+        <a href="https://github.com/inventree/InvenTree" target="_blank" rel="noopener noreferrer">InvenTree</a>
+        <p>参考并搬运元件、项目、附件、库存流水和扩展接口的数据组织方式。</p>
+      </article>
+
+      <article class="reference-item">
+        <a href="https://github.com/Part-DB/Part-DB-server" target="_blank" rel="noopener noreferrer">Part-DB</a>
+        <p>参考并搬运项目 BOM、元件资料、事件记录和电子元件管理流程。</p>
+      </article>
+
+      <article class="reference-item">
+        <a href="https://github.com/BookStackApp/BookStack" target="_blank" rel="noopener noreferrer">BookStack</a>
+        <p>参考并搬运独立附件、下载访问，以及内容与文件分离的设计思路。</p>
+      </article>
+
+      <article class="reference-item">
+        <a href="https://github.com/grokability/snipe-it" target="_blank" rel="noopener noreferrer">Snipe-IT</a>
+        <p>参考并搬运维修记录的日期、状态、费用、处理方和附件字段。</p>
+      </article>
+
+      <article class="reference-item">
+        <a href="https://github.com/espressif/esptool-js" target="_blank" rel="noopener noreferrer">esptool-js</a>
+        <p>作为后续浏览器在线烧录 ESP 系列固件的候选搬运实现。</p>
+      </article>
+
+      <article class="reference-item">
+        <a href="https://github.com/TranHuuDat2004/Caro-Board" target="_blank" rel="noopener noreferrer">Caro-Board</a>
+        <p>搬运其五子棋双人对战、人机模式和点击落子逻辑，采用 MIT 许可证。</p>
+      </article>
+
+    </div>
+
+    <div class="reference-back">
+      <a class="repo-entry" href="/" data-back data-back-parent="/">
+        <span class="repo-entry-label">
+          <span class="repo-entry-text">返回Error酱首页</span>
+        </span>
+      </a>
+    </div>
+  </main>
+
+  <script src="/static/site/rain.js"></script>
+  <script>
+    (function () {
+      var preference = "auto";
+      try {
+        preference = localStorage.getItem("errorSiteTheme") || "auto";
+      } catch (err) {}
+
+      function applyTheme(next) {
+        preference = next;
+        var dark = next === "dark" ||
+          (next === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      }
+
+      applyTheme(preference);
+    })();
+  </script>
+<script src="/static/site/back-link.js"></script>
+</body>
+</html>

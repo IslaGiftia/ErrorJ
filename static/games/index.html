@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <meta name="tab-name" content="ej-games">
+  <title>游戏大厅 · Error酱</title>
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
+  <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
+  <link rel="stylesheet" href="/static/site/site.css">
+  <link rel="stylesheet" href="/static/site/rain.css">
+  <link rel="stylesheet" href="/static/games/lobby.css">
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
+  <script src="/static/site/tabname.js"></script>
+</head>
+<body>
+  <div class="rain-scene rain-scene--fixed" id="rainScene" aria-hidden="true">
+    <div class="rain-layer" id="rainLayer"></div>
+    <div class="rain-floor" id="rainFloor"></div>
+  </div>
+
+  <main class="lobby">
+    <a class="lobby-brand" href="/">
+      <span class="lobby-brand-icon"><i data-lucide="gamepad-2"></i></span>
+      <span>
+        <strong>和Error酱玩游戏</strong>
+        <small>随手玩两局的休闲小游戏</small>
+      </span>
+    </a>
+
+    <div class="lobby-grid">
+      <a class="game-card" href="/games/gomoku">
+        <span class="game-icon"><i data-lucide="circle-dot"></i></span>
+        <span class="game-name">五子棋</span>
+        <span class="game-desc">双人对战与人机模式，先连成五子者胜。</span>
+        <span class="game-tags"><em>策略</em><em>双人/人机</em></span>
+      </a>
+
+      <a class="game-card" href="/games/2048">
+        <span class="game-icon"><i data-lucide="layout-grid"></i></span>
+        <span class="game-name">2048</span>
+        <span class="game-desc">滑动合并相同数字，拼出 2048 就算通关。</span>
+        <span class="game-tags"><em>数字</em><em>方向键/滑动</em></span>
+      </a>
+
+      <a class="game-card" href="/games/minesweeper">
+        <span class="game-icon"><i data-lucide="bomb"></i></span>
+        <span class="game-name">扫雷</span>
+        <span class="game-desc">根据数字推断雷的位置，三种难度可切换。</span>
+        <span class="game-tags"><em>推理</em><em>单击/长按插旗</em></span>
+      </a>
+
+      <a class="game-card" href="/games/memory">
+        <span class="game-icon"><i data-lucide="layers"></i></span>
+        <span class="game-name">记忆翻牌</span>
+        <span class="game-desc">翻开两张相同的图标，用最少步数全部配对。</span>
+        <span class="game-tags"><em>记忆</em><em>计时+步数</em></span>
+      </a>
+    </div>
+
+    <a class="lobby-back" href="/" data-back data-back-parent="/">返回Error酱首页</a>
+  </main>
+
+  <script src="/static/vendor/lucide.min.js"></script>
+  <script src="/static/site/rain.js"></script>
+  <script src="/static/site/back-link.js"></script>
+  <script>
+    if (window.lucide) window.lucide.createIcons();
+  </script>
+</body>
+</html>

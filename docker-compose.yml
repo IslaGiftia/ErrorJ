@@ -1,0 +1,12 @@
+services:
+  component-inventory:
+    build: .
+    container_name: component-inventory
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      INVENTORY_HOST: 0.0.0.0
+      INVENTORY_PORT: 8000

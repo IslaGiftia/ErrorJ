@@ -1,0 +1,849 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <title>Error酱 · 小屋</title>
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
+  <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
+  <link rel="stylesheet" href="/static/site/site.css">
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <style>
+    .hub-main {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 24px 20px 60px;
+    }
+
+    .hub-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .hub-head h1 {
+      margin: 0;
+      font-size: 26px;
+    }
+
+    .hub-tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 10px;
+    }
+
+    .hub-tab {
+      padding: 8px 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .hub-tab:hover {
+      color: var(--primary-strong);
+      border-color: var(--primary);
+    }
+
+    .hub-tab.active {
+      background: color-mix(in srgb, var(--primary) 14%, transparent);
+      color: var(--primary-strong);
+      border-color: var(--primary);
+    }
+
+    .hub-panel {
+      display: none;
+    }
+
+    .hub-panel.active {
+      display: block;
+    }
+
+    .panel-title {
+      font-size: 20px;
+      margin: 0 0 14px;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-bottom: 18px;
+      background: var(--bg-soft);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 14px;
+    }
+
+    .form-grid .full {
+      grid-column: 1 / -1;
+    }
+
+    .field label {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .field input,
+    .field textarea,
+    .field select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 9px 10px;
+      font-size: 14px;
+      background: var(--panel);
+      color: var(--text);
+      box-sizing: border-box;
+    }
+
+    .field textarea {
+      min-height: 76px;
+      resize: vertical;
+    }
+
+    .list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 14px;
+    }
+
+    .card-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    .card-head .nick {
+      font-weight: 800;
+      color: var(--primary-strong);
+    }
+
+    .card-head .time {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .card-body {
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .card-actions {
+      margin-top: 10px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .reply-box {
+      margin-top: 10px;
+      padding-left: 14px;
+      border-left: 2px solid var(--line);
+      display: none;
+    }
+
+    .reply-box.open {
+      display: block;
+    }
+
+    .reply-item {
+      padding: 8px 0;
+      border-bottom: 1px dashed var(--line);
+    }
+
+    .reply-item:last-child {
+      border-bottom: 0;
+    }
+
+    .photo-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    .photo-card {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+    }
+
+    .photo-card img {
+      display: block;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      object-fit: cover;
+    }
+
+    .photo-info {
+      padding: 8px 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .photo-info .title {
+      font-weight: 700;
+      font-size: 13px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .photo-info .album {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .music-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .music-item .meta {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .music-item .meta .t {
+      font-weight: 800;
+    }
+
+    .music-item .meta .a {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .music-player {
+      margin-top: 10px;
+      width: 100%;
+    }
+
+    .link-group {
+      margin-bottom: 18px;
+    }
+
+    .link-group h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+    }
+
+    .link-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .link-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px 14px;
+    }
+
+    .link-card a.name {
+      font-weight: 800;
+      color: var(--primary-strong);
+      text-decoration: none;
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .link-card .desc {
+      color: var(--muted);
+      font-size: 12px;
+      flex: 2;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .warehouse-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .stat-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 16px;
+      text-align: center;
+    }
+
+    .stat-card .num {
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--primary-strong);
+    }
+
+    .stat-card .label {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .btn-sm {
+      min-height: 30px;
+      padding: 0 10px;
+      font-size: 12px;
+    }
+
+    .empty {
+      color: var(--muted);
+      padding: 18px;
+      text-align: center;
+      border: 1px dashed var(--line);
+      border-radius: 10px;
+    }
+
+    @media (max-width: 640px) {
+      .form-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .warehouse-stats {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+  <script src="/static/site/theme.js"></script>
+</head>
+<body data-page="hub">
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="/">
+<img class="brand-icon" src="/static/site/error-chan-favicon.png?v=3" alt="Error酱">
+        <span class="brand-text">Error酱</span>
+      </a>
+      <nav class="site-nav" id="siteNav">
+        <a class="nav-item" data-page="home" href="/">首页</a>
+        <a class="nav-item" data-page="inventory" href="/inventory">仓库</a>
+        <a class="nav-item" data-page="music" href="/hub?tab=music">音乐</a>
+        <a class="nav-item" data-page="photos" href="/hub?tab=photos">照片墙</a>
+        <a class="nav-item" data-page="links" href="/hub?tab=links">推荐</a>
+        <a class="nav-item" data-page="messages" href="/hub?tab=messages">留言</a>
+      </nav>
+      <div class="header-actions">
+      </div>
+    </div>
+  </header>
+
+  <main class="hub-main">
+    <div class="hub-head">
+      <h1>Error酱 的小屋</h1>
+      <a class="btn btn-ghost btn-sm" href="/inventory">进入仓库</a>
+    </div>
+
+    <div class="hub-tabs">
+      <button class="hub-tab" data-tab="messages">留言</button>
+      <button class="hub-tab" data-tab="photos">照片墙</button>
+      <button class="hub-tab" data-tab="music">音乐</button>
+      <button class="hub-tab" data-tab="links">推荐</button>
+      <button class="hub-tab" data-tab="warehouse">仓库</button>
+    </div>
+
+    <section class="hub-panel active" id="panel-messages">
+      <h2 class="panel-title">留言板</h2>
+      <form class="form-grid" id="messageForm">
+        <div class="field">
+          <label>昵称</label>
+          <input id="msgNickname" maxlength="30" value="匿名" required>
+        </div>
+        <div class="field full">
+          <label>内容</label>
+          <textarea id="msgContent" maxlength="1000" required></textarea>
+        </div>
+        <div class="full">
+          <button class="btn btn-primary" type="submit">发布留言</button>
+        </div>
+      </form>
+      <div class="list" id="messageList"></div>
+    </section>
+
+    <section class="hub-panel" id="panel-photos">
+      <h2 class="panel-title">照片墙</h2>
+      <form class="form-grid" id="photoForm">
+        <div class="field">
+          <label>标题</label>
+          <input id="photoTitle" maxlength="80">
+        </div>
+        <div class="field">
+          <label>相册/分组</label>
+          <input id="photoAlbum" maxlength="40" placeholder="例如：PCB 工程">
+        </div>
+        <div class="field full">
+          <label>图片（20MB 以内）</label>
+          <input id="photoFile" type="file" accept="image/*" required>
+        </div>
+        <div class="full">
+          <button class="btn btn-primary" type="submit">上传</button>
+        </div>
+      </form>
+      <div class="photo-grid" id="photoGrid"></div>
+    </section>
+
+    <section class="hub-panel" id="panel-music">
+      <h2 class="panel-title">音乐</h2>
+      <form class="form-grid" id="musicForm">
+        <div class="field">
+          <label>歌名</label>
+          <input id="musicTitle" maxlength="80" required>
+        </div>
+        <div class="field">
+          <label>歌手</label>
+          <input id="musicArtist" maxlength="80">
+        </div>
+        <div class="field full">
+          <label>选择音频文件</label>
+          <input id="musicFile" type="file" accept="audio/*" required>
+        </div>
+        <div class="full">
+          <button class="btn btn-primary" type="submit">上传并播放</button>
+        </div>
+      </form>
+      <div class="list" id="musicList"></div>
+    </section>
+
+    <section class="hub-panel" id="panel-links">
+      <h2 class="panel-title">宝藏网站</h2>
+      <form class="form-grid" id="linkForm">
+        <div class="field">
+          <label>名称</label>
+          <input id="linkName" maxlength="80" required>
+        </div>
+        <div class="field">
+          <label>分类</label>
+          <input id="linkCategory" maxlength="40" placeholder="例如：电子 / 工具">
+        </div>
+        <div class="field full">
+          <label>网址</label>
+          <input id="linkUrl" maxlength="300" required placeholder="https://">
+        </div>
+        <div class="field full">
+          <label>描述</label>
+          <input id="linkDesc" maxlength="200">
+        </div>
+        <div class="full">
+          <button class="btn btn-primary" type="submit">添加推荐</button>
+        </div>
+      </form>
+      <div id="linkGroups"></div>
+    </section>
+
+    <section class="hub-panel" id="panel-warehouse">
+      <h2 class="panel-title">仓库</h2>
+      <div class="warehouse-stats" id="warehouseStats"></div>
+      <p style="color:var(--muted);margin:14px 0;">当前仓库类型：<strong id="warehouseType"></strong>。以后可以在同一套系统里增加其他仓库类型。</p>
+      <a class="btn btn-primary" href="/inventory">进入元件库存</a>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>Error酱 · 本地自部署 · 数据只留在你自己的电脑里</p>
+  </footer>
+
+  <script src="/static/site/site.js"></script>
+  <script>
+    (function () {
+      const $ = (id) => document.getElementById(id);
+
+      async function api(path, options) {
+        const res = await fetch(path, options);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "请求失败");
+        return data;
+      }
+
+      function el(tag, cls, text) {
+        const node = document.createElement(tag);
+        if (cls) node.className = cls;
+        if (text !== undefined) node.textContent = text;
+        return node;
+      }
+
+      function timeText(value) {
+        return value ? String(value).slice(0, 16) : "";
+      }
+
+      function toast(msg) {
+        alert(msg);
+      }
+
+      document.querySelectorAll(".hub-tab").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          activateTab(btn.dataset.tab);
+        });
+      });
+
+      function activateTab(tab) {
+        document.querySelectorAll(".hub-tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+        document.querySelectorAll(".hub-panel").forEach((p) => p.classList.toggle("active", p.id === "panel-" + tab));
+        if (tab === "messages") loadMessages();
+        if (tab === "photos") loadPhotos();
+        if (tab === "music") {
+          loadMusic();
+        }
+        if (tab === "links") loadLinks();
+        if (tab === "warehouse") loadWarehouse();
+      }
+
+      async function loadMessages() {
+        const data = await api("/api/site/messages");
+        const list = $("messageList");
+        list.innerHTML = "";
+        if (!data.length) {
+          list.appendChild(el("div", "empty", "还没有留言，来抢沙发。"));
+          return;
+        }
+        data.forEach((m) => {
+          const card = el("div", "card");
+          const head = el("div", "card-head");
+          head.appendChild(el("span", "nick", m.nickname));
+          head.appendChild(el("span", "time", timeText(m.created_at)));
+          card.appendChild(head);
+          card.appendChild(el("div", "card-body", m.content));
+
+          const actions = el("div", "card-actions");
+          const replyBtn = el("button", "btn btn-ghost btn-sm", "回复");
+          const delBtn = el("button", "btn btn-ghost btn-sm", "删除");
+          replyBtn.addEventListener("click", () => {
+            const box = card.querySelector(".reply-box");
+            box.classList.toggle("open");
+            if (box.classList.contains("open")) box.querySelector("textarea").focus();
+          });
+          delBtn.addEventListener("click", async () => {
+            if (!confirm("确认删除这条留言？")) return;
+            await api("/api/site/messages/" + m.id, { method: "DELETE" });
+            loadMessages();
+          });
+          actions.append(replyBtn, delBtn);
+          card.appendChild(actions);
+
+          const replyBox = el("div", "reply-box");
+          const replyForm = el("form", "form-grid");
+          const nickField = el("div", "field");
+          nickField.appendChild(el("label", "", "昵称"));
+          const nickInput = el("input");
+          nickInput.value = "匿名";
+          nickInput.maxLength = 30;
+          nickField.appendChild(nickInput);
+          const contentField = el("div", "field");
+          contentField.appendChild(el("label", "", "回复"));
+          const contentInput = el("textarea");
+          contentInput.maxLength = 1000;
+          contentInput.required = true;
+          contentField.appendChild(contentInput);
+          const submitWrap = el("div", "full");
+          const submitBtn = el("button", "btn btn-primary btn-sm", "提交回复");
+          submitBtn.type = "submit";
+          submitWrap.appendChild(submitBtn);
+          replyForm.append(nickField, contentField, submitWrap);
+          replyForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            await api("/api/site/messages", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ nickname: nickInput.value, content: contentInput.value, parent_id: m.id }),
+            });
+            loadMessages();
+          });
+          replyBox.appendChild(replyForm);
+
+          if (m.replies && m.replies.length) {
+            m.replies.forEach((r) => {
+              const item = el("div", "reply-item");
+              const line = el("div");
+              line.appendChild(el("strong", "", r.nickname + "："));
+              line.append(" " + r.content);
+              item.appendChild(line);
+              item.appendChild(el("div", "time", timeText(r.created_at)));
+              replyBox.appendChild(item);
+            });
+          }
+          card.appendChild(replyBox);
+          list.appendChild(card);
+        });
+      }
+
+      $("messageForm").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        try {
+          await api("/api/site/messages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ nickname: $("msgNickname").value, content: $("msgContent").value }),
+          });
+          $("msgContent").value = "";
+          loadMessages();
+        } catch (err) {
+          toast(err.message);
+        }
+      });
+
+      async function loadPhotos() {
+        const data = await api("/api/site/photos");
+        const grid = $("photoGrid");
+        grid.innerHTML = "";
+        if (!data.length) {
+          grid.appendChild(el("div", "empty", "还没有照片。"));
+          return;
+        }
+        data.forEach((p) => {
+          const card = el("div", "photo-card");
+          const img = el("img");
+          img.src = "/site-files/" + p.image_path;
+          img.loading = "lazy";
+          card.appendChild(img);
+          const info = el("div", "photo-info");
+          const left = el("div");
+          left.appendChild(el("div", "title", p.title || "未命名"));
+          left.appendChild(el("div", "album", p.album || "默认相册"));
+          info.appendChild(left);
+          const del = el("button", "btn btn-ghost btn-sm", "删除");
+          del.addEventListener("click", async () => {
+            if (!confirm("确认删除这张照片？")) return;
+            await api("/api/site/photos/" + p.id, { method: "DELETE" });
+            loadPhotos();
+          });
+          info.appendChild(del);
+          card.appendChild(info);
+          grid.appendChild(card);
+        });
+      }
+
+      $("photoForm").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const file = $("photoFile").files[0];
+        if (!file) return;
+        if (file.size > 20 * 1024 * 1024) {
+          toast("图片不能超过 20MB");
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = async () => {
+          try {
+            await api("/api/site/photos", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                title: $("photoTitle").value,
+                album: $("photoAlbum").value,
+                file_name: file.name,
+                data_base64: String(reader.result).split(",")[1],
+              }),
+            });
+            $("photoTitle").value = "";
+            $("photoAlbum").value = "";
+            $("photoFile").value = "";
+            loadPhotos();
+          } catch (err) {
+            toast(err.message);
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+
+      async function loadMusic() {
+        const data = await api("/api/site/music");
+        const list = $("musicList");
+        list.innerHTML = "";
+        if (!data.length) {
+          list.appendChild(el("div", "empty", "还没有歌曲。"));
+          return;
+        }
+        data.forEach((m) => {
+          const card = el("div", "card");
+          const item = el("div", "music-item");
+          const meta = el("div", "meta");
+          meta.appendChild(el("div", "t", m.title));
+          meta.appendChild(el("div", "a", m.artist || "未知歌手"));
+          item.appendChild(meta);
+          const del = el("button", "btn btn-ghost btn-sm", "删除");
+          del.addEventListener("click", async () => {
+            if (!confirm("确认删除这首歌？")) return;
+            await api("/api/site/music/" + m.id, { method: "DELETE" });
+            loadMusic();
+          });
+          item.appendChild(del);
+          card.appendChild(item);
+          const audio = el("audio", "music-player");
+          audio.controls = true;
+          audio.preload = "none";
+          audio.src = m.source_type === "file" ? "/site-files/" + m.source_id : m.source_id;
+          card.appendChild(audio);
+          list.appendChild(card);
+        });
+      }
+
+      $("musicForm").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        try {
+          const file = $("musicFile").files[0];
+          if (!file) {
+            toast("请选择要上传的音频文件");
+            return;
+          }
+          if (file.size > 20 * 1024 * 1024) {
+            toast("音频不能超过 20MB");
+            return;
+          }
+          const reader = new FileReader();
+          reader.onload = async () => {
+            try {
+              await api("/api/site/music/upload", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  title: $("musicTitle").value,
+                  artist: $("musicArtist").value,
+                  file_name: file.name,
+                  data_base64: String(reader.result).split(",")[1],
+                }),
+              });
+              $("musicTitle").value = "";
+              $("musicArtist").value = "";
+              $("musicFile").value = "";
+              loadMusic();
+            } catch (err) {
+              toast(err.message);
+            }
+          };
+          reader.readAsDataURL(file);
+          $("musicTitle").value = "";
+          $("musicArtist").value = "";
+        } catch (err) {
+          toast(err.message);
+        }
+      });
+
+      async function loadLinks() {
+        const data = await api("/api/site/links");
+        const groups = {};
+        data.forEach((l) => {
+          const key = l.category || "未分类";
+          (groups[key] = groups[key] || []).push(l);
+        });
+        const wrap = $("linkGroups");
+        wrap.innerHTML = "";
+        if (!data.length) {
+          wrap.appendChild(el("div", "empty", "还没有推荐网站。"));
+          return;
+        }
+        Object.keys(groups).forEach((key) => {
+          const group = el("div", "link-group");
+          group.appendChild(el("h3", "", key));
+          const list = el("div", "link-list");
+          groups[key].forEach((l) => {
+            const card = el("div", "link-card");
+            const a = el("a", "name", l.name);
+            a.href = l.url;
+            a.target = "_blank";
+            a.rel = "noopener";
+            card.appendChild(a);
+            card.appendChild(el("span", "desc", l.description || ""));
+            const del = el("button", "btn btn-ghost btn-sm", "删除");
+            del.addEventListener("click", async () => {
+              if (!confirm("确认删除这个推荐？")) return;
+              await api("/api/site/links/" + l.id, { method: "DELETE" });
+              loadLinks();
+            });
+            card.appendChild(del);
+            list.appendChild(card);
+          });
+          group.appendChild(list);
+          wrap.appendChild(group);
+        });
+      }
+
+      $("linkForm").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        try {
+          await api("/api/site/links", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: $("linkName").value,
+              url: $("linkUrl").value,
+              category: $("linkCategory").value,
+              description: $("linkDesc").value,
+            }),
+          });
+          $("linkName").value = "";
+          $("linkUrl").value = "";
+          $("linkCategory").value = "";
+          $("linkDesc").value = "";
+          loadLinks();
+        } catch (err) {
+          toast(err.message);
+        }
+      });
+
+      async function loadWarehouse() {
+        const [stats, types] = await Promise.all([
+          api("/api/dashboard"),
+          api("/api/warehouse/types"),
+        ]);
+        const wrap = $("warehouseStats");
+        wrap.innerHTML = "";
+        const items = [
+          ["元件种类", stats.stats && stats.stats.part_count],
+          ["库存批次", stats.stats && stats.stats.batch_count],
+          ["项目数量", stats.stats && stats.stats.project_count],
+        ];
+        items.forEach(([label, num]) => {
+          const card = el("div", "stat-card");
+          card.appendChild(el("div", "num", num === undefined ? "-" : String(num)));
+          card.appendChild(el("div", "label", label));
+          wrap.appendChild(card);
+        });
+        $("warehouseType").textContent = types.map((t) => t.name).join("、") || "电子元件";
+      }
+
+      const params = new URLSearchParams(window.location.search);
+      const initialTab = params.get("tab") || "messages";
+      if (["messages", "photos", "music", "links", "warehouse"].indexOf(initialTab) === -1) {
+        initialTab = "messages";
+      }
+      activateTab(initialTab);
+    })();
+  </script>
+</body>
+</html>

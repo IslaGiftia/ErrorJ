@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <title>登录 · Error酱</title>
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
+  <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
+  <link rel="stylesheet" href="/static/site/rain.css">
+  <style>
+    :root {
+      color-scheme: light;
+    }
+
+    [data-theme="dark"] {
+      color-scheme: dark;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: var(--rain-top, #ffffff);
+      color: #1f2329;
+      font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+      font-size: 14px;
+    }
+
+    [data-theme="dark"] body {
+      color: #f4f4f5;
+    }
+
+    .login-card {
+      position: relative;
+      z-index: 1;
+      width: min(380px, 100%);
+      padding: 28px 26px 24px;
+      border: 1px solid rgba(127, 127, 145, 0.28);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--rain-top, #ffffff) 86%, transparent);
+      box-shadow: 0 16px 48px rgba(24, 31, 45, 0.18);
+      backdrop-filter: blur(10px);
+      text-align: center;
+    }
+
+    [data-theme="dark"] .login-card {
+      background: rgba(38, 38, 38, 0.86);
+    }
+
+    .login-avatar {
+      width: 76px;
+      height: 76px;
+      border-radius: 50%;
+      margin-bottom: 14px;
+      box-shadow: 0 6px 18px rgba(24, 31, 45, 0.18);
+    }
+
+    .login-card h1 {
+      margin: 0 0 6px;
+      font-size: 20px;
+    }
+
+    .login-card p {
+      margin: 0 0 20px;
+      font-size: 13px;
+      opacity: 0.7;
+    }
+
+    .login-field {
+      display: block;
+      text-align: left;
+      margin-bottom: 14px;
+    }
+
+    .login-field span {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13px;
+      opacity: 0.72;
+    }
+
+    .login-field input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid rgba(127, 127, 145, 0.36);
+      border-radius: 8px;
+      background: rgba(127, 127, 145, 0.08);
+      color: inherit;
+      font: inherit;
+    }
+
+    .login-field input:focus {
+      outline: 2px solid #7b68ee;
+      outline-offset: -1px;
+    }
+
+    .login-remember {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+      font-size: 13px;
+      opacity: 0.85;
+    }
+
+    .login-remember input {
+      width: 15px;
+      height: 15px;
+      accent-color: #7b68ee;
+    }
+
+    .login-submit {
+      width: 100%;
+      padding: 11px 16px;
+      border: 0;
+      border-radius: 8px;
+      background: #7b68ee;
+      color: #ffffff;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .login-submit:hover {
+      background: #6956e5;
+    }
+
+    .login-submit:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .login-error {
+      margin-top: 12px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: rgba(214, 69, 69, 0.12);
+      color: #d64545;
+      font-size: 13px;
+    }
+
+    .login-error[hidden] {
+      display: none;
+    }
+
+    .login-back {
+      display: inline-block;
+      margin-top: 18px;
+      font-size: 13px;
+      color: inherit;
+      opacity: 0.7;
+      text-decoration: none;
+    }
+
+    .login-back:hover {
+      opacity: 1;
+      text-decoration: underline;
+    }
+  </style>
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
+</head>
+<body>
+  <div class="rain-scene rain-scene--fixed" id="rainScene" aria-hidden="true">
+    <div class="rain-layer" id="rainLayer"></div>
+    <div class="rain-floor" id="rainFloor"></div>
+  </div>
+
+  <form class="login-card" id="loginForm">
+    <img class="login-avatar" src="/static/site/error-chan-favicon.png?v=3" alt="Error酱">
+    <h1>Error酱</h1>
+    <p>输入访问密码继续</p>
+
+    <label class="login-field">
+      <span>密码</span>
+      <input type="password" id="password" autocomplete="current-password" autofocus required>
+    </label>
+
+    <label class="login-remember">
+      <input type="checkbox" id="remember">
+      <span>记住我（30 天）</span>
+    </label>
+
+    <button class="login-submit" type="submit" id="submitBtn">登录</button>
+    <div class="login-error" id="error" hidden></div>
+  </form>
+
+  <script src="/static/site/rain.js"></script>
+  <script>
+    (function () {
+      var form = document.getElementById("loginForm");
+      var button = document.getElementById("submitBtn");
+      var errorBox = document.getElementById("error");
+      var next = new URLSearchParams(location.search).get("next") || "/";
+
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        errorBox.hidden = true;
+        button.disabled = true;
+        fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            password: document.getElementById("password").value,
+            remember: document.getElementById("remember").checked,
+          }),
+        }).then(function (response) {
+          return response.json().catch(function () {
+            return {};
+          }).then(function (data) {
+            if (!response.ok) throw new Error(data.error || "登录失败");
+            location.href = next.startsWith("/") && !next.startsWith("//") ? next : "/";
+          });
+        }).catch(function (err) {
+          errorBox.textContent = err.message;
+          errorBox.hidden = false;
+          button.disabled = false;
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

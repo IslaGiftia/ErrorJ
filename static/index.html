@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <title>仓库 · Error酱</title>
+  <meta name="tab-name" content="ej-inventory">
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
+  <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
+  <script src="/static/site/tabname.js"></script>
+</head>
+<body>
+  <div id="app">
+    <div class="app-body">
+      <aside class="app-sidebar">
+        <nav class="main-nav" id="mainNav">
+          <button class="nav-link" data-page="dashboard"><i data-lucide="layout-dashboard"></i><span>仪表盘</span></button>
+          <button class="nav-link" data-page="parts"><i data-lucide="cpu"></i><span>元件</span></button>
+          <button class="nav-link" data-page="stock"><i data-lucide="archive"></i><span>库存</span></button>
+          <button class="nav-link" data-page="projects"><i data-lucide="folder-kanban"></i><span>项目</span></button>
+          <button class="nav-link" data-page="wishlist"><i data-lucide="shopping-cart"></i><span>待购入</span></button>
+          <button class="nav-link" data-page="import"><i data-lucide="file-up"></i><span>导入</span></button>
+          <button class="nav-link" data-page="bom"><i data-lucide="clipboard-list"></i><span>BOM 缺料</span></button>
+          <button class="nav-link" data-page="manage"><i data-lucide="sliders-horizontal"></i><span>管理</span></button>
+        </nav>
+      </aside>
+
+    <main id="pageContent">
+        <section class="page" hidden id="page-dashboard">
+          <div class="page-loading">正在加载数据…</div>
+        </section>
+      <section class="page" hidden id="page-parts">
+        <div class="page-head">
+          <div>
+            <h1>元件</h1>
+            <p class="page-sub">管理型号、封装、参数与库存资料</p>
+          </div>
+          <button class="btn btn-primary" id="addPartBtn"><i data-lucide="plus"></i><span>新增元件</span></button>
+        </div>
+        <div class="toolbar">
+          <div class="search-field">
+            <i data-lucide="search"></i>
+            <input id="partsSearch" type="search" placeholder="搜索型号 / 位置 / 分类 / 品牌">
+          </div>
+          <select id="partsCategory" class="select-field" aria-label="分类筛选"></select>
+          <select id="partsLocation" class="select-field" aria-label="位置筛选"></select>
+        </div>
+        <div id="partsList" class="list-stack"></div>
+      </section>
+
+      <section class="page" hidden id="page-stock">
+        <div class="page-head">
+          <div>
+            <h1>库存</h1>
+            <p class="page-sub">按存放位置查看批次、可用与已出库数量</p>
+          </div>
+          <div class="head-actions">
+            <button class="btn btn-ghost" data-stock-action="in"><i data-lucide="download"></i><span>入库</span></button>
+            <button class="btn btn-primary" data-stock-action="out"><i data-lucide="upload"></i><span>出库</span></button>
+          </div>
+        </div>
+        <div class="stock-layout">
+          <aside class="location-panel">
+            <div class="stock-side-section">
+              <div class="panel-title"><i data-lucide="folder-tree"></i><span>分类</span></div>
+              <button class="category-all active" data-category-id="">全部分类</button>
+              <div id="categoryTree"></div>
+            </div>
+            <div class="stock-side-section">
+              <div class="panel-title"><i data-lucide="map-pin"></i><span>位置</span></div>
+              <button class="location-all active" data-location-id="">全部位置</button>
+              <div id="locationTree"></div>
+            </div>
+          </aside>
+          <div class="stock-main">
+            <div class="toolbar">
+              <div class="search-field">
+                <i data-lucide="search"></i>
+                <input id="stockSearch" type="search" placeholder="搜索元件或位置">
+              </div>
+            </div>
+            <div id="stockList" class="table-wrap"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="page" hidden id="page-projects">
+        <div class="page-head">
+          <div>
+            <h1>项目 / 工程</h1>
+            <p class="page-sub">追溯每个项目使用了哪些元件、用了多少</p>
+          </div>
+          <button class="btn btn-primary" id="addProjectBtn"><i data-lucide="plus"></i><span>新增项目</span></button>
+        </div>
+        <div id="projectsList" class="grid-list"></div>
+      </section>
+
+      <section class="page" hidden id="page-wishlist">
+        <div class="page-head">
+          <div>
+            <h1>待购入</h1>
+            <p class="page-sub">记录想买但还没买的元件，可直接转为采购入库</p>
+          </div>
+          <button class="btn btn-primary" id="addWishlistBtn"><i data-lucide="plus"></i><span>添加待购</span></button>
+        </div>
+        <div id="wishlistList" class="list-stack"></div>
+      </section>
+
+      <section class="page" hidden id="page-import">
+        <div class="page-head">
+          <div>
+            <h1>LCSC 导入</h1>
+            <p class="page-sub">导入立创商城导出的 .xlsx 文件</p>
+          </div>
+        </div>
+        <div class="import-layout">
+          <div class="import-card">
+            <label class="dropzone" id="dropzone">
+              <input id="importFile" type="file" accept=".xlsx">
+              <i data-lucide="file-up"></i>
+              <strong>选择 LCSC.xlsx</strong>
+              <span>支持从立创商城导出的 .xlsx 文件</span>
+            </label>
+            <div class="import-options">
+              <label>
+                <span>默认分类</span>
+                <select id="importCategory"></select>
+              </label>
+              <label>
+                <span>默认位置</span>
+                <select id="importLocation"></select>
+              </label>
+              <label class="check-line">
+                <input id="importUpdateExisting" type="checkbox" checked>
+                <span>已存在元件时更新资料并继续入库</span>
+              </label>
+              <label class="check-line">
+                <input id="importAutoImages" type="checkbox" checked>
+                <span>导入后自动从立创抓取商品图片</span>
+              </label>
+            </div>
+            <button class="btn btn-primary btn-block" id="importRunBtn"><i data-lucide="play"></i><span>开始导入</span></button>
+            <div id="importPreview"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="page" hidden id="page-bom">
+        <div class="page-head">
+          <div>
+            <h1>BOM 缺料对比</h1>
+            <p class="page-sub">导入 PCB 设计软件导出的 BOM，和当前库存对比生成缺料清单</p>
+          </div>
+        </div>
+        <div class="bom-layout">
+          <div class="panel">
+            <div class="panel-title"><i data-lucide="file-spreadsheet"></i><span>上传 BOM 文件</span></div>
+            <label class="dropzone" id="bomDropzone">
+              <input id="bomFile" type="file" accept=".csv,.tsv,.txt,.xlsx,.xls">
+              <i data-lucide="file-up"></i>
+              <strong>选择 BOM CSV / Excel</strong>
+              <span>支持立创 EDA、EasyEDA、KiCad 等导出文件</span>
+            </label>
+            <div class="import-options">
+              <label class="span-2">
+                <span>匹配规则</span>
+                <select id="bomMatchMode">
+                  <option value="auto">自动：LCSC 优先，再按厂家型号</option>
+                  <option value="lcsc_code">只按 LCSC 编号</option>
+                  <option value="part_number">只按厂家型号 MPN</option>
+                  <option value="description">按描述包含</option>
+                </select>
+              </label>
+            </div>
+            <button class="btn btn-primary btn-block" id="bomRunBtn"><i data-lucide="play"></i><span>开始对比</span></button>
+            <div id="bomResult"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-title"><i data-lucide="radar"></i><span>文件夹自动监控</span></div>
+            <div class="form-grid">
+              <label class="span-2">
+                <span>本机文件夹路径</span>
+                <input id="bomWatchFolder" placeholder="D:\BOM 或 C:\BOM">
+              </label>
+              <label>
+                <span>检查间隔（秒）</span>
+                <input id="bomWatchInterval" type="number" min="5" value="30">
+              </label>
+            </div>
+            <div class="detail-actions">
+              <button class="btn btn-primary" id="bomWatchStart"><i data-lucide="play"></i><span>开始监控</span></button>
+              <button class="btn btn-ghost" id="bomWatchStop"><i data-lucide="square"></i><span>停止</span></button>
+            </div>
+            <div id="bomWatchStatus" class="bom-watch-status"></div>
+            <div id="bomWatchLog" class="bom-watch-log"></div>
+          </div>
+        </div>
+        <div class="panel bom-history">
+          <div class="panel-title"><i data-lucide="history"></i><span>最近对比记录</span></div>
+          <div id="bomReports"></div>
+        </div>
+      </section>
+
+      <section class="page" hidden id="page-manage">
+        <div class="page-head">
+          <div>
+            <h1>管理</h1>
+            <p class="page-sub">维护分类树、位置树和项目资料</p>
+          </div>
+        </div>
+        <div class="manage-tabs">
+          <button class="manage-tab active" data-manage="categories">分类</button>
+          <button class="manage-tab" data-manage="locations">位置</button>
+          <button class="manage-tab" data-manage="projects">项目</button>
+        </div>
+        <div id="manageContent"></div>
+      </section>
+    </main>
+
+<script>
+  /*
+   * 首屏防闪：所有 page 区块在 HTML 里就是 hidden 的，这里在页面绘制前就把该显示的那一块放出来，
+   * 避免等接口返回时才切换、期间看到一堆模块内容堆在一起。
+   * 规则：正常打开（点链接/新开标签/输网址）落在仪表盘；按 F5 刷新才回到上次停留的页面。
+   */
+  (function () {
+    var target = "dashboard";
+    var saved = null;
+    var isReload = false;
+    try {
+      saved = localStorage.getItem("inventoryPage");
+    } catch (err) {}
+    try {
+      var entry = performance.getEntriesByType && performance.getEntriesByType("navigation")[0];
+      isReload = Boolean(entry && entry.type === "reload");
+    } catch (err) {}
+    if (isReload && saved && document.getElementById("page-" + saved)) {
+      target = saved;
+    }
+    window.__inventoryBootPage = target;
+    var section = document.getElementById("page-" + target);
+    if (section) section.hidden = false;
+    document.querySelectorAll(".nav-link, .bottom-link").forEach(function (button) {
+      button.classList.toggle("active", button.dataset.page === target);
+    });
+  })();
+</script>
+    </div>
+
+    <nav class="bottom-nav">
+      <button class="bottom-link active" data-page="dashboard"><i data-lucide="layout-dashboard"></i><span>首页</span></button>
+      <button class="bottom-link" data-page="parts"><i data-lucide="cpu"></i><span>元件</span></button>
+      <button class="bottom-link" data-page="stock"><i data-lucide="archive"></i><span>库存</span></button>
+      <button class="bottom-link" data-page="projects"><i data-lucide="folder-kanban"></i><span>项目</span></button>
+      <button class="bottom-link" data-page="wishlist"><i data-lucide="shopping-cart"></i><span>待购</span></button>
+      <button class="bottom-link" data-page="bom"><i data-lucide="clipboard-list"></i><span>BOM</span></button>
+    </nav>
+  </div>
+
+  <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
+  <aside class="drawer" id="drawer" hidden>
+    <div class="drawer-head">
+      <button class="icon-btn" id="drawerClose"><i data-lucide="x"></i></button>
+    </div>
+    <div id="drawerBody"></div>
+  </aside>
+
+  <div class="modal-overlay" id="modalPart" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h2 id="modalPartTitle">新增元件</h2>
+        <button class="icon-btn modal-close"><i data-lucide="x"></i></button>
+      </div>
+      <form id="partForm" class="modal-body">
+        <input type="hidden" id="partId">
+        <div class="form-grid">
+          <label><span>厂家型号 MPN</span><input id="partNumber"></label>
+          <label><span>LCSC 编号</span><input id="partLcsc"></label>
+          <label><span>品牌 Brand</span><input id="partBrand"></label>
+          <label><span>分类 Category</span><select id="partCategory"></select></label>
+          <label><span>封装 Package</span><input id="partPackage"></label>
+          <label><span>温度范围</span><input id="partTemp" placeholder="-40°C ~ +85°C"></label>
+          <label><span>耐压 / 额定值</span><input id="partVoltage" placeholder="16V / 1A"></label>
+          <label><span>库存位置</span><select id="partStockLocation"></select></label>
+          <label><span>库存数量</span><input id="partStockQty" type="number" min="0" step="any"></label>
+          <label class="span-2"><span>关联项目（库存减少时记录）</span><select id="partProject"></select></label>
+          <label><span>最低库存提醒</span><input id="partMinStock" type="number" min="0" step="any" value="0"></label>
+          <label class="span-2"><span>描述 Description</span><textarea id="partDescription" rows="3"></textarea></label>
+          <div class="span-2 part-image-field">
+            <label class="dropzone" id="partImageDropzone">
+              <input id="partImageFile" type="file" accept=".png,.jpg,.jpeg,.webp,.gif">
+              <i data-lucide="image-plus"></i>
+              <strong>选择元件图片</strong>
+              <span>支持 PNG / JPG / WebP，建议 500KB 以内</span>
+            </label>
+            <div class="part-image-preview" id="partImagePreviewWrap" hidden>
+              <img id="partImagePreview" alt="元件图片">
+              <button type="button" class="btn btn-ghost" id="partImageRemove"><i data-lucide="trash-2"></i>移除图片</button>
+            </div>
+          </div>
+          <label class="span-2"><span>数据手册 Datasheet URL</span><input id="partDatasheet" type="url" placeholder="https://"></label>
+          <label class="span-2"><span>备注 Notes</span><textarea id="partNotes" rows="3"></textarea></label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost modal-close">取消</button>
+          <button type="submit" class="btn btn-primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modalStockIn" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h2>入库</h2>
+        <button class="icon-btn modal-close"><i data-lucide="x"></i></button>
+      </div>
+      <form id="stockInForm" class="modal-body">
+        <input type="hidden" id="stockInPartId">
+        <div class="form-grid">
+          <label class="span-2"><span>元件</span><select id="stockInPart"></select></label>
+          <label class="span-2"><span>存放位置</span><select id="stockInLocation"></select></label>
+          <label><span>数量</span><input id="stockInQty" type="number" min="0.01" step="any" required></label>
+          <label><span>购买日期</span><input id="stockInDate" type="date"></label>
+          <label><span>单价</span><input id="stockInPrice" type="number" min="0" step="any"></label>
+          <label><span>购买渠道</span><input id="stockInChannel" placeholder="LCSC / Taobao / DigiKey"></label>
+          <label class="span-2"><span>订单号 Order No.</span><input id="stockInOrder"></label>
+          <label class="span-2"><span>备注</span><textarea id="stockInNotes" rows="3"></textarea></label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost modal-close">取消</button>
+          <button type="submit" class="btn btn-primary"><i data-lucide="download"></i><span>确认入库</span></button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modalStockOut" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h2>出库</h2>
+        <button class="icon-btn modal-close"><i data-lucide="x"></i></button>
+      </div>
+      <form id="stockOutForm" class="modal-body">
+        <input type="hidden" id="stockOutBatchId">
+        <input type="hidden" id="stockOutPartId">
+        <div class="form-grid">
+          <label class="span-2"><span>元件</span><select id="stockOutPart"></select></label>
+          <label class="span-2"><span>库存批次</span><select id="stockOutBatch"></select></label>
+          <label><span>出库数量</span><input id="stockOutQty" type="number" min="0.01" step="any" required></label>
+          <label><span>项目 / 工程</span><select id="stockOutProject"></select></label>
+          <label class="span-2"><span>备注</span><textarea id="stockOutNote" rows="3" placeholder="用在哪一块板、哪个版本"></textarea></label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost modal-close">取消</button>
+          <button type="submit" class="btn btn-primary"><i data-lucide="upload"></i><span>确认出库</span></button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modalMovement" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h2>修改出入库记录</h2>
+        <button class="icon-btn modal-close"><i data-lucide="x"></i></button>
+      </div>
+      <form id="movementForm" class="modal-body">
+        <input type="hidden" id="movementId">
+        <div class="form-grid">
+          <label class="span-2"><span>时间</span><input id="movementTime" type="datetime-local"></label>
+          <label class="span-2"><span>关联项目</span><select id="movementProject"></select></label>
+          <label class="span-2"><span>备注</span><textarea id="movementNote" rows="3"></textarea></label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost modal-close">取消</button>
+          <button type="submit" class="btn btn-primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modalProject" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h2 id="modalProjectTitle">新增项目</h2>
+        <button class="icon-btn modal-close"><i data-lucide="x"></i></button>
+      </div>
+      <form id="projectForm" class="modal-body">
+        <input type="hidden" id="projectId">
+        <div class="form-grid">
+          <label class="span-2"><span>项目名称</span><input id="projectName" required></label>
+          <label class="span-2"><span>状态</span><select id="projectStatus"><option value="active">进行中</option><option value="completed">已完成</option></select></label>
+          <label class="span-2"><span>描述</span><textarea id="projectDescription" rows="3"></textarea></label>
+          <div class="span-2" id="projectBomField">
+            <label class="dropzone" id="projectBomDropzone">
+              <input id="projectBomFile" type="file" accept=".csv,.tsv,.txt,.xlsx,.xls">
+              <i data-lucide="file-up"></i>
+              <strong>选择 BOM（可选）</strong>
+              <span>保存项目后自动与当前库存对比</span>
+            </label>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost modal-close">取消</button>
+          <button type="submit" class="btn btn-primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modalWishlist" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h2 id="modalWishlistTitle">添加待购</h2>
+        <button class="icon-btn modal-close"><i data-lucide="x"></i></button>
+      </div>
+      <form id="wishlistForm" class="modal-body">
+        <input type="hidden" id="wishlistId">
+        <div class="form-grid">
+          <label><span>关联元件</span><select id="wishlistPart"><option value="">暂不关联</option></select></label>
+          <label><span>LCSC 编号</span><input id="wishlistLcsc"></label>
+          <label><span>厂家型号</span><input id="wishlistPartNumber"></label>
+          <label><span>品牌</span><input id="wishlistBrand"></label>
+          <label><span>封装</span><input id="wishlistPackage"></label>
+          <label><span>目标数量</span><input id="wishlistQty" type="number" min="0.01" step="any" required></label>
+          <label><span>参考单价</span><input id="wishlistPrice" type="number" min="0" step="any"></label>
+          <label><span>优先级</span><select id="wishlistPriority"><option value="normal">普通</option><option value="high">高</option><option value="low">低</option></select></label>
+          <label class="span-2"><span>描述</span><textarea id="wishlistDescription" rows="3"></textarea></label>
+          <label class="span-2"><span>备注</span><textarea id="wishlistNotes" rows="3"></textarea></label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost modal-close">取消</button>
+          <button type="submit" class="btn btn-primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modalConvert" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h2>转为采购入库</h2>
+        <button class="icon-btn modal-close"><i data-lucide="x"></i></button>
+      </div>
+      <form id="convertForm" class="modal-body">
+        <input type="hidden" id="convertId">
+        <div class="form-grid">
+          <label class="span-2"><span>入库位置</span><select id="convertLocation"></select></label>
+          <label class="span-2"><span>新建元件分类</span><select id="convertCategory"></select></label>
+          <label><span>入库数量</span><input id="convertQty" type="number" min="0.01" step="any" required></label>
+          <label><span>购买日期</span><input id="convertDate" type="date"></label>
+          <label><span>实际单价</span><input id="convertPrice" type="number" min="0" step="any"></label>
+          <label><span>购买渠道</span><input id="convertChannel"></label>
+          <label class="span-2"><span>订单号 Order No.</span><input id="convertOrder"></label>
+          <label class="span-2"><span>备注</span><textarea id="convertNotes" rows="3"></textarea></label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost modal-close">取消</button>
+          <button type="submit" class="btn btn-primary"><i data-lucide="package-check"></i><span>确认入库</span></button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modalCategory" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h2>分类</h2>
+        <button class="icon-btn modal-close"><i data-lucide="x"></i></button>
+      </div>
+      <form id="categoryForm" class="modal-body">
+        <input type="hidden" id="categoryId">
+        <input type="hidden" id="categoryParentId">
+        <div class="form-grid">
+          <label class="span-2"><span>分类名称</span><input id="categoryName" required></label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost modal-close">取消</button>
+          <button type="submit" class="btn btn-primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modalLocation" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h2>位置</h2>
+        <button class="icon-btn modal-close"><i data-lucide="x"></i></button>
+      </div>
+      <form id="locationForm" class="modal-body">
+        <input type="hidden" id="locationId">
+        <input type="hidden" id="locationParentId">
+        <div class="form-grid">
+          <label><span>位置代码</span><input id="locationCode" required placeholder="A1"></label>
+          <label><span>显示名称</span><input id="locationName" placeholder="可选"></label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost modal-close">取消</button>
+          <button type="submit" class="btn btn-primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="confirmModal" hidden>
+    <div class="modal modal-sm">
+      <div class="modal-head">
+        <h2>确认操作</h2>
+        <button class="icon-btn modal-close"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <p id="confirmText"></p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost modal-close">取消</button>
+          <button type="button" class="btn btn-danger" id="confirmOk">确认</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+  <button class="back-top" id="backTop" hidden aria-label="回到顶部"><i data-lucide="arrow-up"></i></button>
+  <div class="image-zoom" id="imageZoom" hidden>
+    <img alt="元件图片放大预览">
+  </div>
+
+  <script src="/static/vendor/lucide.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

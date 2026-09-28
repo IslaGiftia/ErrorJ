@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#7b68ee">
+    <title>五子棋 · Error酱</title>
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
+  <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
+<link rel="stylesheet" href="/static/site/site.css">
+<link rel="stylesheet" href="/static/site/rain.css">
+<link rel="stylesheet" href="/static/games/caro/style.css">
+    <script>
+        (function () {
+            try {
+                var pref = localStorage.getItem("errorSiteTheme") || "auto";
+                var dark = pref === "dark" ||
+                    (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+                document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+            } catch (err) {}
+        })();
+    </script>
+  <script src="/static/site/theme.js"></script>
+</head>
+<body>
+    <div class="rain-scene caro-scene" id="rainScene">
+        <div class="rain-layer" id="rainLayer" aria-hidden="true"></div>
+      <a class="game-back" href="/games" data-back data-back-parent="/games">← 返回游戏大厅</a>
+        <!-- Màn hình chọn chế độ chơi (giữ nguyên) -->
+        <div class="menu">
+            <h2>选择五子棋模式</h2>
+            <button class="mode-btn" id="pvp-btn">双人对战</button>
+            <div class="pvc-options">
+                <h3>与 Error酱对弈</h3>
+                <button class="mode-btn" id="pvc-x-btn">执 X 先手</button>
+                <button class="mode-btn" id="pvc-o-btn">执 O 先手</button>
+                <p class="pvc-note">你下不过我你信不信qwq</p>
+            </div>
+        </div>
+
+        <!-- Màn hình chơi game -->
+        <div class="game-container hide">
+            <div class="info-panel">
+                <div class="turn-container">
+                    <h3>当前回合</h3>
+                    <div class="turn-box align">X</div>
+                    <div class="turn-box align">O</div>
+                    <div class="bg"></div>
+                </div>
+                <h2 id="results"></h2>
+                <button id="play-again">再来一局</button>
+            </div>
+
+            <!-- Bàn cờ sẽ được tạo bởi JavaScript -->
+            <div class="board-container">
+                <div id="board" class="main-grid"></div>
+            </div>
+        </div>
+        <div class="rain-floor" id="rainFloor" aria-hidden="true"></div>
+    </div>
+
+<script src="/static/site/rain.js"></script>
+<script src="/static/site/site.js"></script>
+<script src="/static/games/caro/script.js"></script>
+<script src="/static/site/back-link.js"></script>
+</body>
+</html>

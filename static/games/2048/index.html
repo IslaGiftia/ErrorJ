@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <title>2048 · Error酱</title>
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
+  <link rel="stylesheet" href="/static/site/site.css">
+  <link rel="stylesheet" href="/static/site/rain.css">
+  <link rel="stylesheet" href="/static/games/game.css">
+  <link rel="stylesheet" href="/static/games/2048/style.css">
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
+</head>
+<body>
+  <div class="rain-scene rain-scene--fixed" id="rainScene" aria-hidden="true">
+    <div class="rain-layer" id="rainLayer"></div>
+    <div class="rain-floor" id="rainFloor"></div>
+  </div>
+
+  <div class="g-app">
+    <header class="g-header">
+      <a class="g-back" href="/games" data-back data-back-parent="/games"><i data-lucide="arrow-left"></i><span>游戏大厅</span></a>
+      <h1 class="g-title">2048</h1>
+      <div class="g-scores">
+        <div class="g-score"><span>得分</span><strong id="score">0</strong></div>
+        <div class="g-score"><span>最高</span><strong id="best">0</strong></div>
+      </div>
+    </header>
+
+    <div class="g-toolbar">
+      <button class="g-btn g-btn-primary" id="newGameBtn" type="button">重新开始</button>
+      <span class="g-hint">方向键 / WASD，手机直接滑动</span>
+    </div>
+
+    <div class="board" id="board" aria-label="2048 棋盘"></div>
+
+    <div class="g-overlay" id="overlay" hidden>
+      <div class="g-overlay-card">
+        <h2 id="overlayTitle"></h2>
+        <p id="overlayText"></p>
+        <div class="g-overlay-actions">
+          <button class="g-btn g-btn-primary" id="overlayPrimary" type="button"></button>
+          <button class="g-btn" id="overlaySecondary" type="button" hidden></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/vendor/lucide.min.js"></script>
+  <script src="/static/site/rain.js"></script>
+  <script src="/static/site/back-link.js"></script>
+  <script src="/static/games/2048/script.js"></script>
+</body>
+</html>

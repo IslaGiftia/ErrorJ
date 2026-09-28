@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <title>留言板 · Error酱</title>
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
+  <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
+  <link rel="stylesheet" href="/static/messages.css">
+  <link rel="stylesheet" href="/static/site/rain.css">
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
+</head>
+<body>
+  <div class="rain-scene rain-scene--fixed" id="rainScene" aria-hidden="true">
+    <div class="rain-layer" id="rainLayer"></div>
+    <div class="rain-floor" id="rainFloor"></div>
+  </div>
+
+  <div class="mg-app">
+    <header class="mg-header">
+      <a class="mg-brand" href="/">
+        <span class="mg-brand-icon"><i data-lucide="message-square-heart"></i></span>
+        <strong>留言板</strong>
+      </a>
+      <div class="mg-header-actions">
+        <span class="mg-count" id="messageCount"></span>
+      </div>
+    </header>
+
+    <main class="mg-main">
+      <section class="mg-panel">
+        <h1>给 Error酱 留言</h1>
+        <p class="mg-hint">文字、附件都行。单条最多 3 个附件，单个不超过 5MB，图片会直接显示缩略图。</p>
+        <form id="messageForm">
+          <div class="mg-field">
+            <label for="msgNickname">昵称</label>
+            <input id="msgNickname" maxlength="30" value="匿名" autocomplete="nickname">
+          </div>
+          <div class="mg-field">
+            <label for="msgContent">内容</label>
+            <textarea id="msgContent" maxlength="1000" placeholder="想说的话，也可以直接把截图粘贴进来…"></textarea>
+          </div>
+          <div class="mg-compose-row">
+            <button class="mg-btn mg-btn-ghost" id="pickFileBtn" type="button">
+              <i data-lucide="paperclip"></i><span>添加附件</span>
+            </button>
+            <span class="mg-attach-hint" id="attachHint">支持图片、PDF、文本、表格、压缩包等</span>
+          </div>
+          <input type="file" id="fileInput" multiple hidden>
+          <ul class="mg-file-list" id="pendingList"></ul>
+          <div class="mg-actions">
+            <button class="mg-btn mg-btn-primary" id="submitBtn" type="submit">
+              <i data-lucide="send"></i><span>发布留言</span>
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section class="mg-list" id="messageList"></section>
+    </main>
+  </div>
+
+  <div class="mg-toast" id="toast" hidden></div>
+
+  <script src="/static/vendor/lucide.min.js"></script>
+  <script src="/static/site/rain.js"></script>
+  <script src="/static/messages.js"></script>
+</body>
+</html>

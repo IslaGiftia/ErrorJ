@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <title>扫雷 · Error酱</title>
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
+  <link rel="stylesheet" href="/static/site/site.css">
+  <link rel="stylesheet" href="/static/site/rain.css">
+  <link rel="stylesheet" href="/static/games/game.css">
+  <link rel="stylesheet" href="/static/games/minesweeper/style.css">
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
+</head>
+<body>
+  <div class="rain-scene rain-scene--fixed" id="rainScene" aria-hidden="true">
+    <div class="rain-layer" id="rainLayer"></div>
+    <div class="rain-floor" id="rainFloor"></div>
+  </div>
+
+  <div class="g-app">
+    <header class="g-header">
+      <a class="g-back" href="/games" data-back data-back-parent="/games"><i data-lucide="arrow-left"></i><span>游戏大厅</span></a>
+      <h1 class="g-title">扫雷</h1>
+      <div class="g-scores">
+        <div class="g-score"><span>剩余雷数</span><strong id="mineCount">10</strong></div>
+        <div class="g-score"><span>用时</span><strong id="timer">0</strong></div>
+      </div>
+    </header>
+
+    <div class="g-toolbar" id="levelBar">
+      <button class="g-btn is-active" data-level="easy" type="button">初级 9×9</button>
+      <button class="g-btn" data-level="medium" type="button">中级 16×16</button>
+      <button class="g-btn" data-level="hard" type="button">高级 16×30</button>
+      <span class="g-hint">左键翻开，右键插旗；手机长按插旗</span>
+    </div>
+
+    <div class="mine-wrap">
+      <div class="mine-board" id="board" aria-label="扫雷棋盘"></div>
+    </div>
+
+    <div class="g-overlay" id="overlay" hidden>
+      <div class="g-overlay-card">
+        <h2 id="overlayTitle"></h2>
+        <p id="overlayText"></p>
+        <div class="g-overlay-actions">
+          <button class="g-btn g-btn-primary" id="overlayPrimary" type="button">再来一局</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/vendor/lucide.min.js"></script>
+  <script src="/static/site/rain.js"></script>
+  <script src="/static/site/back-link.js"></script>
+  <script src="/static/games/minesweeper/script.js"></script>
+</body>
+</html>

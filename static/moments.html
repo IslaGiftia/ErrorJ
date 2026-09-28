@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <meta name="tab-name" content="ej-moments">
+  <title>日常 · Error酱</title>
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
+  <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
+  <link rel="stylesheet" href="/static/moments.css">
+  <link rel="stylesheet" href="/static/site/rain.css">
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
+  <script src="/static/site/tabname.js"></script>
+</head>
+<body>
+  <div class="rain-scene rain-scene--fixed" id="rainScene" aria-hidden="true">
+    <div class="rain-layer" id="rainLayer"></div>
+    <div class="rain-floor" id="rainFloor"></div>
+  </div>
+
+  <div class="mo-app">
+    <header class="mo-header">
+      <a class="mo-brand" href="/">
+        <span class="mo-brand-icon"><i data-lucide="coffee"></i></span>
+        <strong>日常</strong>
+      </a>
+      <span class="mo-count" id="momentCount"></span>
+    </header>
+
+    <main class="mo-main">
+      <form class="mo-card mo-composer" id="momentForm">
+        <textarea id="momentContent" maxlength="2000" placeholder="今天在折腾什么？记录一句，或者直接粘贴截图…"></textarea>
+        <div class="mo-tag-input">
+          <input id="momentTags" maxlength="200" placeholder="标签（可选，用逗号分隔，例如：单片机, 折腾记录）">
+        </div>
+        <ul class="mo-pending" id="pendingList"></ul>
+        <div class="mo-composer-foot">
+          <button class="mo-btn mo-btn-ghost" id="pickImageBtn" type="button">
+            <i data-lucide="image-plus"></i><span>配图</span>
+          </button>
+          <span class="mo-hint" id="imageHint">最多 9 张，单张 5MB</span>
+          <button class="mo-btn mo-btn-primary" id="submitBtn" type="submit">
+            <i data-lucide="send"></i><span>发布</span>
+          </button>
+        </div>
+        <input type="file" id="imageInput" accept="image/*" multiple hidden>
+      </form>
+
+      <section class="mo-list" id="momentList"></section>
+    </main>
+  </div>
+
+  <div class="mo-toast" id="toast" hidden></div>
+
+  <script src="/static/vendor/lucide.min.js"></script>
+  <script src="/static/site/rain.js"></script>
+  <script src="/static/moments.js"></script>
+</body>
+</html>

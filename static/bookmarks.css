@@ -1,0 +1,1326 @@
+:root {
+  --pin-bg: #f5f6f8;
+  --pin-surface: #ffffff;
+  --pin-text: #1f2329;
+  --pin-muted: #7b8494;
+  --pin-faint: #a4acb9;
+  --pin-border: #e3e6eb;
+  --pin-hover: #eef0f4;
+  --pin-accent: #7b68ee;
+  --pin-accent-hover: #6956e5;
+  --pin-accent-soft: #efedff;
+  --pin-active: #7b68ee;
+  --pin-active-hover: #6854df;
+  --pin-danger: #d64545;
+  --pin-danger-soft: #fff0f0;
+  --pin-note-bg: color-mix(in srgb, var(--pin-accent) 11%, var(--pin-surface));
+  --pin-note-text: var(--pin-accent);
+  --pin-note-border: color-mix(in srgb, var(--pin-accent) 45%, var(--pin-border));
+  --pin-shadow: 0 1px 3px rgba(24, 31, 45, 0.06);
+  --pin-modal-backdrop: rgba(24, 28, 38, 0.38);
+  --pin-toast-bg: #252a34;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --pin-bg: #171717;
+  --pin-surface: #262626;
+  --pin-text: #f4f4f5;
+  --pin-muted: #a1a1aa;
+  --pin-faint: #71717a;
+  --pin-border: #3f3f46;
+  --pin-hover: #323238;
+  --pin-accent: #a78bfa;
+  --pin-accent-hover: #b8a3ff;
+  --pin-accent-soft: #322d4c;
+  --pin-active: #7b68ee;
+  --pin-active-hover: #6854df;
+  --pin-danger: #f87171;
+  --pin-danger-soft: #3d2020;
+  --pin-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+  --pin-modal-backdrop: rgba(0, 0, 0, 0.62);
+  --pin-toast-bg: #0f0f10;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  overflow: hidden;
+  background: var(--pin-bg);
+  color: var(--pin-text);
+  font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+svg {
+  display: block;
+}
+
+.pin-app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.pin-header {
+  position: relative;
+  z-index: 50;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+  padding: 9px 16px;
+  background: var(--pin-surface);
+  border-bottom: 1px solid var(--pin-border);
+}
+
+.pin-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.pin-brand-icon {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: var(--pin-accent-soft);
+  color: var(--pin-accent);
+}
+
+.pin-brand-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.pin-brand strong {
+  font-size: 17px;
+}
+
+.pin-brand > span:last-child {
+  color: var(--pin-muted);
+  font-size: 12px;
+}
+
+.pin-search {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(360px, 34vw);
+}
+
+.pin-search > svg {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translateY(-50%);
+  color: var(--pin-muted);
+  pointer-events: none;
+}
+
+.pin-search input {
+  width: 100%;
+  height: 36px;
+  padding: 0 50px 0 33px;
+  border: 1px solid var(--pin-border);
+  border-radius: 7px;
+  outline: none;
+  background: var(--pin-bg);
+  color: var(--pin-text);
+}
+
+.pin-search input:focus {
+  border-color: var(--pin-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pin-accent) 18%, transparent);
+  background: var(--pin-surface);
+}
+
+.pin-search kbd {
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--pin-faint);
+  font-family: inherit;
+  font-size: 10px;
+}
+
+.pin-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.pin-header-btn,
+.pin-primary-btn,
+.pin-secondary-btn,
+.pin-danger-btn {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid var(--pin-border);
+  border-radius: 7px;
+  background: var(--pin-surface);
+  color: var(--pin-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pin-header-btn:hover,
+.pin-secondary-btn:hover {
+  background: var(--pin-hover);
+}
+
+.pin-header-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.pin-header-btn-primary,
+.pin-primary-btn {
+  border-color: var(--pin-accent);
+  background: var(--pin-accent);
+  color: #fff;
+}
+
+.pin-header-btn-primary:hover,
+.pin-primary-btn:hover {
+  border-color: var(--pin-accent-hover);
+  background: var(--pin-accent-hover);
+}
+
+.pin-danger-btn {
+  border-color: var(--pin-danger);
+  background: var(--pin-danger);
+  color: #fff;
+}
+
+.pin-icon-btn,
+.pin-mobile-menu {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--pin-border);
+  border-radius: 7px;
+  background: var(--pin-surface);
+  color: var(--pin-muted);
+}
+
+.pin-icon-btn:hover,
+.pin-mobile-menu:hover {
+  background: var(--pin-hover);
+  color: var(--pin-text);
+}
+
+.pin-mobile-menu {
+  display: none;
+}
+
+.pin-view-toggle {
+  display: flex;
+  border: 1px solid var(--pin-border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.pin-view-toggle button {
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  background: var(--pin-surface);
+  color: var(--pin-muted);
+  font-size: 12px;
+}
+
+.pin-view-toggle button + button {
+  border-left: 1px solid var(--pin-border);
+}
+
+.pin-view-toggle button.active {
+  background: var(--pin-accent);
+  color: #fff;
+}
+
+.pin-layout {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.pin-folder-panel {
+  width: 240px;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  background: var(--pin-surface);
+  border-right: 1px solid var(--pin-border);
+}
+
+.pin-folder-tree {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 6px;
+}
+
+.pin-folder-row {
+  width: 100%;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--pin-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.pin-folder-row:hover {
+  background: var(--pin-hover);
+}
+
+.pin-folder-row.active {
+  background: var(--pin-active);
+  border-left-color: var(--pin-active-hover);
+  color: #fff;
+  font-weight: 600;
+}
+
+.pin-folder-row.active svg,
+.pin-folder-row.active .pin-folder-count,
+.pin-folder-row.active .pin-folder-actions button {
+  color: #fff;
+}
+
+.pin-folder-row.active .pin-folder-count {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.pin-folder-row.drop-before {
+  box-shadow: inset 0 3px 0 var(--pin-accent);
+}
+
+.pin-folder-row.drop-after {
+  box-shadow: inset 0 -3px 0 var(--pin-accent);
+}
+
+.pin-folder-toggle,
+.pin-folder-toggle-spacer {
+  width: 15px;
+  height: 22px;
+  flex: 0 0 15px;
+}
+
+.pin-folder-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pin-muted);
+}
+
+.pin-folder-toggle svg {
+  width: 12px;
+  height: 12px;
+  transition: transform 0.16s ease;
+}
+
+.pin-folder-toggle.expanded svg {
+  transform: rotate(90deg);
+}
+
+.pin-folder-row.active .pin-folder-toggle {
+  color: #fff;
+}
+
+.pin-folder-row.drag-over {
+  background: color-mix(in srgb, var(--pin-accent) 18%, var(--pin-surface));
+  border-left-color: var(--pin-accent);
+}
+
+.pin-folder-row svg {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  color: var(--pin-muted);
+}
+
+.pin-folder-row.active svg {
+  color: var(--pin-accent);
+}
+
+.pin-folder-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.pin-folder-count {
+  min-width: 22px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--pin-bg);
+  color: var(--pin-muted);
+  text-align: center;
+  font-size: 11px;
+}
+
+.pin-folder-divider {
+  height: 1px;
+  margin: 6px 8px;
+  background: var(--pin-border);
+}
+
+.pin-folder-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+}
+
+.pin-folder-row:hover .pin-folder-actions {
+  opacity: 1;
+}
+
+.pin-folder-actions button {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--pin-muted);
+}
+
+.pin-folder-actions button:hover {
+  background: var(--pin-surface);
+  color: var(--pin-text);
+}
+
+.pin-new-folder {
+  min-height: 38px;
+  margin: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px dashed var(--pin-border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--pin-muted);
+  font-size: 12px;
+}
+
+.pin-new-folder:hover {
+  border-color: var(--pin-accent);
+  background: var(--pin-accent-soft);
+  color: var(--pin-accent);
+}
+
+.pin-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--pin-bg);
+}
+
+.pin-view-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pin-sort-bar {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 8px 14px;
+  background: var(--pin-surface);
+  border-bottom: 1px solid var(--pin-border);
+}
+
+.pin-sort-bar button {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--pin-border);
+  border-radius: 7px;
+  background: var(--pin-surface);
+  color: var(--pin-muted);
+  font-size: 12px;
+}
+
+.pin-sort-bar button:hover {
+  background: var(--pin-hover);
+}
+
+.pin-sort-bar button.active {
+  border-color: var(--pin-accent);
+  background: var(--pin-accent);
+  color: #fff;
+}
+
+.pin-sort-bar .pin-broken-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.pin-sort-bar .pin-broken-filter span {
+  min-width: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--pin-bg);
+  color: var(--pin-muted);
+  font-size: 10px;
+  text-align: center;
+}
+
+.pin-sort-bar .pin-broken-filter.active {
+  border-color: var(--pin-danger);
+  background: var(--pin-danger-soft);
+  color: var(--pin-danger);
+}
+
+.pin-sort-bar .pin-broken-filter.active span {
+  background: var(--pin-danger);
+  color: #fff;
+}
+
+.pin-last-checked {
+  color: var(--pin-faint);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.pin-sort-spacer {
+  flex: 1;
+}
+
+.pin-current-scope {
+  color: var(--pin-muted);
+  font-size: 12px;
+}
+
+.pin-grid-view {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-content: start;
+  align-items: start;
+  gap: 12px;
+  padding: 14px;
+}
+
+.pin-grid-column {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pin-grid-section {
+  min-width: 0;
+  min-height: min-content;
+  height: max-content;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  align-self: stretch;
+  scroll-margin-top: 10px;
+  background: var(--pin-surface);
+  border: 1px solid var(--pin-border);
+  border-radius: 9px;
+  box-shadow: var(--pin-shadow);
+  overflow: visible;
+}
+
+.pin-grid-section-head {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px;
+  border-bottom: 1px solid var(--pin-border);
+  border-radius: 8px 8px 0 0;
+  user-select: none;
+}
+
+.pin-grid-section-head:hover {
+  background: var(--pin-hover);
+}
+
+.pin-grid-section.drag-over {
+  box-shadow: 0 0 0 2px var(--pin-accent), var(--pin-shadow);
+}
+
+.pin-grid-section-toggle {
+  width: 12px;
+  color: var(--pin-faint);
+  font-size: 9px;
+}
+
+.pin-grid-section-head > svg {
+  width: 16px;
+  height: 16px;
+  color: var(--pin-accent);
+}
+
+.pin-grid-section-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.pin-grid-section-count {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--pin-bg);
+  color: var(--pin-muted);
+  font-size: 10px;
+}
+
+.pin-grid-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px;
+}
+
+.pin-grid-section-body > .pin-empty {
+  min-height: 70px;
+}
+
+.pin-bookmark-card {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 4px 7px;
+  border-radius: 6px;
+  cursor: grab;
+}
+
+.pin-bookmark-card:hover {
+  background: color-mix(in srgb, var(--pin-accent) 9%, var(--pin-surface));
+}
+
+.pin-bookmark-card.dragging,
+.pin-list-row.dragging {
+  opacity: 0.45;
+}
+
+.pin-bookmark-card.dragging {
+  cursor: grabbing;
+}
+
+.pin-bookmark-card.drop-before {
+  box-shadow: inset 0 2px 0 var(--pin-accent);
+}
+
+.pin-bookmark-card.drop-after {
+  box-shadow: inset 0 -2px 0 var(--pin-accent);
+}
+
+.pin-favicon-wrap {
+  position: relative;
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+}
+
+.pin-favicon {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 17px;
+  height: 17px;
+  border-radius: 3px;
+  object-fit: contain;
+  background: var(--pin-bg);
+}
+
+.pin-favicon-fallback {
+  position: absolute;
+  inset: 0;
+  width: 17px;
+  height: 17px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  background: var(--pin-accent-soft);
+  color: var(--pin-accent);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.pin-bookmark-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.pin-note-chip {
+  min-width: 0;
+  max-width: 110px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  padding: 2px 7px;
+  border: 1px solid var(--pin-note-border);
+  border-left-width: 3px;
+  border-radius: 4px;
+  background: var(--pin-note-bg);
+  color: var(--pin-note-text);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pin-note-chip svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+}
+
+.pin-note-chip > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pin-note-chip:hover {
+  filter: brightness(1.04);
+}
+
+.pin-link-status {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.pin-link-status.valid {
+  color: #36a269;
+}
+
+.pin-link-status.broken {
+  color: var(--pin-danger);
+}
+
+.pin-link-status.checking {
+  color: var(--pin-accent);
+  animation: pin-spin 0.9s linear infinite;
+}
+
+.pin-bookmark-card.link-broken .pin-bookmark-title,
+.pin-list-row.link-broken .pin-list-title-link {
+  color: var(--pin-danger);
+  text-decoration: line-through;
+  opacity: 0.75;
+}
+
+@keyframes pin-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.pin-list-toolbar {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 8px 16px;
+  background: var(--pin-surface);
+  border-bottom: 1px solid var(--pin-border);
+}
+
+.pin-list-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pin-list-title svg {
+  width: 17px;
+  height: 17px;
+  color: var(--pin-accent);
+}
+
+.pin-list-title span {
+  color: var(--pin-muted);
+  font-size: 12px;
+}
+
+.pin-selected-hint:not(:empty)::before {
+  content: "·";
+  margin-right: 6px;
+}
+
+.pin-list-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.pin-list-actions button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--pin-border);
+  border-radius: 6px;
+  background: var(--pin-surface);
+  color: var(--pin-text);
+  font-size: 12px;
+}
+
+.pin-list-actions button:hover {
+  background: var(--pin-hover);
+}
+
+.pin-list-actions button.danger {
+  border-color: color-mix(in srgb, var(--pin-danger) 45%, var(--pin-border));
+  color: var(--pin-danger);
+}
+
+.pin-list-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pin-bookmark-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.pin-list-row {
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: 20px 20px minmax(140px, 1fr) minmax(120px, 28%) auto 16px minmax(0, 110px);
+  align-items: center;
+  gap: 9px;
+  padding: 7px 16px;
+  border-bottom: 1px solid var(--pin-border);
+}
+
+.pin-list-row:hover {
+  background: var(--pin-hover);
+}
+
+.pin-list-row.selected {
+  background: var(--pin-accent-soft);
+}
+
+.pin-list-check {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.pin-list-title-link {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.pin-list-url {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--pin-muted);
+  font-size: 11px;
+  direction: rtl;
+  text-align: left;
+}
+
+.pin-list-date {
+  color: var(--pin-faint);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.pin-list-note {
+  min-width: 0;
+  max-width: 110px;
+  justify-self: end;
+  overflow: hidden;
+  padding: 3px 7px;
+  border: 1px solid var(--pin-note-border);
+  border-left-width: 3px;
+  border-radius: 4px;
+  background: var(--pin-note-bg);
+  color: var(--pin-note-text);
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pin-list-note-empty {
+  border-color: transparent;
+  background: transparent;
+}
+
+.pin-empty {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--pin-muted);
+  text-align: center;
+}
+
+.pin-empty svg {
+  width: 34px;
+  height: 34px;
+  color: var(--pin-accent);
+}
+
+.pin-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: var(--pin-modal-backdrop);
+}
+
+.pin-modal {
+  width: min(520px, 100%);
+  max-height: min(720px, calc(100vh - 36px));
+  overflow-y: auto;
+  background: var(--pin-surface);
+  border: 1px solid var(--pin-border);
+  border-radius: 10px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.25);
+}
+
+.pin-modal-sm {
+  width: min(440px, 100%);
+}
+
+.pin-modal-head {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--pin-border);
+}
+
+.pin-modal-head h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.pin-modal-body {
+  display: grid;
+  gap: 13px;
+  padding: 16px;
+}
+
+.pin-modal-body label {
+  display: grid;
+  gap: 5px;
+  color: var(--pin-muted);
+  font-size: 12px;
+}
+
+.pin-modal-body input,
+.pin-modal-body select,
+.pin-modal-body textarea {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--pin-border);
+  border-radius: 7px;
+  outline: none;
+  background: var(--pin-bg);
+  color: var(--pin-text);
+}
+
+.pin-modal-body textarea {
+  resize: vertical;
+}
+
+.pin-modal-body input:focus,
+.pin-modal-body select:focus,
+.pin-modal-body textarea:focus {
+  border-color: var(--pin-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pin-accent) 18%, transparent);
+}
+
+.pin-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.pin-confirm-text {
+  margin: 0;
+  color: var(--pin-text);
+  overflow-wrap: anywhere;
+}
+
+.pin-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transform: translateX(-50%);
+  max-width: min(520px, calc(100vw - 24px));
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: var(--pin-toast-bg);
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+  font-size: 13px;
+}
+
+.pin-toast.error {
+  background: var(--pin-danger);
+}
+
+.pin-toast-action {
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--pin-accent);
+  font-size: 12px;
+}
+
+.pin-toast-action:hover {
+  background: color-mix(in srgb, var(--pin-accent) 16%, transparent);
+}
+
+.pin-folder-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--pin-modal-backdrop);
+}
+
+.pin-context-menu {
+  position: fixed;
+  z-index: 1200;
+  min-width: 172px;
+  padding: 5px;
+  border: 1px solid var(--pin-border);
+  border-radius: 8px;
+  background: var(--pin-surface);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.2);
+}
+
+.pin-context-menu button {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--pin-text);
+  text-align: left;
+  font-size: 13px;
+}
+
+.pin-context-menu button:hover {
+  background: var(--pin-hover);
+}
+
+.pin-context-menu button.danger {
+  color: var(--pin-danger);
+}
+
+.pin-context-menu button.danger:hover {
+  background: var(--pin-danger-soft);
+}
+
+.pin-context-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--pin-border);
+}
+
+.pin-cleanup-section + .pin-cleanup-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--pin-border);
+}
+
+.pin-cleanup-section h3 {
+  margin: 0 0 9px;
+  font-size: 14px;
+}
+
+.pin-cleanup-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  padding: 6px 8px;
+  border: 1px solid var(--pin-border);
+  border-radius: 6px;
+}
+
+.pin-cleanup-row + .pin-cleanup-row {
+  margin-top: 6px;
+}
+
+.pin-cleanup-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.pin-cleanup-main strong,
+.pin-cleanup-main span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pin-cleanup-main span {
+  color: var(--pin-muted);
+  font-size: 11px;
+}
+
+.pin-cleanup-row button {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--pin-border);
+  border-radius: 5px;
+  background: var(--pin-surface);
+  color: var(--pin-muted);
+  font-size: 11px;
+}
+
+.pin-cleanup-row button:hover {
+  border-color: var(--pin-danger);
+  background: var(--pin-danger-soft);
+  color: var(--pin-danger);
+}
+
+@media (max-width: 980px) {
+  .pin-search {
+    position: static;
+    transform: none;
+    flex: 1;
+    width: auto;
+    min-width: 150px;
+  }
+
+  .pin-header {
+    gap: 8px;
+  }
+
+  .pin-header-actions .pin-header-btn span {
+    display: none;
+  }
+
+  .pin-header-actions .pin-header-btn {
+    width: 34px;
+    padding: 0;
+  }
+
+  .pin-view-toggle button {
+    padding: 0 8px;
+  }
+}
+
+@media (max-width: 760px) {
+  .pin-mobile-menu {
+    display: inline-flex;
+  }
+
+  .pin-brand > span:last-child {
+    display: none;
+  }
+
+  .pin-search kbd {
+    display: none;
+  }
+
+  .pin-folder-panel {
+    position: fixed;
+    top: 56px;
+    bottom: 0;
+    left: 0;
+    z-index: 70;
+    width: 250px;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    box-shadow: 8px 0 24px rgba(0, 0, 0, 0.16);
+  }
+
+  .pin-folder-panel.open {
+    transform: translateX(0);
+  }
+
+  .pin-grid-view {
+    grid-template-columns: 1fr;
+    padding: 10px;
+  }
+
+  .pin-list-row {
+    grid-template-columns: 20px 20px minmax(0, 1fr) 16px;
+    gap: 7px;
+    padding: 8px 10px;
+  }
+
+  .pin-list-url,
+  .pin-list-date,
+  .pin-list-note {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .pin-header {
+    padding: 8px;
+  }
+
+  .pin-brand strong {
+    display: none;
+  }
+
+  .pin-view-toggle button {
+    font-size: 0;
+  }
+
+  .pin-view-toggle button::before {
+    font-size: 13px;
+  }
+
+  .pin-view-toggle button[data-view="nav"]::before {
+    content: "▦";
+  }
+
+  .pin-view-toggle button[data-view="list"]::before {
+    content: "☷";
+  }
+
+  .pin-sort-bar {
+    overflow-x: auto;
+    padding: 7px 9px;
+  }
+
+  .pin-current-scope {
+    display: none;
+  }
+
+  .pin-last-checked {
+    display: none;
+  }
+
+  .pin-list-toolbar {
+    padding: 8px 9px;
+  }
+
+  .pin-list-title span {
+    display: none;
+  }
+}

@@ -1,0 +1,42 @@
+# 运行时数据：数据库、上传的图片/附件/固件、登录密钥、密码哈希
+# 这些都不应该进版本库，开源前尤其注意 data/auth.json 里的会话密钥。
+data/*
+!data/.gitkeep
+
+# 本地环境与密钥
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python 缓存与虚拟环境
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 日志、临时文件与备份
+*.log
+tmp/
+.tmp-*
+err-backup/
+inventory_backup_*.zip
+errorjiang-backup*.zip
+
+# 本地工具产物
+smoke.js
+
+# 编辑器与操作系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

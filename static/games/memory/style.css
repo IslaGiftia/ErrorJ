@@ -1,0 +1,95 @@
+.memory-wrap {
+  display: flex;
+  justify-content: center;
+}
+
+.memory-board {
+  display: grid;
+  gap: 10px;
+  width: min(560px, 100%);
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  box-shadow: var(--shadow);
+  perspective: 900px;
+}
+
+.memory-card {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  transform-style: preserve-3d;
+  transition: transform 0.28s ease;
+}
+
+.memory-card.is-flipped,
+.memory-card.is-matched {
+  transform: rotateY(180deg);
+}
+
+.memory-card.is-matched {
+  cursor: default;
+}
+
+.memory-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  backface-visibility: hidden;
+  font-size: clamp(22px, 5vw, 34px);
+  line-height: 1;
+}
+
+.memory-face.is-back {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--primary) 22%, transparent),
+    color-mix(in srgb, var(--accent) 30%, transparent)
+  );
+  color: #ffffff;
+  font-size: clamp(16px, 3vw, 22px);
+  font-weight: 800;
+}
+
+.memory-face.is-front {
+  background: color-mix(in srgb, var(--panel) 96%, transparent);
+  transform: rotateY(180deg);
+}
+
+.memory-card.is-matched .memory-face.is-front {
+  background: color-mix(in srgb, var(--ok) 22%, transparent);
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--line));
+}
+
+.memory-card.is-shake {
+  animation: memory-shake 0.32s ease;
+}
+
+@keyframes memory-shake {
+  0%, 100% { transform: rotateY(180deg) translateX(0); }
+  25% { transform: rotateY(180deg) translateX(-4px); }
+  75% { transform: rotateY(180deg) translateX(4px); }
+}
+
+[data-theme="dark"] .memory-board {
+  background: rgba(38, 38, 38, 0.92);
+}
+
+[data-theme="dark"] .memory-face.is-front {
+  background: #2f2f33;
+}
+
+@media (max-width: 640px) {
+  .memory-board {
+    gap: 7px;
+    padding: 10px;
+  }
+}

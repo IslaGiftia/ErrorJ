@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <title>工作台 · Error酱</title>
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
+  <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
+  <link rel="stylesheet" href="/static/workbench.css">
+  <meta name="tab-name" content="ej-workbench">
+  <script src="/static/site/tabname.js"></script>
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
+</head>
+<body>
+  <div class="wb-app">
+    <header class="wb-header">
+      <a class="wb-brand" href="/">
+        <span class="wb-brand-icon"><i data-lucide="wrench"></i></span>
+        <strong>工作台</strong>
+      </a>
+      <nav class="wb-nav">
+        <button class="active" type="button" data-view="overview"><i data-lucide="layout-dashboard"></i><span>概览</span></button>
+        <button type="button" data-view="assets"><i data-lucide="folder-open"></i><span>资料</span></button>
+        <button type="button" data-view="firmware"><i data-lucide="cpu"></i><span>固件</span></button>
+        <button type="button" data-view="repairs"><i data-lucide="clipboard-list"></i><span>维修台账</span></button>
+      </nav>
+      <div class="wb-header-actions">
+        <button class="wb-btn wb-btn-primary" id="headerUploadBtn" type="button"><i data-lucide="upload"></i><span>上传文件</span></button>
+      </div>
+    </header>
+
+    <main class="wb-main">
+      <section class="wb-view active" id="view-overview">
+        <div class="wb-page-head">
+          <div>
+            <h1>工作台概览</h1>
+            <p>集中查看个人项目资料、固件和维修记录。</p>
+          </div>
+        </div>
+        <div class="wb-stat-grid" id="overviewStats"></div>
+        <div class="wb-two-column">
+          <section class="wb-panel">
+            <div class="wb-panel-head">
+              <h2>最近上传</h2>
+              <button class="wb-link-btn" type="button" data-go-view="assets">查看全部</button>
+            </div>
+            <div class="wb-recent-list" id="recentAssets"></div>
+          </section>
+          <section class="wb-panel">
+            <div class="wb-panel-head">
+              <h2>最近维修</h2>
+              <button class="wb-link-btn" type="button" data-go-view="repairs">查看全部</button>
+            </div>
+            <div class="wb-recent-list" id="recentRepairs"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="wb-view" id="view-assets" hidden>
+        <div class="wb-page-head">
+          <div>
+            <h1>项目资料</h1>
+            <p>源码包、原理图、PDF、图片和普通项目文件。</p>
+          </div>
+          <button class="wb-btn wb-btn-primary" type="button" data-upload-category="document">
+            <i data-lucide="upload"></i><span>上传资料</span>
+          </button>
+        </div>
+        <div class="wb-toolbar">
+          <label class="wb-search"><i data-lucide="search"></i><input id="assetSearch" type="search" placeholder="搜索名称、版本、芯片或备注"></label>
+          <select id="assetCategory">
+            <option value="">全部分类</option>
+            <option value="source">源码与工程</option>
+            <option value="document">文档与原理图</option>
+            <option value="image">图片</option>
+            <option value="other">其他</option>
+          </select>
+          <select id="assetProject"><option value="">全部项目</option></select>
+        </div>
+        <div class="wb-list" id="assetList"></div>
+      </section>
+
+      <section class="wb-view" id="view-firmware" hidden>
+        <div class="wb-page-head">
+          <div>
+            <h1>固件库</h1>
+            <p>保存 HEX、BIN、ELF 和对应的烧录说明。</p>
+          </div>
+          <button class="wb-btn wb-btn-primary" type="button" data-upload-category="firmware">
+            <i data-lucide="upload"></i><span>上传固件</span>
+          </button>
+        </div>
+        <div class="wb-toolbar">
+          <label class="wb-search"><i data-lucide="search"></i><input id="firmwareSearch" type="search" placeholder="搜索固件、版本、芯片或开发板"></label>
+          <select id="firmwareProject"><option value="">全部项目</option></select>
+        </div>
+        <div class="wb-list wb-firmware-grid" id="firmwareList"></div>
+      </section>
+
+      <section class="wb-view" id="view-repairs" hidden>
+        <div class="wb-page-head">
+          <div>
+            <h1>维修台账</h1>
+            <p>记录故障、诊断、处理过程和维修状态。</p>
+          </div>
+          <button class="wb-btn wb-btn-primary" id="newRepairBtn" type="button">
+            <i data-lucide="plus"></i><span>新增维修</span>
+          </button>
+        </div>
+        <div class="wb-toolbar">
+          <label class="wb-search"><i data-lucide="search"></i><input id="repairSearch" type="search" placeholder="搜索设备、故障、诊断或处理过程"></label>
+          <select id="repairStatus">
+            <option value="">全部状态</option>
+            <option value="open">待处理</option>
+            <option value="repairing">维修中</option>
+            <option value="completed">已完成</option>
+            <option value="cancelled">已取消</option>
+          </select>
+        </div>
+        <div class="wb-list" id="repairList"></div>
+      </section>
+    </main>
+  </div>
+
+  <div class="wb-modal-overlay" id="assetModal" hidden>
+    <form class="wb-modal" id="assetForm">
+      <div class="wb-modal-head">
+        <h2 id="assetModalTitle">上传文件</h2>
+        <button class="wb-icon-btn" type="button" data-close-modal="assetModal"><i data-lucide="x"></i></button>
+      </div>
+      <div class="wb-form-grid">
+        <label class="wb-file-field span-2" id="assetFileField">
+          <input id="assetFile" type="file">
+          <span><i data-lucide="file-up"></i><strong id="assetFileLabel">选择文件</strong></span>
+          <small>支持源码压缩包、HEX、BIN、PDF、原理图、图片等，最大 30MB</small>
+        </label>
+        <label><span>标题</span><input id="assetTitle" maxlength="160" placeholder="默认使用文件名"></label>
+        <label><span>分类</span>
+          <select id="assetFormCategory">
+            <option value="source">源码与工程</option>
+            <option value="firmware">固件</option>
+            <option value="document">文档与原理图</option>
+            <option value="image">图片</option>
+            <option value="other">其他</option>
+          </select>
+        </label>
+        <label><span>关联项目</span><select id="assetFormProject"><option value="">不关联</option></select></label>
+        <label><span>关联维修</span><select id="assetFormRepair"><option value="">不关联</option></select></label>
+        <label><span>版本</span><input id="assetVersion" maxlength="80" placeholder="例如 v1.0"></label>
+        <label><span>目标芯片</span><input id="assetChip" maxlength="120" placeholder="例如 STM32F103C8T6"></label>
+        <label><span>目标开发板</span><input id="assetBoard" maxlength="120" placeholder="例如 Blue Pill"></label>
+        <label class="span-2"><span>在线烧录链接</span><input id="assetFlashUrl" maxlength="500" placeholder="https://..."></label>
+        <label class="span-2"><span>备注</span><textarea id="assetNotes" rows="3" maxlength="4000"></textarea></label>
+      </div>
+      <div class="wb-modal-actions">
+        <button class="wb-btn" type="button" data-close-modal="assetModal">取消</button>
+        <button class="wb-btn wb-btn-primary" id="assetSubmitBtn" type="submit">保存</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="wb-modal-overlay" id="repairModal" hidden>
+    <form class="wb-modal wb-modal-wide" id="repairForm">
+      <div class="wb-modal-head">
+        <h2 id="repairModalTitle">新增维修记录</h2>
+        <button class="wb-icon-btn" type="button" data-close-modal="repairModal"><i data-lucide="x"></i></button>
+      </div>
+      <div class="wb-form-grid">
+        <label><span>设备或项目名称</span><input id="repairDevice" required maxlength="160"></label>
+        <label><span>设备编号</span><input id="repairSerial" maxlength="120"></label>
+        <label><span>关联项目</span><select id="repairProject"><option value="">不关联</option></select></label>
+        <label><span>状态</span>
+          <select id="repairFormStatus">
+            <option value="open">待处理</option>
+            <option value="repairing">维修中</option>
+            <option value="completed">已完成</option>
+            <option value="cancelled">已取消</option>
+          </select>
+        </label>
+        <label><span>开始时间</span><input id="repairStarted" type="date"></label>
+        <label><span>完成时间</span><input id="repairFinished" type="date"></label>
+        <label><span>费用</span><input id="repairCost" type="number" min="0" step="0.01"></label>
+        <label class="span-2"><span>故障现象</span><textarea id="repairFault" rows="3" maxlength="4000"></textarea></label>
+        <label class="span-2"><span>诊断结果</span><textarea id="repairDiagnosis" rows="3" maxlength="4000"></textarea></label>
+        <label class="span-2"><span>处理过程</span><textarea id="repairAction" rows="4" maxlength="4000"></textarea></label>
+        <label class="span-2"><span>备注</span><textarea id="repairNotes" rows="3" maxlength="4000"></textarea></label>
+      </div>
+      <div class="wb-modal-actions">
+        <button class="wb-btn" type="button" data-close-modal="repairModal">取消</button>
+        <button class="wb-btn wb-btn-primary" type="submit">保存</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="wb-toast" id="toast" hidden></div>
+
+  <script src="/static/vendor/lucide.min.js"></script>
+  <script src="/static/workbench.js"></script>
+</body>
+</html>

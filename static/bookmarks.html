@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <title>网页收藏 · Error酱</title>
+  <meta name="tab-name" content="ej-bookmarks">
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
+  <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
+  <link rel="stylesheet" href="/static/bookmarks.css">
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
+  <script src="/static/site/tabname.js"></script>
+</head>
+<body>
+  <div class="pin-app">
+    <header class="pin-header">
+      <button class="pin-mobile-menu" id="mobileMenuBtn" type="button" aria-label="打开文件夹">
+        <i data-lucide="menu"></i>
+      </button>
+      <a class="pin-brand" href="/">
+        <span class="pin-brand-icon"><i data-lucide="bookmark"></i></span>
+        <strong>网页收藏</strong>
+        <span id="headerBookmarkCount">0 个书签</span>
+      </a>
+      <div class="pin-search">
+        <i data-lucide="search"></i>
+        <input id="searchInput" type="search" placeholder="搜索书签...">
+        <kbd>Ctrl F</kbd>
+      </div>
+      <div class="pin-header-actions">
+        <button class="pin-header-btn" id="importFirefoxBtn" type="button" title="导入 Firefox 收藏">
+          <i data-lucide="import"></i><span>导入 Firefox</span>
+        </button>
+        <button class="pin-header-btn" id="checkLinksBtn" type="button" title="检查链接失效">
+          <i data-lucide="activity"></i><span>检查链接</span>
+        </button>
+        <button class="pin-header-btn pin-header-btn-primary" id="headerAddBookmark" type="button">
+          <i data-lucide="plus"></i><span>新增书签</span>
+        </button>
+        <div class="pin-view-toggle" role="group" aria-label="视图模式">
+          <button class="active" type="button" data-view="nav">导航模式</button>
+          <button type="button" data-view="list">列表模式</button>
+        </div>
+      </div>
+    </header>
+
+    <div class="pin-layout">
+      <aside class="pin-folder-panel" id="folderPanel">
+        <div class="pin-folder-tree" id="folderTree"></div>
+        <button class="pin-new-folder" id="newFolderBtn" type="button">
+          <i data-lucide="folder-plus"></i><span>新建文件夹</span>
+        </button>
+      </aside>
+      <div class="pin-folder-backdrop" id="folderBackdrop" hidden></div>
+
+      <main class="pin-content">
+        <section class="pin-view-panel" id="navView">
+          <div class="pin-sort-bar">
+            <button class="active" type="button" data-sort="manual">拖动排序</button>
+            <button type="button" data-sort="newest">最近添加</button>
+            <button type="button" data-sort="oldest">最早添加</button>
+            <button type="button" data-sort="title">按标题</button>
+            <button type="button" data-sort="folder">按文件夹</button>
+            <span class="pin-sort-spacer"></span>
+            <button class="pin-broken-filter" id="cleanupBtn" type="button">
+              <i data-lucide="sparkles"></i>整理
+            </button>
+            <button class="pin-broken-filter" id="brokenOnlyBtn" type="button">
+              只看失效 <span id="brokenCount">0</span>
+            </button>
+            <span class="pin-last-checked" id="lastCheckedText"></span>
+            <span class="pin-current-scope" id="currentScope">全部书签</span>
+          </div>
+          <div class="pin-grid-view" id="gridSections"></div>
+        </section>
+
+        <section class="pin-view-panel" id="listView" hidden>
+          <div class="pin-list-toolbar">
+            <div class="pin-list-title">
+              <i data-lucide="folder-open"></i>
+              <strong id="listFolderTitle">全部书签</strong>
+              <span id="listBookmarkCount">0 个书签</span>
+              <span class="pin-selected-hint" id="selectedHint"></span>
+            </div>
+            <div class="pin-list-actions">
+              <button type="button" id="moveSelectedBtn" disabled>移动到</button>
+              <button type="button" id="selectAllBtn">全选</button>
+              <button class="danger" type="button" id="deleteSelectedBtn" disabled>删除</button>
+            </div>
+          </div>
+          <div class="pin-bookmark-list" id="listRows"></div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div class="pin-modal-overlay" id="bookmarkModal" hidden>
+    <div class="pin-modal">
+      <div class="pin-modal-head">
+        <h2 id="bookmarkModalTitle">新增书签</h2>
+        <button class="pin-icon-btn pin-modal-close" type="button"><i data-lucide="x"></i></button>
+      </div>
+      <form class="pin-modal-body" id="bookmarkForm">
+        <input type="hidden" id="bookmarkId">
+        <label>
+          <span>网址</span>
+          <input id="bookmarkUrl" type="text" inputmode="url" placeholder="https://example.com" required>
+        </label>
+        <label>
+          <span>标题</span>
+          <input id="bookmarkTitle" maxlength="200" placeholder="留空时自动使用域名">
+        </label>
+        <label>
+          <span>文件夹</span>
+          <select id="bookmarkFolder"></select>
+        </label>
+        <label>
+          <span>备注</span>
+          <textarea id="bookmarkDescription" rows="3" maxlength="500" placeholder="可选"></textarea>
+        </label>
+        <div class="pin-modal-actions">
+          <button class="pin-secondary-btn pin-modal-close" type="button">取消</button>
+          <button class="pin-primary-btn" type="submit"><i data-lucide="save"></i><span>保存</span></button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="pin-modal-overlay" id="folderModal" hidden>
+    <div class="pin-modal pin-modal-sm">
+      <div class="pin-modal-head">
+        <h2 id="folderModalTitle">新建文件夹</h2>
+        <button class="pin-icon-btn pin-modal-close" type="button"><i data-lucide="x"></i></button>
+      </div>
+      <form class="pin-modal-body" id="folderForm">
+        <input type="hidden" id="folderId">
+        <label>
+          <span>文件夹名称</span>
+          <input id="folderName" maxlength="80" required>
+        </label>
+        <label>
+          <span>上级文件夹</span>
+          <select id="folderParent"></select>
+        </label>
+        <div class="pin-modal-actions">
+          <button class="pin-secondary-btn pin-modal-close" type="button">取消</button>
+          <button class="pin-primary-btn" type="submit"><i data-lucide="save"></i><span>保存</span></button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="pin-modal-overlay" id="noteModal" hidden>
+    <div class="pin-modal pin-modal-sm">
+      <div class="pin-modal-head">
+        <h2>编辑备注</h2>
+        <button class="pin-icon-btn pin-modal-close" type="button"><i data-lucide="x"></i></button>
+      </div>
+      <form class="pin-modal-body" id="noteForm">
+        <input type="hidden" id="noteBookmarkId">
+        <label>
+          <span>备注内容</span>
+          <textarea id="noteText" rows="5" maxlength="500" placeholder="例如：常用于查询数据手册"></textarea>
+        </label>
+        <div class="pin-modal-actions">
+          <button class="pin-secondary-btn pin-modal-close" type="button">取消</button>
+          <button class="pin-primary-btn" type="submit"><i data-lucide="save"></i><span>保存备注</span></button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="pin-modal-overlay" id="confirmModal" hidden>
+    <div class="pin-modal pin-modal-sm">
+      <div class="pin-modal-head">
+        <h2>确认操作</h2>
+        <button class="pin-icon-btn pin-modal-close" type="button"><i data-lucide="x"></i></button>
+      </div>
+      <div class="pin-modal-body">
+        <p class="pin-confirm-text" id="confirmText"></p>
+        <div class="pin-modal-actions">
+          <button class="pin-secondary-btn pin-modal-close" type="button">取消</button>
+          <button class="pin-danger-btn" id="confirmOk" type="button">确认</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pin-context-menu" id="contextMenu" hidden></div>
+
+  <div class="pin-modal-overlay" id="moveModal" hidden>
+    <div class="pin-modal pin-modal-sm">
+      <div class="pin-modal-head">
+        <h2>移动书签</h2>
+        <button class="pin-icon-btn pin-modal-close" type="button"><i data-lucide="x"></i></button>
+      </div>
+      <form class="pin-modal-body" id="moveForm">
+        <label>
+          <span>目标文件夹</span>
+          <select id="moveFolder"></select>
+        </label>
+        <div class="pin-modal-actions">
+          <button class="pin-secondary-btn pin-modal-close" type="button">取消</button>
+          <button class="pin-primary-btn" type="submit"><i data-lucide="folder-input"></i><span>移动</span></button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="pin-modal-overlay" id="cleanupModal" hidden>
+    <div class="pin-modal">
+      <div class="pin-modal-head">
+        <h2>整理书签</h2>
+        <button class="pin-icon-btn pin-modal-close" type="button"><i data-lucide="x"></i></button>
+      </div>
+      <div class="pin-modal-body">
+        <div id="cleanupContent"></div>
+        <div class="pin-modal-actions">
+          <button class="pin-secondary-btn pin-modal-close" type="button">关闭</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pin-toast" id="toast" hidden></div>
+  <script src="/static/vendor/lucide.min.js"></script>
+  <script src="/static/bookmarks.js"></script>
+</body>
+</html>

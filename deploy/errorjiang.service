@@ -1,0 +1,39 @@
+# systemd 单元示例（不使用 Docker 时）
+# 安装：
+#   sudo cp deploy/errorjiang.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now errorjiang
+# 说明：只监听 127.0.0.1，由 Nginx 反代；密码用 EnvironmentFile 里的 INVENTORY_PASSWORD
+
+[Unit]
+Description=Error Jiang personal toolkit
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=errorjiang
+Group=errorjiang
+WorkingDirectory=/opt/errorjiang
+Environment=INVENTORY_HOST=127.0.0.1
+Environment=INVENTORY_PORT=8000
+Environment=TZ=Asia/Shanghai
+Environment=INVENTORY_TRUST_PROXY=1
+Environment=INVENTORY_ACCESS_LOG=1
+EnvironmentFile=-/etc/errorjiang.env
+ExecStart=/usr/bin/python3 /opt/errorjiang/app.py
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=errorjiang
+
+# 基础加固
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/errorjiang/data
+
+[Install]
+WantedBy=multi-user.target
