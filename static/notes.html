@@ -36,8 +36,8 @@
       </label>
 
       <div class="nt-header-actions">
-        <button class="nt-btn" id="htmlImportBtn" type="button">
-          <i data-lucide="file-code-2"></i><span>导入 HTML</span>
+        <button class="nt-btn" id="documentImportBtn" type="button">
+          <i data-lucide="file-up"></i><span>导入文档</span>
         </button>
         <button class="nt-btn nt-btn-primary" id="newNoteBtn" type="button">
           <i data-lucide="plus"></i><span>新建笔记</span>
@@ -131,7 +131,9 @@
   </div>
 
   <input type="file" id="imageInput" accept="image/*" multiple hidden>
-  <input type="file" id="htmlInput" accept=".html,.htm,text/html" hidden>
+  <input type="file" id="documentInput"
+    accept=".txt,.md,.markdown,.html,.htm,.doc,.docx,.pdf,text/plain,text/markdown,text/html,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
+    hidden>
 
   <div class="nt-lightbox" id="lightbox" hidden>
     <img id="lightboxImage" alt="">

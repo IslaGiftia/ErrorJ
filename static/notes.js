@@ -19,6 +19,8 @@
 
   const $ = (id) => document.getElementById(id);
   const MAX_UPLOAD_SIDE = 2000;
+  const MAX_DOCUMENT_IMPORT_BYTES = 20 * 1024 * 1024;
+  const MAX_NOTE_CONTENT_CHARS = 2000000;
 
   let themePreference = "auto";
   try {
@@ -972,7 +974,7 @@
         const result = String(reader.result || "");
         resolve(result.slice(result.indexOf(",") + 1));
       };
-      reader.onerror = () => reject(new Error("读取图片失败"));
+      reader.onerror = () => reject(new Error("读取文件失败"));
       reader.readAsDataURL(blob);
     });
   }
@@ -1059,42 +1061,135 @@
     }
   }
 
-  async function importHtmlFile(file) {
+  function importDateText() {
+    const date = new Date();
+    const pad = (value) => String(value).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  }
+
+  function importFileStem(fileName) {
+    return String(fileName || "")
+      .replace(/\.[^.]+$/, "")
+      .replace(/[\r\n<>]/g, " ")
+      .trim()
+      .slice(0, 120) || "导入文档";
+  }
+
+  function importFileLabel(fileName) {
+    return String(fileName || "document")
+      .replace(/[\r\n<>]/g, " ")
+      .trim()
+      .slice(0, 180) || "document";
+  }
+
+  function documentImportKind(file) {
+    const extension = String(file.name || "").toLowerCase().match(/\.[^.]+$/)?.[0] || "";
+    if ([".html", ".htm"].includes(extension)) return "html";
+    if ([".md", ".markdown"].includes(extension)) return "markdown";
+    if (extension === ".txt" || file.type === "text/plain") return "text";
+    if ([".doc", ".docx", ".pdf"].includes(extension)) return "binary";
+    return "";
+  }
+
+  async function decodeTextDocument(file) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const encodings = [];
+    if (bytes[0] === 0xff && bytes[1] === 0xfe) encodings.push("utf-16le");
+    if (bytes[0] === 0xfe && bytes[1] === 0xff) encodings.push("utf-16be");
+    encodings.push("utf-8", "gb18030", "utf-16le");
+    for (const encoding of encodings) {
+      try {
+        const text = new TextDecoder(encoding, { fatal: true }).decode(bytes);
+        return text.replace(/^\uFEFF/, "");
+      } catch (err) {}
+    }
+    return new TextDecoder("utf-8").decode(bytes).replace(/^\uFEFF/, "");
+  }
+
+  function prepareTextDocument(text, file, kind) {
+    let content = normalizeMarkdown(text);
+    if (!content) throw new Error("文件中没有可导入的正文内容");
+    let title = importFileStem(file.name);
+    if (kind === "markdown") {
+      const heading = content.match(/^#\s+(.+?)\s*$/m);
+      if (heading) {
+        title = heading[1].trim() || title;
+        content = normalizeMarkdown(
+          content.slice(0, heading.index) + content.slice(heading.index + heading[0].length)
+        );
+      }
+    }
+    content = `> 导入自 ${importFileLabel(file.name)} · ${importDateText()}\n\n${content}`;
+    if (content.length > MAX_NOTE_CONTENT_CHARS) {
+      throw new Error("转换后的正文太长了，建议拆分文档后再导入");
+    }
+    return { title: title.slice(0, 120), content };
+  }
+
+  async function importDocumentFile(file) {
     if (!file) return;
     if (isDirty()) {
-      askConfirm("放弃未保存的修改？", "当前笔记有改动还没保存，导入 HTML 后会切换到新笔记。", "继续导入", () => {
+      askConfirm("放弃未保存的修改？", "当前笔记有改动还没保存，导入文档后会切换到新笔记。", "继续导入", () => {
         closeConfirm();
-        importHtmlFile(file);
+        importDocumentFile(file);
       });
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      toast("HTML 文件不能超过 10MB");
+    const kind = documentImportKind(file);
+    if (!kind) {
+      toast("只支持 TXT、Markdown、HTML、Word 和 PDF 文档");
+      return;
+    }
+    if (file.size > MAX_DOCUMENT_IMPORT_BYTES) {
+      toast("导入文档不能超过 20MB");
       return;
     }
     state.uploading += 1;
-    $("toolbarHint").textContent = "正在导入 HTML…";
+    const extension = String(file.name || "").toLowerCase().match(/\.[^.]+$/)?.[0] || "文档";
+    $("toolbarHint").textContent = `正在导入 ${extension.replace(".", "").toUpperCase()}…`;
     try {
-      const html = await file.text();
-      const imported = importHtmlDocument(html, file.name);
-      if (!imported.content) {
-        throw new Error("HTML 中没有可导入的正文内容");
+      if (kind === "binary") {
+        const result = await api("/api/notes/import", {
+          method: "POST",
+          body: JSON.stringify({
+            file_name: file.name || "document",
+            data_base64: await readAsBase64(file),
+          }),
+        });
+        await loadNotes();
+        if (result && result.id) {
+          openNote(result.id, { mode: "read", force: true });
+        }
+        toast(`${result && result.format === "pdf" ? "PDF" : "Word"} 文档已导入为笔记`);
+        return;
       }
+      const text = await decodeTextDocument(file);
+      const imported =
+        kind === "html"
+          ? importHtmlDocument(text, file.name)
+          : prepareTextDocument(text, file, kind);
+      if (!imported.content) {
+        throw new Error("文件中没有可导入的正文内容");
+      }
+      if (imported.content.length > MAX_NOTE_CONTENT_CHARS) {
+        throw new Error("转换后的正文太长了，建议拆分文档后再导入");
+      }
+      const tags = kind === "html" ? "HTML导入" : kind === "markdown" ? "Markdown导入" : "TXT导入";
       const result = await api("/api/notes", {
         method: "POST",
         body: JSON.stringify({
           title: imported.title,
           content: imported.content,
-          tags: "HTML导入",
+          tags,
         }),
       });
       await loadNotes();
       if (result && result.id) {
         openNote(result.id, { mode: "read", force: true });
       }
-      toast("HTML 已导入为笔记");
+      toast(`${kind === "html" ? "HTML" : kind === "markdown" ? "Markdown" : "TXT"} 已导入为笔记`);
     } catch (err) {
-      toast(err.message || "HTML 导入失败");
+      toast(err.message || "文档导入失败");
     } finally {
       state.uploading -= 1;
       if (state.uploading <= 0) {
@@ -1108,7 +1203,7 @@
 
   function bindEvents() {
     $("newNoteBtn").addEventListener("click", newNote);
-    $("htmlImportBtn").addEventListener("click", () => $("htmlInput").click());
+    $("documentImportBtn").addEventListener("click", () => $("documentInput").click());
     $("exportBtn").addEventListener("click", exportNote);
     $("editBtn").addEventListener("click", () => setMode("edit"));
     $("saveBtn").addEventListener("click", saveNote);
@@ -1196,6 +1291,10 @@
       const files = Array.from(event.dataTransfer?.files || []);
       if (!files.length) return;
       event.preventDefault();
+      if (files.length === 1 && documentImportKind(files[0])) {
+        importDocumentFile(files[0]);
+        return;
+      }
       uploadImages(files);
     });
 
@@ -1204,8 +1303,8 @@
       event.target.value = "";
     });
 
-    $("htmlInput").addEventListener("change", (event) => {
-      importHtmlFile(event.target.files[0]);
+    $("documentInput").addEventListener("change", (event) => {
+      importDocumentFile(event.target.files[0]);
       event.target.value = "";
     });
 

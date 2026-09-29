@@ -79,7 +79,7 @@
 - 笔记列表支持搜索（标题/正文/标签）、按标签筛选、按最近更新/最近创建/标题排序。
 - 标签写在笔记里，用逗号分隔；删除笔记时它引用的图片一并清理。
 - 首页第三张卡片显示笔记数量和最近的笔记缩略图。
-- 支持把现成的 HTML / Markdown 文档导入成笔记：`python tools/import_doc_note.py 文档.html|文档.md --tags "标签"`，HTML 里的内嵌图片和 Markdown 里引用的本地图片都会提取到 `data/note_images/`，同名笔记默认覆盖更新。
+- 笔记页支持导入 TXT、Markdown、HTML、Word（DOC/DOCX）和 PDF，自动转换成站内 Markdown；Word 内嵌图片会提取到 `data/note_images/` 并保留在正文位置，扫描版 PDF 暂不支持 OCR。命令行仍可用 `python tools/import_doc_note.py 文档.html|文档.md --tags "标签"` 导入 HTML / Markdown。
 - 单篇笔记可导出为单文件 HTML：图片以 data URI 内嵌，正文保留 Markdown 源文折叠区，可在浏览器离线打开，也可在 VS Code 中阅读。
 
 ### 2.6 日常（说说 / 日志）
@@ -323,7 +323,7 @@
 - 登录状态：`/api/auth/status`（公开）、`/api/login`、`/api/logout`。
 - 注册账号：`/api/register`（公开，创建待审核普通账号）。
 - AI 提示词：`/api/prompts`（GET 公开 / POST 管理员）、`/api/prompts/<id>`（PATCH 编辑 / DELETE 删除，仅管理员）。
-- 学习笔记：`/api/notes`（GET 列表 / POST 新建）、`/api/notes/<id>`（PATCH 修改 / DELETE 删除）、`/api/notes/<id>/export.html`（GET 导出单文件 HTML）、`/api/notes/images`（POST 上传）、`/api/notes/images/<id>`（DELETE）。
+- 学习笔记：`/api/notes`（GET 列表 / POST 新建）、`/api/notes/import`（POST 导入 Word / PDF）、`/api/notes/<id>`（PATCH 修改 / DELETE 删除）、`/api/notes/<id>/export.html`（GET 导出单文件 HTML）、`/api/notes/images`（POST 上传）、`/api/notes/images/<id>`（DELETE）。
 - 网页收藏：`/api/bookmarks`、`/api/bookmark-folders`、`/api/bookmarks/firefox/import`、`/api/bookmarks/check-links`。
 - 仓库类型：`/api/warehouse/types`。
 
@@ -398,4 +398,5 @@
 - 标题区二次瘦身：查出标题 `<h1>` 带着浏览器默认外边距（约 24px 空白），改为 `margin: 0`；头部内边距收到 7/5px、说明行 11.5px、头部按钮 30px。桌面实测头部 93px → 65px，正文可视区 721px → 749px。
 - 阅读模式加滚动方向感应：向下滚标题区上滑隐藏，向上滚立即滑回，常驻大纲栏不受影响；窄屏实测正文可视高度 542px → 620px。点大纲跳转时临时屏蔽该逻辑，避免跳转过程标题区闪动。
 - 修复手机布局下「返回列表」按钮点了没反应，以及关闭笔记后输入框残留内容导致误报「有未保存修改」的问题。
+- 笔记模块新增通用文档导入：贴纸入口统一为“导入文档”，浏览器端处理 TXT / Markdown / HTML，后端使用 `firecrawl-anydoc` 转换 DOC / DOCX / PDF；Word 图片按正文位置写入 `note_images`，PDF 扫描页会给出不支持 OCR 的明确提示。
 - 验证方式：接口端到端脚本 + 站内浏览器实测（新建、插图、导入、保存、编辑、删除、控制台无报错）。

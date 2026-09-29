@@ -46,6 +46,12 @@ NOTE_IMAGE_DIR = DATA_DIR / "note_images"
 WORKBENCH_DIR = DATA_DIR / "workbench"
 NOTE_CONTENT_MAX_CHARS = 2_000_000
 NOTE_IMAGE_MAX_BYTES = 20 * 1024 * 1024
+NOTE_IMPORT_MAX_BYTES = 20 * 1024 * 1024
+NOTE_IMPORT_FORMATS = {
+    "doc": "Word",
+    "docx": "Word",
+    "pdf": "PDF",
+}
 WORKBENCH_FILE_MAX_BYTES = 30 * 1024 * 1024
 MAX_REQUEST_BYTES = 40 * 1024 * 1024
 AUTH_PATH = DATA_DIR / "auth.json"
@@ -2404,6 +2410,255 @@ def launch_lcsc_image_fetch():
         pass
 
 
+def markdown_escape_text(value):
+    """转义普通文本里的 Markdown 控制字符，避免导入后改变原意。"""
+    return re.sub(r"([\\`*_\[\]<>])", r"\\\1", str(value or ""))
+
+
+def markdown_apply_style(value, style):
+    text = str(value or "")
+    if not text or style is None or not text.strip():
+        return text
+    leading = text[: len(text) - len(text.lstrip())]
+    trailing = text[len(text.rstrip()) :]
+    core = text.strip()
+    if getattr(style, "code", False):
+        core = f"`{core.replace('`', '``')}`"
+    if getattr(style, "bold", False):
+        core = f"**{core}**"
+    if getattr(style, "italic", False):
+        core = f"*{core}*"
+    if getattr(style, "strike", False):
+        core = f"~~{core}~~"
+    return leading + core + trailing
+
+
+def markdown_link_url(value):
+    return (
+        str(value or "")
+        .replace(" ", "%20")
+        .replace("(", "%28")
+        .replace(")", "%29")
+    )
+
+
+def render_anydoc_inline(inline, asset_resolver):
+    kind = getattr(inline, "kind", "")
+    if kind == "text":
+        return markdown_apply_style(
+            markdown_escape_text(getattr(inline, "text", "")),
+            getattr(inline, "style", None),
+        )
+    if kind == "link":
+        label = render_anydoc_inlines(getattr(inline, "content", None), asset_resolver)
+        target = getattr(inline, "target", None)
+        if target is None:
+            return label
+        target_kind = getattr(target, "kind", "")
+        href = str(getattr(target, "value", "") or "")
+        if target_kind == "anchor":
+            href = f"#{href}"
+        href = markdown_link_url(href)
+        if not href:
+            return label
+        return f"[{label or markdown_escape_text(href)}]({href})"
+    if kind == "image":
+        alt = markdown_escape_text(getattr(inline, "alt", "") or "图片")
+        source = getattr(inline, "source", None)
+        source_kind = getattr(source, "kind", "") if source is not None else ""
+        if source_kind == "external":
+            url = markdown_link_url(getattr(source, "url", ""))
+            return f"![{alt}]({url})" if url else alt
+        if source_kind == "asset":
+            return asset_resolver(getattr(source, "asset_id", None), alt)
+        return alt
+    if kind == "anchor":
+        return ""
+    if kind == "note_ref":
+        note_id = markdown_escape_text(getattr(inline, "note_id", ""))
+        return f"[^{note_id}]" if note_id else ""
+    if kind == "line_break":
+        return "  \n"
+    if kind == "math":
+        value = str(getattr(inline, "text", "") or "").strip()
+        return f"${value}$" if value else ""
+    if kind == "checkbox":
+        return "[x]" if getattr(inline, "checked", False) else "[ ]"
+    content = getattr(inline, "content", None)
+    if content:
+        return render_anydoc_inlines(content, asset_resolver)
+    return markdown_escape_text(getattr(inline, "text", ""))
+
+
+def render_anydoc_inlines(inlines, asset_resolver):
+    return "".join(render_anydoc_inline(item, asset_resolver) for item in (inlines or []))
+
+
+def render_anydoc_table(table, asset_resolver):
+    rows = []
+    for grid_row in getattr(table, "grid", None) or []:
+        cells = []
+        for slot in grid_row:
+            if getattr(slot, "kind", "") != "origin" or getattr(slot, "cell", None) is None:
+                cells.append("")
+                continue
+            value = render_anydoc_blocks(
+                getattr(slot.cell, "blocks", None) or [],
+                asset_resolver,
+            )
+            value = value.replace("\n", "<br>").replace("|", "\\|").strip()
+            cells.append(value)
+        rows.append(cells)
+    rows = [row for row in rows if any(cell for cell in row)]
+    if not rows:
+        return ""
+    columns = max(len(row) for row in rows)
+    for row in rows:
+        row.extend([""] * (columns - len(row)))
+    if getattr(table, "kind", "") == "layout":
+        return "\n".join(" | ".join(cell for cell in row if cell).strip() for row in rows)
+    header_rows = max(1, min(int(getattr(table, "header_rows", 0) or 1), len(rows)))
+    header = rows[0]
+    body = rows[1:]
+    if header_rows > 1:
+        header = [
+            "<br>".join(rows[row_index][column] for row_index in range(header_rows))
+            for column in range(columns)
+        ]
+        body = rows[header_rows:]
+    return "\n".join(
+        [
+            f"| {' | '.join(header)} |",
+            f"| {' | '.join('---' for _ in range(columns))} |",
+            *[f"| {' | '.join(row)} |" for row in body],
+        ]
+    )
+
+
+def markdown_alpha_number(value):
+    number = max(1, int(value))
+    result = ""
+    while number:
+        number, remainder = divmod(number - 1, 26)
+        result = chr(ord("a") + remainder) + result
+    return result
+
+
+def markdown_roman_number(value):
+    number = max(1, int(value))
+    numerals = (
+        (1000, "m"),
+        (900, "cm"),
+        (500, "d"),
+        (400, "cd"),
+        (100, "c"),
+        (90, "xc"),
+        (50, "l"),
+        (40, "xl"),
+        (10, "x"),
+        (9, "ix"),
+        (5, "v"),
+        (4, "iv"),
+        (1, "i"),
+    )
+    result = []
+    for amount, numeral in numerals:
+        while number >= amount:
+            result.append(numeral)
+            number -= amount
+    return "".join(result)
+
+
+def render_anydoc_list(list_value, asset_resolver, depth):
+    marker_family = getattr(list_value, "marker", "bullet")
+    start = int(getattr(list_value, "start", 1) or 1)
+    output = []
+    for offset, item in enumerate(getattr(list_value, "items", None) or []):
+        blocks = getattr(item, "blocks", None) or []
+        if not blocks:
+            continue
+        marker = getattr(item, "marker_label", None)
+        if not marker:
+            number = start + offset
+            if marker_family == "bullet":
+                marker = "-"
+            elif marker_family == "lower_alpha":
+                marker = f"{markdown_alpha_number(number)}."
+            elif marker_family == "upper_alpha":
+                marker = f"{markdown_alpha_number(number).upper()}."
+            elif marker_family == "lower_roman":
+                marker = f"{markdown_roman_number(number)}."
+            elif marker_family == "upper_roman":
+                marker = f"{markdown_roman_number(number).upper()}."
+            else:
+                marker = f"{number}."
+        first_block = blocks[0]
+        first = render_anydoc_block(first_block, asset_resolver, depth + 1).strip()
+        first_lines = first.splitlines() or [""]
+        indent = "  " * depth
+        continuation = indent + "  "
+        lines = [f"{indent}{marker} {first_lines[0]}".rstrip()]
+        lines.extend(f"{continuation}{line}".rstrip() for line in first_lines[1:])
+        for block in blocks[1:]:
+            rendered = render_anydoc_block(block, asset_resolver, depth + 1)
+            lines.extend(f"{continuation}{line}".rstrip() for line in rendered.splitlines())
+        output.append("\n".join(line for line in lines if line.strip()))
+    return "\n".join(output)
+
+
+def render_anydoc_block(block, asset_resolver, depth=0):
+    kind = getattr(block, "kind", "")
+    content = getattr(block, "content", None)
+    if kind == "heading":
+        level = max(1, min(int(getattr(block, "level", 1) or 1), 6))
+        value = render_anydoc_inlines(content, asset_resolver).strip()
+        return f"{'#' * level} {value}" if value else ""
+    if kind == "paragraph":
+        return render_anydoc_inlines(content, asset_resolver)
+    if kind == "list":
+        return render_anydoc_list(getattr(block, "list", None), asset_resolver, depth)
+    if kind == "table":
+        return render_anydoc_table(getattr(block, "table", None), asset_resolver)
+    if kind == "block_quote":
+        value = render_anydoc_blocks(getattr(block, "blocks", None) or [], asset_resolver, depth)
+        return "\n".join(f"> {line}".rstrip() for line in value.splitlines())
+    if kind == "code_block":
+        value = str(getattr(block, "text", "") or "").rstrip()
+        longest = max((len(match) for match in re.findall(r"`+", value)), default=0)
+        fence = "`" * max(3, longest + 1)
+        language = str(getattr(block, "lang", "") or "").strip()
+        return f"{fence}{language}\n{value}\n{fence}"
+    if kind == "rule":
+        return "---"
+    if kind == "math":
+        value = str(getattr(block, "text", "") or "").strip()
+        return f"$$\n{value}\n$$" if value else ""
+    nested = getattr(block, "blocks", None)
+    return render_anydoc_blocks(nested or [], asset_resolver, depth)
+
+
+def render_anydoc_blocks(blocks, asset_resolver, depth=0):
+    parts = []
+    for block in blocks or []:
+        rendered = render_anydoc_block(block, asset_resolver, depth).strip()
+        if rendered:
+            parts.append(rendered)
+    return "\n\n".join(parts)
+
+
+def render_anydoc_document(document, asset_resolver):
+    parts = []
+    body = render_anydoc_blocks(getattr(document, "blocks", None) or [], asset_resolver)
+    if body:
+        parts.append(body)
+    for note in getattr(document, "notes", None) or []:
+        note_id = markdown_escape_text(getattr(note, "id", ""))
+        note_body = render_anydoc_blocks(getattr(note, "blocks", None) or [], asset_resolver)
+        if note_id and note_body:
+            parts.append(f"[^{note_id}]: {note_body.replace(chr(10), chr(10) + '    ')}")
+    return "\n\n".join(parts).strip()
+
+
 def note_image_paths(content):
     """按出现顺序返回笔记正文引用到的图片相对路径。"""
     paths = []
@@ -3544,6 +3799,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_prompt_create(payload)
             elif path == "/api/notes":
                 self.api_note_create(payload)
+            elif path == "/api/notes/import":
+                self.api_note_import(payload)
             elif path == "/api/notes/images":
                 self.api_note_image_upload(payload)
             elif path == "/api/workbench/assets":
@@ -4920,6 +5177,197 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )
         self.sync_note_images(note_id, content)
         self.send_json(200, {"id": note_id})
+
+    def store_note_import_asset(self, raw, original_name, slug, index):
+        mime_type = detect_image_type(raw)
+        if not mime_type:
+            return None
+        extension = NOTE_IMAGE_EXTENSIONS[mime_type]
+        base_name = os.path.splitext(os.path.basename(original_name or ""))[0]
+        base_name = re.sub(r"[^A-Za-z0-9_-]+", "-", base_name).strip("-_") or f"image-{index:02d}"
+        stored_name = f"{slug}-{index:02d}-{base_name[:60]}{extension}"
+        relative = self.save_data_file(raw, stored_name, "note_images", NOTE_IMAGE_MAX_BYTES)
+        try:
+            image_id = execute(
+                """INSERT INTO note_images
+                   (note_id, file_path, original_name, mime_type, size_bytes, created_at)
+                   VALUES (NULL, ?, ?, ?, ?, ?)""",
+                (relative, original_name or stored_name, mime_type, len(raw), now_text()),
+            )
+        except Exception:
+            remove_data_file(relative)
+            raise
+        return relative, image_id, len(raw)
+
+    def api_note_import(self, payload):
+        original_name = os.path.basename(str(payload.get("file_name") or "document"))[:180]
+        data_base64 = payload.get("data_base64") or ""
+        if not data_base64:
+            api_error(self, 400, "没有文件数据。")
+            return
+        try:
+            raw = base64.b64decode(data_base64, validate=True)
+        except Exception:
+            api_error(self, 400, "文件数据不是有效的 base64。")
+            return
+        if not raw:
+            api_error(self, 400, "文件内容为空。")
+            return
+        if len(raw) > NOTE_IMPORT_MAX_BYTES:
+            api_error(
+                self,
+                400,
+                f"导入文档不能超过 {NOTE_IMPORT_MAX_BYTES // (1024 * 1024)}MB。",
+            )
+            return
+        extension = Path(original_name).suffix.lower()
+        if extension not in {".doc", ".docx", ".pdf"}:
+            api_error(self, 400, "只支持导入 DOC、DOCX 和 PDF 文档。")
+            return
+        try:
+            import anydoc
+        except ImportError:
+            api_error(
+                self,
+                503,
+                "Word/PDF 转换组件未安装，请先执行 pip install -r requirements.txt。",
+            )
+            return
+        try:
+            doc_format = anydoc.format_from_bytes(raw)
+        except Exception:
+            doc_format = None
+        if doc_format not in NOTE_IMPORT_FORMATS:
+            api_error(self, 400, "文件内容不是支持的 Word 或 PDF 文档。")
+            return
+
+        slug = re.sub(r"[^A-Za-z0-9_-]+", "-", Path(original_name).stem).strip("-_")[:40]
+        slug = slug or "import"
+        image_ids = []
+        image_count = 0
+        image_bytes = 0
+        asset_urls = {}
+        assets = {}
+
+        def cleanup_import_images():
+            for image_id in image_ids:
+                row = query_one("SELECT file_path FROM note_images WHERE id = ?", (image_id,))
+                if row:
+                    remove_data_file(row["file_path"])
+                execute("DELETE FROM note_images WHERE id = ?", (image_id,))
+
+        def asset_markdown(asset_id, alt):
+            nonlocal image_count, image_bytes
+            if asset_id in asset_urls:
+                relative = asset_urls[asset_id]
+                return f"![{alt}](/site-files/{relative})" if relative else alt
+            asset = assets.get(asset_id)
+            if asset is None:
+                return alt
+            asset_index = len(image_ids) + 1
+            stored = self.store_note_import_asset(
+                asset.data,
+                getattr(asset, "origin_part", "") or f"image-{asset_index:02d}",
+                slug,
+                asset_index,
+            )
+            if not stored:
+                asset_urls[asset_id] = None
+                return alt
+            relative, image_id, size_bytes = stored
+            asset_urls[asset_id] = relative
+            image_ids.append(image_id)
+            image_count = len(image_ids)
+            image_bytes += size_bytes
+            return f"![{alt}](/site-files/{relative})"
+
+        try:
+            if doc_format == "pdf":
+                content = anydoc.to_markdown_bytes(raw, doc_format)
+            else:
+                document = anydoc.to_document(raw, doc_format)
+                assets = {
+                    asset.id: asset
+                    for asset in (getattr(document, "assets", None) or [])
+                }
+                content = render_anydoc_document(document, asset_markdown)
+        except anydoc.NeedsOcrError as exc:
+            pages = ", ".join(str(page) for page in (getattr(exc, "pages", None) or [])[:10])
+            detail = f"（第 {pages} 页）" if pages else ""
+            api_error(self, 400, f"这个 PDF 是扫描版，当前版本暂不支持 OCR{detail}。")
+            return
+        except anydoc.EncryptedError:
+            api_error(self, 400, "文档已加密或设置了打开密码，暂时无法导入。")
+            return
+        except anydoc.ResourceLimitError:
+            api_error(self, 400, "文档结构过于复杂，已超过安全解析限制。")
+            return
+        except anydoc.MalformedError:
+            api_error(self, 400, "文档结构异常，无法转换。")
+            return
+        except anydoc.MissingPartError:
+            api_error(self, 400, "文档缺少必要内容，无法转换。")
+            return
+        except anydoc.UnsupportedError:
+            cleanup_import_images()
+            api_error(self, 400, "暂不支持这种文档格式。")
+            return
+        except anydoc.ConvertError as exc:
+            cleanup_import_images()
+            api_error(self, 400, f"文档转换失败：{exc}")
+            return
+        except Exception as exc:
+            cleanup_import_images()
+            api_error(self, 500, f"文档转换失败：{exc}")
+            return
+
+        content = str(content or "").strip()
+        if not content:
+            cleanup_import_images()
+            api_error(self, 400, "没有从文档中提取到可阅读的正文。")
+            return
+        content = (
+            f"> 导入自 {markdown_escape_text(original_name)} · {today_text()}"
+            f"\n\n{content}\n"
+        )
+        if len(content) > NOTE_CONTENT_MAX_CHARS:
+            cleanup_import_images()
+            api_error(self, 400, "转换后的正文太长了，建议拆分文档后再导入。")
+            return
+        title = Path(original_name).stem.strip()[:120] or f"{NOTE_IMPORT_FORMATS[doc_format]} 导入"
+        tags = f"{NOTE_IMPORT_FORMATS[doc_format]}导入"
+        stamp = now_text()
+        try:
+            def save_imported_note(conn):
+                cursor = conn.execute(
+                    """INSERT INTO learning_notes (title, content, tags, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (title, content, tags, stamp, stamp),
+                )
+                imported_note_id = cursor.lastrowid
+                for image_id in image_ids:
+                    conn.execute(
+                        "UPDATE note_images SET note_id = ? WHERE id = ?",
+                        (imported_note_id, image_id),
+                    )
+                return imported_note_id
+
+            note_id = transaction(save_imported_note)
+        except Exception as exc:
+            cleanup_import_images()
+            api_error(self, 500, f"保存导入笔记失败：{exc}")
+            return
+        self.send_json(
+            200,
+            {
+                "id": note_id,
+                "title": title,
+                "format": doc_format,
+                "content_length": len(content),
+                "image_count": image_count,
+                "image_bytes": image_bytes,
+            },
+        )
 
     def api_note_export(self, path):
         note_id = int(path.split("/")[3])

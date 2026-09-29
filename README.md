@@ -26,7 +26,7 @@
 - 图片自动抓取：重新上传 LCSC 采购清单后，默认在后台自动补齐新元件的商品图片。
 - BOM 缺料对比：导入 PCB 设计软件导出的 BOM（CSV / Excel），按 LCSC 编号或厂家型号匹配库存，生成缺料清单并支持导出 CSV。
 - 工作台：集中管理项目源码包、固件、文档和图片，支持版本、目标芯片、开发板、在线烧录链接、项目关联和维修台账。
-- 学习笔记：支持 Markdown 编辑、图片粘贴与导入 HTML；单篇笔记可导出为内嵌图片和源文的单文件 HTML，可在浏览器离线阅读或在 VS Code 中查看 Markdown 源文。
+- 学习笔记：支持 Markdown 编辑、图片粘贴与导入 TXT、Markdown、HTML、Word、PDF；文档会自动转换为站内可阅读的 Markdown，Word 内嵌图片会保存到笔记图库，单篇笔记可导出为内嵌图片和源文的单文件 HTML。
 - AI 提示词：`/prompts` 提供可管理的提示词库，游客可搜索、展开和复制，管理员可新增、编辑、删除和置顶，首页入口位于“Error酱动态”旁边。
 - 游戏大厅：`/games` 收录五子棋、2048、扫雷、记忆翻牌，全部是纯前端小游戏，手机可直接玩（键盘方向键 / 滑动 / 长按插旗）。
 - 日常：`/moments` 记录说说和日志，支持配图（可直接粘贴截图）、标签、置顶、编辑和删除。
@@ -53,6 +53,7 @@ chmod +x run.sh
 也可以直接运行：
 
 ```bash
+python -m pip install -r requirements.txt
 python app.py
 ```
 
@@ -161,6 +162,7 @@ powershell -ExecutionPolicy Bypass -File backup.ps1
 
 ```text
 app.py                 Python 后端、数据库、LCSC 导入和 BOM 对比
+requirements.txt       Python 运行依赖（Word / PDF 文档转换）
 backup.ps1             整个系统自动备份到 D 盘的 PowerShell 脚本
 fetch_lcsc_images.py   按 LCSC 编号从立创商城批量抓取元件图片
 static/index.html      中文响应式界面
