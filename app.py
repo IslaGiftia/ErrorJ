@@ -58,10 +58,10 @@ PUBLIC_PAGES = {
     "/",
     "/index.html",
     "/login",
+    "/register",
     "/messages",
     "/moments",
     "/references",
-    "/source",
     "/games",
     "/prompts",
     "/favicon.ico",
@@ -78,6 +78,7 @@ PUBLIC_GET_APIS = {
 }
 PUBLIC_POST_APIS = {
     "/api/login",
+    "/api/register",
     "/api/logout",
     "/api/site/messages",
 }
@@ -86,6 +87,34 @@ PUBLIC_DATA_PREFIXES = (
     "moment_images/",
     "site_photos/",
     "site_music_files/",
+)
+USERNAME_RE = re.compile(r"^[\w.-]{3,32}$", re.UNICODE)
+RESERVED_USERNAMES = {"owner", "admin", "administrator", "root", "system"}
+MEMBER_PAGE_PATHS = {"/inventory", "/bookmarks"}
+MEMBER_GET_APIS = {
+    "/api/dashboard",
+    "/api/categories",
+    "/api/locations",
+    "/api/projects",
+    "/api/parts",
+    "/api/inventory",
+    "/api/movements",
+    "/api/wishlist",
+    "/api/warehouse/types",
+    "/api/bom/reports",
+    "/api/bom/watch",
+    "/api/bookmarks",
+    "/api/bookmark-folders",
+    "/api/bookmarks/check-links",
+}
+MEMBER_GET_PREFIXES = (
+    "/api/parts/",
+    "/api/bom/reports/",
+    "/api/bookmarks/",
+)
+MEMBER_DATA_PREFIXES = (
+    "part_images/",
+    "bookmark_favicons/",
 )
 LOGIN_FAILURES = {}
 RATE_LIMITS = {}
@@ -452,6 +481,18 @@ def init_db():
                 value TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                password_hash TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                role TEXT NOT NULL DEFAULT 'member',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                approved_at TEXT,
+                last_login_at TEXT
+            );
+
             CREATE TABLE IF NOT EXISTS learning_notes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
@@ -566,6 +607,7 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             CREATE INDEX IF NOT EXISTS idx_site_links_category ON site_links(category);
             CREATE INDEX IF NOT EXISTS idx_ai_prompts_category ON ai_prompts(category);
             CREATE INDEX IF NOT EXISTS idx_ai_prompts_order ON ai_prompts(pinned, sort_order, id);
+            CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
             CREATE INDEX IF NOT EXISTS idx_learning_notes_updated ON learning_notes(updated_at);
             CREATE INDEX IF NOT EXISTS idx_note_images_note ON note_images(note_id);
             CREATE INDEX IF NOT EXISTS idx_repair_records_project ON repair_records(project_id);
@@ -2828,8 +2870,7 @@ def hash_password(password, salt=None, iterations=AUTH_PBKDF2_ITERATIONS):
     return f"pbkdf2_sha256${iterations}${salt}${digest.hex()}"
 
 
-def verify_password(password):
-    stored = AUTH_STATE.get("password_hash") or ""
+def verify_password_hash(password, stored):
     if not stored or not password:
         return False
     try:
@@ -2842,6 +2883,19 @@ def verify_password(password):
     except (ValueError, TypeError):
         return False
     return hmac.compare_digest(digest.hex(), digest_hex)
+
+
+def verify_password(password):
+    return verify_password_hash(password, AUTH_STATE.get("password_hash") or "")
+
+
+def valid_username(value):
+    username = str(value or "").strip()
+    if not USERNAME_RE.fullmatch(username):
+        return ""
+    if username.casefold() in RESERVED_USERNAMES:
+        return ""
+    return username
 
 
 def load_auth_state():
@@ -2876,29 +2930,45 @@ def load_auth_state():
     return AUTH_STATE
 
 
-def issue_session_token(days):
+def issue_session_token(days, identity):
     expires = int(time.time()) + int(days) * 86400
-    payload = str(expires)
+    kind = str(identity.get("kind") or "owner")
+    user_id = int(identity.get("user_id") or 0)
+    payload = f"v1|{kind}|{user_id}|{expires}"
     signature = hmac.new(
         str(AUTH_STATE.get("secret") or "").encode("utf-8"),
         payload.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
-    return f"{payload}.{signature}"
+    return f"{payload}|{signature}"
 
 
 def verify_session_token(token):
     secret = str(AUTH_STATE.get("secret") or "")
-    if not token or "." not in token or not secret:
-        return False
-    payload, _, signature = token.partition(".")
+    if not token or "|" not in token or not secret:
+        return None
+    parts = token.split("|")
+    if len(parts) != 5:
+        return None
+    version, kind, user_id_text, expires_text, signature = parts
+    if version != "v1" or kind not in ("owner", "member"):
+        return None
+    payload = "|".join(parts[:4])
     expected = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(signature, expected):
-        return False
+        return None
     try:
-        return int(payload) > time.time()
+        expires = int(expires_text)
+        user_id = int(user_id_text)
     except ValueError:
-        return False
+        return None
+    if expires <= time.time():
+        return None
+    if kind == "owner" and user_id != 0:
+        return None
+    if kind == "member" and user_id <= 0:
+        return None
+    return {"kind": kind, "user_id": user_id, "expires": expires}
 
 
 def rate_allow(bucket, identifier, limit, window_seconds):
@@ -2962,10 +3032,43 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 jar[name.strip()] = value.strip()
         return jar
 
-    def session_valid(self):
+    def session_identity(self):
         if not AUTH_STATE.get("enabled"):
-            return True
-        return verify_session_token(self.cookies().get(AUTH_COOKIE, ""))
+            return {
+                "kind": "owner",
+                "user_id": 0,
+                "username": "本地模式",
+                "role": "owner",
+            }
+        claims = verify_session_token(self.cookies().get(AUTH_COOKIE, ""))
+        if not claims:
+            return None
+        if claims["kind"] == "owner":
+            return {
+                "kind": "owner",
+                "user_id": 0,
+                "username": "管理员",
+                "role": "owner",
+            }
+        row = query_one(
+            "SELECT id, username, status FROM users WHERE id = ?",
+            (claims["user_id"],),
+        )
+        if not row or row.get("status") != "approved":
+            return None
+        return {
+            "kind": "member",
+            "user_id": row["id"],
+            "username": row["username"],
+            "role": "member",
+        }
+
+    def session_valid(self):
+        return self.session_identity() is not None
+
+    def is_owner(self):
+        identity = self.session_identity()
+        return bool(identity and identity.get("kind") == "owner")
 
     def client_ip(self):
         if TRUST_PROXY:
@@ -2997,19 +3100,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         parsed = urlsplit(origin)
         return bool(parsed.netloc) and parsed.netloc == host
 
-    def guard_request(self, path, method):
-        """返回 True 表示请求可以继续处理。"""
-        if method in ("POST", "PATCH", "DELETE") and path != "/api/login":
-            if AUTH_STATE.get("enabled") and not self.origin_allowed():
-                api_error(self, 403, "请求来源不合法。")
-                return False
-            if not rate_allow("write", self.client_ip(), 120, 60):
-                api_error(self, 429, "操作过于频繁，请稍后再试。")
-                return False
-        if not AUTH_STATE.get("enabled"):
-            return True
-        if self.session_valid():
-            return True
+    def public_request_allowed(self, path, method):
         if path.startswith("/static/"):
             return True
         if path.startswith("/site-files/"):
@@ -3023,6 +3114,44 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 return True
         if method == "POST" and path in PUBLIC_POST_APIS:
             return True
+        return False
+
+    def member_request_allowed(self, path, method):
+        if method != "GET":
+            return False
+        if path in MEMBER_PAGE_PATHS or path in MEMBER_GET_APIS:
+            return True
+        if path.startswith(MEMBER_GET_PREFIXES):
+            return not path.startswith("/api/bookmarks/firefox/")
+        if path.startswith("/site-files/"):
+            relative = unquote(path[len("/site-files/") :])
+            return relative.startswith(MEMBER_DATA_PREFIXES)
+        return False
+
+    def guard_request(self, path, method):
+        """返回 True 表示请求可以继续处理。"""
+        if method in ("POST", "PATCH", "DELETE") and path != "/api/login":
+            if AUTH_STATE.get("enabled") and not self.origin_allowed():
+                api_error(self, 403, "请求来源不合法。")
+                return False
+            if not rate_allow("write", self.client_ip(), 120, 60):
+                api_error(self, 429, "操作过于频繁，请稍后再试。")
+                return False
+        if not AUTH_STATE.get("enabled"):
+            return True
+        if self.public_request_allowed(path, method):
+            return True
+        identity = self.session_identity()
+        if identity and identity.get("kind") == "owner":
+            return True
+        if identity and self.member_request_allowed(path, method):
+            return True
+        if identity:
+            if path.startswith("/api/") or path.startswith("/site-files/"):
+                api_error(self, 403, "当前账号没有访问权限。")
+            else:
+                self.redirect("/?access=owner-only")
+            return False
         if path.startswith("/api/") or path.startswith("/site-files/"):
             api_error(self, 401, "请先登录。")
         else:
@@ -3032,11 +3161,15 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def api_auth_status(self):
         enabled = bool(AUTH_STATE.get("enabled"))
+        identity = self.session_identity()
         self.send_json(
             200,
             {
                 "enabled": enabled,
-                "authenticated": (not enabled or self.session_valid()),
+                "authenticated": identity is not None,
+                "role": identity.get("role") if identity else "guest",
+                "username": identity.get("username") if identity else "",
+                "owner": bool(identity and identity.get("kind") == "owner"),
             },
         )
 
@@ -3045,19 +3178,89 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if login_blocked(identifier):
             api_error(self, 429, "密码错误次数过多，请 5 分钟后再试。")
             return
+        username = str(payload.get("username") or "").strip()
         password = str(payload.get("password") or "")
-        if not verify_password(password):
-            login_failed(identifier)
-            api_error(self, 401, "密码不正确。")
-            return
+        if username:
+            user = query_one(
+                "SELECT id, username, password_hash, status FROM users WHERE username = ?",
+                (username,),
+            )
+            if not user:
+                login_failed(identifier)
+                api_error(self, 401, "用户名或密码不正确。")
+                return
+            if user.get("status") != "approved":
+                status_text = {
+                    "pending": "账号正在等待管理员审核。",
+                    "rejected": "账号申请未通过。",
+                    "disabled": "账号已被停用。",
+                }.get(user.get("status"), "账号当前不可用。")
+                api_error(self, 403, status_text)
+                return
+            if not verify_password_hash(password, user.get("password_hash")):
+                login_failed(identifier)
+                api_error(self, 401, "用户名或密码不正确。")
+                return
+            identity = {
+                "kind": "member",
+                "user_id": user["id"],
+                "username": user["username"],
+                "role": "member",
+            }
+            execute(
+                "UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?",
+                (now_text(), now_text(), user["id"]),
+            )
+        else:
+            if not verify_password(password):
+                login_failed(identifier)
+                api_error(self, 401, "管理员密码不正确。")
+                return
+            identity = {
+                "kind": "owner",
+                "user_id": 0,
+                "username": "管理员",
+                "role": "owner",
+            }
         login_succeeded(identifier)
         days = AUTH_SESSION_DAYS_REMEMBER if payload.get("remember") else AUTH_SESSION_DAYS
-        token = issue_session_token(days)
+        token = issue_session_token(days, identity)
         self.send_json(
             200,
-            {"ok": True, "days": days},
+            {
+                "ok": True,
+                "days": days,
+                "role": identity["role"],
+                "username": identity["username"],
+            },
             headers=[("Set-Cookie", self.session_cookie_value(token, days * 86400))],
         )
+
+    def api_register(self, payload):
+        if not rate_allow("register", self.client_ip(), 5, 3600):
+            api_error(self, 429, "注册请求太频繁，请稍后再试。")
+            return
+        username = valid_username(payload.get("username"))
+        password = str(payload.get("password") or "")
+        if not username:
+            api_error(self, 400, "用户名需为 3-32 位，只能包含文字、字母、数字、点、下划线或短横线。")
+            return
+        if len(password) < 8 or len(password) > 128:
+            api_error(self, 400, "密码长度需为 8-128 位。")
+            return
+        if query_one("SELECT id FROM users WHERE username = ?", (username,)):
+            api_error(self, 409, "用户名已存在。")
+            return
+        stamp = now_text()
+        execute(
+            """
+            INSERT INTO users
+                (username, password_hash, status, role, created_at, updated_at)
+            VALUES (?, ?, 'pending', 'member', ?, ?)
+            """,
+            (username, hash_password(password), stamp, stamp),
+        )
+        self.send_json(201, {"ok": True, "status": "pending"})
 
     def api_logout(self):
         self.send_json(
@@ -3176,6 +3379,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 return
             self.send_file("login.html")
             return
+        if path == "/register":
+            self.send_file("register.html")
+            return
         if path == "/logout":
             self.send_response(302)
             self.send_header("Location", "/login")
@@ -3202,8 +3408,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.send_file("references.html")
             elif path == "/moments":
                 self.send_file("moments.html")
-            elif path == "/source":
-                self.send_file("source.html")
             elif path == "/prompts":
                 self.send_file("prompts.html")
             elif path == "/games/gomoku":
@@ -3306,6 +3510,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/login":
                 self.api_login(payload)
+            elif path == "/api/register":
+                self.api_register(payload)
             elif path == "/api/logout":
                 self.api_logout()
             elif path == "/api/categories":
@@ -4133,7 +4339,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                FROM site_messages
                ORDER BY COALESCE(parent_id, id) DESC, id ASC"""
         )
-        can_delete = self.session_valid()
+        can_delete = self.is_owner()
         files = self.site_message_files_map([row["id"] for row in rows])
         for row in rows:
             row["files"] = files.get(row["id"], [])
@@ -4272,7 +4478,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                FROM moments
                ORDER BY pinned DESC, created_at DESC, id DESC"""
         )
-        can_manage = self.session_valid()
+        can_manage = self.is_owner()
         files = self.moment_files_map([row["id"] for row in rows])
         for row in rows:
             row["files"] = files.get(row["id"], [])
@@ -4482,7 +4688,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             200,
             {
                 "items": rows,
-                "can_manage": self.session_valid(),
+                "can_manage": self.is_owner(),
             },
         )
 

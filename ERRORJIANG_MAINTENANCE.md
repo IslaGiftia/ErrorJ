@@ -373,6 +373,60 @@ tr '\0' '\n' < /proc/$(systemctl show errorjiang -p MainPID --value)/environ \
   | grep '^INVENTORY_PASSWORD='
 ```
 
+### 5.5 管理注册用户
+
+普通访客可以访问：
+
+```text
+http://<服务器公网IP>/register
+```
+
+提交后账号默认为 `pending`，不能立即登录。
+
+查看待审核用户：
+
+```bash
+cd /opt/errorjiang
+runuser -u errorjiang -- python3 tools/manage_users.py pending
+```
+
+批准账号：
+
+```bash
+runuser -u errorjiang -- python3 tools/manage_users.py approve 用户名
+```
+
+拒绝、停用和重新启用：
+
+```bash
+runuser -u errorjiang -- python3 tools/manage_users.py reject 用户名
+runuser -u errorjiang -- python3 tools/manage_users.py disable 用户名
+runuser -u errorjiang -- python3 tools/manage_users.py enable 用户名
+```
+
+直接创建已批准账号：
+
+```bash
+runuser -u errorjiang -- python3 tools/manage_users.py create 用户名
+```
+
+重置密码或删除账号：
+
+```bash
+runuser -u errorjiang -- python3 tools/manage_users.py reset-password 用户名
+runuser -u errorjiang -- python3 tools/manage_users.py delete 用户名
+```
+
+已批准普通账号的权限：
+
+```text
+仓库：只读
+网页收藏：只读
+笔记：不可访问
+工作台：不可访问
+仓库和收藏的所有修改操作：不可用
+```
+
 ## 6. 数据在哪里
 
 当前网站的数据目录：

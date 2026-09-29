@@ -378,6 +378,31 @@ HTTP/1.1 200 OK
 - `/prompts` 页面加入首页同款下雨特效，并移除顶部品牌栏和返回按钮。
 - 首页模块入口由“看Error酱的日常”改名为“Error酱动态”。
 
+### 2.11 普通账号注册与审批
+
+完成内容：
+
+- 新增 `users` 表，保存用户名、密码哈希、审批状态和最后登录时间。
+- 新增公开注册页 `/register` 和注册接口 `/api/register`，新账号默认状态为 `pending`。
+- 新增服务器管理脚本 `tools/manage_users.py`。
+- 管理员密码登录与普通账号登录共用 `/api/login`；管理员用户名留空。
+- 已批准普通账号可以只读访问仓库和网页收藏。
+- 普通账号不能修改仓库或网页收藏，不能访问笔记、工作台及其文件。
+- 普通账号无法编辑 Error酱动态或 AI 提示词，不能删除留言。
+- 仓库和收藏页显示只读提示，并隐藏新增、导入、编辑、删除等入口。
+- 网页收藏链接继续使用新标签页打开。
+
+服务器审批命令：
+
+```bash
+python tools/manage_users.py pending
+python tools/manage_users.py approve <用户名>
+python tools/manage_users.py reject <用户名>
+python tools/manage_users.py disable <用户名>
+python tools/manage_users.py reset-password <用户名>
+python tools/manage_users.py create <用户名>
+```
+
 ## 3. 当前尚未完成
 
 ### 3.1 每日自动备份

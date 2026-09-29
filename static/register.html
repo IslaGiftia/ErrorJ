@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <title>注册 · Error酱</title>
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
+  <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
+  <link rel="stylesheet" href="/static/site/rain.css">
+  <style>
+    :root {
+      color-scheme: light;
+    }
+
+    body {
+      box-sizing: border-box;
+      min-height: 100vh;
+      min-height: 100svh;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: var(--rain-top, #ffffff);
+      color: #1f2329;
+      font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+      font-size: 14px;
+    }
+
+    .register-card {
+      position: relative;
+      z-index: 1;
+      box-sizing: border-box;
+      width: min(390px, 100%);
+      padding: 28px 26px 24px;
+      border: 1px solid rgba(127, 127, 145, 0.28);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--rain-top, #ffffff) 86%, transparent);
+      box-shadow: 0 16px 48px rgba(24, 31, 45, 0.18);
+      backdrop-filter: blur(10px);
+      text-align: center;
+    }
+
+    .register-card h1 {
+      margin: 0 0 6px;
+      font-size: 22px;
+    }
+
+    .register-card > p {
+      margin: 0 0 20px;
+      color: #697386;
+      font-size: 13px;
+    }
+
+    .register-field {
+      display: block;
+      margin-bottom: 14px;
+      text-align: left;
+    }
+
+    .register-field span {
+      display: block;
+      margin-bottom: 6px;
+      color: #697386;
+      font-size: 13px;
+    }
+
+    .register-field input {
+      box-sizing: border-box;
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid rgba(127, 127, 145, 0.36);
+      border-radius: 8px;
+      outline: 0;
+      background: rgba(127, 127, 145, 0.08);
+      color: inherit;
+      font: inherit;
+    }
+
+    .register-field input:focus {
+      outline: 2px solid #7b68ee;
+      outline-offset: -1px;
+    }
+
+    .register-submit {
+      width: 100%;
+      padding: 11px 16px;
+      border: 0;
+      border-radius: 8px;
+      background: #7b68ee;
+      color: #fff;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .register-submit:disabled {
+      cursor: wait;
+      opacity: 0.6;
+    }
+
+    .register-message {
+      margin-top: 12px;
+      padding: 9px 12px;
+      border-radius: 8px;
+      background: rgba(127, 104, 238, 0.1);
+      color: #5d4fd1;
+      font-size: 13px;
+      text-align: left;
+    }
+
+    .register-message.is-error {
+      background: rgba(214, 69, 69, 0.12);
+      color: #d64545;
+    }
+
+    .register-back {
+      display: inline-block;
+      margin-top: 18px;
+      color: inherit;
+      font-size: 13px;
+      opacity: 0.72;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="rain-scene rain-scene--fixed" id="rainScene" aria-hidden="true">
+    <div class="rain-layer" id="rainLayer"></div>
+    <div class="rain-floor" id="rainFloor"></div>
+  </div>
+
+  <form class="register-card" id="registerForm">
+    <h1>申请注册</h1>
+    <p>注册后需要管理员批准，批准前无法登录。</p>
+
+    <label class="register-field">
+      <span>用户名</span>
+      <input id="username" type="text" autocomplete="username" maxlength="32" required>
+    </label>
+    <label class="register-field">
+      <span>密码</span>
+      <input id="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>
+    </label>
+    <label class="register-field">
+      <span>确认密码</span>
+      <input id="confirmPassword" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>
+    </label>
+
+    <button class="register-submit" id="registerSubmit" type="submit">提交注册申请</button>
+    <div class="register-message" id="registerMessage" hidden></div>
+    <a class="register-back" href="/login">返回登录</a>
+  </form>
+
+  <script src="/static/site/rain.js"></script>
+  <script>
+    (function () {
+      var form = document.getElementById("registerForm");
+      var submit = document.getElementById("registerSubmit");
+      var message = document.getElementById("registerMessage");
+
+      function showMessage(text, error) {
+        message.textContent = text;
+        message.classList.toggle("is-error", Boolean(error));
+        message.hidden = false;
+      }
+
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        var username = document.getElementById("username").value.trim();
+        var password = document.getElementById("password").value;
+        var confirmPassword = document.getElementById("confirmPassword").value;
+        if (password !== confirmPassword) {
+          showMessage("两次输入的密码不一致。", true);
+          return;
+        }
+        submit.disabled = true;
+        fetch("/api/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: username, password: password }),
+        }).then(function (response) {
+          return response.json().catch(function () { return {}; }).then(function (data) {
+            if (!response.ok) throw new Error(data.error || "注册失败");
+            return data;
+          });
+        }).then(function () {
+          form.querySelectorAll("input, button").forEach(function (node) {
+            node.disabled = true;
+          });
+          showMessage("申请已提交，请等待管理员在服务器审核。", false);
+        }).catch(function (err) {
+          showMessage(err.message || "注册失败", true);
+          submit.disabled = false;
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

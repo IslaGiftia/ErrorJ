@@ -386,7 +386,7 @@
       <div class="pin-bookmark-card ${item.link_status === "broken" ? "link-broken" : ""}"
            data-bookmark-card="${item.id}" draggable="true">
         ${faviconMarkup(item)}
-        <a class="pin-bookmark-title" href="${escapeHtml(item.url)}" target="_blank" rel="noopener" draggable="false" title="${escapeHtml(item.title || item.url)}">${escapeHtml(item.title || item.url)}</a>
+        <a class="pin-bookmark-title" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" draggable="false" title="${escapeHtml(item.title || item.url)}">${escapeHtml(item.title || item.url)}</a>
         ${status}
         ${noteChipMarkup(item)}
       </div>
@@ -466,7 +466,7 @@
            data-list-row="${item.id}" draggable="true">
         <input class="pin-list-check" type="checkbox" data-select-bookmark="${item.id}" ${selected ? "checked" : ""}>
         ${faviconMarkup(item)}
-        <a class="pin-list-title-link" href="${escapeHtml(item.url)}" target="_blank" rel="noopener" draggable="false">${escapeHtml(item.title || item.url)}</a>
+        <a class="pin-list-title-link" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" draggable="false">${escapeHtml(item.title || item.url)}</a>
         <span class="pin-list-url" title="${escapeHtml(item.url)}">${escapeHtml(item.url)}</span>
         <span class="pin-list-date">${escapeHtml(shortDate(item.created_at))}</span>
         ${linkStatusMarkup(item)}

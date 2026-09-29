@@ -32,8 +32,7 @@
   </div>
 
   <div class="auth-menu" id="authMenu" hidden>
-    <strong>已登录</strong>
-    <a href="/inventory">进入仓库</a>
+    <strong id="authMenuUser">已登录</strong>
     <button type="button" id="logoutBtn">退出登录</button>
   </div>
 
@@ -41,31 +40,31 @@
     <div class="rain-layer" id="rainLayer" aria-hidden="true"></div>
     <div class="landing-inner">
       <h1 class="landing-title"><span id="landingTitleText">使用Error酱工作和学习</span></h1>
-      <p class="landing-desc" id="landingDesc">Error酱是一个工作和学习平台，目前看来只适合作者自己使用，她全部由ChatGPT和DeepSeek完成，没有原创，全是搬运。不久后，Error酱也会开源</p>
+      <p class="landing-desc" id="landingDesc">Error酱是一个工作和学习平台，目前看来只适合作者自己使用，她全部由ChatGPT和DeepSeek完成，没有原创，全是搬运。现在，Error酱也开源了</p>
 
       <div class="repo-grid">
-        <a class="repo-entry is-locked" href="/inventory" target="ej-inventory" data-private-module>
+        <a class="repo-entry is-locked" href="/inventory" target="ej-inventory" data-private-module="inventory">
           <span class="repo-entry-label">
             <span class="repo-entry-text">📦<span id="repoCount">登录后查看</span></span>
           </span>
           <span class="repo-thumbs" id="repoThumbs"></span>
         </a>
 
-        <a class="repo-entry is-locked" href="/bookmarks" target="ej-bookmarks" data-private-module>
+        <a class="repo-entry is-locked" href="/bookmarks" target="ej-bookmarks" data-private-module="bookmarks">
           <span class="repo-entry-label">
             <span class="repo-entry-text">🔖<span id="bookmarkCount">登录后查看</span></span>
           </span>
           <span class="repo-thumbs" id="bookmarkThumbs"></span>
         </a>
 
-        <a class="repo-entry is-locked" href="/notes" target="ej-notes" data-private-module>
+        <a class="repo-entry is-locked" href="/notes" target="ej-notes" data-private-module="notes">
           <span class="repo-entry-label">
             <span class="repo-entry-text">📝<span id="noteCount">登录后查看</span></span>
           </span>
           <span class="repo-thumbs" id="notesThumbs"></span>
         </a>
 
-        <a class="repo-entry is-locked" href="/workbench" target="ej-workbench" data-private-module>
+        <a class="repo-entry is-locked" href="/workbench" target="ej-workbench" data-private-module="workbench">
           <span class="repo-entry-label">
             <span class="repo-entry-text">🧰<span id="workbenchCount">登录后查看</span></span>
           </span>
@@ -86,7 +85,7 @@
 
       <nav class="landing-links" aria-label="项目相关链接">
         <a href="/references">参考项目</a>
-        <a href="/source">Error酱源码</a>
+        <a href="https://github.com/IslaGiftia/ErrorJ" target="_blank" rel="noopener noreferrer">Error酱源码</a>
       </nav>
 
       <p class="landing-footer"><strong>时光流转，愿你与珍爱之人，能够再次重逢。</strong></p>
@@ -98,8 +97,12 @@
     <div class="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="authTitle">
       <button class="auth-close" id="authClose" type="button" aria-label="关闭">×</button>
       <h2 id="authTitle">登录 Error酱</h2>
-      <p>登录后可访问仓库、网页收藏、笔记和工作台。</p>
+      <p>普通账号可只读访问仓库和网页收藏；管理员拥有全部权限。</p>
       <form id="authForm">
+        <label class="auth-field">
+          <span>用户名</span>
+          <input id="authUsername" type="text" autocomplete="username" placeholder="管理员可留空">
+        </label>
         <label class="auth-field">
           <span>访问密码</span>
           <input id="authPassword" type="password" autocomplete="current-password" required>
@@ -111,6 +114,7 @@
         <button class="auth-submit" id="authSubmit" type="submit">登录</button>
         <div class="auth-error" id="authError" hidden></div>
       </form>
+      <a class="auth-register-link" href="/register">还没有账号？申请注册</a>
     </div>
   </div>
 

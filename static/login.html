@@ -54,14 +54,6 @@
       background: rgba(38, 38, 38, 0.86);
     }
 
-    .login-avatar {
-      width: 76px;
-      height: 76px;
-      border-radius: 50%;
-      margin-bottom: 14px;
-      box-shadow: 0 6px 18px rgba(24, 31, 45, 0.18);
-    }
-
     .login-card h1 {
       margin: 0 0 6px;
       font-size: 20px;
@@ -182,13 +174,17 @@
   </div>
 
   <form class="login-card" id="loginForm">
-    <img class="login-avatar" src="/static/site/error-chan-favicon.png?v=3" alt="Error酱">
     <h1>Error酱</h1>
-    <p>输入访问密码继续</p>
+    <p>管理员可留空用户名；普通账号填写已批准的用户名</p>
+
+    <label class="login-field">
+      <span>用户名</span>
+      <input type="text" id="username" autocomplete="username" placeholder="管理员可留空" autofocus>
+    </label>
 
     <label class="login-field">
       <span>密码</span>
-      <input type="password" id="password" autocomplete="current-password" autofocus required>
+      <input type="password" id="password" autocomplete="current-password" required>
     </label>
 
     <label class="login-remember">
@@ -198,6 +194,7 @@
 
     <button class="login-submit" type="submit" id="submitBtn">登录</button>
     <div class="login-error" id="error" hidden></div>
+    <a class="login-back" href="/register">申请注册普通账号</a>
   </form>
 
   <script src="/static/site/rain.js"></script>
@@ -216,6 +213,7 @@
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            username: document.getElementById("username").value.trim(),
             password: document.getElementById("password").value,
             remember: document.getElementById("remember").checked,
           }),
