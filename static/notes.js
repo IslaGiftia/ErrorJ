@@ -6,6 +6,7 @@
     search: "",
     sort: "updated",
     tag: "",
+    tagsExpanded: false,
     baseline: { title: "", content: "", tags: "" },
     uploading: 0,
     outline: [],
@@ -631,6 +632,18 @@
       : "共 0 篇";
   }
 
+  function updateTagToggle() {
+    const wrap = $("tagFilter");
+    const toggle = $("tagToggle");
+    if (!wrap || !toggle) return;
+    const expanded = state.tagsExpanded;
+    wrap.classList.remove("is-expanded");
+    const canToggle = wrap.scrollHeight > wrap.clientHeight + 2;
+    wrap.classList.toggle("is-expanded", expanded && canToggle);
+    toggle.hidden = !canToggle;
+    toggle.textContent = expanded ? "收起标签" : "展开标签";
+  }
+
   function renderTagFilter() {
     const wrap = $("tagFilter");
     const counts = new Map();
@@ -639,7 +652,11 @@
     });
     const tags = Array.from(counts.keys()).sort((a, b) => a.localeCompare(b, "zh-Hans-CN"));
     wrap.innerHTML = "";
-    if (!tags.length) return;
+    wrap.classList.toggle("is-expanded", state.tagsExpanded);
+    if (!tags.length) {
+      $("tagToggle").hidden = true;
+      return;
+    }
     const all = document.createElement("button");
     all.type = "button";
     all.className = "nt-tag-chip" + (state.tag ? "" : " active");
@@ -662,6 +679,7 @@
       });
       wrap.appendChild(chip);
     });
+    updateTagToggle();
   }
 
   async function loadNotes(options = {}) {
@@ -1128,6 +1146,11 @@
       renderList();
     });
 
+    $("tagToggle").addEventListener("click", () => {
+      state.tagsExpanded = !state.tagsExpanded;
+      updateTagToggle();
+    });
+
     $("toolbar").addEventListener("click", (event) => {
       const button = event.target.closest("button[data-action]");
       if (button) applyToolbar(button.dataset.action);
@@ -1149,6 +1172,7 @@
     });
 
     window.addEventListener("resize", () => {
+      updateTagToggle();
       syncHeadHeight();
       scheduleOutlineUpdate();
     });

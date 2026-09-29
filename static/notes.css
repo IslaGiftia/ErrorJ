@@ -308,11 +308,44 @@ button:disabled {
   box-shadow: var(--nt-shadow);
 }
 
+.nt-tags-wrap {
+  position: relative;
+}
+
 .nt-tags {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
+  max-height: 58px;
+  overflow: hidden;
+}
+
+.nt-tags.is-expanded {
+  max-height: none;
+}
+
+.nt-tags:not(.is-expanded)::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 18px;
+  background: linear-gradient(to bottom, transparent, var(--nt-surface));
+  pointer-events: none;
+  content: "";
+}
+
+.nt-tags-toggle {
+  margin-top: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--nt-accent);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .nt-tag-chip {

@@ -512,9 +512,17 @@ input {
 }
 
 .pr-dialog-actions {
+  position: sticky;
+  bottom: -24px;
+  z-index: 3;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  margin: 16px -24px -24px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--pr-line);
+  background: var(--pr-panel);
+  box-shadow: 0 -10px 24px color-mix(in srgb, #000 8%, transparent);
 }
 
 @media (max-width: 840px) {
