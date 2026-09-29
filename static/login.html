@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -19,7 +19,9 @@
 
     body {
       margin: 0;
+      box-sizing: border-box;
       min-height: 100vh;
+      min-height: 100svh;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -37,6 +39,7 @@
     .login-card {
       position: relative;
       z-index: 1;
+      box-sizing: border-box;
       width: min(380px, 100%);
       padding: 28px 26px 24px;
       border: 1px solid rgba(127, 127, 145, 0.28);
@@ -84,6 +87,7 @@
     }
 
     .login-field input {
+      box-sizing: border-box;
       width: 100%;
       padding: 10px 12px;
       border: 1px solid rgba(127, 127, 145, 0.36);
@@ -164,13 +168,12 @@
   <script>
     (function () {
       try {
-        var pref = localStorage.getItem("errorSiteTheme") || "auto";
-        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        var pref = localStorage.getItem("errorSiteTheme") || "light";
+        var dark = pref === "dark";
         document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
       } catch (err) {}
     })();
   </script>
-  <script src="/static/site/theme.js"></script>
 </head>
 <body>
   <div class="rain-scene rain-scene--fixed" id="rainScene" aria-hidden="true">

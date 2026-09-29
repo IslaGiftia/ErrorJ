@@ -76,6 +76,7 @@
 - 标签写在笔记里，用逗号分隔；删除笔记时它引用的图片一并清理。
 - 首页第三张卡片显示笔记数量和最近的笔记缩略图。
 - 支持把现成的 HTML / Markdown 文档导入成笔记：`python tools/import_doc_note.py 文档.html|文档.md --tags "标签"`，HTML 里的内嵌图片和 Markdown 里引用的本地图片都会提取到 `data/note_images/`，同名笔记默认覆盖更新。
+- 单篇笔记可导出为单文件 HTML：图片以 data URI 内嵌，正文保留 Markdown 源文折叠区，可在浏览器离线打开，也可在 VS Code 中阅读。
 
 ### 2.6 日常（说说 / 日志）
 
@@ -228,7 +229,7 @@
 - 数据库：SQLite，文件位于 `data/inventory.db`。
 - 前端：原生 HTML、CSS、JavaScript。
 - 图标：Lucide。
-- 图片处理：Pillow，主要用于 LCSC 图片处理和像素素材生成。
+- 图片处理：浏览器端 Canvas 缩放，服务端没有 Pillow 等图像处理依赖。
 - 运行环境：本机 Python 3.12，服务实际使用 Codex 运行时 Python。
 
 ### 4.2 主要文件
@@ -255,7 +256,7 @@
 | `static/bookmarks.html` / `bookmarks.css` / `bookmarks.js` | 网页收藏模块 |
 | `static/notes.html` | 学习笔记页面 |
 | `static/notes.css` | 学习笔记样式（`--nt-*` 变量，明暗两套） |
-| `static/notes.js` | 学习笔记交互（Markdown 编辑、图片上传、搜索） |
+| `static/notes.js` | 学习笔记交互（Markdown 编辑、图片上传、搜索、HTML 导出） |
 | `static/vendor/marked.min.js` | Markdown 渲染（本地 vendor） |
 | `static/vendor/purify.min.js` | 渲染结果 XSS 清洗（本地 vendor） |
 | `tools/import_doc_note.py` | 把 HTML / Markdown 文档导入成学习笔记（提取内嵌与本地图片） |
@@ -263,7 +264,6 @@
 | `start-inventory.bat` | 启动脚本 |
 | `autostart.vbs` | 开机自启脚本 |
 | `fetch_lcsc_images.py` | LCSC 商品图批量抓取 |
-| `tools/make_error_chan.py` | 早期像素素材生成脚本 |
 
 ### 4.3 数据库表
 
@@ -296,7 +296,7 @@
 - BOM：`/api/bom/compare`、`/api/bom/reports` 等。
 - LCSC 导入：`/api/import/lcsc`。
 - 网站模块：`/api/site/messages`、`/api/site/photos`、`/api/site/music`、`/api/site/music/upload`、`/api/site/links`。
-- 学习笔记：`/api/notes`（GET 列表 / POST 新建）、`/api/notes/<id>`（PATCH 修改 / DELETE 删除）、`/api/notes/images`（POST 上传）、`/api/notes/images/<id>`（DELETE）。
+- 学习笔记：`/api/notes`（GET 列表 / POST 新建）、`/api/notes/<id>`（PATCH 修改 / DELETE 删除）、`/api/notes/<id>/export.html`（GET 导出单文件 HTML）、`/api/notes/images`（POST 上传）、`/api/notes/images/<id>`（DELETE）。
 - 网页收藏：`/api/bookmarks`、`/api/bookmark-folders`、`/api/bookmarks/firefox/import`、`/api/bookmarks/check-links`。
 - 仓库类型：`/api/warehouse/types`。
 

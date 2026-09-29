@@ -4,6 +4,7 @@ import configparser
 import csv
 import gzip
 import hashlib
+from html import escape as html_escape
 from html.parser import HTMLParser
 import hmac
 import io
@@ -2282,6 +2283,385 @@ def note_image_paths(content):
     return paths
 
 
+def note_export_json(value):
+    """把值编码成可安全放进 HTML script 标签的 JSON。"""
+    text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    return (
+        text.replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
+
+
+def note_export_image_map(content):
+    """把笔记引用的本地图片编码成 data URI，供导出的单文件 HTML 内嵌。"""
+    images = {}
+    data_root = DATA_DIR.resolve()
+    for relative in note_image_paths(content):
+        if relative in images:
+            continue
+        try:
+            full = (DATA_DIR / relative).resolve()
+            full.relative_to(data_root)
+        except (ValueError, OSError):
+            continue
+        if not full.is_file():
+            continue
+        mime_type = mimetypes.guess_type(full.name)[0] or ""
+        if not mime_type.startswith("image/"):
+            continue
+        try:
+            raw = full.read_bytes()
+        except OSError:
+            continue
+        images[relative] = f"data:{mime_type};base64,{base64.b64encode(raw).decode('ascii')}"
+    return images
+
+
+def build_note_export_html(note, image_map):
+    """生成可离线打开、也可在 VS Code 中阅读的单文件笔记 HTML。"""
+    title = str(note.get("title") or "未命名笔记")
+    content = str(note.get("content") or "")
+    tags = [
+        item.strip()
+        for item in re.split(r"[,，、]", str(note.get("tags") or ""))
+        if item.strip()
+    ]
+    tags_html = "".join(f"<span>{html_escape(tag)}</span>" for tag in tags)
+    created_at = html_escape(str(note.get("created_at") or ""))
+    updated_at = html_escape(str(note.get("updated_at") or ""))
+    generated_at = html_escape(now_text())
+
+    try:
+        marked_script = (STATIC_DIR / "vendor" / "marked.min.js").read_text(encoding="utf-8")
+        purify_script = (STATIC_DIR / "vendor" / "purify.min.js").read_text(encoding="utf-8")
+    except OSError:
+        marked_script = ""
+        purify_script = ""
+
+    css = """
+    :root {
+      color-scheme: light dark;
+      --bg: #f6f7fb;
+      --surface: #ffffff;
+      --text: #1f2329;
+      --muted: #667085;
+      --border: #e4e7ec;
+      --accent: #6d5ce7;
+      --code-bg: #f3f4f6;
+      --quote-bg: #f7f5ff;
+      --shadow: 0 12px 36px rgba(24, 31, 45, 0.08);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111214;
+        --surface: #1c1d21;
+        --text: #f2f3f5;
+        --muted: #a1a1aa;
+        --border: #34363d;
+        --accent: #a78bfa;
+        --code-bg: #15161a;
+        --quote-bg: #252134;
+        --shadow: 0 14px 40px rgba(0, 0, 0, 0.32);
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+      font-size: 16px;
+      line-height: 1.75;
+    }
+
+    .note-shell {
+      width: min(920px, 100%);
+      min-height: 100vh;
+      margin: 0 auto;
+      padding: 44px 28px 80px;
+    }
+
+    .note-header {
+      margin-bottom: 28px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .note-header h1 {
+      margin: 0 0 10px;
+      font-size: clamp(26px, 4vw, 38px);
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+
+    .note-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .note-tags {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .note-tags span {
+      padding: 1px 8px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent) 14%, transparent);
+      color: var(--accent);
+    }
+
+    .markdown-body {
+      padding: 30px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      overflow-wrap: anywhere;
+    }
+
+    .markdown-body > :first-child {
+      margin-top: 0;
+    }
+
+    .markdown-body > :last-child {
+      margin-bottom: 0;
+    }
+
+    .markdown-body h1,
+    .markdown-body h2,
+    .markdown-body h3,
+    .markdown-body h4,
+    .markdown-body h5,
+    .markdown-body h6 {
+      margin: 1.6em 0 0.6em;
+      line-height: 1.35;
+      scroll-margin-top: 20px;
+    }
+
+    .markdown-body h1 {
+      color: var(--accent);
+    }
+
+    .markdown-body h2,
+    .markdown-body h3 {
+      padding-bottom: 0.28em;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .markdown-body p,
+    .markdown-body ul,
+    .markdown-body ol,
+    .markdown-body blockquote,
+    .markdown-body table,
+    .markdown-body pre {
+      margin: 0 0 1em;
+    }
+
+    .markdown-body li + li {
+      margin-top: 0.28em;
+    }
+
+    .markdown-body a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .markdown-body a:hover {
+      text-decoration: underline;
+    }
+
+    .markdown-body img {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      margin: 1.1em auto;
+      border-radius: 10px;
+    }
+
+    .markdown-body blockquote {
+      padding: 10px 16px;
+      border-left: 4px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      background: var(--quote-bg);
+      color: var(--muted);
+    }
+
+    .markdown-body code {
+      padding: 0.15em 0.4em;
+      border-radius: 5px;
+      background: var(--code-bg);
+      font-family: Consolas, "Cascadia Code", "SFMono-Regular", monospace;
+      font-size: 0.9em;
+    }
+
+    .markdown-body pre {
+      overflow: auto;
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--code-bg);
+    }
+
+    .markdown-body pre code {
+      display: block;
+      padding: 0;
+      background: transparent;
+      white-space: pre;
+    }
+
+    .markdown-body table {
+      display: block;
+      width: 100%;
+      overflow-x: auto;
+      border-collapse: collapse;
+    }
+
+    .markdown-body th,
+    .markdown-body td {
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      text-align: left;
+    }
+
+    .markdown-body th {
+      background: var(--code-bg);
+    }
+
+    .source-panel {
+      margin-top: 20px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--surface);
+    }
+
+    .source-panel summary {
+      padding: 12px 16px;
+      cursor: pointer;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .source-panel pre {
+      margin: 0;
+      padding: 16px;
+      overflow: auto;
+      border-top: 1px solid var(--border);
+      background: var(--code-bg);
+    }
+
+    .source-panel code {
+      font-family: Consolas, "Cascadia Code", "SFMono-Regular", monospace;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    @media (max-width: 640px) {
+      .note-shell {
+        padding: 24px 14px 50px;
+      }
+
+      .markdown-body {
+        padding: 20px 16px;
+        border-radius: 10px;
+      }
+    }
+
+    @media print {
+      body {
+        background: #fff;
+        color: #111;
+      }
+
+      .note-shell {
+        width: 100%;
+        padding: 0;
+      }
+
+      .markdown-body,
+      .source-panel {
+        border: 0;
+        box-shadow: none;
+      }
+
+      .source-panel {
+        display: none;
+      }
+    }
+    """
+
+    source_json = note_export_json(content)
+    images_json = note_export_json(image_map)
+    return (
+        "<!doctype html>\n"
+        '<html lang="zh-CN">\n'
+        "<head>\n"
+        '  <meta charset="utf-8">\n'
+        '  <meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        f"  <title>{html_escape(title)} · Error酱</title>\n"
+        f"  <style>{css}</style>\n"
+        "</head>\n"
+        "<body>\n"
+        '  <main class="note-shell">\n'
+        '    <header class="note-header">\n'
+        f"      <h1>{html_escape(title)}</h1>\n"
+        '      <div class="note-meta">\n'
+        f'        <span class="note-tags">{tags_html}</span>\n'
+        f"        <span>创建：{created_at}</span>\n"
+        f"        <span>更新：{updated_at}</span>\n"
+        f"        <span>导出：{generated_at}</span>\n"
+        "      </div>\n"
+        "    </header>\n"
+        '    <article class="markdown-body" id="rendered"></article>\n'
+        '    <details class="source-panel">\n'
+        "      <summary>Markdown 源文（可在 VS Code 中阅读）</summary>\n"
+        f"      <pre><code>{html_escape(content)}</code></pre>\n"
+        "    </details>\n"
+        "  </main>\n"
+        f'  <script id="note-source" type="application/json">{source_json}</script>\n'
+        f'  <script id="note-images" type="application/json">{images_json}</script>\n'
+        f"  <script>{marked_script}</script>\n"
+        f"  <script>{purify_script}</script>\n"
+        "  <script>\n"
+        "    (function () {\n"
+        '      var source = JSON.parse(document.getElementById("note-source").textContent || "\\\"\\\"");\n'
+        '      var images = JSON.parse(document.getElementById("note-images").textContent || "{}");\n'
+        "      var renderedSource = source.replace(/\\/site-files\\/(note_images\\/[A-Za-z0-9._%+-]+)/g, function (match, path) {\n"
+        "        var image = images[path];\n"
+        "        if (!image && path.indexOf(\"%\") >= 0) {\n"
+        "          try { image = images[decodeURIComponent(path)]; } catch (err) {}\n"
+        "        }\n"
+        "        return image || match;\n"
+        "      });\n"
+        "      if (window.marked && window.DOMPurify) {\n"
+        "        marked.setOptions({ gfm: true, breaks: true });\n"
+        '        document.getElementById("rendered").innerHTML = DOMPurify.sanitize(marked.parse(renderedSource));\n'
+        '        document.querySelectorAll("#rendered a[href]").forEach(function (link) {\n'
+        '          link.setAttribute("target", "_blank");\n'
+        '          link.setAttribute("rel", "noopener noreferrer");\n'
+        "        });\n"
+        "      } else {\n"
+        '        document.getElementById("rendered").textContent = source;\n'
+        "      }\n"
+        "    })();\n"
+        "  </script>\n"
+        "</body>\n"
+        "</html>\n"
+    )
+
+
 def detect_image_type(raw):
     for magic, mime_type in NOTE_IMAGE_MAGIC:
         if raw.startswith(magic):
@@ -2762,6 +3142,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_links(query)
             elif path == "/api/notes":
                 self.api_notes(query)
+            elif re.fullmatch(r"/api/notes/\d+/export\.html", path):
+                self.api_note_export(path)
             elif path == "/api/workbench/summary":
                 self.api_workbench_summary()
             elif path == "/api/workbench/assets":
@@ -4085,6 +4467,31 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )
         self.sync_note_images(note_id, content)
         self.send_json(200, {"id": note_id})
+
+    def api_note_export(self, path):
+        note_id = int(path.split("/")[3])
+        note = query_one("SELECT * FROM learning_notes WHERE id = ?", (note_id,))
+        if not note:
+            api_error(self, 404, "笔记不存在。")
+            return
+        html = build_note_export_html(note, note_export_image_map(note.get("content") or ""))
+        body = html.encode("utf-8")
+        raw_name = re.sub(r'[\\/:*?"<>|\r\n]+', "_", str(note.get("title") or "笔记")).strip(" .")
+        file_name = f"{(raw_name or f'note-{note_id}')[:80]}.html"
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header(
+                "Content-Disposition",
+                f"attachment; filename*=UTF-8''{quote(file_name)}",
+            )
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
 
     def api_note_item(self, path):
         note_id = int(path.rsplit("/", 1)[1])

@@ -6,6 +6,17 @@
 
 Docker 部署仍然可用，放在本文最后作为可选方案。
 
+> 当前生产部署记录，更新于 2026-09-29：
+>
+> - 公网地址：`http://<服务器公网IP>`
+> - 活动代码目录：`/opt/errorjiang`
+> - Git 仓库：`git@github.com:IslaGiftia/ErrorJ.git`
+> - 当前提交：`e3dd260`
+> - 数据目录：`/opt/errorjiang/data`
+> - 运行方式：`errorjiang.service` + Nginx
+> - `/opt/ErrorJ` 是另一份未运行的历史部署副本
+> - 当前仍为 HTTP，HTTPS 和每日自动备份尚未完成
+
 ## 1. 最终架构
 
 ```text
@@ -134,13 +145,13 @@ ufw status
 项目仓库：
 
 ```text
-https://github.com/IslaGiftia/ErrorJiang.git
+https://github.com/IslaGiftia/ErrorJ.git
 ```
 
 首次部署：
 
 ```bash
-git clone https://github.com/IslaGiftia/ErrorJiang.git /opt/errorjiang
+git clone https://github.com/IslaGiftia/ErrorJ.git /opt/errorjiang
 ```
 
 如果目录已经存在：

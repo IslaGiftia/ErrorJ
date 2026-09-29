@@ -868,6 +868,12 @@
     });
   }
 
+  function exportNote() {
+    const note = activeNote();
+    if (!note) return;
+    window.location.href = `/api/notes/${encodeURIComponent(note.id)}/export.html`;
+  }
+
   /* ---------- editing helpers ---------- */
 
   function insertText(before, after = "", placeholder = "") {
@@ -1085,6 +1091,7 @@
   function bindEvents() {
     $("newNoteBtn").addEventListener("click", newNote);
     $("htmlImportBtn").addEventListener("click", () => $("htmlInput").click());
+    $("exportBtn").addEventListener("click", exportNote);
     $("editBtn").addEventListener("click", () => setMode("edit"));
     $("saveBtn").addEventListener("click", saveNote);
     $("deleteBtn").addEventListener("click", deleteNote);
