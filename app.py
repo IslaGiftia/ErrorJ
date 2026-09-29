@@ -54,6 +54,39 @@ AUTH_SESSION_DAYS = 7
 AUTH_SESSION_DAYS_REMEMBER = 30
 AUTH_PBKDF2_ITERATIONS = 200_000
 AUTH_STATE = {"enabled": False, "password_hash": "", "secret": ""}
+PUBLIC_PAGES = {
+    "/",
+    "/index.html",
+    "/login",
+    "/messages",
+    "/moments",
+    "/references",
+    "/source",
+    "/games",
+    "/prompts",
+    "/favicon.ico",
+}
+PUBLIC_GET_APIS = {
+    "/api/health",
+    "/api/auth/status",
+    "/api/site/messages",
+    "/api/moments",
+    "/api/site/photos",
+    "/api/site/music",
+    "/api/site/links",
+    "/api/prompts",
+}
+PUBLIC_POST_APIS = {
+    "/api/login",
+    "/api/logout",
+    "/api/site/messages",
+}
+PUBLIC_DATA_PREFIXES = (
+    "site_message_files/",
+    "moment_images/",
+    "site_photos/",
+    "site_music_files/",
+)
 LOGIN_FAILURES = {}
 RATE_LIMITS = {}
 RATE_LOCK = threading.Lock()
@@ -401,6 +434,24 @@ def init_db():
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS ai_prompts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT,
+                category TEXT NOT NULL DEFAULT '未分类',
+                prompt TEXT NOT NULL,
+                tags TEXT,
+                pinned INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS app_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS learning_notes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
@@ -513,6 +564,8 @@ CREATE INDEX IF NOT EXISTS idx_moments_created ON moments(created_at);
 CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             CREATE INDEX IF NOT EXISTS idx_site_photos_album ON site_photos(album);
             CREATE INDEX IF NOT EXISTS idx_site_links_category ON site_links(category);
+            CREATE INDEX IF NOT EXISTS idx_ai_prompts_category ON ai_prompts(category);
+            CREATE INDEX IF NOT EXISTS idx_ai_prompts_order ON ai_prompts(pinned, sort_order, id);
             CREATE INDEX IF NOT EXISTS idx_learning_notes_updated ON learning_notes(updated_at);
             CREATE INDEX IF NOT EXISTS idx_note_images_note ON note_images(note_id);
             CREATE INDEX IF NOT EXISTS idx_repair_records_project ON repair_records(project_id);
@@ -653,6 +706,42 @@ def seed_data(conn):
         conn.execute(
             "INSERT INTO warehouse_types (name, description, sort_order, created_at) VALUES (?, ?, 0, ?)",
             ("电子元件", "电阻、电容、IC、PCB 等电子元器件。", now_text()),
+        )
+
+    seeded = conn.execute(
+        "SELECT value FROM app_meta WHERE key = 'ai_prompts_seeded'"
+    ).fetchone()
+    if not seeded:
+        count = conn.execute("SELECT COUNT(*) AS n FROM ai_prompts").fetchone()["n"]
+        if count == 0:
+            seed_path = STATIC_DIR / "prompts-seed.json"
+            try:
+                default_prompts = json.loads(seed_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                default_prompts = []
+            stamp = now_text()
+            for index, item in enumerate(default_prompts):
+                conn.execute(
+                    """
+                    INSERT INTO ai_prompts
+                        (title, description, category, prompt, tags,
+                         pinned, sort_order, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
+                    """,
+                    (
+                        str(item.get("title") or "未命名提示词")[:120],
+                        str(item.get("description") or "")[:300],
+                        str(item.get("category") or "未分类")[:40],
+                        str(item.get("prompt") or ""),
+                        str(item.get("tags") or "")[:200],
+                        index,
+                        stamp,
+                        stamp,
+                    ),
+                )
+        conn.execute(
+            "INSERT INTO app_meta (key, value) VALUES ('ai_prompts_seeded', ?)",
+            (now_text(),),
         )
 
 
@@ -2919,18 +3008,37 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 return False
         if not AUTH_STATE.get("enabled"):
             return True
-        if path in ("/login", "/api/login", "/api/health", "/favicon.ico"):
+        if self.session_valid():
             return True
         if path.startswith("/static/"):
             return True
-        if self.session_valid():
+        if path.startswith("/site-files/"):
+            relative = unquote(path[len("/site-files/") :])
+            if relative.startswith(PUBLIC_DATA_PREFIXES):
+                return True
+        if method == "GET":
+            if path in PUBLIC_PAGES or path.startswith("/games/"):
+                return True
+            if path in PUBLIC_GET_APIS:
+                return True
+        if method == "POST" and path in PUBLIC_POST_APIS:
             return True
-        if path.startswith("/api/"):
+        if path.startswith("/api/") or path.startswith("/site-files/"):
             api_error(self, 401, "请先登录。")
         else:
             target = path if path.startswith("/") else "/"
             self.redirect(f"/login?next={quote(target)}")
         return False
+
+    def api_auth_status(self):
+        enabled = bool(AUTH_STATE.get("enabled"))
+        self.send_json(
+            200,
+            {
+                "enabled": enabled,
+                "authenticated": (not enabled or self.session_valid()),
+            },
+        )
 
     def api_login(self, payload):
         identifier = self.client_ip()
@@ -3096,6 +3204,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.send_file("moments.html")
             elif path == "/source":
                 self.send_file("source.html")
+            elif path == "/prompts":
+                self.send_file("prompts.html")
             elif path == "/games/gomoku":
                 self.send_file("games/caro/index.html")
             elif path == "/games":
@@ -3114,6 +3224,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.send_data_file(path[len("/site-files/") :])
             elif path == "/api/health":
                 self.send_json(200, {"ok": True})
+            elif path == "/api/auth/status":
+                self.api_auth_status()
             elif path == "/api/dashboard":
                 self.api_dashboard()
             elif path == "/api/categories":
@@ -3140,6 +3252,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_music(query)
             elif path == "/api/site/links":
                 self.api_site_links(query)
+            elif path == "/api/prompts":
+                self.api_prompts(query)
             elif path == "/api/notes":
                 self.api_notes(query)
             elif re.fullmatch(r"/api/notes/\d+/export\.html", path):
@@ -3220,6 +3334,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_music_upload(payload)
             elif path == "/api/site/links":
                 self.api_site_link_create(payload)
+            elif path == "/api/prompts":
+                self.api_prompt_create(payload)
             elif path == "/api/notes":
                 self.api_note_create(payload)
             elif path == "/api/notes/images":
@@ -3289,6 +3405,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_workbench_repair_item(path)
             elif re.fullmatch(r"/api/bookmark-folders/\d+", path):
                 self.api_bookmark_folder_item(path)
+            elif re.fullmatch(r"/api/prompts/\d+", path):
+                self.api_prompt_item(path)
             else:
                 api_error(self, 404, "接口不存在。")
         except Exception as exc:
@@ -3328,6 +3446,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_music_delete(path)
             elif re.fullmatch(r"/api/site/links/\d+", path):
                 self.api_site_link_delete(path)
+            elif re.fullmatch(r"/api/prompts/\d+", path):
+                self.api_prompt_item(path)
             elif re.fullmatch(r"/api/notes/images/\d+", path):
                 self.api_note_image_delete(path)
             elif re.fullmatch(r"/api/notes/\d+", path):
@@ -4013,9 +4133,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
                FROM site_messages
                ORDER BY COALESCE(parent_id, id) DESC, id ASC"""
         )
+        can_delete = self.session_valid()
         files = self.site_message_files_map([row["id"] for row in rows])
         for row in rows:
             row["files"] = files.get(row["id"], [])
+            row["can_delete"] = can_delete
         roots = [row for row in rows if not row.get("parent_id")]
         replies = [row for row in rows if row.get("parent_id")]
         for root in roots:
@@ -4057,6 +4179,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
         return prepared, ""
 
     def api_site_message_create(self, payload):
+        if not rate_allow("message", self.client_ip(), 5, 60):
+            api_error(self, 429, "留言太频繁，请稍后再试。")
+            return
         nickname = str(payload.get("nickname") or "匿名").strip()[:30] or "匿名"
         content = str(payload.get("content") or "").strip()
         parent_id = payload.get("parent_id")
@@ -4147,10 +4272,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                FROM moments
                ORDER BY pinned DESC, created_at DESC, id DESC"""
         )
+        can_manage = self.session_valid()
         files = self.moment_files_map([row["id"] for row in rows])
         for row in rows:
             row["files"] = files.get(row["id"], [])
             row["pinned"] = bool(row["pinned"])
+            row["can_manage"] = can_manage
         self.send_json(200, rows)
 
     def moment_payload(self, payload, current=None):
@@ -4339,6 +4466,126 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_site_links(self, params):
         rows = query("SELECT * FROM site_links ORDER BY category, sort_order, id")
         self.send_json(200, rows)
+
+    def api_prompts(self, params):
+        rows = query(
+            """
+            SELECT id, title, description, category, prompt, tags,
+                   pinned, sort_order, created_at, updated_at
+            FROM ai_prompts
+            ORDER BY pinned DESC, sort_order, id
+            """
+        )
+        for row in rows:
+            row["pinned"] = bool(row["pinned"])
+        self.send_json(
+            200,
+            {
+                "items": rows,
+                "can_manage": self.session_valid(),
+            },
+        )
+
+    def prompt_payload(self, payload, current=None):
+        current = current or {}
+        title = str(payload.get("title", current.get("title", "")) or "").strip()[:120]
+        prompt_text = str(
+            payload.get("prompt", current.get("prompt", "")) or ""
+        ).strip()
+        if not title:
+            raise ValueError("提示词标题不能为空。")
+        if not prompt_text:
+            raise ValueError("提示词内容不能为空。")
+        if len(prompt_text) > 12000:
+            raise ValueError("提示词内容不能超过 12000 字。")
+        description = str(
+            payload.get("description", current.get("description", "")) or ""
+        ).strip()[:300]
+        category = str(
+            payload.get("category", current.get("category", "未分类")) or "未分类"
+        ).strip()[:40] or "未分类"
+        tags = str(payload.get("tags", current.get("tags", "")) or "")
+        tags = tags.replace("，", ",").replace("、", ",").strip()[:200]
+        pinned = 1 if payload.get("pinned", current.get("pinned", False)) else 0
+        try:
+            sort_order = int(payload.get("sort_order", current.get("sort_order", 0)) or 0)
+        except (TypeError, ValueError):
+            raise ValueError("排序值必须是整数。")
+        return title, description, category, prompt_text, (tags or None), pinned, sort_order
+
+    def api_prompt_create(self, payload):
+        try:
+            title, description, category, prompt_text, tags, pinned, _sort_order = self.prompt_payload(
+                payload
+            )
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        sort_order = query_one(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 AS value FROM ai_prompts"
+        )["value"]
+        stamp = now_text()
+        prompt_id = execute(
+            """
+            INSERT INTO ai_prompts
+                (title, description, category, prompt, tags,
+                 pinned, sort_order, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                title,
+                description or None,
+                category,
+                prompt_text,
+                tags,
+                pinned,
+                sort_order,
+                stamp,
+                stamp,
+            ),
+        )
+        self.send_json(201, {"id": prompt_id})
+
+    def api_prompt_item(self, path):
+        prompt_id = int(path.rsplit("/", 1)[1])
+        current = query_one("SELECT * FROM ai_prompts WHERE id = ?", (prompt_id,))
+        if not current:
+            api_error(self, 404, "提示词不存在。")
+            return
+        if self.command == "DELETE":
+            execute("DELETE FROM ai_prompts WHERE id = ?", (prompt_id,))
+            self.send_json(200, {"ok": True})
+            return
+        payload = get_payload(self)
+        if payload is None:
+            return
+        try:
+            title, description, category, prompt_text, tags, pinned, sort_order = self.prompt_payload(
+                payload, current
+            )
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        execute(
+            """
+            UPDATE ai_prompts
+            SET title = ?, description = ?, category = ?, prompt = ?, tags = ?,
+                pinned = ?, sort_order = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                title,
+                description or None,
+                category,
+                prompt_text,
+                tags,
+                pinned,
+                sort_order,
+                now_text(),
+                prompt_id,
+            ),
+        )
+        self.send_json(200, {"id": prompt_id})
 
     def api_site_link_create(self, payload):
         name = str(payload.get("name") or "").strip()[:80]

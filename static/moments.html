@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#7b68ee">
   <meta name="tab-name" content="ej-moments">
-  <title>日常 · Error酱</title>
+  <title>Error酱动态</title>
   <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
   <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
   <link rel="stylesheet" href="/static/moments.css">
@@ -32,13 +32,17 @@
     <header class="mo-header">
       <a class="mo-brand" href="/">
         <span class="mo-brand-icon"><i data-lucide="coffee"></i></span>
-        <strong>日常</strong>
+        <strong>Error酱动态</strong>
       </a>
       <span class="mo-count" id="momentCount"></span>
     </header>
 
     <main class="mo-main">
-      <form class="mo-card mo-composer" id="momentForm">
+      <div class="mo-login-hint" id="momentLoginHint">
+        动态内容可以公开浏览，发布、编辑和置顶需要
+        <a href="/login?next=/moments">登录</a>。
+      </div>
+      <form class="mo-card mo-composer" id="momentForm" hidden>
         <textarea id="momentContent" maxlength="2000" placeholder="今天在折腾什么？记录一句，或者直接粘贴截图…"></textarea>
         <div class="mo-tag-input">
           <input id="momentTags" maxlength="200" placeholder="标签（可选，用逗号分隔，例如：单片机, 折腾记录）">

@@ -382,9 +382,13 @@
     var actions = el("div", "mg-item-actions");
     var replyBtn = el("button", "mg-link-btn", "回复");
     replyBtn.type = "button";
-    var deleteBtn = el("button", "mg-link-btn is-danger", "删除");
-    deleteBtn.type = "button";
-    actions.append(replyBtn, deleteBtn);
+    actions.append(replyBtn);
+    var deleteBtn = null;
+    if (message.can_delete) {
+      deleteBtn = el("button", "mg-link-btn is-danger", "删除");
+      deleteBtn.type = "button";
+      actions.append(deleteBtn);
+    }
     item.appendChild(actions);
 
     var repliesBox = el("div", "mg-replies");
@@ -413,16 +417,18 @@
       }
     });
 
-    deleteBtn.addEventListener("click", function () {
-      var hint = (message.replies || []).length ? "这条留言下面的回复也会一起删除。" : "删除后无法恢复。";
-      if (!window.confirm("确认删除这条留言？\n" + hint)) return;
-      api("/api/site/messages/" + message.id, { method: "DELETE" }).then(function () {
-        toast("已删除");
-        return loadMessages();
-      }).catch(function (err) {
-        toast(err.message);
+    if (deleteBtn) {
+      deleteBtn.addEventListener("click", function () {
+        var hint = (message.replies || []).length ? "这条留言下面的回复也会一起删除。" : "删除后无法恢复。";
+        if (!window.confirm("确认删除这条留言？\n" + hint)) return;
+        api("/api/site/messages/" + message.id, { method: "DELETE" }).then(function () {
+          toast("已删除");
+          return loadMessages();
+        }).catch(function (err) {
+          toast(err.message);
+        });
       });
-    });
+    }
 
     item.appendChild(repliesBox);
     item.appendChild(replyForm);

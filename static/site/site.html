@@ -21,9 +21,21 @@
   <script src="/static/site/theme.js"></script>
 </head>
 <body data-page="home">
-  <button class="theme-float icon-btn" id="themeToggle" aria-label="切换外观" title="外观：跟随系统">
-    <span class="theme-glyph" id="themeGlyph">◑</span>
-  </button>
+  <div class="home-controls">
+    <button class="auth-status-btn" id="authStatusBtn" type="button" aria-haspopup="dialog">
+      <span class="auth-status-dot" id="authStatusDot"></span>
+      <span id="authStatusText">游客</span>
+    </button>
+    <button class="theme-float icon-btn" id="themeToggle" aria-label="切换外观" title="外观：跟随系统">
+      <span class="theme-glyph" id="themeGlyph">◑</span>
+    </button>
+  </div>
+
+  <div class="auth-menu" id="authMenu" hidden>
+    <strong>已登录</strong>
+    <a href="/inventory">进入仓库</a>
+    <button type="button" id="logoutBtn">退出登录</button>
+  </div>
 
   <main class="landing landing-three rain-scene" id="rainScene">
     <div class="rain-layer" id="rainLayer" aria-hidden="true"></div>
@@ -32,30 +44,30 @@
       <p class="landing-desc" id="landingDesc">Error酱是一个工作和学习平台，目前看来只适合作者自己使用，她全部由ChatGPT和DeepSeek完成，没有原创，全是搬运。不久后，Error酱也会开源</p>
 
       <div class="repo-grid">
-        <a class="repo-entry" href="/inventory" target="ej-inventory">
+        <a class="repo-entry is-locked" href="/inventory" target="ej-inventory" data-private-module>
           <span class="repo-entry-label">
-            <span class="repo-entry-text">📦已入库<span id="repoCount">80</span>种元件</span>
+            <span class="repo-entry-text">📦<span id="repoCount">登录后查看</span></span>
           </span>
           <span class="repo-thumbs" id="repoThumbs"></span>
         </a>
 
-        <a class="repo-entry" href="/bookmarks" target="ej-bookmarks">
+        <a class="repo-entry is-locked" href="/bookmarks" target="ej-bookmarks" data-private-module>
           <span class="repo-entry-label">
-            <span class="repo-entry-text">🔖已收藏<span id="bookmarkCount">0</span>个网页</span>
+            <span class="repo-entry-text">🔖<span id="bookmarkCount">登录后查看</span></span>
           </span>
           <span class="repo-thumbs" id="bookmarkThumbs"></span>
         </a>
 
-        <a class="repo-entry" href="/notes" target="ej-notes">
+        <a class="repo-entry is-locked" href="/notes" target="ej-notes" data-private-module>
           <span class="repo-entry-label">
-            <span class="repo-entry-text">📝已记<span id="noteCount">0</span>篇笔记</span>
+            <span class="repo-entry-text">📝<span id="noteCount">登录后查看</span></span>
           </span>
           <span class="repo-thumbs" id="notesThumbs"></span>
         </a>
 
-        <a class="repo-entry" href="/workbench" target="ej-workbench">
+        <a class="repo-entry is-locked" href="/workbench" target="ej-workbench" data-private-module>
           <span class="repo-entry-label">
-            <span class="repo-entry-text">🧰工作台·建设中</span>
+            <span class="repo-entry-text">🧰<span id="workbenchCount">登录后查看</span></span>
           </span>
           <span class="repo-thumbs" aria-hidden="true">
             <span class="repo-thumb">账</span>
@@ -68,7 +80,8 @@
       <div class="landing-module-actions" aria-label="工作台功能入口">
         <a class="landing-module-btn" href="/messages">给Error酱留言</a>
         <a class="landing-module-btn" href="/games">和Error酱玩游戏</a>
-        <a class="landing-module-btn" href="/moments">看Error酱的日常</a>
+        <a class="landing-module-btn" href="/moments">Error酱动态</a>
+        <a class="landing-module-btn" href="/prompts">AI 提示词</a>
       </div>
 
       <nav class="landing-links" aria-label="项目相关链接">
@@ -80,6 +93,26 @@
     </div>
     <div class="rain-floor" id="rainFloor" aria-hidden="true"></div>
   </main>
+
+  <div class="auth-modal" id="authModal" hidden>
+    <div class="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+      <button class="auth-close" id="authClose" type="button" aria-label="关闭">×</button>
+      <h2 id="authTitle">登录 Error酱</h2>
+      <p>登录后可访问仓库、网页收藏、笔记和工作台。</p>
+      <form id="authForm">
+        <label class="auth-field">
+          <span>访问密码</span>
+          <input id="authPassword" type="password" autocomplete="current-password" required>
+        </label>
+        <label class="auth-remember">
+          <input id="authRemember" type="checkbox">
+          <span>记住我（30 天）</span>
+        </label>
+        <button class="auth-submit" id="authSubmit" type="submit">登录</button>
+        <div class="auth-error" id="authError" hidden></div>
+      </form>
+    </div>
+  </div>
 
   <div class="landing-toast" id="landingToast" hidden></div>
 

@@ -255,82 +255,85 @@
       if (tagWrap.childNodes.length) body.appendChild(tagWrap);
     }
 
-    var actions = el("div", "mo-actions");
-    var pinBtn = el("button", "mo-link-btn", moment.pinned ? "取消置顶" : "置顶");
-    var editBtn = el("button", "mo-link-btn", "编辑");
-    var deleteBtn = el("button", "mo-link-btn is-danger", "删除");
-    pinBtn.type = "button";
-    editBtn.type = "button";
-    deleteBtn.type = "button";
-    actions.append(pinBtn, editBtn, deleteBtn);
-    body.appendChild(actions);
     item.appendChild(body);
 
-    pinBtn.addEventListener("click", function () {
-      pinBtn.disabled = true;
-      api("/api/moments/" + moment.id, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pinned: !moment.pinned }),
-      }).then(function () {
-        return loadMoments();
-      }).catch(function (err) {
-        toast(err.message);
-      }).then(function () {
-        pinBtn.disabled = false;
-      });
-    });
+    if (moment.can_manage) {
+      var actions = el("div", "mo-actions");
+      var pinBtn = el("button", "mo-link-btn", moment.pinned ? "取消置顶" : "置顶");
+      var editBtn = el("button", "mo-link-btn", "编辑");
+      var deleteBtn = el("button", "mo-link-btn is-danger", "删除");
+      pinBtn.type = "button";
+      editBtn.type = "button";
+      deleteBtn.type = "button";
+      actions.append(pinBtn, editBtn, deleteBtn);
+      body.appendChild(actions);
 
-    editBtn.addEventListener("click", function () {
-      if (body.querySelector(".mo-edit")) return;
-      var box = el("div", "mo-edit");
-      var area = document.createElement("textarea");
-      area.maxLength = 2000;
-      area.value = moment.content || "";
-      var tagInput = document.createElement("input");
-      tagInput.className = "mo-tag-input";
-      tagInput.maxLength = 200;
-      tagInput.value = moment.tags || "";
-      tagInput.placeholder = "标签（逗号分隔）";
-      tagInput.style.cssText = "width:100%;margin-top:8px;padding:8px 12px;border-radius:8px;border:1px solid var(--mo-border);background:var(--mo-bg);color:var(--mo-text);font:inherit;font-size:13px;";
-      var row = el("div", "mo-edit-actions");
-      var cancel = el("button", "mo-btn mo-btn-ghost", "取消");
-      var save = el("button", "mo-btn mo-btn-primary", "保存");
-      cancel.type = "button";
-      save.type = "button";
-      row.append(cancel, save);
-      box.append(area, tagInput, row);
-      body.insertBefore(box, actions);
-      area.focus();
-
-      cancel.addEventListener("click", function () {
-        box.remove();
-      });
-      save.addEventListener("click", function () {
-        save.disabled = true;
+      pinBtn.addEventListener("click", function () {
+        pinBtn.disabled = true;
         api("/api/moments/" + moment.id, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: area.value, tags: tagInput.value }),
+          body: JSON.stringify({ pinned: !moment.pinned }),
         }).then(function () {
-          toast("已保存");
           return loadMoments();
         }).catch(function (err) {
           toast(err.message);
-          save.disabled = false;
+        }).then(function () {
+          pinBtn.disabled = false;
         });
       });
-    });
 
-    deleteBtn.addEventListener("click", function () {
-      if (!window.confirm("删除这条说说？配图也会一起删掉。")) return;
-      api("/api/moments/" + moment.id, { method: "DELETE" }).then(function () {
-        toast("已删除");
-        return loadMoments();
-      }).catch(function (err) {
-        toast(err.message);
+      editBtn.addEventListener("click", function () {
+        if (body.querySelector(".mo-edit")) return;
+        var box = el("div", "mo-edit");
+        var area = document.createElement("textarea");
+        area.maxLength = 2000;
+        area.value = moment.content || "";
+        var tagInput = document.createElement("input");
+        tagInput.className = "mo-tag-input";
+        tagInput.maxLength = 200;
+        tagInput.value = moment.tags || "";
+        tagInput.placeholder = "标签（逗号分隔）";
+        tagInput.style.cssText = "width:100%;margin-top:8px;padding:8px 12px;border-radius:8px;border:1px solid var(--mo-border);background:var(--mo-bg);color:var(--mo-text);font:inherit;font-size:13px;";
+        var row = el("div", "mo-edit-actions");
+        var cancel = el("button", "mo-btn mo-btn-ghost", "取消");
+        var save = el("button", "mo-btn mo-btn-primary", "保存");
+        cancel.type = "button";
+        save.type = "button";
+        row.append(cancel, save);
+        box.append(area, tagInput, row);
+        body.insertBefore(box, actions);
+        area.focus();
+
+        cancel.addEventListener("click", function () {
+          box.remove();
+        });
+        save.addEventListener("click", function () {
+          save.disabled = true;
+          api("/api/moments/" + moment.id, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content: area.value, tags: tagInput.value }),
+          }).then(function () {
+            toast("已保存");
+            return loadMoments();
+          }).catch(function (err) {
+            toast(err.message);
+            save.disabled = false;
+          });
+        });
       });
-    });
+
+      deleteBtn.addEventListener("click", function () {
+        if (!window.confirm("删除这条说说？配图也会一起删掉。")) return;
+        api("/api/moments/" + moment.id, { method: "DELETE" }).then(function () {
+          toast("已删除");
+          return loadMoments();
+        }).catch(function (err) {
+          toast(err.message);
+        });
+      });
+    }
 
     return item;
   }
@@ -356,5 +359,13 @@
 
   renderPending();
   refreshIcons();
-  loadMoments();
+  api("/api/auth/status").then(function (status) {
+    $("momentForm").hidden = !status.authenticated;
+    $("momentLoginHint").hidden = status.authenticated;
+    return loadMoments();
+  }).catch(function () {
+    $("momentForm").hidden = true;
+    $("momentLoginHint").hidden = false;
+    return loadMoments();
+  });
 })();

@@ -16,6 +16,8 @@
 - 出入库记录：可修改时间、备注和关联项目，也可删除记录并自动恢复或扣回库存；删除均有二次确认。
 - 页面状态：打开仓库系统默认进入仪表盘；按 F5 刷新才回到上次停留的页面。首屏在 HTML 里就只放开目标页面，数据没回来时不会把各模块堆在一起（不再闪屏）。
 - 外观主题：只在首页保留“浅色 / 暗色”切换按钮，选择存在浏览器里，全站所有页面共用；其它页面不再单独放切换按钮，已打开的页面会跟着一起变。
+- 公开首页与游客模式：首页、留言板、游戏、日常、参考项目、源码和 AI 提示词可公开访问；仓库、网页收藏、笔记和工作台需要登录，未登录时显示“登录后查看”。
+- 登录状态：首页右上角显示“游客 / 已登录”，点击可打开无头像登录弹窗；登录后自动解锁四个私有模块。
 - 项目追溯：出库时选择项目，可查看每个项目用了哪些元件、每种元件用了多少；新建项目时可选择 BOM 文件自动生成缺料对比。
 - 待购入清单：记录想买但还没买的元件，可一键转为采购入库并自动创建或关联元件。
 - LCSC 导入：支持立创商城导出的 `.xlsx`，自动识别字段并生成数据手册链接。
@@ -23,6 +25,7 @@
 - BOM 缺料对比：导入 PCB 设计软件导出的 BOM（CSV / Excel），按 LCSC 编号或厂家型号匹配库存，生成缺料清单并支持导出 CSV。
 - 工作台：集中管理项目源码包、固件、文档和图片，支持版本、目标芯片、开发板、在线烧录链接、项目关联和维修台账。
 - 学习笔记：支持 Markdown 编辑、图片粘贴与导入 HTML；单篇笔记可导出为内嵌图片和源文的单文件 HTML，可在浏览器离线阅读或在 VS Code 中查看 Markdown 源文。
+- AI 提示词：`/prompts` 提供可管理的提示词库，游客可搜索、展开和复制，管理员可新增、编辑、删除和置顶，首页入口位于“Error酱动态”旁边。
 - 游戏大厅：`/games` 收录五子棋、2048、扫雷、记忆翻牌，全部是纯前端小游戏，手机可直接玩（键盘方向键 / 滑动 / 长按插旗）。
 - 日常：`/moments` 记录说说和日志，支持配图（可直接粘贴截图）、标签、置顶、编辑和删除。
 
@@ -86,7 +89,7 @@ Windows 首次访问时，如果防火墙拦截，需要允许 TCP 8000 端口�
 netsh advfirewall firewall add rule name="Component Inventory 8000" dir=in action=allow protocol=TCP localport=8000
 ```
 
-当前版本没有登录功能，请只在可信局域网内使用，不要直接暴露到公网。
+当前版本支持游客公开浏览和单管理员登录。仓库、网页收藏、笔记和工作台受密码保护，但仍建议公网部署时配置 HTTPS。
 
 ## 开机自启
 
@@ -156,7 +159,7 @@ powershell -ExecutionPolicy Bypass -File backup.ps1
 
 完整步骤见 [DEPLOY.md](DEPLOY.md)。当前已经内置的部分：
 
-- **访问密码**：设置环境变量 `INVENTORY_PASSWORD`，或运行 `python tools/set_password.py`；开启后未登录访问会跳转 `/login`，退出登录访问 `/logout`。
+- **访问密码**：设置环境变量 `INVENTORY_PASSWORD`，或运行 `python tools/set_password.py`；开启后仅保护仓库、网页收藏、笔记和工作台，其他公共模块允许游客访问。退出登录访问 `/logout`。
 - **只监听回环**：公网部署设 `INVENTORY_HOST=127.0.0.1`，由 Nginx 反代并终止 HTTPS（示例见 `deploy/nginx-errorjiang.conf`）。
 - **反代适配**：`INVENTORY_TRUST_PROXY=1` 时按 `X-Forwarded-For` 统计限流和日志；HTTPS 下会话 Cookie 自动加 `Secure`。
 - **限流**：登录失败 5 次锁定 5 分钟，写接口每 IP 每分钟 120 次；Nginx 侧还有登录接口限流。
@@ -181,6 +184,10 @@ fetch_lcsc_images.py   按 LCSC 编号从立创商城批量抓取元件图片
 static/index.html      中文响应式界面
 static/app.js          页面交互逻辑
 static/styles.css      界面样式
+static/prompts.html    AI 提示词页面
+static/prompts.css     AI 提示词样式
+static/prompts.js      AI 提示词交互与管理员操作
+static/prompts-seed.json 首次初始化时导入的默认提示词
 data/inventory.db      运行时自动创建的数据库
 Dockerfile             可选 Docker 镜像
 docker-compose.yml     可选 Docker 部署配置

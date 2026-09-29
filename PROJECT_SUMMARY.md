@@ -46,6 +46,9 @@
 - Error酱 形象、模块入口、浅色/暗色主题：**只有首页保留切换按钮**，写进 localStorage 后全站共用，其它页面复用同一个偏好，已打开的页面通过 storage 事件实时跟随。
 - 下雨动画：统一由 `static/site/rain.css` + `static/site/rain.js` 提供，首页、小游戏、留言板、参考项目、源码页共用同一份参数。
 - 顶部导航顺序：首页 / 仓库 / 音乐 / 照片墙 / 推荐 / 留言。
+- 右上角显示“游客 / 已登录 / 本地模式”状态；游客点击打开无头像登录弹窗，已登录点击可进入仓库或退出。
+- 仓库、网页收藏、笔记、工作台四张卡片默认显示“登录后查看”，登录后才请求真实数量和缩略图；修复了游客状态误显示“已入库 80 种元件”的硬编码问题。
+- “Error酱动态”旁边新增“AI 提示词”入口。
 
 ### 2.3 留言板
 
@@ -80,7 +83,7 @@
 
 ### 2.6 日常（说说 / 日志）
 
-- 独立页面 `/moments`，首页第三个按钮“看Error酱的日常”进入。
+- 独立页面 `/moments`，首页按钮“Error酱动态”进入。
 - 发布：正文（最多 2000 字）+ 最多 9 张配图（单张 5MB、合计 15MB）+ 标签（逗号分隔）；配图可以直接从剪贴板粘贴。
 - 时间线：头像 + 相对时间（刚刚 / N 分钟前 / N 小时前）+ 内容 + 图片（单图放大、多图九宫格）+ 标签。
 - 支持置顶（排在时间线最前）、编辑正文和标签、删除（配图一并从磁盘清理）。
@@ -111,14 +114,25 @@
 ### 2.9 访问密码与公网部署准备
 
 - 访问密码：设置环境变量 `INVENTORY_PASSWORD`，或运行 `python tools/set_password.py` 写入 `data/auth.json`（只存 PBKDF2-SHA256 哈希）。未设置时保持免登录，局域网自用行为不变。
-- 登录页 `/login`：带下雨动画；未登录访问页面跳转登录，访问 `/api/*` 返回 401，`/api/health` 和 `/static/*` 公开；退出登录访问 `/logout`。
+- 公开访问：首页 `/`、留言板 `/messages`、日常 `/moments`、游戏 `/games*`、参考项目 `/references`、源码 `/source`、AI 提示词 `/prompts` 无需登录。
+- 私有模块：`/inventory`、`/bookmarks`、`/notes`、`/workbench` 及其非公开 API 需要登录；未登录访问会跳转 `/login`，接口返回 401。
+- 公共附件：留言附件、日常配图、照片墙和音乐文件允许公开访问；笔记图片、元件图片、书签图标、工作台文件和 BOM 报告继续受保护。
+- 登录入口：首页右上角状态按钮通过 `/api/auth/status` 判断游客/管理员，并调用 `/api/login` 完成弹窗登录；独立登录页 `/login` 继续保留。退出登录访问 `/logout`。
+- 权限边界：游客可浏览留言并发布留言、查看日常，但不能删除留言或发布/编辑/删除日常；这些操作只对登录管理员开放。
 - 会话：HMAC 签名 Cookie，HttpOnly + SameSite=Lax，默认 7 天、勾选“记住我” 30 天；HTTPS 下自动加 `Secure`。
-- 防滥用：登录失败 5 次锁定 5 分钟；写接口每 IP 每分钟 120 次；开启密码后写请求校验 `Origin` 同源。
+- 防滥用：登录失败 5 次锁定 5 分钟；写接口每 IP 每分钟 120 次，游客留言限制为每 IP 每分钟 5 条；开启密码后写请求校验 `Origin` 同源。
 - 反向代理：`INVENTORY_TRUST_PROXY=1` 时按 `X-Forwarded-For` 取真实 IP，`INVENTORY_ACCESS_LOG=1` 打开访问日志。
 - 数据库：SQLite 开启 WAL + `busy_timeout=5000` + `synchronous=NORMAL`，多线程写入不再容易锁库。
 - 部署物料：`DEPLOY.md`（完整指南）、`docker-compose.prod.yml`（只监听 127.0.0.1 + 密码 + 时区）、`deploy/nginx-errorjiang.conf`、`deploy/errorjiang.service`、`tools/backup_linux.sh`。
 - Docker 镜像装了 `tzdata` 并设置 `TZ=Asia/Shanghai`，避免时间差 8 小时；镜像自带 `/api/health` 健康检查。
 - 低带宽优化（为 3Mbps 的云服务器准备）：静态文件带 `ETag`，内容没变直接 304（零字节）；文本资源按 `Accept-Encoding` 做 gzip（`lucide.min.js` 388KB → 92KB）；`protocol_version = HTTP/1.1` 开启连接复用；上传文件和元件图片分别按 1 天 / 7 天缓存（元件图片地址带 `?v=` 版本号，可安全长缓存）；首页改用 `/api/notes?summary=1`，不再拉 1.1MB 的笔记正文 JSON。
+
+### 2.10 AI 提示词
+
+- 独立公开页面 `/prompts`，首页“AI 提示词”按钮进入。
+- 游客可浏览、搜索、分类筛选、展开/收起和复制。
+- 管理员可新增、编辑、删除和置顶，数据和权限由 `ai_prompts` 表及 `/api/prompts` 提供。
+- 初始提示词来自 `static/prompts-seed.json`，首次初始化数据库时导入。
 
 ## 3. 需求演进时间线
 
@@ -242,7 +256,7 @@
 | `static/styles.css` | 仓库页面样式 |
 | `static/site/site.html` | 首页 |
 | `static/site/site.css` | 首页和小屋公共样式 |
-| `static/site/site.js` | 首页主题和导航逻辑 |
+| `static/site/site.js` | 首页主题、游客/管理员状态、登录弹窗和私有模块摘要加载 |
 | `static/site/rain.css` / `rain.js` | 全站共用下雨动画（样式 + 参数） |
 | `static/site/theme.js` / `tabname.js` | 全站主题同步 / 标签页名字认领 |
 | `static/site/back-link.js` | “返回上一级”链接的统一处理（优先 history.back，不堆积历史记录） |
@@ -257,6 +271,8 @@
 | `static/notes.html` | 学习笔记页面 |
 | `static/notes.css` | 学习笔记样式（`--nt-*` 变量，明暗两套） |
 | `static/notes.js` | 学习笔记交互（Markdown 编辑、图片上传、搜索、HTML 导出） |
+| `static/prompts.html` / `prompts.css` / `prompts.js` | AI 提示词页面、样式、游客读取和管理员 CRUD |
+| `static/prompts-seed.json` | 首次初始化数据库时导入的默认提示词 |
 | `static/vendor/marked.min.js` | Markdown 渲染（本地 vendor） |
 | `static/vendor/purify.min.js` | 渲染结果 XSS 清洗（本地 vendor） |
 | `tools/import_doc_note.py` | 把 HTML / Markdown 文档导入成学习笔记（提取内嵌与本地图片） |
@@ -285,6 +301,8 @@
 - `site_photos`：照片墙。
 - `site_music`：音乐记录。
 - `site_links`：推荐网站。
+- `ai_prompts`：AI 提示词（标题、说明、分类、正文、标签、置顶和排序）。
+- `app_meta`：应用初始化标记等内部元数据。
 - `learning_notes`：学习笔记（标题、Markdown 正文、标签、创建/更新时间）。
 - `note_images`：笔记图片（所属笔记、文件路径、原始文件名、MIME、大小）。
 
@@ -296,6 +314,8 @@
 - BOM：`/api/bom/compare`、`/api/bom/reports` 等。
 - LCSC 导入：`/api/import/lcsc`。
 - 网站模块：`/api/site/messages`、`/api/site/photos`、`/api/site/music`、`/api/site/music/upload`、`/api/site/links`。
+- 登录状态：`/api/auth/status`（公开）、`/api/login`、`/api/logout`。
+- AI 提示词：`/api/prompts`（GET 公开 / POST 管理员）、`/api/prompts/<id>`（PATCH 编辑 / DELETE 删除，仅管理员）。
 - 学习笔记：`/api/notes`（GET 列表 / POST 新建）、`/api/notes/<id>`（PATCH 修改 / DELETE 删除）、`/api/notes/<id>/export.html`（GET 导出单文件 HTML）、`/api/notes/images`（POST 上传）、`/api/notes/images/<id>`（DELETE）。
 - 网页收藏：`/api/bookmarks`、`/api/bookmark-folders`、`/api/bookmarks/firefox/import`、`/api/bookmarks/check-links`。
 - 仓库类型：`/api/warehouse/types`。
@@ -337,10 +357,12 @@
 - 本地系统可正常访问，最近一次手动备份已成功完成。
 - 音乐模块已简化回“上传音频、页内播放”。
 - 全局播放和跨页面播放已按要求移除。
+- 已增加游客公开浏览和单管理员私有模块权限。
+- 已增加 AI 提示词库第一版。
 
 ### 6.2 后续可以考虑
 
-- 登录鉴权：目前系统没有登录，只适合可信局域网使用；将来公网部署前必须增加登录。
+- 注册体系：当前是单管理员密码，不提供公开注册；若未来需要多用户，建议增加邀请码、角色权限和独立用户表，而不是直接开放注册。
 - 云部署：未来可部署到阿里云 2 核 2G 服务器，使用 Docker + Nginx/Caddy。
 - 域名和备案：中国大陆 80/443 端口需要域名备案。
 - 阿里云 OSS 备份：可把本地备份再上传到云端，形成双备份。
@@ -351,6 +373,12 @@
 
 最近一次主要修改：
 
+- 首页改为游客可直接访问，仓库、网页收藏、笔记、工作台四个模块要求管理员登录。
+- 新增右上角游客/已登录状态、无头像登录弹窗、登录后继续访问原目标模块。
+- 修复首页仓库数量硬编码为 80 的问题，游客显示“登录后查看”，登录后显示真实数量。
+- 公开留言、日常、游戏、参考项目、源码和新增的 AI 提示词页面。
+- 游客可发布留言；删除留言、发布/编辑/删除日常仅管理员可用。
+- 新增 `/prompts` AI 提示词库：游客可搜索、分类、展开和复制，管理员可新增、编辑、删除和置顶；页面使用数据库存储并加入下雨特效。
 - 新增学习笔记模块（第三个模块）：Markdown 编辑 + 实时预览 + 图片上传 + HTML 文档导入。
 - 学习笔记是项目文档的落点：`tools/import_doc_note.py` 已导入威盛.html（34 段文字 + 21 张内嵌截图，笔记 #7）和 磁定位实验-伺服滑轨运动控制实操教程.md（562 行、16 张表格，笔记 #9）。
 - 图片上传增加魔数校验（只收 PNG/JPEG/WebP/GIF/BMP）、扩展名纠正和 `X-Content-Type-Options: nosniff`；`get_payload()` 增加 40MB 请求体上限。

@@ -93,25 +93,96 @@
   // 下雨动画统一由 /static/site/rain.js 提供（页面里需引入该文件与 rain.css）。
   if (window.ErrorRain) window.ErrorRain.init();
 
-  var hasLandingData = document.getElementById("repoCount") ||
-    document.getElementById("bookmarkCount") ||
-    document.getElementById("noteCount");
+  var authState = { enabled: false, authenticated: false, ready: false };
+  var pendingPrivateUrl = "";
 
-  if (hasLandingData) {
-  Promise.all([
-    fetch("/api/dashboard").then(function (res) { return res.json(); }).catch(function () { return null; }),
-    fetch("/api/parts").then(function (res) { return res.json(); }).catch(function () { return []; }),
-    fetch("/api/bookmarks").then(function (res) { return res.json(); }).catch(function () { return []; }),
-        // 首页只要数量、标签和封面，用 summary=1 避免把整篇笔记正文拉下来
-        fetch("/api/notes?summary=1").then(function (res) { return res.json(); }).catch(function () { return []; }),
-  ]).then(function (results) {
+  function setText(id, text) {
+    var node = document.getElementById(id);
+    if (node) node.textContent = text;
+  }
+
+  function setThumbPlaceholder(id, glyph) {
+    var wrap = document.getElementById(id);
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    if (!glyph) return;
+    var item = document.createElement("span");
+    item.className = "repo-thumb";
+    item.textContent = glyph;
+    wrap.appendChild(item);
+  }
+
+  function setPrivateModuleState(authenticated) {
+    document.querySelectorAll("[data-private-module]").forEach(function (entry) {
+      entry.classList.toggle("is-locked", !authenticated);
+    });
+    if (authenticated) return;
+    setText("repoCount", "登录后查看");
+    setText("bookmarkCount", "登录后查看");
+    setText("noteCount", "登录后查看");
+    setText("workbenchCount", "登录后查看");
+    setThumbPlaceholder("repoThumbs", "锁");
+    setThumbPlaceholder("bookmarkThumbs", "锁");
+    setThumbPlaceholder("notesThumbs", "锁");
+  }
+
+  function setAuthUi() {
+    var button = document.getElementById("authStatusBtn");
+    var text = document.getElementById("authStatusText");
+    var menu = document.getElementById("authMenu");
+    document.body.setAttribute("data-auth-enabled", authState.enabled ? "1" : "0");
+    document.body.setAttribute("data-authenticated", authState.authenticated ? "1" : "0");
+    if (!button || !text) return;
+    button.classList.toggle("is-authenticated", authState.authenticated);
+    text.textContent = authState.authenticated
+      ? (authState.enabled ? "已登录" : "本地模式")
+      : "游客";
+    button.setAttribute(
+      "aria-label",
+      authState.authenticated ? "已登录，点击打开管理菜单" : "游客，点击登录"
+    );
+    button.setAttribute("aria-haspopup", authState.authenticated ? "menu" : "dialog");
+    if (!authState.authenticated && menu) menu.hidden = true;
+  }
+
+  function openAuthModal() {
+    if (!authState.enabled || authState.authenticated) return;
+    var modal = document.getElementById("authModal");
+    var password = document.getElementById("authPassword");
+    var error = document.getElementById("authError");
+    if (!modal || !password) return;
+    error.hidden = true;
+    error.textContent = "";
+    modal.hidden = false;
+    password.value = "";
+    window.setTimeout(function () { password.focus(); }, 0);
+  }
+
+  function closeAuthModal() {
+    var modal = document.getElementById("authModal");
+    if (modal) modal.hidden = true;
+  }
+
+  function loadPrivateLandingData() {
+    if (!authState.authenticated) return;
+    Promise.all([
+      fetch("/api/dashboard").then(function (res) { return res.json(); }).catch(function () { return null; }),
+      fetch("/api/parts").then(function (res) { return res.json(); }).catch(function () { return []; }),
+      fetch("/api/bookmarks").then(function (res) { return res.json(); }).catch(function () { return []; }),
+      // 首页只要数量、标签和封面，用 summary=1 避免把整篇笔记正文拉下来
+      fetch("/api/notes?summary=1").then(function (res) { return res.json(); }).catch(function () { return []; }),
+      fetch("/api/workbench/summary").then(function (res) { return res.json(); }).catch(function () { return null; }),
+    ]).then(function (results) {
       var data = results[0];
       var parts = results[1] || [];
       var bookmarks = results[2] || [];
       var notes = results[3] || [];
+      var workbench = results[4];
+      setPrivateModuleState(true);
+
       var el = document.getElementById("repoCount");
-      if (el && data && data.stats && data.stats.part_count) {
-        el.textContent = data.stats.part_count;
+      if (el && data && data.stats) {
+        el.textContent = Number(data.stats.part_count || 0) + " 种元件";
       }
       var wrap = document.getElementById("repoThumbs");
       if (wrap && data && data.stats) {
@@ -143,14 +214,13 @@
         }
       }
 
-      var bookmarkCount = document.getElementById("bookmarkCount");
-      if (bookmarkCount) {
-        bookmarkCount.textContent = bookmarks.length;
-      }
-      var noteCount = document.getElementById("noteCount");
-      if (noteCount) {
-        noteCount.textContent = notes.length;
-      }
+      setText("bookmarkCount", bookmarks.length + " 个网页");
+      setText("noteCount", notes.length + " 篇笔记");
+      setText(
+        "workbenchCount",
+        workbench && workbench.assets ? Number(workbench.assets.total || 0) + " 项" : "工作台"
+      );
+
       var notesWrap = document.getElementById("notesThumbs");
       if (notesWrap) {
         notesWrap.innerHTML = "";
@@ -190,8 +260,8 @@
         }
         var bookmarkShown = Math.min(5, recentBookmarks.length);
         for (var bk = 0; bk < bookmarkShown; bk++) {
-          let bookmark = recentBookmarks[bk];
-          let bookmarkThumb = document.createElement("span");
+          var bookmark = recentBookmarks[bk];
+          var bookmarkThumb = document.createElement("span");
           bookmarkThumb.className = "repo-thumb";
           var hostname = "";
           try {
@@ -199,12 +269,12 @@
           } catch (err) {
             hostname = String(bookmark.title || "书");
           }
-          let bookmarkFallback = document.createElement("span");
+          var bookmarkFallback = document.createElement("span");
           bookmarkFallback.className = "repo-thumb-fallback";
           bookmarkFallback.textContent =
             (hostname.match(/[A-Za-z0-9\u4e00-\u9fff]/) || ["书"])[0].toUpperCase();
           bookmarkThumb.appendChild(bookmarkFallback);
-          let bookmarkIcon = document.createElement("img");
+          var bookmarkIcon = document.createElement("img");
           bookmarkIcon.alt = "";
           bookmarkIcon.loading = "lazy";
           bookmarkIcon.referrerPolicy = "no-referrer";
@@ -226,7 +296,124 @@
           bookmarkWrap.appendChild(bookmarkExtra);
         }
       }
-    })
-    .catch(function () {});
+    }).catch(function () {});
   }
+
+  document.querySelectorAll("[data-private-module]").forEach(function (entry) {
+    entry.addEventListener("click", function (event) {
+      if (authState.authenticated) return;
+      event.preventDefault();
+      pendingPrivateUrl = entry.getAttribute("href") || "";
+      if (!authState.ready) return;
+      openAuthModal();
+    });
+  });
+
+  var authButton = document.getElementById("authStatusBtn");
+  var authMenu = document.getElementById("authMenu");
+  if (authButton) {
+    authButton.addEventListener("click", function (event) {
+      event.stopPropagation();
+      if (!authState.ready) return;
+      if (authState.authenticated) {
+        if (authMenu) authMenu.hidden = !authMenu.hidden;
+      } else {
+        openAuthModal();
+      }
+    });
+  }
+
+  document.addEventListener("click", function (event) {
+    if (authMenu && !event.target.closest("#authMenu") && !event.target.closest("#authStatusBtn")) {
+      authMenu.hidden = true;
+    }
+  });
+
+  var authClose = document.getElementById("authClose");
+  if (authClose) authClose.addEventListener("click", closeAuthModal);
+
+  var authModal = document.getElementById("authModal");
+  if (authModal) {
+    authModal.addEventListener("click", function (event) {
+      if (event.target === authModal) closeAuthModal();
+    });
+  }
+
+  var authForm = document.getElementById("authForm");
+  if (authForm) {
+    authForm.addEventListener("submit", function (event) {
+      event.preventDefault();
+      var submit = document.getElementById("authSubmit");
+      var error = document.getElementById("authError");
+      var password = document.getElementById("authPassword");
+      submit.disabled = true;
+      error.hidden = true;
+      fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          password: password.value,
+          remember: document.getElementById("authRemember").checked,
+        }),
+      }).then(function (response) {
+        return response.json().catch(function () { return {}; }).then(function (data) {
+          if (!response.ok) throw new Error(data.error || "登录失败");
+          return data;
+        });
+      }).then(function () {
+        authState.authenticated = true;
+        setAuthUi();
+        closeAuthModal();
+        loadPrivateLandingData();
+        if (pendingPrivateUrl) {
+          var target = pendingPrivateUrl;
+          pendingPrivateUrl = "";
+          window.location.href = target;
+        }
+      }).catch(function (err) {
+        error.textContent = err.message || "登录失败";
+        error.hidden = false;
+      }).then(function () {
+        submit.disabled = false;
+      });
+    });
+  }
+
+  var logoutBtn = document.getElementById("logoutBtn");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", function () {
+      fetch("/api/logout", { method: "POST" }).then(function () {
+        window.location.reload();
+      });
+    });
+  }
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") {
+      closeAuthModal();
+      if (authMenu) authMenu.hidden = true;
+    }
+  });
+
+  setPrivateModuleState(false);
+  setAuthUi();
+  fetch("/api/auth/status", { cache: "no-store" })
+    .then(function (response) { return response.json(); })
+    .then(function (status) {
+      authState.enabled = Boolean(status.enabled);
+      authState.authenticated = Boolean(status.authenticated);
+      authState.ready = true;
+      setAuthUi();
+      if (authState.authenticated) {
+        loadPrivateLandingData();
+      } else {
+        setPrivateModuleState(false);
+        if (pendingPrivateUrl) openAuthModal();
+      }
+    })
+    .catch(function () {
+      authState.ready = true;
+      setPrivateModuleState(false);
+      setAuthUi();
+    });
 })();
