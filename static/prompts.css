@@ -205,6 +205,7 @@ input {
 .pr-card {
   display: flex;
   flex-direction: column;
+  height: 100%;
   min-width: 0;
   padding: 20px;
   border: 1px solid var(--pr-line);
@@ -264,7 +265,8 @@ input {
 
 .pr-prompt {
   position: relative;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
+  min-height: 96px;
   margin: 0;
   padding: 13px 14px;
   overflow: hidden;
@@ -279,7 +281,8 @@ input {
 }
 
 .pr-prompt.is-collapsed {
-  max-height: 118px;
+  height: 96px;
+  max-height: 96px;
 }
 
 .pr-prompt.is-collapsed::after {
@@ -312,7 +315,8 @@ input {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 14px;
+  margin-top: auto;
+  padding-top: 14px;
 }
 
 .pr-action {
