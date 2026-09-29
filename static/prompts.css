@@ -198,14 +198,21 @@ input {
 
 .pr-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 16px;
+}
+
+.pr-grid-column {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
   gap: 16px;
 }
 
 .pr-card {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  align-self: start;
   min-width: 0;
   padding: 20px;
   border: 1px solid var(--pr-line);
@@ -551,10 +558,6 @@ input {
 
   .pr-title {
     display: none;
-  }
-
-  .pr-grid {
-    grid-template-columns: 1fr;
   }
 
   .pr-card {

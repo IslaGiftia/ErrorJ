@@ -424,6 +424,40 @@ owner private pages and APIs -> 200
 public messages/moments/references/games -> 200
 ```
 
+### 2.13 Word / PDF 转换依赖部署
+
+问题原因：
+
+- 线上服务器已经更新到包含文档导入接口的版本，但 systemd 使用的 `/usr/bin/python3` 尚未安装 `firecrawl-anydoc`，因此导入 Word / PDF 时提示转换组件未安装。
+
+处理结果：
+
+- 线上服务器安装固定版本 `firecrawl-anydoc==0.2.4`，随后重启 `errorjiang.service`。
+- Windows 的 `run.bat` / `start-inventory.bat` 和 Linux 的 `run.sh` 现在会自动检查并安装 `requirements.txt`。
+- 服务器维护手册的代码更新步骤已加入依赖安装命令。
+
+### 2.14 Error酱推荐
+
+完成内容：
+
+- 首页新增“Error酱推荐”入口，位于“Error酱动态”和“AI 提示词”之间。
+- 新增公开页面 `/recommendations`，支持网站、工具、电影和动漫四类内容。
+- 网站和工具使用 16:9 截图卡片；电影和动漫使用 2:3 海报卡片。
+- 管理员支持封面上传、新增、编辑、删除和置顶。
+- 推荐网站可直接关联网页收藏，推荐页实时读取收藏标题、网址和图标。
+- 数据保存在 `recommendations` 表，封面保存在 `data/recommend_images/`。
+
+验证结果：
+
+```text
+游客浏览推荐页和 GET API -> 200
+游客写入推荐 -> 401
+普通账号写入推荐 -> 403
+管理员上传封面和 CRUD -> 200
+桌面端 -> 3 列独立错位布局
+移动端 -> 单列布局
+```
+
 ## 3. 当前尚未完成
 
 ### 3.1 每日自动备份

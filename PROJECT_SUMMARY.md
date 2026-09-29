@@ -17,6 +17,7 @@
 - 参考项目：`http://127.0.0.1:8000/references`
 - 源码入口：首页“Error酱源码”在新标签页直接打开 `https://github.com/IslaGiftia/ErrorJ`。
 - 日常（说说）：`http://127.0.0.1:8000/moments`
+- Error酱推荐：`http://127.0.0.1:8000/recommendations`
 - 小屋（留言/照片墙/音乐/推荐）：`http://127.0.0.1:8000/hub`（页面代码已在 `static/hub.html`，当前仍未接线到路由）
 - 仓库（元件库存）：`http://127.0.0.1:8000/inventory`
 - 网页收藏：`http://127.0.0.1:8000/bookmarks`
@@ -116,9 +117,9 @@
 - 访问密码：设置环境变量 `INVENTORY_PASSWORD`，或运行 `python tools/set_password.py` 写入 `data/auth.json`（只存 PBKDF2-SHA256 哈希）。未设置时保持免登录，局域网自用行为不变。
 - 注册审批：访客通过 `/register` 提交用户名和密码，账号状态为 `pending`；管理员使用 `tools/manage_users.py` 在服务器批准、拒绝、停用或重置密码。
 - 角色权限：管理员拥有全部业务模块权限；已批准普通账号只能浏览公开页面，不能进入仓库、网页收藏、笔记、工作台或 AI 提示词。
-- 公开访问：首页 `/`、留言板 `/messages`、Error酱动态 `/moments`、游戏 `/games*` 和参考项目 `/references` 无需登录。
+- 公开访问：首页 `/`、留言板 `/messages`、Error酱动态 `/moments`、Error酱推荐 `/recommendations`、游戏 `/games*` 和参考项目 `/references` 无需登录。
 - 管理员专属模块：`/inventory`、`/bookmarks`、`/notes`、`/workbench` 和 `/prompts` 均仅管理员访问。未登录访问会跳转 `/login`，普通账号会跳回首页，无权限接口返回 401 或 403。
-- 公共附件：留言附件、日常配图、照片墙和音乐文件允许公开访问；笔记图片、元件图片、书签图标、工作台文件和 BOM 报告继续受保护。
+- 公共附件：留言附件、日常配图、照片墙、音乐文件和推荐封面允许公开访问；笔记图片、元件图片、书签图标、工作台文件和 BOM 报告继续受保护。
 - 登录入口：首页右上角状态按钮通过 `/api/auth/status` 判断游客/管理员，并调用 `/api/login` 完成弹窗登录；独立登录页 `/login` 继续保留。退出登录访问 `/logout`。
 - 权限边界：游客可浏览留言并发布留言、查看日常，但不能删除留言或发布/编辑/删除日常；这些操作只对登录管理员开放。
 - 会话：HMAC 签名 Cookie 记录身份类型和用户 ID，HttpOnly + SameSite=Lax，默认 7 天、勾选“记住我” 30 天；HTTPS 下自动加 `Secure`。停用用户后已有会话立即失效。
@@ -133,7 +134,16 @@
 
 - 管理员专属页面 `/prompts`，首页“AI 提示词”按钮使用与笔记、工作台相同的普通外观和点击提示。
 - 管理员可搜索、分类筛选、展开/收起、复制、新增、编辑、删除和置顶，数据和权限由 `ai_prompts` 表及 `/api/prompts` 提供。
+- 提示词卡片按独立列纵向排列；展开长内容只增加当前卡片高度，不再拉高相邻列卡片，窄屏自动切换为单列。
 - 初始提示词来自非公开的 `config/prompts-seed.json`，首次初始化数据库时导入。
+
+### 2.11 Error酱推荐
+
+- 公开页面 `/recommendations`，首页入口位于“Error酱动态”和“AI 提示词”之间。
+- 支持网站、工具、电影和动漫四类推荐，按独立纵向列错位排列，网页使用 16:9 截图卡，电影和动漫使用 2:3 海报卡。
+- 管理员可上传封面、新增、编辑、删除和置顶；网站与工具支持访问和下载地址，电影与动漫支持评分、年份和观看状态。
+- 网站类型可直接关联网页收藏；推荐页实时读取收藏的当前标题、网址和图标，收藏改名后推荐自动同步。
+- 封面保存在 `data/recommend_images/`，数据表为 `recommendations`。
 
 ## 3. 需求演进时间线
 
@@ -273,6 +283,7 @@
 | `static/notes.js` | 学习笔记交互（Markdown 编辑、图片上传、搜索、HTML 导出） |
 | `static/prompts.html` / `prompts.css` / `prompts.js` | AI 提示词页面、样式和管理员 CRUD |
 | `config/prompts-seed.json` | 首次初始化数据库时导入的默认提示词（非公开） |
+| `static/recommendations.html` / `recommendations.css` / `recommendations.js` | Error酱推荐页面、样式和管理员 CRUD |
 | `static/register.html` | 普通账号注册申请页面 |
 | `static/vendor/marked.min.js` | Markdown 渲染（本地 vendor） |
 | `static/vendor/purify.min.js` | 渲染结果 XSS 清洗（本地 vendor） |
@@ -304,6 +315,7 @@
 - `site_music`：音乐记录。
 - `site_links`：推荐网站。
 - `ai_prompts`：AI 提示词（标题、说明、分类、正文、标签、置顶和排序）。
+- `recommendations`：推荐网站、工具、电影和动漫（可选关联网页收藏、分类、封面、链接、评分、年份、状态和排序）。
 - `app_meta`：应用初始化标记等内部元数据。
 - `users`：普通账号（用户名、密码哈希、审批状态、角色和最后登录时间）。
 - `learning_notes`：学习笔记（标题、Markdown 正文、标签、创建/更新时间）。
@@ -320,6 +332,7 @@
 - 登录状态：`/api/auth/status`（公开）、`/api/login`、`/api/logout`。
 - 注册账号：`/api/register`（公开，创建待审核普通账号）。
 - AI 提示词：`/api/prompts`（GET / POST 管理员）、`/api/prompts/<id>`（PATCH 编辑 / DELETE 删除，仅管理员）。
+- Error酱推荐：`/api/recommendations`（GET 公开 / POST 管理员）、`/api/recommendations/<id>`（PATCH 编辑 / DELETE 删除，仅管理员）、`/api/recommendations/images`（POST 上传封面，仅管理员）。
 - 学习笔记：`/api/notes`（GET 列表 / POST 新建）、`/api/notes/import`（POST 导入 Word / PDF）、`/api/notes/<id>`（PATCH 修改 / DELETE 删除）、`/api/notes/<id>/export.html`（GET 导出单文件 HTML）、`/api/notes/images`（POST 上传）、`/api/notes/images/<id>`（DELETE）。
 - 网页收藏：`/api/bookmarks`、`/api/bookmark-folders`、`/api/bookmarks/firefox/import`、`/api/bookmarks/check-links`（仅管理员）。
 - 仓库类型：`/api/warehouse/types`。
@@ -330,6 +343,7 @@
 - 照片墙图片：`data/site_photos/`。
 - 上传的音乐文件：`data/site_music_files/`。
 - 笔记图片：`data/note_images/`，通过 `/site-files/note_images/<文件名>` 访问。
+- 推荐封面：`data/recommend_images/`，通过 `/site-files/recommend_images/<文件名>` 公开访问。
 - 书签图标：`data/bookmark_favicons/`。
 - BOM 报告：`data/bom_reports/`。
 
@@ -384,6 +398,9 @@
 - 公开留言、日常、游戏、参考项目和源码页面。
 - 游客可发布留言；删除留言、发布/编辑/删除日常仅管理员可用。
 - 新增 `/prompts` AI 提示词库并改为管理员专属：支持搜索、分类、展开、复制、新增、编辑、删除和置顶；页面使用数据库存储并加入下雨特效。
+- 提示词卡片改为独立纵向列布局，长内容展开后与相邻卡片错位排列，不再被同行最高卡片拉长。
+- 新增公开的“Error酱推荐”模块：首页入口位于“Error酱动态”和“AI 提示词”之间，支持网站、工具、电影和动漫卡片，管理员可上传封面并维护推荐内容。
+- 推荐网站可直接关联网页收藏，自动跟随收藏标题、网址和图标，不需要重复手动录入。
 - 新增普通账号注册和服务器审批；权限策略随后收口为仓库、网页收藏、笔记、工作台和 AI 提示词仅管理员可访问。
 - 新增学习笔记模块（第三个模块）：Markdown 编辑 + 实时预览 + 图片上传 + HTML 文档导入。
 - 学习笔记是项目文档的落点：`tools/import_doc_note.py` 已导入威盛.html（34 段文字 + 21 张内嵌截图，笔记 #7）和 磁定位实验-伺服滑轨运动控制实操教程.md（562 行、16 张表格，笔记 #9）。

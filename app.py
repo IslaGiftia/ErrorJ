@@ -44,6 +44,7 @@ BOM_WATCH_STATE_PATH = DATA_DIR / "bom_watch_state.json"
 PART_IMAGE_DIR = DATA_DIR / "part_images"
 BOOKMARK_FAVICON_DIR = DATA_DIR / "bookmark_favicons"
 NOTE_IMAGE_DIR = DATA_DIR / "note_images"
+RECOMMEND_IMAGE_DIR = DATA_DIR / "recommend_images"
 WORKBENCH_DIR = DATA_DIR / "workbench"
 NOTE_CONTENT_MAX_CHARS = 2_000_000
 NOTE_IMAGE_MAX_BYTES = 20 * 1024 * 1024
@@ -54,6 +55,7 @@ NOTE_IMPORT_FORMATS = {
     "pdf": "PDF",
 }
 WORKBENCH_FILE_MAX_BYTES = 30 * 1024 * 1024
+RECOMMEND_IMAGE_MAX_BYTES = 15 * 1024 * 1024
 MAX_REQUEST_BYTES = 40 * 1024 * 1024
 AUTH_PATH = DATA_DIR / "auth.json"
 AUTH_COOKIE = "errorjiang_session"
@@ -68,6 +70,7 @@ PUBLIC_PAGES = {
     "/register",
     "/messages",
     "/moments",
+    "/recommendations",
     "/references",
     "/games",
     "/favicon.ico",
@@ -77,6 +80,7 @@ PUBLIC_GET_APIS = {
     "/api/auth/status",
     "/api/site/messages",
     "/api/moments",
+    "/api/recommendations",
     "/api/site/photos",
     "/api/site/music",
     "/api/site/links",
@@ -92,6 +96,7 @@ PUBLIC_DATA_PREFIXES = (
     "moment_images/",
     "site_photos/",
     "site_music_files/",
+    "recommend_images/",
 )
 USERNAME_RE = re.compile(r"^[\w.-]{3,32}$", re.UNICODE)
 RESERVED_USERNAMES = {"owner", "admin", "administrator", "root", "system"}
@@ -174,6 +179,7 @@ NOTE_IMAGE_EXTENSIONS = {
     "image/gif": ".gif",
     "image/bmp": ".bmp",
 }
+RECOMMEND_KINDS = {"site", "tool", "movie", "anime"}
 BOOKMARK_CHECK_LOCK = threading.Lock()
 BOOKMARK_FAVICON_SEMAPHORE = threading.BoundedSemaphore(4)
 BOOKMARK_FAVICON_LOCKS = {}
@@ -455,6 +461,28 @@ def init_db():
                 updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS recommendations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind TEXT NOT NULL DEFAULT 'site',
+                bookmark_id INTEGER REFERENCES bookmarks(id) ON DELETE SET NULL,
+                title TEXT NOT NULL,
+                subtitle TEXT,
+                url TEXT,
+                download_url TEXT,
+                cover_path TEXT,
+                icon_url TEXT,
+                description TEXT,
+                category TEXT,
+                tags TEXT,
+                rating REAL,
+                release_year INTEGER,
+                status TEXT,
+                pinned INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS app_meta (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
@@ -586,6 +614,8 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             CREATE INDEX IF NOT EXISTS idx_site_links_category ON site_links(category);
             CREATE INDEX IF NOT EXISTS idx_ai_prompts_category ON ai_prompts(category);
             CREATE INDEX IF NOT EXISTS idx_ai_prompts_order ON ai_prompts(pinned, sort_order, id);
+            CREATE INDEX IF NOT EXISTS idx_recommendations_kind ON recommendations(kind);
+            CREATE INDEX IF NOT EXISTS idx_recommendations_order ON recommendations(kind, pinned, sort_order, id);
             CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
             CREATE INDEX IF NOT EXISTS idx_learning_notes_updated ON learning_notes(updated_at);
             CREATE INDEX IF NOT EXISTS idx_note_images_note ON note_images(note_id);
@@ -626,6 +656,18 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
         for column, definition in bookmark_migrations.items():
             if column not in bookmark_columns:
                 conn.execute(f"ALTER TABLE bookmarks ADD COLUMN {column} {definition}")
+        recommendation_columns = [
+            row[1] for row in conn.execute("PRAGMA table_info(recommendations)").fetchall()
+        ]
+        if "bookmark_id" not in recommendation_columns:
+            conn.execute(
+                "ALTER TABLE recommendations ADD COLUMN bookmark_id INTEGER "
+                "REFERENCES bookmarks(id) ON DELETE SET NULL"
+            )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_recommendations_bookmark "
+            "ON recommendations(bookmark_id)"
+        )
         conn.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS idx_bookmark_folders_source
@@ -3336,6 +3378,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
             if relative.startswith(PUBLIC_DATA_PREFIXES):
                 return True
         if method == "GET":
+            if re.fullmatch(r"/api/recommendations/\d+/icon", path):
+                return True
             if path in PUBLIC_PAGES or path.startswith("/games/"):
                 return True
             if path in PUBLIC_GET_APIS:
@@ -3622,6 +3666,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.send_file("references.html")
             elif path == "/moments":
                 self.send_file("moments.html")
+            elif path == "/recommendations":
+                self.send_file("recommendations.html")
             elif path == "/prompts":
                 self.send_file("prompts.html")
             elif path == "/games/gomoku":
@@ -3664,6 +3710,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_messages(query)
             elif path == "/api/moments":
                 self.api_moments(query)
+            elif path == "/api/recommendations":
+                self.api_recommendations(query)
+            elif re.fullmatch(r"/api/recommendations/\d+/icon", path):
+                self.api_recommendation_icon(path)
             elif path == "/api/site/photos":
                 self.api_site_photos(query)
             elif path == "/api/site/music":
@@ -3746,6 +3796,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_message_create(payload)
             elif path == "/api/moments":
                 self.api_moment_create(payload)
+            elif path == "/api/recommendations":
+                self.api_recommendation_create(payload)
+            elif path == "/api/recommendations/images":
+                self.api_recommendation_image_upload(payload)
             elif path == "/api/site/photos":
                 self.api_site_photo_upload(payload)
             elif path == "/api/site/music":
@@ -3821,6 +3875,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_note_item(path)
             elif re.fullmatch(r"/api/moments/\d+", path):
                 self.api_moment_item(path)
+            elif re.fullmatch(r"/api/recommendations/\d+", path):
+                self.api_recommendation_item(path)
             elif re.fullmatch(r"/api/workbench/assets/\d+", path):
                 self.api_workbench_asset_item(path)
             elif re.fullmatch(r"/api/workbench/repairs/\d+", path):
@@ -3862,6 +3918,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_message_delete(path)
             elif re.fullmatch(r"/api/moments/\d+", path):
                 self.api_moment_item(path)
+            elif re.fullmatch(r"/api/recommendations/\d+", path):
+                self.api_recommendation_item(path)
             elif re.fullmatch(r"/api/site/photos/\d+", path):
                 self.api_site_photo_delete(path)
             elif re.fullmatch(r"/api/site/music/\d+", path):
@@ -4828,6 +4886,318 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )
         self.send_json(200, {"id": moment_id})
 
+    def recommendation_rows(self, params=None):
+        params = params or {}
+        conditions = []
+        values = []
+        kind = str((params.get("kind") or [""])[0] or "").strip().lower()
+        keyword = str((params.get("q") or [""])[0] or "").strip()
+        if kind in RECOMMEND_KINDS:
+            conditions.append("r.kind = ?")
+            values.append(kind)
+        if keyword:
+            like = f"%{keyword}%"
+            conditions.append(
+                "(r.title LIKE ? OR r.subtitle LIKE ? OR r.description LIKE ? "
+                "OR r.category LIKE ? OR r.tags LIKE ? "
+                "OR b.title LIKE ? OR b.description LIKE ?)"
+            )
+            values.extend([like, like, like, like, like, like, like])
+        where = "WHERE " + " AND ".join(conditions) if conditions else ""
+        rows = query(
+            f"""SELECT r.id, r.kind, r.bookmark_id, r.title, r.subtitle, r.url,
+                       r.download_url, r.cover_path, r.icon_url, r.description,
+                       r.category, r.tags, r.rating, r.release_year, r.status,
+                       r.pinned, r.sort_order, r.created_at, r.updated_at,
+                       b.title AS bookmark_title, b.url AS bookmark_url,
+                       b.description AS bookmark_description,
+                       b.favicon_updated_at AS bookmark_favicon_updated_at
+                FROM recommendations r
+                LEFT JOIN bookmarks b ON b.id = r.bookmark_id
+                {where}
+                ORDER BY r.pinned DESC, r.sort_order, r.id DESC""",
+            tuple(values),
+        )
+        for row in rows:
+            if row.get("bookmark_id") and row.get("bookmark_title"):
+                row["title"] = row["bookmark_title"]
+                row["url"] = row["bookmark_url"]
+                if not row.get("description"):
+                    row["description"] = row.get("bookmark_description")
+                row["icon_url"] = (
+                    f"/api/recommendations/{row['id']}/icon"
+                    f"?v={quote(str(row.get('bookmark_favicon_updated_at') or ''))}"
+                )
+            row.pop("bookmark_title", None)
+            row.pop("bookmark_url", None)
+            row.pop("bookmark_description", None)
+            row.pop("bookmark_favicon_updated_at", None)
+            row["pinned"] = bool(row["pinned"])
+        return rows
+
+    def api_recommendations(self, params):
+        self.send_json(
+            200,
+            {
+                "items": self.recommendation_rows(params),
+                "can_manage": self.is_owner(),
+            },
+        )
+
+    @staticmethod
+    def recommendation_url(value, field_name, required=False):
+        text = str(value or "").strip()[:1000]
+        if not text:
+            if required:
+                raise ValueError(f"{field_name}不能为空。")
+            return None
+        parsed = urlsplit(text)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError(f"{field_name}必须是 http 或 https 地址。")
+        return text
+
+    def recommendation_payload(self, payload, current=None):
+        current = current or {}
+        kind = str(payload.get("kind", current.get("kind", "site")) or "site").strip().lower()
+        if kind not in RECOMMEND_KINDS:
+            raise ValueError("推荐类型不正确。")
+        bookmark_id_value = payload.get("bookmark_id", current.get("bookmark_id"))
+        bookmark = None
+        if bookmark_id_value not in (None, "", 0, "0"):
+            try:
+                bookmark_id = int(bookmark_id_value)
+            except (TypeError, ValueError):
+                raise ValueError("网页收藏关联不正确。")
+            if kind != "site":
+                raise ValueError("只有网站类型可以关联网页收藏。")
+            bookmark = query_one(
+                "SELECT id, title, url, description, favicon_updated_at FROM bookmarks WHERE id = ?",
+                (bookmark_id,),
+            )
+            if not bookmark:
+                raise ValueError("关联的网页收藏不存在。")
+        title_source = payload.get("title", current.get("title", ""))
+        if bookmark and not str(title_source or "").strip():
+            title_source = bookmark["title"]
+        title = str(title_source or "").strip()[:160]
+        if not title:
+            raise ValueError("推荐标题不能为空。")
+        subtitle = str(payload.get("subtitle", current.get("subtitle", "")) or "").strip()[:200]
+        url_source = payload.get("url", current.get("url", ""))
+        if bookmark and not str(url_source or "").strip():
+            url_source = bookmark["url"]
+        url = self.recommendation_url(
+            url_source,
+            "详情或访问地址",
+            required=kind in {"site", "tool"},
+        )
+        download_url = self.recommendation_url(
+            payload.get("download_url", current.get("download_url", "")),
+            "下载地址",
+        )
+        cover_path = str(payload.get("cover_path", current.get("cover_path", "")) or "").strip()
+        if cover_path and not re.fullmatch(r"recommend_images/[A-Za-z0-9._-]+", cover_path):
+            raise ValueError("封面路径不正确。")
+        icon_url = self.recommendation_url(
+            payload.get("icon_url", current.get("icon_url", "")),
+            "图标地址",
+        )
+        description_source = payload.get("description", current.get("description", ""))
+        if bookmark and not str(description_source or "").strip():
+            description_source = bookmark.get("description") or ""
+        description = str(description_source or "").strip()[:2000]
+        category = str(payload.get("category", current.get("category", "")) or "").strip()[:40]
+        tags = str(payload.get("tags", current.get("tags", "")) or "")
+        tags = tags.replace("，", ",").replace("、", ",").strip()[:300]
+        rating_value = payload.get("rating", current.get("rating"))
+        rating = None
+        if rating_value is not None and str(rating_value).strip():
+            try:
+                rating = float(rating_value)
+            except (TypeError, ValueError):
+                raise ValueError("评分必须是数字。")
+            if rating < 0 or rating > 10:
+                raise ValueError("评分需要在 0 到 10 之间。")
+        year_value = payload.get("release_year", current.get("release_year"))
+        release_year = None
+        if year_value is not None and str(year_value).strip():
+            try:
+                release_year = int(year_value)
+            except (TypeError, ValueError):
+                raise ValueError("年份必须是整数。")
+            if release_year < 1800 or release_year > 2200:
+                raise ValueError("年份需要在 1800 到 2200 之间。")
+        status = str(payload.get("status", current.get("status", "")) or "").strip()[:20]
+        pinned = 1 if payload.get("pinned", current.get("pinned", False)) else 0
+        sort_order_value = payload.get("sort_order", current.get("sort_order"))
+        if sort_order_value in (None, ""):
+            sort_order = None
+        else:
+            try:
+                sort_order = int(sort_order_value)
+            except (TypeError, ValueError):
+                raise ValueError("排序值必须是整数。")
+        return (
+            kind,
+            bookmark["id"] if bookmark else None,
+            title,
+            subtitle or None,
+            url,
+            download_url,
+            cover_path or None,
+            icon_url,
+            description or None,
+            category or None,
+            tags or None,
+            rating,
+            release_year,
+            status or None,
+            pinned,
+            sort_order,
+        )
+
+    def api_recommendation_create(self, payload):
+        try:
+            values = list(self.recommendation_payload(payload))
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        if values[-1] is None:
+            row = query_one(
+                "SELECT COALESCE(MAX(sort_order), -1) + 1 AS value FROM recommendations"
+            )
+            values[-1] = int(row["value"] if row else 0)
+        stamp = now_text()
+        recommendation_id = execute(
+            """INSERT INTO recommendations
+               (kind, bookmark_id, title, subtitle, url, download_url, cover_path,
+                icon_url, description, category, tags, rating, release_year,
+                status, pinned, sort_order, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            tuple(values) + (stamp, stamp),
+        )
+        self.send_json(200, {"id": recommendation_id})
+
+    def remove_recommendation_cover_if_unused(self, relative):
+        if not relative:
+            return
+        if query_one("SELECT id FROM recommendations WHERE cover_path = ? LIMIT 1", (relative,)):
+            return
+        remove_data_file(relative)
+
+    def api_recommendation_item(self, path):
+        recommendation_id = int(path.rsplit("/", 1)[1])
+        current = query_one("SELECT * FROM recommendations WHERE id = ?", (recommendation_id,))
+        if not current:
+            api_error(self, 404, "推荐内容不存在。")
+            return
+        if self.command == "DELETE":
+            execute("DELETE FROM recommendations WHERE id = ?", (recommendation_id,))
+            self.remove_recommendation_cover_if_unused(current.get("cover_path"))
+            self.send_json(200, {"ok": True})
+            return
+        payload = get_payload(self)
+        if payload is None:
+            return
+        try:
+            values = list(self.recommendation_payload(payload, current))
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        if values[-1] is None:
+            values[-1] = int(current.get("sort_order") or 0)
+        execute(
+            """UPDATE recommendations
+               SET kind = ?, bookmark_id = ?, title = ?, subtitle = ?, url = ?,
+                   download_url = ?, cover_path = ?, icon_url = ?, description = ?,
+                   category = ?, tags = ?, rating = ?, release_year = ?, status = ?,
+                   pinned = ?, sort_order = ?, updated_at = ?
+               WHERE id = ?""",
+            tuple(values) + (now_text(), recommendation_id),
+        )
+        old_cover = current.get("cover_path")
+        if old_cover and old_cover != values[6]:
+            self.remove_recommendation_cover_if_unused(old_cover)
+        self.send_json(200, {"id": recommendation_id})
+
+    def api_recommendation_image_upload(self, payload):
+        original_name = os.path.basename(str(payload.get("file_name") or "cover.png"))[:160]
+        data_base64 = payload.get("data_base64") or ""
+        if not data_base64:
+            api_error(self, 400, "没有图片数据。")
+            return
+        try:
+            raw = base64.b64decode(data_base64, validate=True)
+        except Exception:
+            api_error(self, 400, "图片数据不是有效的 base64。")
+            return
+        if not raw:
+            api_error(self, 400, "图片内容为空。")
+            return
+        if len(raw) > RECOMMEND_IMAGE_MAX_BYTES:
+            api_error(
+                self,
+                400,
+                f"封面图片不能超过 {RECOMMEND_IMAGE_MAX_BYTES // (1024 * 1024)}MB。",
+            )
+            return
+        mime_type = detect_image_type(raw)
+        if not mime_type:
+            api_error(self, 400, "只支持 PNG / JPEG / WebP / GIF / BMP 图片。")
+            return
+        base_name = os.path.splitext(original_name)[0] or "cover"
+        stored_name = f"{base_name[:80]}{NOTE_IMAGE_EXTENSIONS[mime_type]}"
+        try:
+            relative = self.save_data_file(
+                raw,
+                stored_name,
+                "recommend_images",
+                RECOMMEND_IMAGE_MAX_BYTES,
+            )
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        self.send_json(
+            200,
+            {
+                "path": relative,
+                "url": f"/site-files/{relative}",
+                "mime_type": mime_type,
+                "size_bytes": len(raw),
+            },
+        )
+
+    def api_recommendation_icon(self, path):
+        recommendation_id = int(path.split("/")[3])
+        row = query_one(
+            "SELECT bookmark_id FROM recommendations WHERE id = ?",
+            (recommendation_id,),
+        )
+        if not row or not row.get("bookmark_id"):
+            self.send_error(404)
+            return
+        relative = refresh_bookmark_favicon(row["bookmark_id"])
+        if not relative:
+            self.send_error(404)
+            return
+        try:
+            full_path = (DATA_DIR / relative).resolve()
+            full_path.relative_to(DATA_DIR.resolve())
+            body = full_path.read_bytes()
+        except (ValueError, OSError):
+            self.send_error(404)
+            return
+        content_type = mimetypes.guess_type(full_path.name)[0] or "image/x-icon"
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
 
     def api_site_photo_upload(self, payload):
         title = str(payload.get("title") or "").strip()[:80]

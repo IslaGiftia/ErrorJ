@@ -446,6 +446,7 @@ workbench/          工作台文件
 bom_reports/        BOM 对比报告
 site_photos/        照片墙图片
 site_music_files/   音乐文件
+recommend_images/   Error酱推荐封面
 ```
 
 查看大小：
@@ -925,6 +926,7 @@ git log --oneline -5
 
 ```bash
 git pull --ff-only
+/usr/bin/python3 -m pip install --break-system-packages -r requirements.txt
 python3 -m py_compile app.py
 systemctl restart errorjiang
 sleep 2

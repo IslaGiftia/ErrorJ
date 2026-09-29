@@ -191,10 +191,31 @@
     return button;
   }
 
-  function renderCards() {
+  function gridColumnCount() {
+    return window.matchMedia("(max-width: 640px)").matches ? 1 : 2;
+  }
+
+  function renderCardColumns(cards) {
     var grid = $("promptGrid");
+    var columnCount = gridColumnCount();
+    var columns = Array.from({ length: columnCount }, function () {
+      var column = document.createElement("div");
+      column.className = "pr-grid-column";
+      return column;
+    });
+    cards.forEach(function (card, index) {
+      columns[index % columnCount].appendChild(card);
+    });
+    grid.style.gridTemplateColumns = "repeat(" + columnCount + ", minmax(0, 1fr))";
+    grid.replaceChildren.apply(grid, columns.filter(function (column) {
+      return column.childElementCount > 0;
+    }));
+  }
+
+  function renderCards() {
     var rows = visiblePrompts();
-    grid.innerHTML = "";
+    var cards = [];
+    $("promptGrid").innerHTML = "";
     $("promptEmpty").hidden = rows.length > 0;
     rows.forEach(function (item) {
       var key = String(item.id);
@@ -265,8 +286,9 @@
       }
 
       card.append(head, description, prompt, tags, actions);
-      grid.appendChild(card);
+      cards.push(card);
     });
+    renderCardColumns(cards);
     if (window.lucide) window.lucide.createIcons();
   }
 
@@ -310,6 +332,14 @@
     if (event.key === "Escape" && !$("promptModal").hidden) {
       closeEditor();
     }
+  });
+
+  var lastColumnCount = gridColumnCount();
+  window.addEventListener("resize", function () {
+    var nextColumnCount = gridColumnCount();
+    if (nextColumnCount === lastColumnCount) return;
+    lastColumnCount = nextColumnCount;
+    renderCards();
   });
 
   loadPrompts();

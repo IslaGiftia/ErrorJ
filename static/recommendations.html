@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <meta name="tab-name" content="ej-recommendations">
+  <title>Error酱推荐</title>
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
+  <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
+  <link rel="stylesheet" href="/static/recommendations.css">
+  <link rel="stylesheet" href="/static/site/rain.css">
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
+  <script src="/static/site/tabname.js"></script>
+</head>
+<body>
+  <div class="rain-scene rain-scene--fixed" id="rainScene" aria-hidden="true">
+    <div class="rain-layer" id="rainLayer"></div>
+    <div class="rain-floor" id="rainFloor"></div>
+  </div>
+
+  <div class="rec-app">
+    <header class="rec-header">
+      <a class="rec-brand" href="/">
+        <span class="rec-brand-icon"><i data-lucide="sparkles"></i></span>
+        <strong>Error酱推荐</strong>
+        <span id="recCount">0 项</span>
+      </a>
+
+      <label class="rec-search">
+        <i data-lucide="search"></i>
+        <input id="recSearch" type="search" placeholder="搜索推荐内容、标签或分类">
+      </label>
+
+      <div class="rec-header-actions">
+        <a class="rec-btn" href="/">返回首页</a>
+        <button class="rec-btn rec-btn-primary" id="recAddBtn" type="button" hidden>
+          <i data-lucide="plus"></i><span>新增推荐</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="rec-main">
+      <section class="rec-hero">
+        <div class="rec-hero-copy">
+          <p class="rec-eyebrow">CURATED BY ERROR酱</p>
+          <h1>把真正好用的东西放在这里</h1>
+          <p>网站、工具、电影和动漫，只留下值得再次打开的内容。</p>
+        </div>
+        <div class="rec-stat-row">
+          <span><strong id="recSiteStat">0</strong> 网站工具</span>
+          <span><strong id="recMovieStat">0</strong> 电影</span>
+          <span><strong id="recAnimeStat">0</strong> 动漫</span>
+        </div>
+      </section>
+
+      <section class="rec-toolbar">
+        <div class="rec-tabs" id="recTabs">
+          <button class="active" type="button" data-tab="all">全部</button>
+          <button type="button" data-tab="web">网站与工具</button>
+          <button type="button" data-tab="movie">电影</button>
+          <button type="button" data-tab="anime">动漫</button>
+        </div>
+      </section>
+
+      <section class="rec-grid" id="recGrid"></section>
+      <div class="rec-empty" id="recEmpty" hidden>还没有匹配的推荐。</div>
+    </main>
+  </div>
+
+  <div class="rec-modal" id="recModal" hidden>
+    <div class="rec-dialog" role="dialog" aria-modal="true" aria-labelledby="recModalTitle">
+      <button class="rec-dialog-close" id="recModalClose" type="button" aria-label="关闭">×</button>
+      <h2 id="recModalTitle">新增推荐</h2>
+      <form id="recForm">
+        <div class="rec-form-grid">
+          <label class="rec-field">
+            <span>类型</span>
+            <select id="recKind" required>
+              <option value="site">网站</option>
+              <option value="tool">工具 / 下载</option>
+              <option value="movie">电影</option>
+              <option value="anime">动漫</option>
+            </select>
+          </label>
+          <label class="rec-field">
+            <span>标题</span>
+            <input id="recTitle" maxlength="160" required>
+          </label>
+        </div>
+
+        <label class="rec-field" data-kinds="movie anime">
+          <span>副标题</span>
+          <input id="recSubtitle" maxlength="200" placeholder="原名、季数或一句话补充">
+        </label>
+
+        <div class="rec-form-grid">
+          <label class="rec-field" data-kinds="site tool movie anime">
+            <span>分类</span>
+            <input id="recCategory" maxlength="40" placeholder="例如：开发工具、动画电影">
+          </label>
+          <label class="rec-field" data-kinds="site tool movie anime">
+            <span>标签</span>
+            <input id="recTags" maxlength="300" placeholder="用逗号分隔">
+          </label>
+        </div>
+
+        <div class="rec-form-grid">
+          <label class="rec-field" data-kinds="site tool movie anime">
+            <span id="recUrlLabel">访问地址</span>
+            <input id="recUrl" type="url" maxlength="1000" placeholder="https://">
+          </label>
+          <label class="rec-field" data-kinds="tool">
+            <span>下载地址</span>
+            <input id="recDownloadUrl" type="url" maxlength="1000" placeholder="https://">
+          </label>
+        </div>
+
+        <div class="rec-bookmark-field" data-kinds="site">
+          <div>
+            <strong>关联网页收藏</strong>
+            <span id="recBookmarkSummary">未关联，可手动填写标题和访问地址。</span>
+          </div>
+          <div>
+            <button class="rec-action" id="recPickBookmark" type="button">选择收藏</button>
+            <button class="rec-action" id="recClearBookmark" type="button" hidden>取消关联</button>
+          </div>
+        </div>
+
+        <div class="rec-form-grid">
+          <label class="rec-field" data-kinds="site tool">
+            <span>图标地址</span>
+            <input id="recIconUrl" type="url" maxlength="1000" placeholder="可选的 favicon 或 logo 地址">
+          </label>
+          <label class="rec-field" data-kinds="movie anime">
+            <span>观看状态</span>
+            <input id="recStatus" maxlength="20" placeholder="例如：已看、追更中">
+          </label>
+        </div>
+
+        <div class="rec-form-grid" data-kinds="movie anime">
+          <label class="rec-field" data-kinds="movie anime">
+            <span>评分（0-10）</span>
+            <input id="recRating" type="number" min="0" max="10" step="0.1">
+          </label>
+          <label class="rec-field" data-kinds="movie anime">
+            <span>年份</span>
+            <input id="recYear" type="number" min="1800" max="2200" step="1">
+          </label>
+        </div>
+
+        <label class="rec-field" data-kinds="site tool movie anime">
+          <span>说明</span>
+          <textarea id="recDescription" rows="4" maxlength="2000" placeholder="推荐理由、适用场景或简单介绍"></textarea>
+        </label>
+
+        <div class="rec-cover-field">
+          <div class="rec-cover-preview" id="recCoverPreview">
+            <i data-lucide="image-plus"></i>
+          </div>
+          <div class="rec-cover-controls">
+            <strong>封面 / 截图</strong>
+            <span>网站建议 16:9，电影和动漫建议 2:3，最大 15MB。</span>
+            <div>
+              <button class="rec-action" id="recPickCover" type="button">选择图片</button>
+              <button class="rec-action" id="recClearCover" type="button" hidden>移除封面</button>
+            </div>
+          </div>
+          <input id="recCoverInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" hidden>
+        </div>
+
+        <label class="rec-check">
+          <input id="recPinned" type="checkbox">
+          <span>置顶推荐</span>
+        </label>
+
+        <div class="rec-form-error" id="recFormError" hidden></div>
+        <div class="rec-dialog-actions">
+          <button class="rec-action" id="recCancel" type="button">取消</button>
+          <button class="rec-action primary" id="recSave" type="submit">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="rec-picker" id="recBookmarkPicker" hidden>
+    <div class="rec-picker-dialog" role="dialog" aria-modal="true" aria-labelledby="recBookmarkPickerTitle">
+      <div class="rec-picker-head">
+        <div>
+          <h2 id="recBookmarkPickerTitle">选择网页收藏</h2>
+          <p>关联后推荐页会跟随收藏的标题、网址和图标。</p>
+        </div>
+        <button class="rec-dialog-close" id="recBookmarkPickerClose" type="button" aria-label="关闭">×</button>
+      </div>
+      <label class="rec-search rec-picker-search">
+        <i data-lucide="search"></i>
+        <input id="recBookmarkSearch" type="search" placeholder="搜索收藏标题、网址或说明">
+      </label>
+      <div class="rec-bookmark-list" id="recBookmarkList"></div>
+      <div class="rec-empty rec-bookmark-empty" id="recBookmarkEmpty" hidden>没有匹配的网页收藏。</div>
+    </div>
+  </div>
+
+  <div class="rec-toast" id="recToast" hidden></div>
+
+  <script src="/static/vendor/lucide.min.js"></script>
+  <script src="/static/site/rain.js"></script>
+  <script src="/static/recommendations.js"></script>
+</body>
+</html>

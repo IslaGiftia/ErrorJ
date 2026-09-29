@@ -16,7 +16,7 @@
 - 出入库记录：可修改时间、备注和关联项目，也可删除记录并自动恢复或扣回库存；删除均有二次确认。
 - 页面状态：打开仓库系统默认进入仪表盘；按 F5 刷新才回到上次停留的页面。首屏在 HTML 里就只放开目标页面，数据没回来时不会把各模块堆在一起（不再闪屏）。
 - 外观主题：只在首页保留“浅色 / 暗色”切换按钮，选择存在浏览器里，全站所有页面共用；其它页面不再单独放切换按钮，已打开的页面会跟着一起变。
-- 公开首页与游客模式：首页、留言板、游戏、Error酱动态和参考项目可公开访问；仓库、网页收藏、笔记、工作台和 AI 提示词仅管理员可访问，未登录时显示“登录后查看”。
+- 公开首页与游客模式：首页、留言板、游戏、Error酱动态、Error酱推荐和参考项目可公开访问；仓库、网页收藏、笔记、工作台和 AI 提示词仅管理员可访问，未登录时显示“登录后查看”。
 - 源码入口：首页“Error酱源码”在新标签页直接打开 `https://github.com/IslaGiftia/ErrorJ`。
 - 登录状态：首页右上角显示“游客 / 已登录”，点击可打开无头像登录弹窗；只有管理员可以进入仓库、网页收藏、笔记、工作台和 AI 提示词。
 - 普通账号：`/register` 提交注册申请，管理员在服务器批准后可登录；普通账号没有管理员专属模块的访问权限。
@@ -28,6 +28,7 @@
 - 工作台：集中管理项目源码包、固件、文档和图片，支持版本、目标芯片、开发板、在线烧录链接、项目关联和维修台账。
 - 学习笔记：支持 Markdown 编辑、图片粘贴与导入 TXT、Markdown、HTML、Word、PDF；文档会自动转换为站内可阅读的 Markdown，Word 内嵌图片会保存到笔记图库，单篇笔记可导出为内嵌图片和源文的单文件 HTML。
 - AI 提示词：`/prompts` 仅管理员可访问，支持搜索、分类、展开、复制，以及新增、编辑、删除和置顶。
+- Error酱推荐：`/recommendations` 公开浏览，展示推荐网站、工具下载、电影和动漫；网站可直接关联网页收藏并跟随收藏标题、网址和图标更新，管理员可上传封面并维护卡片。
 - 游戏大厅：`/games` 收录五子棋、2048、扫雷、记忆翻牌，全部是纯前端小游戏，手机可直接玩（键盘方向键 / 滑动 / 长按插旗）。
 - 日常：`/moments` 记录说说和日志，支持配图（可直接粘贴截图）、标签、置顶、编辑和删除。
 
@@ -41,7 +42,7 @@ Windows：
 start-inventory.bat
 ```
 
-也可以使用 `run.bat`。关机或重启电脑后，需要再次运行这个脚本，库存数据不会丢失。
+也可以使用 `run.bat`。启动脚本会在需要时自动安装 Word/PDF 转换依赖。关机或重启电脑后，需要再次运行这个脚本，库存数据不会丢失。
 
 macOS / Linux：
 
@@ -163,6 +164,7 @@ powershell -ExecutionPolicy Bypass -File backup.ps1
 ```text
 app.py                 Python 后端、数据库、LCSC 导入和 BOM 对比
 requirements.txt       Python 运行依赖（Word / PDF 文档转换）
+ensure_deps.bat        Windows 启动前的依赖检查和自动安装
 backup.ps1             整个系统自动备份到 D 盘的 PowerShell 脚本
 fetch_lcsc_images.py   按 LCSC 编号从立创商城批量抓取元件图片
 static/index.html      中文响应式界面
@@ -172,6 +174,7 @@ static/prompts.html    AI 提示词页面
 static/prompts.css     AI 提示词样式
 static/prompts.js      AI 提示词交互与管理员操作
 config/prompts-seed.json 首次初始化时导入的默认提示词（非公开）
+static/recommendations.html / recommendations.css / recommendations.js 网站、工具、电影和动漫推荐页面
 static/register.html   普通账号注册申请页
 data/inventory.db      运行时自动创建的数据库
 Dockerfile             可选 Docker 镜像
