@@ -126,7 +126,7 @@
 - 防滥用：登录失败 5 次锁定 5 分钟；写接口每 IP 每分钟 120 次，游客留言限制为每 IP 每分钟 5 条；开启密码后写请求校验 `Origin` 同源。
 - 反向代理：`INVENTORY_TRUST_PROXY=1` 时按 `X-Forwarded-For` 取真实 IP，`INVENTORY_ACCESS_LOG=1` 打开访问日志。
 - 数据库：SQLite 开启 WAL + `busy_timeout=5000` + `synchronous=NORMAL`，多线程写入不再容易锁库。
-- 部署物料：`DEPLOY.md`（完整指南）、`docker-compose.prod.yml`（只监听 127.0.0.1 + 密码 + 时区）、`deploy/nginx-errorjiang.conf`、`deploy/errorjiang.service`、`tools/backup_linux.sh`。
+- 部署物料：`docker-compose.prod.yml`（只监听 127.0.0.1 + 密码 + 时区）、`deploy/nginx-errorjiang.conf`、`deploy/errorjiang.service`、`tools/backup_linux.sh`。
 - Docker 镜像装了 `tzdata` 并设置 `TZ=Asia/Shanghai`，避免时间差 8 小时；镜像自带 `/api/health` 健康检查。
 - 低带宽优化（为 3Mbps 的云服务器准备）：静态文件带 `ETag`，内容没变直接 304（零字节）；文本资源按 `Accept-Encoding` 做 gzip（`lucide.min.js` 388KB → 92KB）；`protocol_version = HTTP/1.1` 开启连接复用；上传文件和元件图片分别按 1 天 / 7 天缓存（元件图片地址带 `?v=` 版本号，可安全长缓存）；首页改用 `/api/notes?summary=1`，不再拉 1.1MB 的笔记正文 JSON。
 

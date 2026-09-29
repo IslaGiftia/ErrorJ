@@ -157,26 +157,6 @@ powershell -ExecutionPolicy Bypass -File backup.ps1
 
 恢复时把最新压缩包解压，把 `app.py`、`static/`、`data/` 等文件放回 `C:\lX.NeT`，再启动服务即可。
 
-## 云服务器部署说明
-
-完整步骤见 [DEPLOY.md](DEPLOY.md)。当前已经内置的部分：
-
-- **访问密码**：设置环境变量 `INVENTORY_PASSWORD`，或运行 `python tools/set_password.py`；开启后仅保护仓库、网页收藏、笔记和工作台，其他公共模块允许游客访问。退出登录访问 `/logout`。
-- **只监听回环**：公网部署设 `INVENTORY_HOST=127.0.0.1`，由 Nginx 反代并终止 HTTPS（示例见 `deploy/nginx-errorjiang.conf`）。
-- **反代适配**：`INVENTORY_TRUST_PROXY=1` 时按 `X-Forwarded-For` 统计限流和日志；HTTPS 下会话 Cookie 自动加 `Secure`。
-- **限流**：登录失败 5 次锁定 5 分钟，写接口每 IP 每分钟 120 次；Nginx 侧还有登录接口限流。
-- **数据库与时间**：SQLite 默认开启 WAL + `busy_timeout`；Docker 镜像已装 `tzdata` 并设置 `TZ=Asia/Shanghai`。
-- **备份**：Linux 上用 `tools/backup_linux.sh`（SQLite 一致性快照 + 上传文件打包，默认保留 14 份）。
-- **进程守护**：Docker 用 `restart: unless-stopped`，裸机用 `deploy/errorjiang.service`。
-- **低带宽优化**：静态资源带 ETag（没改就回 304，零流量）、文本资源 gzip 压缩、HTTP/1.1 连接复用；上传文件和元件图片走浏览器缓存；首页只拉笔记摘要。
-
-迁移后行为会变的地方：
-
-- 日常（说说）模块是纯站内内容，搬到云上没有影响；配图会占用云盘空间，记得一起备份。
-- Firefox 书签导入读取 `%APPDATA%`，BOM 文件夹监控也读服务器本地目录，Linux 上没有。
-- `backup.ps1`、`start-inventory.bat`、`autostart.vbs` 是 Windows 专用。
-- 浏览器串口 / ESP 在线烧录依赖本机 USB 设备，云端部署不适用。
-
 ## 项目结构
 
 ```text
@@ -199,7 +179,6 @@ docker-compose.prod.yml 公网部署配置（只监听 127.0.0.1 + 密码 + 时�
 deploy/                 Nginx 反代示例与 systemd 单元
 tools/                  设置密码、Linux 备份、文档导入等脚本
 tools/manage_users.py  审批、创建、停用和重置普通用户账号
-DEPLOY.md               部署到阿里云等公网的完整指南
 ```
 
 ## 后续扩展方向
