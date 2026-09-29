@@ -6,8 +6,8 @@
     canManage: false,
     category: "全部",
     keyword: "",
-    expanded: {},
     editingId: null,
+    previewItem: null,
   };
 
   function $(id) {
@@ -191,34 +191,36 @@
     return button;
   }
 
-  function gridColumnCount() {
-    return window.matchMedia("(max-width: 640px)").matches ? 1 : 2;
+  function openPreview(item) {
+    state.previewItem = item;
+    $("previewCategory").textContent = item.category || "未分类";
+    $("previewTitle").textContent = item.title || "未命名提示词";
+    $("previewDescription").textContent = item.description || "";
+    $("previewDescription").hidden = !item.description;
+    $("previewBody").textContent = item.prompt || "";
+    var tagWrap = $("previewTags");
+    tagWrap.innerHTML = "";
+    splitTags(item.tags).forEach(function (tag) {
+      var node = document.createElement("span");
+      node.textContent = tag;
+      tagWrap.appendChild(node);
+    });
+    tagWrap.hidden = !tagWrap.childNodes.length;
+    $("promptPreview").hidden = false;
+    window.setTimeout(function () { $("promptPreviewClose").focus(); }, 0);
   }
 
-  function renderCardColumns(cards) {
-    var grid = $("promptGrid");
-    var columnCount = gridColumnCount();
-    var columns = Array.from({ length: columnCount }, function () {
-      var column = document.createElement("div");
-      column.className = "pr-grid-column";
-      return column;
-    });
-    cards.forEach(function (card, index) {
-      columns[index % columnCount].appendChild(card);
-    });
-    grid.style.gridTemplateColumns = "repeat(" + columnCount + ", minmax(0, 1fr))";
-    grid.replaceChildren.apply(grid, columns.filter(function (column) {
-      return column.childElementCount > 0;
-    }));
+  function closePreview() {
+    $("promptPreview").hidden = true;
+    state.previewItem = null;
   }
 
   function renderCards() {
     var rows = visiblePrompts();
-    var cards = [];
-    $("promptGrid").innerHTML = "";
+    var grid = $("promptGrid");
+    grid.innerHTML = "";
     $("promptEmpty").hidden = rows.length > 0;
     rows.forEach(function (item) {
-      var key = String(item.id);
       var card = document.createElement("article");
       card.className = "pr-card" + (item.pinned ? " is-pinned" : "");
 
@@ -245,7 +247,7 @@
       description.textContent = item.description || "";
 
       var prompt = document.createElement("pre");
-      prompt.className = "pr-prompt" + (state.expanded[key] ? "" : " is-collapsed");
+      prompt.className = "pr-prompt is-collapsed";
       prompt.textContent = item.prompt;
 
       var tags = document.createElement("div");
@@ -258,9 +260,8 @@
 
       var actions = document.createElement("div");
       actions.className = "pr-actions";
-      var expand = actionButton(state.expanded[key] ? "收起" : "展开", "", function () {
-        state.expanded[key] = !state.expanded[key];
-        renderCards();
+      var expand = actionButton("展开", "", function () {
+        openPreview(item);
       });
       var copy = actionButton("复制", "primary", function () {
         copyText(item.prompt).then(function () {
@@ -286,9 +287,8 @@
       }
 
       card.append(head, description, prompt, tags, actions);
-      cards.push(card);
+      grid.appendChild(card);
     });
-    renderCardColumns(cards);
     if (window.lucide) window.lucide.createIcons();
   }
 
@@ -327,19 +327,27 @@
   $("promptModal").addEventListener("click", function (event) {
     if (event.target === $("promptModal")) closeEditor();
   });
-
-  document.addEventListener("keydown", function (event) {
-    if (event.key === "Escape" && !$("promptModal").hidden) {
-      closeEditor();
-    }
+  $("promptPreviewClose").addEventListener("click", closePreview);
+  $("promptPreviewCloseFooter").addEventListener("click", closePreview);
+  $("promptPreview").addEventListener("click", function (event) {
+    if (event.target === $("promptPreview")) closePreview();
+  });
+  $("previewCopy").addEventListener("click", function () {
+    if (!state.previewItem) return;
+    copyText(state.previewItem.prompt || "").then(function () {
+      toast("已复制提示词");
+    }).catch(function () {
+      toast("复制失败，请手动选择");
+    });
   });
 
-  var lastColumnCount = gridColumnCount();
-  window.addEventListener("resize", function () {
-    var nextColumnCount = gridColumnCount();
-    if (nextColumnCount === lastColumnCount) return;
-    lastColumnCount = nextColumnCount;
-    renderCards();
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "Escape") return;
+    if (!$("promptPreview").hidden) {
+      closePreview();
+      return;
+    }
+    if (!$("promptModal").hidden) closeEditor();
   });
 
   loadPrompts();
