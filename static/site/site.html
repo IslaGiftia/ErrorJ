@@ -43,28 +43,28 @@
       <p class="landing-desc" id="landingDesc">Error酱是一个工作和学习平台，目前看来只适合作者自己使用，她全部由ChatGPT和DeepSeek完成，没有原创，全是搬运。现在，Error酱也开源了</p>
 
       <div class="repo-grid">
-        <a class="repo-entry is-locked" href="/inventory" target="ej-inventory" data-private-module="inventory">
+        <a class="repo-entry" href="/inventory" target="ej-inventory" data-private-module="inventory">
           <span class="repo-entry-label">
             <span class="repo-entry-text">📦<span id="repoCount">登录后查看</span></span>
           </span>
           <span class="repo-thumbs" id="repoThumbs"></span>
         </a>
 
-        <a class="repo-entry is-locked" href="/bookmarks" target="ej-bookmarks" data-private-module="bookmarks">
+        <a class="repo-entry" href="/bookmarks" target="ej-bookmarks" data-private-module="bookmarks">
           <span class="repo-entry-label">
             <span class="repo-entry-text">🔖<span id="bookmarkCount">登录后查看</span></span>
           </span>
           <span class="repo-thumbs" id="bookmarkThumbs"></span>
         </a>
 
-        <a class="repo-entry is-locked" href="/notes" target="ej-notes" data-private-module="notes">
+        <a class="repo-entry" href="/notes" target="ej-notes" data-private-module="notes">
           <span class="repo-entry-label">
             <span class="repo-entry-text">📝<span id="noteCount">登录后查看</span></span>
           </span>
           <span class="repo-thumbs" id="notesThumbs"></span>
         </a>
 
-        <a class="repo-entry is-locked" href="/workbench" target="ej-workbench" data-private-module="workbench">
+        <a class="repo-entry" href="/workbench" target="ej-workbench" data-private-module="workbench">
           <span class="repo-entry-label">
             <span class="repo-entry-text">🧰<span id="workbenchCount">登录后查看</span></span>
           </span>
@@ -80,7 +80,7 @@
         <a class="landing-module-btn" href="/messages">给Error酱留言</a>
         <a class="landing-module-btn" href="/games">和Error酱玩游戏</a>
         <a class="landing-module-btn" href="/moments">Error酱动态</a>
-        <a class="landing-module-btn" href="/prompts">AI 提示词</a>
+        <a class="landing-module-btn" href="/prompts" data-private-module="prompts">AI 提示词</a>
       </div>
 
       <nav class="landing-links" aria-label="项目相关链接">
@@ -97,7 +97,7 @@
     <div class="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="authTitle">
       <button class="auth-close" id="authClose" type="button" aria-label="关闭">×</button>
       <h2 id="authTitle">登录 Error酱</h2>
-      <p>普通账号可只读访问仓库和网页收藏；管理员拥有全部权限。</p>
+      <p>普通账号可浏览公开页面；仓库、网页收藏、笔记、工作台和 AI 提示词仅管理员可访问。</p>
       <form id="authForm">
         <label class="auth-field">
           <span>用户名</span>

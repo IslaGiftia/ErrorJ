@@ -47,9 +47,8 @@
 - 下雨动画：统一由 `static/site/rain.css` + `static/site/rain.js` 提供，首页、小游戏、留言板、参考项目、源码页共用同一份参数。
 - 顶部导航顺序：首页 / 仓库 / 音乐 / 照片墙 / 推荐 / 留言。
 - 右上角显示“游客 / 已登录 / 本地模式”状态；游客点击打开无头像登录弹窗，已登录菜单只保留退出登录。
-- 仓库、网页收藏、笔记、工作台四张卡片默认显示“登录后查看”，登录后才请求真实数量和缩略图；修复了游客状态误显示“已入库 80 种元件”的硬编码问题。
-- 普通账号登录后，仓库和网页收藏解锁为只读；笔记和工作台继续显示“仅管理员”。
-- “Error酱动态”旁边新增“AI 提示词”入口。
+- 仓库、网页收藏、笔记、工作台四张卡片默认显示“登录后查看”，只有管理员登录后才请求真实数量和缩略图。
+- 普通账号登录后，四张管理员专属卡片统一显示“仅管理员”；AI 提示词入口保持普通外观，点击后提示仅管理员可访问。
 
 ### 2.3 留言板
 
@@ -116,9 +115,9 @@
 
 - 访问密码：设置环境变量 `INVENTORY_PASSWORD`，或运行 `python tools/set_password.py` 写入 `data/auth.json`（只存 PBKDF2-SHA256 哈希）。未设置时保持免登录，局域网自用行为不变。
 - 注册审批：访客通过 `/register` 提交用户名和密码，账号状态为 `pending`；管理员使用 `tools/manage_users.py` 在服务器批准、拒绝、停用或重置密码。
-- 角色权限：管理员拥有全部权限；已批准普通账号只读访问仓库和网页收藏，不能访问笔记、工作台或执行任何写操作。
-- 公开访问：首页 `/`、留言板 `/messages`、Error酱动态 `/moments`、游戏 `/games*`、参考项目 `/references`、AI 提示词 `/prompts` 无需登录。
-- 私有模块：`/inventory` 和 `/bookmarks` 允许管理员及已批准普通账号访问；`/notes` 和 `/workbench` 仅管理员访问。未登录访问会跳转 `/login`，无权限接口返回 401 或 403。
+- 角色权限：管理员拥有全部业务模块权限；已批准普通账号只能浏览公开页面，不能进入仓库、网页收藏、笔记、工作台或 AI 提示词。
+- 公开访问：首页 `/`、留言板 `/messages`、Error酱动态 `/moments`、游戏 `/games*` 和参考项目 `/references` 无需登录。
+- 管理员专属模块：`/inventory`、`/bookmarks`、`/notes`、`/workbench` 和 `/prompts` 均仅管理员访问。未登录访问会跳转 `/login`，普通账号会跳回首页，无权限接口返回 401 或 403。
 - 公共附件：留言附件、日常配图、照片墙和音乐文件允许公开访问；笔记图片、元件图片、书签图标、工作台文件和 BOM 报告继续受保护。
 - 登录入口：首页右上角状态按钮通过 `/api/auth/status` 判断游客/管理员，并调用 `/api/login` 完成弹窗登录；独立登录页 `/login` 继续保留。退出登录访问 `/logout`。
 - 权限边界：游客可浏览留言并发布留言、查看日常，但不能删除留言或发布/编辑/删除日常；这些操作只对登录管理员开放。
@@ -132,10 +131,9 @@
 
 ### 2.10 AI 提示词
 
-- 独立公开页面 `/prompts`，首页“AI 提示词”按钮进入。
-- 游客可浏览、搜索、分类筛选、展开/收起和复制。
-- 管理员可新增、编辑、删除和置顶，数据和权限由 `ai_prompts` 表及 `/api/prompts` 提供。
-- 初始提示词来自 `static/prompts-seed.json`，首次初始化数据库时导入。
+- 管理员专属页面 `/prompts`，首页“AI 提示词”按钮使用与笔记、工作台相同的普通外观和点击提示。
+- 管理员可搜索、分类筛选、展开/收起、复制、新增、编辑、删除和置顶，数据和权限由 `ai_prompts` 表及 `/api/prompts` 提供。
+- 初始提示词来自非公开的 `config/prompts-seed.json`，首次初始化数据库时导入。
 
 ## 3. 需求演进时间线
 
@@ -273,10 +271,9 @@
 | `static/notes.html` | 学习笔记页面 |
 | `static/notes.css` | 学习笔记样式（`--nt-*` 变量，明暗两套） |
 | `static/notes.js` | 学习笔记交互（Markdown 编辑、图片上传、搜索、HTML 导出） |
-| `static/prompts.html` / `prompts.css` / `prompts.js` | AI 提示词页面、样式、游客读取和管理员 CRUD |
-| `static/prompts-seed.json` | 首次初始化数据库时导入的默认提示词 |
+| `static/prompts.html` / `prompts.css` / `prompts.js` | AI 提示词页面、样式和管理员 CRUD |
+| `config/prompts-seed.json` | 首次初始化数据库时导入的默认提示词（非公开） |
 | `static/register.html` | 普通账号注册申请页面 |
-| `static/site/role-mode.js` / `role-mode.css` | 普通账号只读提示、隐藏写入口和拦截修改操作 |
 | `static/vendor/marked.min.js` | Markdown 渲染（本地 vendor） |
 | `static/vendor/purify.min.js` | 渲染结果 XSS 清洗（本地 vendor） |
 | `tools/import_doc_note.py` | 把 HTML / Markdown 文档导入成学习笔记（提取内嵌与本地图片） |
@@ -314,7 +311,7 @@
 
 ### 4.4 主要 API
 
-- 库存相关：`/api/parts`、`/api/inventory`、`/api/stock/inbound`、`/api/stock/outbound`、`/api/movements` 等。
+- 库存相关：`/api/parts`、`/api/inventory`、`/api/stock/inbound`、`/api/stock/outbound`、`/api/movements` 等（仅管理员）。
 - 项目相关：`/api/projects`。
 - 待购入：`/api/wishlist`。
 - BOM：`/api/bom/compare`、`/api/bom/reports` 等。
@@ -322,9 +319,9 @@
 - 网站模块：`/api/site/messages`、`/api/site/photos`、`/api/site/music`、`/api/site/music/upload`、`/api/site/links`。
 - 登录状态：`/api/auth/status`（公开）、`/api/login`、`/api/logout`。
 - 注册账号：`/api/register`（公开，创建待审核普通账号）。
-- AI 提示词：`/api/prompts`（GET 公开 / POST 管理员）、`/api/prompts/<id>`（PATCH 编辑 / DELETE 删除，仅管理员）。
+- AI 提示词：`/api/prompts`（GET / POST 管理员）、`/api/prompts/<id>`（PATCH 编辑 / DELETE 删除，仅管理员）。
 - 学习笔记：`/api/notes`（GET 列表 / POST 新建）、`/api/notes/import`（POST 导入 Word / PDF）、`/api/notes/<id>`（PATCH 修改 / DELETE 删除）、`/api/notes/<id>/export.html`（GET 导出单文件 HTML）、`/api/notes/images`（POST 上传）、`/api/notes/images/<id>`（DELETE）。
-- 网页收藏：`/api/bookmarks`、`/api/bookmark-folders`、`/api/bookmarks/firefox/import`、`/api/bookmarks/check-links`。
+- 网页收藏：`/api/bookmarks`、`/api/bookmark-folders`、`/api/bookmarks/firefox/import`、`/api/bookmarks/check-links`（仅管理员）。
 - 仓库类型：`/api/warehouse/types`。
 
 ### 4.5 图片和上传文件
@@ -364,13 +361,13 @@
 - 本地系统可正常访问，最近一次手动备份已成功完成。
 - 音乐模块已简化回“上传音频、页内播放”。
 - 全局播放和跨页面播放已按要求移除。
-- 已增加游客公开浏览、管理员和普通账号的分级权限。
+- 已增加游客公开浏览和管理员专属业务模块权限。
 - 已增加 AI 提示词库第一版。
-- 已增加普通账号注册、服务器审批和只读权限。
+- 已增加普通账号注册和服务器审批。
 
 ### 6.2 后续可以考虑
 
-- 注册体系：普通账号为申请制，需管理员批准；当前所有普通账号权限一致，若未来需要更细分权限，可再增加按模块授权。
+- 注册体系：普通账号为申请制，需管理员批准；当前普通账号没有管理员专属模块权限，若未来需要细分授权，可再增加按模块权限。
 - 云部署：未来可部署到阿里云 2 核 2G 服务器，使用 Docker + Nginx/Caddy。
 - 域名和备案：中国大陆 80/443 端口需要域名备案。
 - 阿里云 OSS 备份：可把本地备份再上传到云端，形成双备份。
@@ -381,13 +378,13 @@
 
 最近一次主要修改：
 
-- 首页改为游客可直接访问，仓库、网页收藏、笔记、工作台四个模块要求管理员登录。
-- 新增右上角游客/已登录状态、无头像登录弹窗、登录后继续访问原目标模块。
+- 首页改为游客可直接访问，仓库、网页收藏、笔记、工作台和 AI 提示词五个业务入口要求管理员登录。
+- 新增右上角游客/已登录状态和无头像登录弹窗；无权限模块入口保持普通外观，点击后提示仅管理员可访问。
 - 修复首页仓库数量硬编码为 80 的问题，游客显示“登录后查看”，登录后显示真实数量。
-- 公开留言、日常、游戏、参考项目、源码和新增的 AI 提示词页面。
+- 公开留言、日常、游戏、参考项目和源码页面。
 - 游客可发布留言；删除留言、发布/编辑/删除日常仅管理员可用。
-- 新增 `/prompts` AI 提示词库：游客可搜索、分类、展开和复制，管理员可新增、编辑、删除和置顶；页面使用数据库存储并加入下雨特效。
-- 新增普通账号注册和服务器审批：管理员批准后只能只读访问仓库与网页收藏，笔记、工作台和所有写操作继续仅限管理员。
+- 新增 `/prompts` AI 提示词库并改为管理员专属：支持搜索、分类、展开、复制、新增、编辑、删除和置顶；页面使用数据库存储并加入下雨特效。
+- 新增普通账号注册和服务器审批；权限策略随后收口为仓库、网页收藏、笔记、工作台和 AI 提示词仅管理员可访问。
 - 新增学习笔记模块（第三个模块）：Markdown 编辑 + 实时预览 + 图片上传 + HTML 文档导入。
 - 学习笔记是项目文档的落点：`tools/import_doc_note.py` 已导入威盛.html（34 段文字 + 21 张内嵌截图，笔记 #7）和 磁定位实验-伺服滑轨运动控制实操教程.md（562 行、16 张表格，笔记 #9）。
 - 图片上传增加魔数校验（只收 PNG/JPEG/WebP/GIF/BMP）、扩展名纠正和 `X-Content-Type-Options: nosniff`；`get_payload()` 增加 40MB 请求体上限。

@@ -90,49 +90,24 @@
     username: "",
     owner: false,
   };
-  var pendingPrivateUrl = "";
-  var pendingPrivateModule = "";
-
   function setText(id, text) {
     var node = document.getElementById(id);
     if (node) node.textContent = text;
   }
 
-  function setThumbPlaceholder(id, glyph) {
-    var wrap = document.getElementById(id);
-    if (!wrap) return;
-    wrap.innerHTML = "";
-    if (!glyph) return;
-    var item = document.createElement("span");
-    item.className = "repo-thumb";
-    item.textContent = glyph;
-    wrap.appendChild(item);
-  }
-
   function canViewModule(moduleName) {
-    if (!authState.authenticated) return false;
-    if (authState.owner) return true;
-    return moduleName === "inventory" || moduleName === "bookmarks";
+    return authState.authenticated && authState.owner;
   }
 
   function setPrivateModuleState() {
-    document.querySelectorAll("[data-private-module]").forEach(function (entry) {
-      var moduleName = entry.getAttribute("data-private-module") || "";
-      var allowed = canViewModule(moduleName);
-      entry.classList.toggle("is-locked", !allowed);
-    });
-
     if (!canViewModule("inventory")) {
       setText("repoCount", authState.authenticated ? "仅管理员" : "登录后查看");
-      setThumbPlaceholder("repoThumbs", "锁");
     }
     if (!canViewModule("bookmarks")) {
       setText("bookmarkCount", authState.authenticated ? "仅管理员" : "登录后查看");
-      setThumbPlaceholder("bookmarkThumbs", "锁");
     }
     if (!canViewModule("notes")) {
       setText("noteCount", authState.authenticated ? "仅管理员" : "登录后查看");
-      setThumbPlaceholder("notesThumbs", "锁");
     }
     if (!canViewModule("workbench")) {
       setText("workbenchCount", authState.authenticated ? "仅管理员" : "登录后查看");
@@ -309,9 +284,9 @@
   }
 
   function loadPrivateLandingData() {
-    if (!authState.authenticated) return;
-    var canInventory = authState.owner || authState.role === "member";
-    var canBookmarks = authState.owner || authState.role === "member";
+    if (!authState.owner) return;
+    var canInventory = authState.owner;
+    var canBookmarks = authState.owner;
     var canOwnerModules = authState.owner;
     Promise.all([
       canInventory
@@ -345,13 +320,7 @@
       var moduleName = entry.getAttribute("data-private-module") || "";
       if (canViewModule(moduleName)) return;
       event.preventDefault();
-      if (authState.authenticated) {
-        showLandingToast("该模块仅管理员可以访问。");
-        return;
-      }
-      pendingPrivateUrl = entry.getAttribute("href") || "";
-      pendingPrivateModule = moduleName;
-      if (authState.ready) openAuthModal();
+      showLandingToast("该模块仅管理员可以访问。");
     });
   });
 
@@ -417,17 +386,6 @@
         setPrivateModuleState();
         closeAuthModal();
         loadPrivateLandingData();
-        if (pendingPrivateUrl) {
-          var target = pendingPrivateUrl;
-          var targetModule = pendingPrivateModule;
-          pendingPrivateUrl = "";
-          pendingPrivateModule = "";
-          if (canViewModule(targetModule)) {
-            window.location.href = target;
-          } else {
-            showLandingToast("登录成功，但该模块仅管理员可以访问。");
-          }
-        }
       }).catch(function (err) {
         error.textContent = err.message || "登录失败";
         error.hidden = false;
@@ -468,8 +426,6 @@
       setPrivateModuleState();
       if (authState.authenticated) {
         loadPrivateLandingData();
-      } else {
-        if (pendingPrivateUrl) openAuthModal();
       }
     })
     .catch(function () {

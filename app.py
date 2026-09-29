@@ -34,6 +34,7 @@ from urllib.error import HTTPError, URLError
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 DATA_DIR = BASE_DIR / "data"
+PROMPTS_SEED_PATH = BASE_DIR / "config" / "prompts-seed.json"
 DB_PATH = DATA_DIR / "inventory.db"
 HOST = os.environ.get("INVENTORY_HOST", "0.0.0.0")
 PORT = int(os.environ.get("INVENTORY_PORT", "8000"))
@@ -69,7 +70,6 @@ PUBLIC_PAGES = {
     "/moments",
     "/references",
     "/games",
-    "/prompts",
     "/favicon.ico",
 }
 PUBLIC_GET_APIS = {
@@ -80,7 +80,6 @@ PUBLIC_GET_APIS = {
     "/api/site/photos",
     "/api/site/music",
     "/api/site/links",
-    "/api/prompts",
 }
 PUBLIC_POST_APIS = {
     "/api/login",
@@ -96,32 +95,6 @@ PUBLIC_DATA_PREFIXES = (
 )
 USERNAME_RE = re.compile(r"^[\w.-]{3,32}$", re.UNICODE)
 RESERVED_USERNAMES = {"owner", "admin", "administrator", "root", "system"}
-MEMBER_PAGE_PATHS = {"/inventory", "/bookmarks"}
-MEMBER_GET_APIS = {
-    "/api/dashboard",
-    "/api/categories",
-    "/api/locations",
-    "/api/projects",
-    "/api/parts",
-    "/api/inventory",
-    "/api/movements",
-    "/api/wishlist",
-    "/api/warehouse/types",
-    "/api/bom/reports",
-    "/api/bom/watch",
-    "/api/bookmarks",
-    "/api/bookmark-folders",
-    "/api/bookmarks/check-links",
-}
-MEMBER_GET_PREFIXES = (
-    "/api/parts/",
-    "/api/bom/reports/",
-    "/api/bookmarks/",
-)
-MEMBER_DATA_PREFIXES = (
-    "part_images/",
-    "bookmark_favicons/",
-)
 LOGIN_FAILURES = {}
 RATE_LIMITS = {}
 RATE_LOCK = threading.Lock()
@@ -762,7 +735,7 @@ def seed_data(conn):
     if not seeded:
         count = conn.execute("SELECT COUNT(*) AS n FROM ai_prompts").fetchone()["n"]
         if count == 0:
-            seed_path = STATIC_DIR / "prompts-seed.json"
+            seed_path = PROMPTS_SEED_PATH
             try:
                 default_prompts = json.loads(seed_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
@@ -3371,18 +3344,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return True
         return False
 
-    def member_request_allowed(self, path, method):
-        if method != "GET":
-            return False
-        if path in MEMBER_PAGE_PATHS or path in MEMBER_GET_APIS:
-            return True
-        if path.startswith(MEMBER_GET_PREFIXES):
-            return not path.startswith("/api/bookmarks/firefox/")
-        if path.startswith("/site-files/"):
-            relative = unquote(path[len("/site-files/") :])
-            return relative.startswith(MEMBER_DATA_PREFIXES)
-        return False
-
     def guard_request(self, path, method):
         """返回 True 表示请求可以继续处理。"""
         if method in ("POST", "PATCH", "DELETE") and path != "/api/login":
@@ -3398,8 +3359,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return True
         identity = self.session_identity()
         if identity and identity.get("kind") == "owner":
-            return True
-        if identity and self.member_request_allowed(path, method):
             return True
         if identity:
             if path.startswith("/api/") or path.startswith("/site-files/"):

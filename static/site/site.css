@@ -1025,10 +1025,6 @@ img {
   color: var(--primary-strong);
 }
 
-.repo-entry.is-locked .repo-entry-text {
-  color: var(--muted);
-}
-
 @media (max-width: 640px) {
   .home-controls {
     top: 12px;

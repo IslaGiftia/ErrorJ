@@ -339,7 +339,7 @@ HTTP/1.1 200 OK
 - 首页改为公开访问，不再首先跳转登录页。
 - 仓库、网页收藏、笔记、工作台四个模块继续要求管理员登录。
 - 首页右上角新增“游客 / 已登录 / 本地模式”状态。
-- 游客点击私有模块时打开无头像登录弹窗；登录成功后继续前往原目标模块。
+- 无权限模块入口保持普通外观，游客或普通账号点击后只提示“该模块仅管理员可以访问”。
 - 游客访问私有模块时页面显示“登录后查看”，不再显示硬编码的“已入库 80 种元件”。
 - 留言板、日常、游戏、参考项目、源码允许公开访问。
 - 游客可以浏览和发布留言，但不能删除留言。
@@ -401,6 +401,27 @@ python tools/manage_users.py reject <用户名>
 python tools/manage_users.py disable <用户名>
 python tools/manage_users.py reset-password <用户名>
 python tools/manage_users.py create <用户名>
+```
+
+### 2.12 管理员专属权限收口
+
+完成内容：
+
+- 仓库、网页收藏、笔记、工作台和 AI 提示词统一为管理员专属模块。
+- 游客访问私有页面会跳转登录页，普通账号会跳回首页并看到“仅管理员”提示。
+- 游客访问私有 API 返回 401，普通账号返回 403。
+- 首页五类管理员入口不显示锁图标或特殊锁定样式，点击后统一提示仅管理员可访问；旧的普通账号只读界面控制 `role-mode` 已移除。
+- 默认提示词从公开静态目录 `static/prompts-seed.json` 移到非公开的 `config/prompts-seed.json`。
+
+验证结果：
+
+```text
+guest /inventory /bookmarks /prompts -> 302 /login?next=...
+member /inventory /bookmarks /prompts -> 302 /?access=owner-only
+guest private APIs -> 401
+member private APIs -> 403
+owner private pages and APIs -> 200
+public messages/moments/references/games -> 200
 ```
 
 ## 3. 当前尚未完成
