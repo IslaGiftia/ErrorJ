@@ -1,15 +1,11 @@
 # Error酱
 
-![Error酱](static/site/error-chan.jpg)
-
 Error酱 是一个自托管的个人工作与学习站点。最开始它只是想做一个电子元件库存管理系统，后来慢慢长成了一个网站：仓库、网页收藏、学习笔记、工作台、AI 提示词、留言板、动态、推荐和小游戏，都放在同一个站里。
 
 - 技术栈很朴素：Python 标准库 HTTP 服务 + SQLite + 原生 HTML / CSS / JavaScript，没有前端框架，也没有构建步骤。
 - 数据全部保存在自己的机器上（`data/` 目录），不依赖第三方服务。
 - 手机浏览器可以直接使用，适合局域网自用，也可以放到云服务器上通过 Nginx 反代公网访问。
 - 界面使用 vivo Sans SC 字体，相关说明见文末「字体」一节。
-
-在线示例：<http://<服务器公网IP>>
 
 源码仓库：<https://github.com/IslaGiftia/ErrorJ>
 
