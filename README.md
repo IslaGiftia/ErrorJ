@@ -155,8 +155,8 @@ netsh advfirewall firewall add rule name="Errorjiang 8000" dir=in action=allow p
   -> Nginx（80 / 443）
   -> 127.0.0.1:8000
   -> systemd 服务 errorjiang
-  -> /opt/errorjiang/app.py
-  -> /opt/errorjiang/data
+  -> <应用目录>/app.py
+  -> <应用目录>/data
 ```
 
 - 反向代理示例：`deploy/nginx-errorjiang.conf`
@@ -191,7 +191,7 @@ powershell -ExecutionPolicy Bypass -File backup.ps1
 Linux 服务器可以用 `tools/backup_linux.sh`，配合 cron 定时执行：
 
 ```cron
-0 3 * * * bash /opt/errorjiang/tools/backup_linux.sh /data/errorjiang-backup
+0 3 * * * bash <应用目录>/tools/backup_linux.sh <备份目录>
 ```
 
 恢复时把备份解压回项目目录，再启动服务即可。
