@@ -717,3 +717,22 @@ input {
     grid-template-columns: 1fr;
   }
 }
+
+/* 大屏自适应：2K 及以上放宽提示词页内容区。 */
+@media (min-width: 1600px) {
+  .pr-main {
+    width: min(1640px, 100%);
+  }
+}
+
+@media (min-width: 2100px) {
+  .pr-main {
+    width: min(1900px, 100%);
+  }
+}
+
+@media (min-width: 3000px) {
+  .pr-main {
+    width: min(2200px, 100%);
+  }
+}

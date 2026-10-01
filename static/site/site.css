@@ -1347,3 +1347,167 @@ body[data-page] .under-construction {
     font-size: 15px;
   }
 }
+
+/* 大屏自适应：2K 及以上放大落地页内容，并让整块内容垂直居中，减少大片空白。 */
+@media (min-width: 1600px) {
+  .landing-three .landing-inner {
+    max-width: 1560px;
+  }
+
+  .landing-three .landing-title {
+    margin-top: auto;
+    font-size: 50px;
+  }
+
+  .landing-three .landing-desc {
+    margin-bottom: 48px;
+    font-size: 20px;
+  }
+
+  .repo-grid {
+    grid-template-columns: repeat(2, 560px);
+    gap: 40px;
+  }
+
+  .repo-grid .repo-entry {
+    width: 560px;
+    padding: 26px 22px;
+    gap: 18px;
+  }
+
+  .repo-grid .repo-entry-label {
+    font-size: 21px;
+  }
+
+  .repo-grid .repo-thumb {
+    flex-basis: 48px;
+    width: 48px;
+    height: 48px;
+    margin-left: -14px;
+  }
+
+  .landing-module-btn {
+    min-width: 190px;
+    height: 48px;
+    font-size: 15px;
+  }
+
+  .landing-three .landing-links {
+    margin-top: 0;
+    padding-top: 56px;
+  }
+
+  .landing-three .landing-font-credit {
+    margin-bottom: auto;
+  }
+}
+
+@media (hover: hover) and (min-width: 1600px) {
+  .repo-grid .repo-entry:hover {
+    width: 604px;
+  }
+}
+
+@media (min-width: 2100px) {
+  .landing-three .landing-inner {
+    max-width: 1880px;
+  }
+
+  .landing-three .landing-title {
+    font-size: 58px;
+  }
+
+  .landing-three .landing-desc {
+    margin-bottom: 56px;
+    font-size: 22px;
+  }
+
+  .repo-grid {
+    grid-template-columns: repeat(2, 680px);
+    gap: 48px;
+  }
+
+  .repo-grid .repo-entry {
+    width: 680px;
+    padding: 32px 28px;
+    gap: 22px;
+  }
+
+  .repo-grid .repo-entry-label {
+    font-size: 24px;
+  }
+
+  .repo-grid .repo-thumb {
+    flex-basis: 56px;
+    width: 56px;
+    height: 56px;
+    margin-left: -16px;
+  }
+
+  .landing-module-btn {
+    min-width: 210px;
+    height: 52px;
+  }
+
+  .landing-three .landing-links {
+    padding-top: 64px;
+  }
+}
+
+@media (hover: hover) and (min-width: 2100px) {
+  .repo-grid .repo-entry:hover {
+    width: 724px;
+  }
+}
+
+@media (min-width: 3000px) {
+  .landing-three .landing-inner {
+    max-width: 2200px;
+  }
+
+  .landing-three .landing-title {
+    font-size: 62px;
+  }
+
+  .landing-three .landing-desc {
+    margin-bottom: 60px;
+    font-size: 23px;
+  }
+
+  .repo-grid {
+    grid-template-columns: repeat(2, 800px);
+    gap: 56px;
+  }
+
+  .repo-grid .repo-entry {
+    width: 800px;
+    padding: 38px 34px;
+    gap: 26px;
+  }
+
+  .repo-grid .repo-entry-label {
+    font-size: 26px;
+  }
+
+  .repo-grid .repo-thumb {
+    flex-basis: 64px;
+    width: 64px;
+    height: 64px;
+    margin-left: -18px;
+  }
+
+  .landing-module-btn {
+    min-width: 230px;
+    height: 56px;
+  }
+
+  .landing-three .landing-links {
+    padding-top: 72px;
+  }
+}
+
+@media (hover: hover) and (min-width: 3000px) {
+  .repo-grid .repo-entry:hover {
+    width: 844px;
+  }
+}

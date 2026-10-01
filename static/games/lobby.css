@@ -137,3 +137,22 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* 大屏自适应：2K 及以上放宽游戏大厅，让卡片铺开。 */
+@media (min-width: 1600px) {
+  .lobby {
+    width: min(1200px, 100%);
+  }
+}
+
+@media (min-width: 2100px) {
+  .lobby {
+    width: min(1420px, 100%);
+  }
+}
+
+@media (min-width: 3000px) {
+  .lobby {
+    width: min(1680px, 100%);
+  }
+}

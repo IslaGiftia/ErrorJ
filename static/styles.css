@@ -1864,3 +1864,25 @@ tbody tr:hover {
     font-size: 22px;
   }
 }
+
+/* 大屏自适应：2K 及以上放宽仓库内容区，减少两侧留白。 */
+@media (min-width: 1600px) {
+  .site-header .header-inner,
+  main {
+    max-width: 1560px;
+  }
+}
+
+@media (min-width: 2100px) {
+  .site-header .header-inner,
+  main {
+    max-width: 1840px;
+  }
+}
+
+@media (min-width: 3000px) {
+  .site-header .header-inner,
+  main {
+    max-width: 2200px;
+  }
+}

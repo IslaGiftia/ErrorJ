@@ -996,3 +996,22 @@ a {
     transition: none !important;
   }
 }
+
+/* 大屏自适应：2K 及以上放宽推荐页内容区。 */
+@media (min-width: 1600px) {
+  .rec-main {
+    width: min(1560px, 100%);
+  }
+}
+
+@media (min-width: 2100px) {
+  .rec-main {
+    width: min(1840px, 100%);
+  }
+}
+
+@media (min-width: 3000px) {
+  .rec-main {
+    width: min(2200px, 100%);
+  }
+}

@@ -711,3 +711,22 @@ svg {
     grid-column: auto;
   }
 }
+
+/* 大屏自适应：2K 及以上放宽工作台内容区。 */
+@media (min-width: 1600px) {
+  .wb-main {
+    width: min(1560px, 100%);
+  }
+}
+
+@media (min-width: 2100px) {
+  .wb-main {
+    width: min(1840px, 100%);
+  }
+}
+
+@media (min-width: 3000px) {
+  .wb-main {
+    width: min(2200px, 100%);
+  }
+}
