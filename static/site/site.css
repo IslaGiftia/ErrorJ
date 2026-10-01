@@ -739,6 +739,13 @@ img {
   font-size: 14px;
 }
 
+.landing-font-credit {
+  margin: 18px 0 0;
+  color: var(--ink-3, var(--muted));
+  font-size: 12px;
+  opacity: 0.75;
+}
+
 .workbench-coming {
   width: min(560px, 100%);
   margin: 0 auto;
@@ -1291,8 +1298,13 @@ body[data-page] .under-construction {
     margin-bottom: 40px;
   }
 
-  .landing-three .landing-footer {
+  .landing-three .landing-links {
     margin-top: auto;
+    padding-top: 44px;
+  }
+
+  .landing-three .landing-footer {
+    margin-top: 40px;
   }
 
   .repo-grid {

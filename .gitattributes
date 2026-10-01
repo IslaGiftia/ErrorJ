@@ -21,3 +21,5 @@
 *.png binary
 *.webp binary
 *.zip binary
+*.woff binary
+*.woff2 binary

@@ -176,6 +176,8 @@ static/prompts.js      AI 提示词交互与管理员操作
 config/prompts-seed.json 首次初始化时导入的默认提示词（非公开）
 static/recommendations.html / recommendations.css / recommendations.js 网站、工具、电影和动漫推荐页面
 static/register.html   普通账号注册申请页
+static/fonts.css       全局字体声明（vivo Sans SC 可变字体）
+static/fonts/vivo-sans 字体网页副本与 vivo Sans 许可协议
 data/inventory.db      运行时自动创建的数据库
 Dockerfile             可选 Docker 镜像
 docker-compose.yml     可选 Docker 部署配置
@@ -184,6 +186,12 @@ deploy/                 Nginx 反代示例与 systemd 单元
 tools/                  设置密码、Linux 备份、文档导入等脚本
 tools/manage_users.py  审批、创建、停用和重置普通用户账号
 ```
+
+## 字体
+
+界面使用 vivo Sans SC 可变字体（vivo Sans 官方字体包，Version 1.05），网页端使用由官方 TTF 无损转换的 WOFF2 副本，字形集合与字重轴均未改动。字体文件和《vivo Sans 字体知识产权许可协议》位于 `static/fonts/vivo-sans/`。
+
+本应用使用了 vivo Sans 字体。
 
 ## 后续扩展方向
 

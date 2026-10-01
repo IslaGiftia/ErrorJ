@@ -1,0 +1,17 @@
+/*
+ * vivo Sans SC (Variable Font)
+ * Copyright (c) vivo Mobile Communication Co., Ltd.
+ * Used under the vivo Sans font license:
+ * /static/fonts/vivo-sans/LICENSE-vivo-sans.txt
+ */
+@font-face {
+  font-family: "vivo Sans SC";
+  src: url("/static/fonts/vivo-sans/vivoSansSCVF.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 850;
+  font-display: swap;
+}
+
+body {
+  font-family: "vivo Sans SC", "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+}
