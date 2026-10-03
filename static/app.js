@@ -223,6 +223,34 @@ function renderCurrentPage() {
   lucide.createIcons();
 }
 
+const pageHeadAutoHide = { hidden: false, lastY: 0, ticking: false };
+
+function setPageHeadHidden(hidden) {
+  pageHeadAutoHide.hidden = Boolean(hidden);
+  document.body.classList.toggle("head-hidden", pageHeadAutoHide.hidden);
+}
+
+// 向下滚动（内容上滑）时顶部标题栏向上收起，向上滚动（内容下滑）时再滑出来。
+function bindPageHeadAutoHide() {
+  pageHeadAutoHide.lastY = window.scrollY;
+  window.addEventListener("scroll", () => {
+    if (pageHeadAutoHide.ticking) return;
+    pageHeadAutoHide.ticking = true;
+    window.requestAnimationFrame(() => {
+      pageHeadAutoHide.ticking = false;
+      const y = window.scrollY;
+      const delta = y - pageHeadAutoHide.lastY;
+      if (Math.abs(delta) < 6) return;
+      pageHeadAutoHide.lastY = y;
+      if (y <= 8 || delta < 0) {
+        setPageHeadHidden(false);
+      } else if (y > 90) {
+        setPageHeadHidden(true);
+      }
+    });
+  }, { passive: true });
+}
+
 function switchPage(page, options) {
   const opts = options || {};
   state.page = page;
@@ -248,6 +276,7 @@ function switchPage(page, options) {
   if (sidebar) sidebar.classList.remove("open");
   renderCurrentPage();
   window.scrollTo(0, 0);
+  setPageHeadHidden(false);
 }
 
 function populateSelects() {
@@ -2137,6 +2166,7 @@ function bindStaticEvents() {
 
 async function init() {
   bindStaticEvents();
+  bindPageHeadAutoHide();
   try {
     await loadAll();
     if ("scrollRestoration" in history) history.scrollRestoration = "manual";
