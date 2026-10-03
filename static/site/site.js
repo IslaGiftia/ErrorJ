@@ -277,10 +277,18 @@
   }
 
   function renderWorkbenchLanding(workbench) {
-    setText(
-      "workbenchCount",
-      workbench && workbench.assets ? Number(workbench.assets.total || 0) + " 项" : "工作台"
-    );
+    var assets = workbench && workbench.assets ? workbench.assets : null;
+    var total = assets ? Math.max(0, Number(assets.total) || 0) : 0;
+    setText("workbenchCount", assets ? total + " 份资料" : "工作台");
+    var wrap = document.getElementById("workbenchThumbs");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    if (!assets || !total) return;
+    var badge = document.createElement("span");
+    badge.className = "repo-thumb repo-count";
+    badge.textContent = total > 99 ? "99+" : String(total);
+    badge.title = "共 " + total + " 份资料";
+    wrap.appendChild(badge);
   }
 
   function loadPrivateLandingData() {
