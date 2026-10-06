@@ -107,21 +107,6 @@
     );
   }
 
-  function setPrivateModuleState() {
-    if (!canViewModule("inventory")) {
-      setText("repoCount", authState.authenticated ? "仅管理员" : "登录后查看");
-    }
-    if (!canViewModule("bookmarks")) {
-      setText("bookmarkCount", authState.authenticated ? "仅管理员" : "登录后查看");
-    }
-    if (!canViewModule("notes")) {
-      setText("noteCount", authState.authenticated ? "仅管理员" : "登录后查看");
-    }
-    if (!canViewModule("workbench")) {
-      setText("workbenchCount", authState.authenticated ? "仅管理员" : "登录后查看");
-    }
-  }
-
   function setAuthUi() {
     var button = document.getElementById("authStatusBtn");
     var text = document.getElementById("authStatusText");
@@ -180,7 +165,6 @@
     authState.permissions = Array.isArray(status.permissions) ? status.permissions : [];
     authState.ready = true;
     setAuthUi();
-    setPrivateModuleState();
     if (authState.admin) {
       applyPendingBadge(
         (status.pending_users || 0) + (status.pending_attachments || 0)
@@ -360,7 +344,6 @@
         ? fetch("/api/workbench/summary").then(function (res) { return res.ok ? res.json() : null; }).catch(function () { return null; })
         : Promise.resolve(null),
     ]).then(function (results) {
-      setPrivateModuleState();
       if (canInventory) renderInventoryLanding(results[0], results[1] || []);
       if (canBookmarks) renderBookmarkLanding(results[2] || []);
       if (canOwnerModules) {
@@ -443,7 +426,6 @@
           .then(applyAuthStatus)
           .catch(function () {
             setAuthUi();
-            setPrivateModuleState();
             loadPrivateLandingData();
           });
       }).catch(function (err) {
@@ -538,14 +520,12 @@
     });
   }
 
-  setPrivateModuleState();
   setAuthUi();
   fetch("/api/auth/status", { cache: "no-store" })
     .then(function (response) { return response.json(); })
     .then(applyAuthStatus)
     .catch(function () {
       authState.ready = true;
-      setPrivateModuleState();
       setAuthUi();
     });
 })();

@@ -362,11 +362,9 @@
   api("/api/auth/status").then(function (status) {
     var canManage = Boolean(status.admin);
     $("momentForm").hidden = !canManage;
-    $("momentLoginHint").hidden = canManage;
     return loadMoments();
   }).catch(function () {
     $("momentForm").hidden = true;
-    $("momentLoginHint").hidden = false;
     return loadMoments();
   });
 })();

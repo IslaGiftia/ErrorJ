@@ -459,18 +459,3 @@ body {
 [hidden] {
   display: none !important;
 }
-
-.mo-login-hint {
-  margin-bottom: 14px;
-  padding: 12px 14px;
-  border: 1px solid var(--mo-border);
-  border-radius: 10px;
-  background: var(--mo-surface);
-  color: var(--mo-muted);
-  font-size: 13px;
-}
-
-.mo-login-hint a {
-  color: var(--mo-accent);
-  font-weight: 700;
-}

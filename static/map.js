@@ -904,13 +904,11 @@
       var addBtn = $("mapAddBtn");
       var catsBtn = $("mapCatsBtn");
       var importBtn = $("mapImportBtn");
-      var guestHint = $("mapGuestHint");
       var exportLink = $("mapExportLink");
       if (addBtn) addBtn.hidden = !state.canAdd;
       if (catsBtn) catsBtn.hidden = !state.canManageCategories;
       if (importBtn) importBtn.hidden = !state.canImport;
       if (exportLink) exportLink.hidden = !state.canExport;
-      if (guestHint) guestHint.hidden = state.signedIn;
       var categoryIds = {};
       state.categories.forEach(function (cat) {
         categoryIds[cat.id] = cat;

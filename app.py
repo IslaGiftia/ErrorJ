@@ -4644,18 +4644,21 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not username:
             api_error(self, 400, "用户名需为 3-32 位，只能包含文字、字母、数字、点、下划线或短横线。")
             return
-        if not NICKNAME_RE.fullmatch(nickname):
-            api_error(self, 400, "昵称需为 2-16 位，支持中英文、数字和常见符号。")
-            return
-        if nickname.casefold() in RESERVED_NICKNAMES:
-            api_error(self, 400, "这个昵称不能使用，换一个吧。")
-            return
-        if sensitive_contains(nickname):
-            api_error(self, 400, "昵称包含不允许的词汇，请修改后再注册。")
-            return
-        if query_one("SELECT id FROM users WHERE nickname = ? COLLATE NOCASE", (nickname,)):
-            api_error(self, 409, "昵称已被使用。")
-            return
+        if nickname:
+            if not NICKNAME_RE.fullmatch(nickname):
+                api_error(self, 400, "昵称需为 2-16 位，支持中英文、数字和常见符号。")
+                return
+            if nickname.casefold() in RESERVED_NICKNAMES:
+                api_error(self, 400, "这个昵称不能使用，换一个吧。")
+                return
+            if sensitive_contains(nickname):
+                api_error(self, 400, "昵称包含不允许的词汇，请修改后再注册。")
+                return
+            if query_one("SELECT id FROM users WHERE nickname = ? COLLATE NOCASE", (nickname,)):
+                api_error(self, 409, "昵称已被使用。")
+                return
+        else:
+            nickname = None
         if len(password) < 8 or len(password) > 128:
             api_error(self, 400, "密码长度需为 8-128 位。")
             return
@@ -4674,13 +4677,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
         write_audit(
             None,
             "register",
-            f"新注册申请：{username}（{nickname}）",
-            {"username": username, "nickname": nickname},
+            f"新注册申请：{username}" + (f"（{nickname}）" if nickname else ""),
+            {"username": username, "nickname": nickname or ""},
         )
         notify_async(
             "register",
             "Error酱：新的注册申请",
-            f"{nickname}（用户名 {username}）提交了注册申请，请到工作台「账号权限」处理。",
+            f"{nickname or username}（用户名 {username}）提交了注册申请，请到工作台「账号权限」处理。",
         )
         self.send_json(201, {"ok": True, "status": "pending"})
 

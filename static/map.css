@@ -40,6 +40,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   height: 100%;
@@ -357,18 +361,6 @@ body {
   padding: 10px 12px;
   border-top: 1px solid var(--mp-border);
   flex-wrap: wrap;
-}
-
-.mp-guest-hint {
-  width: 100%;
-  color: var(--mp-muted);
-  font-size: 12.5px;
-  text-align: center;
-  text-decoration: none;
-}
-
-.mp-guest-hint:hover {
-  color: var(--mp-accent);
 }
 
 /* ---------- buttons & tools ---------- */

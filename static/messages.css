@@ -147,20 +147,6 @@ body {
   font-size: 13px;
 }
 
-.mg-login-hint {
-  padding: 12px 14px;
-  border: 1px solid var(--mg-border);
-  border-radius: 8px;
-  background: var(--mg-bg);
-  color: var(--mg-muted);
-  font-size: 13px;
-}
-
-.mg-login-hint a {
-  color: var(--mg-accent);
-  font-weight: 700;
-}
-
 .mg-field {
   display: flex;
   flex-direction: column;

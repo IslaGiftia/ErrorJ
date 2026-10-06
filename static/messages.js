@@ -492,13 +492,11 @@
   refreshIcons();
   api("/api/auth/status").then(function (status) {
     canPost = Boolean(status.authenticated);
-    $("messageForm").hidden = !canPost;
-    $("messageLoginHint").hidden = canPost;
+    $("messageComposerPanel").hidden = !canPost;
     return loadMessages();
   }).catch(function () {
     canPost = false;
-    $("messageForm").hidden = true;
-    $("messageLoginHint").hidden = false;
+    $("messageComposerPanel").hidden = true;
     return loadMessages();
   });
 })();
