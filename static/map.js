@@ -941,13 +941,18 @@
     return api("/api/map", { method: "GET" }).then(function (data) {
       state.categories = data.categories || [];
       state.places = data.places || [];
-      var maxPlaceId = 0;
-      state.places.forEach(function (place) {
-        maxPlaceId = Math.max(maxPlaceId, Number(place.id) || 0);
-      });
-      try {
-        localStorage.setItem("errorMapSeenPlaceId", String(maxPlaceId));
-      } catch (err) {}
+      if (data.signed_in) {
+        // 登录账号的「已看到标记」记在服务端，换浏览器、换设备都一致
+        api("/api/map/seen", { method: "POST", body: JSON.stringify({}) }).catch(function () {});
+      } else {
+        var maxPlaceId = 0;
+        state.places.forEach(function (place) {
+          maxPlaceId = Math.max(maxPlaceId, Number(place.id) || 0);
+        });
+        try {
+          localStorage.setItem("errorMapSeenPlaceId", String(maxPlaceId));
+        } catch (err) {}
+      }
       state.canManage = Boolean(data.can_manage);
       state.canAdd = Boolean(data.can_add);
       state.signedIn = Boolean(data.signed_in);

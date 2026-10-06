@@ -590,6 +590,12 @@ def init_db():
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS map_place_views (
+                user_id INTEGER PRIMARY KEY,
+                last_seen_id INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS site_message_files (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 message_id INTEGER NOT NULL REFERENCES site_messages(id) ON DELETE CASCADE,
@@ -4114,6 +4120,18 @@ def normalize_region(name):
     return text[:20]
 
 
+def is_recent_place(created_at, hours=24):
+    """标记点是否在最近 N 小时内创建（用于首次没记录时的提醒基线）。"""
+    text = str(created_at or "").strip()
+    if not text:
+        return False
+    try:
+        moment = datetime.strptime(text[:19], "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return False
+    return datetime.now() - moment <= timedelta(hours=hours)
+
+
 def lookup_ip_region(address):
     """把公网 IP 解析到省级属地（如「广东」）；失败或未配置高德 Key 时返回空串。"""
     text = str(address or "").strip()
@@ -4192,6 +4210,9 @@ def required_permission(path, method):
     if path == "/api/account/nickname":
         return ""
     if path == "/api/site/messages/quota" and method == "GET":
+        return ""
+    if path == "/api/map/seen" and method == "POST":
+        # 记录「已看到标记」是读状态，任何登录账号都可以
         return ""
     if path == "/api/site/messages" or path.startswith("/api/site/messages/"):
         # 留言板：游客只能浏览；登录账号可以发表留言，删除仍仅管理员。
@@ -5633,6 +5654,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_map_category_create(payload)
             elif path == "/api/map/places":
                 self.api_map_place_create(payload)
+            elif path == "/api/map/seen":
+                self.api_map_mark_seen()
             elif re.fullmatch(r"/api/map/places/\d+/photos", path):
                 self.api_map_place_photo_upload(path, payload)
             elif path == "/api/map/import":
@@ -7618,6 +7641,23 @@ class InventoryHandler(BaseHTTPRequestHandler):
             ):
                 creators[user["id"]] = user
         viewer_signed_in = identity is not None
+        unseen_ids = []
+        if identity:
+            view_row = query_one(
+                "SELECT last_seen_id FROM map_place_views WHERE user_id = ?",
+                (user_id if user_id is not None else 0,),
+            )
+            if view_row:
+                seen_id = int(view_row["last_seen_id"] or 0)
+                unseen_ids = [
+                    int(place["id"]) for place in places if int(place["id"]) > seen_id
+                ]
+            else:
+                unseen_ids = [
+                    int(place["id"])
+                    for place in places
+                    if is_recent_place(place.get("created_at"))
+                ]
         for row in places:
             row["photos"] = photos.get(row["id"], [])
             row["created_by_name"] = self.map_created_by_label(
@@ -7642,6 +7682,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "can_manage_categories": self.can("map:manage_categories"),
                 "signed_in": identity is not None,
                 "map_public": MAP_PUBLIC,
+                "unseen_count": len(unseen_ids),
+                "newest_unseen_id": max(unseen_ids) if unseen_ids else 0,
             },
         )
 
@@ -7731,6 +7773,25 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 502, str(exc))
             return
         self.send_json(200, data)
+
+    def api_map_mark_seen(self):
+        """把当前账号的「已看到标记」更新为最新一条（只用于首页呼吸提示）。"""
+        identity = self.session_identity()
+        if not identity:
+            api_error(self, 401, "请先登录。")
+            return
+        user_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
+        row = query_one("SELECT COALESCE(MAX(id), 0) AS value FROM map_places")
+        newest = int(row["value"] if row else 0)
+        execute(
+            """INSERT INTO map_place_views (user_id, last_seen_id, updated_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET
+                   last_seen_id = excluded.last_seen_id,
+                   updated_at = excluded.updated_at""",
+            (user_id, newest, now_text()),
+        )
+        self.send_json(200, {"last_seen_id": newest})
 
     def map_category_payload(self, payload, current=None, category_id=None):
         current = current or {}

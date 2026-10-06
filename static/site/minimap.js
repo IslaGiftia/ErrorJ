@@ -124,6 +124,9 @@
   var dots = L.layerGroup().addTo(mini);
   var places = [];
   var colorById = {};
+  var serverSignedIn = false;
+  var serverUnseenId = 0;
+  var serverUnseenCount = 0;
 
   mini.setView(
     savedView ? [savedView.lat, savedView.lng] : [34.3416, 108.9398],
@@ -180,19 +183,25 @@
   }
 
   function updateDockPending() {
-    var seen = 0;
-    try {
-      seen = Number(localStorage.getItem(SEEN_KEY) || 0) || 0;
-    } catch (err) {}
     var newestNewId = 0;
     var newCount = 0;
-    places.forEach(function (place) {
-      var id = Number(place.id) || 0;
-      var isNew = seen > 0 ? id > seen : isRecentPlace(place.created_at);
-      if (!isNew) return;
-      newCount += 1;
-      if (id > newestNewId) newestNewId = id;
-    });
+    if (serverSignedIn) {
+      // 登录账号：以服务端记录的「已看到标记」为准
+      newestNewId = serverUnseenId;
+      newCount = serverUnseenCount;
+    } else {
+      var seen = 0;
+      try {
+        seen = Number(localStorage.getItem(SEEN_KEY) || 0) || 0;
+      } catch (err) {}
+      places.forEach(function (place) {
+        var id = Number(place.id) || 0;
+        var isNew = seen > 0 ? id > seen : isRecentPlace(place.created_at);
+        if (!isNew) return;
+        newCount += 1;
+        if (id > newestNewId) newestNewId = id;
+      });
+    }
     if (dock) {
       dock.classList.toggle("has-pending", newestNewId > 0);
       dock.href = newestNewId > 0 ? "/map?place=" + newestNewId : "/map";
@@ -220,6 +229,9 @@
     })
     .then(function (data) {
       places = data.places || [];
+      serverSignedIn = Boolean(data.signed_in);
+      serverUnseenId = Number(data.newest_unseen_id) || 0;
+      serverUnseenCount = Number(data.unseen_count) || 0;
       colorById = {};
       (data.categories || []).forEach(function (cat) {
         colorById[cat.id] = cat.color || "#7b68ee";
