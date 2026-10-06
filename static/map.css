@@ -77,7 +77,7 @@ body {
   z-index: 20;
   top: 16px;
   left: 16px;
-  bottom: 126px;
+  bottom: calc(16px + var(--mp-actions-h, 98px));
   display: flex;
   flex-direction: column;
   width: min(340px, calc(100vw - 32px));
@@ -94,6 +94,17 @@ body {
   .mp-app.is-sidebar-collapsed .mp-sidebar {
     transform: translateX(calc(-100% - 24px));
     pointer-events: none;
+  }
+
+  .mp-app:not(.is-sidebar-collapsed) .mp-sidebar {
+    border-bottom-width: 0;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  .mp-app:not(.is-sidebar-collapsed) .mp-actions {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
   }
 }
 
@@ -422,6 +433,19 @@ body {
   width: 34px;
   height: auto;
   padding: 0;
+}
+
+.mp-actions.one-action {
+  grid-template-columns: 34px minmax(0, 1fr);
+}
+
+.mp-actions.is-solo {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.mp-actions.is-solo .mp-actions-toggle {
+  grid-row: auto;
+  width: 100%;
 }
 
 /* ---------- buttons & tools ---------- */

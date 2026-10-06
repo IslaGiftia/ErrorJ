@@ -967,6 +967,7 @@
       if (catsBtn) catsBtn.hidden = !state.canManageCategories;
       if (importBtn) importBtn.hidden = !state.canImport;
       if (exportLink) exportLink.hidden = !state.canExport;
+      syncMapActions();
       var categoryIds = {};
       state.categories.forEach(function (cat) {
         categoryIds[cat.id] = cat;
@@ -2232,6 +2233,20 @@
     actionsToggle.setAttribute("title", label);
     if (window.lucide && lucide.createIcons) lucide.createIcons();
   }
+  function syncMapActions() {
+    var app = $("mapApp");
+    var actions = $("mapActions");
+    if (!app || !actions) return;
+    var visible = Array.prototype.filter.call(actions.children, function (child) {
+      return !child.hidden && !child.classList.contains("mp-actions-toggle");
+    }).length;
+    actions.classList.toggle("is-solo", visible === 0);
+    actions.classList.toggle("one-action", visible === 1);
+    app.style.setProperty(
+      "--mp-actions-h",
+      Math.round(actions.getBoundingClientRect().height) + "px"
+    );
+  }
   if (actionsToggle) {
     actionsToggle.addEventListener("click", function () {
       if (isNarrowMap()) {
@@ -2245,6 +2260,7 @@
     });
   }
   if (sidebarClose) sidebarClose.addEventListener("click", closeSidebar);
+  window.addEventListener("resize", syncMapActions);
   var listBoxMobile = $("mapList");
   if (listBoxMobile) {
     listBoxMobile.addEventListener("click", function () {
