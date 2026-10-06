@@ -36,6 +36,9 @@
           <strong>Error酱地图</strong>
         </a>
         <span class="mp-count" id="mapCount"></span>
+        <button class="mp-icon-btn mp-sidebar-close" id="mapSidebarClose" type="button" aria-label="收起标记清单">
+          <i data-lucide="chevron-down"></i>
+        </button>
       </header>
 
       <div class="mp-search">
@@ -51,26 +54,25 @@
         <select id="mapOwnerFilter"></select>
       </div>
       <div class="mp-list" id="mapList"></div>
-
-      <footer class="mp-sidebar-foot" id="mapSidebarFoot">
-        <button class="mp-btn mp-btn-primary" id="mapAddBtn" type="button" hidden>
-          <i data-lucide="plus"></i><span>添加标记</span>
-        </button>
-        <button class="mp-btn" id="mapCatsBtn" type="button" hidden>
-          <i data-lucide="tags"></i><span>分类</span>
-        </button>
-        <button class="mp-btn" id="mapImportBtn" type="button" hidden>
-          <i data-lucide="upload"></i><span>导入</span>
-        </button>
-        <a class="mp-btn" id="mapExportLink" href="/api/map/export" download>
-          <i data-lucide="download"></i><span>导出</span>
-        </a>
-      </footer>
     </aside>
 
-    <button class="mp-sidebar-toggle" id="mapSidebarToggle" type="button" aria-label="打开标记清单">
-      <i data-lucide="list"></i>
-    </button>
+    <div class="mp-actions" id="mapActions">
+      <button class="mp-btn mp-actions-toggle" id="mapActionsToggle" type="button" aria-label="隐藏标记清单" title="隐藏标记清单">
+        <i data-lucide="chevron-left"></i>
+      </button>
+      <button class="mp-btn mp-btn-primary" id="mapAddBtn" type="button" hidden>
+        <i data-lucide="plus"></i><span>添加标记</span>
+      </button>
+      <button class="mp-btn" id="mapCatsBtn" type="button" hidden>
+        <i data-lucide="tags"></i><span>分类</span>
+      </button>
+      <button class="mp-btn" id="mapImportBtn" type="button" hidden>
+        <i data-lucide="upload"></i><span>导入</span>
+      </button>
+      <a class="mp-btn" id="mapExportLink" href="/api/map/export" download>
+        <i data-lucide="download"></i><span>导出</span>
+      </a>
+    </div>
 
     <div class="mp-tools">
       <button type="button" id="mapBaseBtn" title="切换底图" aria-label="切换底图" aria-haspopup="menu">

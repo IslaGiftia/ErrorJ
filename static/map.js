@@ -2210,18 +2210,41 @@
     });
   }
 
-  var sidebarToggle = $("mapSidebarToggle");
+  var sidebar = $("mapSidebar");
+  var actionsToggle = $("mapActionsToggle");
+  var sidebarClose = $("mapSidebarClose");
+  function isNarrowMap() {
+    return window.matchMedia("(max-width: 860px)").matches;
+  }
   function openSidebar() {
-    var sidebar = $("mapSidebar");
     if (sidebar) sidebar.classList.add("is-open");
   }
   function closeSidebar() {
-    var sidebar = $("mapSidebar");
     if (sidebar) sidebar.classList.remove("is-open");
   }
-  if (sidebarToggle) {
-    sidebarToggle.addEventListener("click", openSidebar);
+  function setActionsToggle(collapsed) {
+    if (!actionsToggle) return;
+    actionsToggle.innerHTML = collapsed
+      ? '<i data-lucide="chevron-right"></i>'
+      : '<i data-lucide="chevron-left"></i>';
+    var label = collapsed ? "展开标记清单" : "隐藏标记清单";
+    actionsToggle.setAttribute("aria-label", label);
+    actionsToggle.setAttribute("title", label);
+    if (window.lucide && lucide.createIcons) lucide.createIcons();
   }
+  if (actionsToggle) {
+    actionsToggle.addEventListener("click", function () {
+      if (isNarrowMap()) {
+        if (sidebar && sidebar.classList.contains("is-open")) closeSidebar();
+        else openSidebar();
+        return;
+      }
+      var app = $("mapApp");
+      if (!app) return;
+      setActionsToggle(app.classList.toggle("is-sidebar-collapsed"));
+    });
+  }
+  if (sidebarClose) sidebarClose.addEventListener("click", closeSidebar);
   var listBoxMobile = $("mapList");
   if (listBoxMobile) {
     listBoxMobile.addEventListener("click", function () {

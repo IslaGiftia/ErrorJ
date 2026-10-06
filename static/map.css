@@ -77,7 +77,7 @@ body {
   z-index: 20;
   top: 16px;
   left: 16px;
-  bottom: 16px;
+  bottom: 126px;
   display: flex;
   flex-direction: column;
   width: min(340px, calc(100vw - 32px));
@@ -87,6 +87,14 @@ body {
   box-shadow: var(--mp-shadow);
   backdrop-filter: blur(10px);
   overflow: hidden;
+  transition: transform 0.22s ease;
+}
+
+@media (min-width: 861px) {
+  .mp-app.is-sidebar-collapsed .mp-sidebar {
+    transform: translateX(calc(-100% - 24px));
+    pointer-events: none;
+  }
 }
 
 .mp-sidebar-head {
@@ -387,13 +395,33 @@ body {
   -webkit-box-orient: vertical;
 }
 
-.mp-sidebar-foot {
-  display: flex;
-  align-items: center;
+.mp-actions {
+  position: absolute;
+  z-index: 30;
+  left: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  display: grid;
+  grid-template-columns: 34px repeat(2, minmax(0, 1fr));
   gap: 8px;
+  width: min(340px, calc(100vw - 32px));
   padding: 10px 12px;
-  border-top: 1px solid var(--mp-border);
-  flex-wrap: wrap;
+  border: 1px solid var(--mp-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mp-surface) 94%, transparent);
+  box-shadow: var(--mp-shadow);
+  backdrop-filter: blur(10px);
+}
+
+.mp-actions .mp-btn {
+  min-width: 0;
+  padding: 0 10px;
+}
+
+.mp-actions-toggle {
+  grid-row: span 2;
+  width: 34px;
+  height: auto;
+  padding: 0;
 }
 
 /* ---------- buttons & tools ---------- */
@@ -469,30 +497,9 @@ body {
   height: 17px;
 }
 
-.mp-sidebar-toggle {
-  position: absolute;
-  z-index: 30;
-  left: 16px;
-  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+.mp-sidebar-close {
   display: none;
-  align-items: center;
-  gap: 6px;
-  height: 40px;
-  padding: 0 14px;
-  border: 1px solid var(--mp-border);
-  border-radius: 999px;
-  background: var(--mp-surface);
-  color: var(--mp-text);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  box-shadow: var(--mp-shadow);
-  cursor: pointer;
-}
-
-.mp-sidebar-toggle svg {
-  width: 16px;
-  height: 16px;
+  margin-left: 2px;
 }
 
 .mp-tools {
@@ -1421,13 +1428,23 @@ body {
     transform: translateY(0);
   }
 
-  .mp-sidebar-toggle {
+  .mp-sidebar-close {
     display: inline-flex;
   }
 
-  .mp-sidebar.is-open ~ .mp-sidebar-toggle {
+  .mp-sidebar.is-open ~ .mp-actions {
     opacity: 0;
     pointer-events: none;
+  }
+
+  .mp-actions {
+    left: 12px;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    gap: 6px;
+    padding: 8px;
+    transition: opacity 0.18s ease;
   }
 
   .mp-tools {
@@ -1454,7 +1471,7 @@ body {
   }
 
   .mp-toast {
-    bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(140px + env(safe-area-inset-bottom, 0px));
   }
 
   .mp-cat-row {
@@ -1488,7 +1505,7 @@ body {
     gap: 0;
   }
 
-  .mp-sidebar-foot .mp-btn {
-    flex: 1;
+  .mp-actions .mp-btn {
+    padding: 0 10px;
   }
 }
