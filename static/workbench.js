@@ -12,6 +12,8 @@
     permissionGroups: [],
     sensitiveWords: [],
     auditRows: [],
+    roleDefaults: [],
+    rolePermissionData: null,
     isOwner: false,
     isAdmin: false,
     reviewFiles: [],
@@ -663,6 +665,7 @@
       state.adminUsers = data.users || [];
       setPendingBadge(data.pending || 0);
       state.defaultMessageLimit = Number(data.default_message_limit) || 9;
+      state.roleDefaults = data.role_defaults || [];
       if (!state.permissionGroups.length) {
         const catalog = await api("/api/admin/permissions");
         state.permissionGroups = catalog.groups || [];
@@ -691,6 +694,11 @@
       state.sensitiveWords = data.words || [];
       state.wordCategories = data.categories || [];
       panel.innerHTML = wordsHtml(data);
+    } else if (tab === "roles") {
+      const data = await api("/api/admin/role-permissions");
+      state.rolePermissionData = data;
+      state.roleDefaults = data.member_defaults || state.roleDefaults;
+      panel.innerHTML = rolesHtml(data);
     } else if (tab === "notify") {
       const data = await api("/api/admin/notify");
       state.notifySettings = data;
@@ -738,23 +746,28 @@
     );
   }
 
+  function userPermissionItemHtml(user, item) {
+    const overrides = user.permission_overrides || {};
+    const mode = overrides[item.key] || "inherit";
+    if (item.key === "system:admin") {
+      return `<label class="wb-perm-item"><input type="checkbox" data-perm-admin="${item.key}"${
+        mode === "allow" ? " checked" : ""
+      }${state.isOwner ? "" : " disabled"}><span>${escapeHtml(item.label)}</span></label>`;
+    }
+    const inRole = (state.roleDefaults || []).includes(item.key);
+    const inheritLabel = inRole ? "继承角色（当前允许）" : "继承角色（当前未允许）";
+    return `<label class="wb-perm-item wb-perm-mode"><span>${escapeHtml(item.label)}</span>
+      <select data-perm-mode="${item.key}" data-user-id="${user.id}">
+        <option value="inherit"${mode === "inherit" ? " selected" : ""}>${escapeHtml(inheritLabel)}</option>
+        <option value="allow"${mode === "allow" ? " selected" : ""}>允许</option>
+        <option value="deny"${mode === "deny" ? " selected" : ""}>禁止</option>
+      </select></label>`;
+  }
+
   function usersHtml() {
     if (!state.adminUsers.length) {
       return '<div class="wb-empty">还没有注册账号。</div>';
     }
-    const groups = state.permissionGroups
-      .map((group) => {
-        const items = (group.items || [])
-          .map((item) => {
-            const isAdminPerm = item.key === "system:admin";
-            return `<label class="wb-perm-item"><input type="checkbox" data-perm="${item.key}"${
-              isAdminPerm && !state.isOwner ? " disabled" : ""
-            }><span>${escapeHtml(item.label)}</span></label>`;
-          })
-          .join("");
-        return `<div class="wb-perm-group"><h4>${escapeHtml(group.label)}</h4><div class="wb-perm-items">${items}</div></div>`;
-      })
-      .join("");
     return (
       '<div class="wb-user-list">' +
       state.adminUsers
@@ -782,10 +795,14 @@
             `<button class="wb-btn" type="button" data-user-nickname="${user.id}"><i data-lucide="pencil"></i><span>改昵称</span></button>`,
             `<button class="wb-btn wb-btn-danger" type="button" data-user-delete="${user.id}"><i data-lucide="trash-2"></i><span>删除</span></button>`
           );
-          const permHtml = groups
-            .replace(/data-perm="([^"]+)"/g, (match, key) =>
-              permissions.has(key) ? `${match} checked` : match
-            );
+          const permHtml = state.permissionGroups
+            .map((group) => {
+              const items = (group.items || [])
+                .map((item) => userPermissionItemHtml(user, item))
+                .join("");
+              return `<div class="wb-perm-group"><h4>${escapeHtml(group.label)}</h4><div class="wb-perm-items">${items}</div></div>`;
+            })
+            .join("");
           return `
         <article class="wb-user-card" data-user-card="${user.id}">
           <div class="wb-user-head">
@@ -835,6 +852,59 @@
         .join("") +
       "</div>"
     );
+  }
+
+  function rolesHtml(data) {
+    const guestSet = new Set(data.guest || []);
+    const memberSet = new Set(data.member || []);
+    const guestItems = (data.guest_options || [])
+      .map(
+        (item) => `
+      <label class="wb-perm-item wb-role-perm"><input type="checkbox" data-role-perm data-role="guest" data-permission="${escapeHtml(
+          item.key
+        )}"${guestSet.has(item.key) ? " checked" : ""}><span>${escapeHtml(item.label)}</span></label>`
+      )
+      .join("");
+    const memberGroups = (data.member_groups || [])
+      .map((group) => {
+        const items = (group.items || [])
+          .map(
+            (item) => `
+          <label class="wb-perm-item wb-role-perm"><input type="checkbox" data-role-perm data-role="member" data-permission="${escapeHtml(
+              item.key
+            )}"${memberSet.has(item.key) ? " checked" : ""}><span>${escapeHtml(item.label)}</span></label>`
+          )
+          .join("");
+        return `<div class="wb-perm-group"><h4>${escapeHtml(group.label)}</h4><div class="wb-perm-items">${items}</div></div>`;
+      })
+      .join("");
+    const adminItems = (data.admin_permissions || [])
+      .map((item) => `<span class="wb-role-fixed">${escapeHtml(item.label)}</span>`)
+      .join("");
+    return `
+      <div class="wb-role-grid">
+        <section class="wb-panel wb-role-card">
+          <div class="wb-panel-head"><h2>游客</h2><span class="wb-hint">未登录访客能浏览哪些公开页面</span></div>
+          <div class="wb-panel-body">
+            <div class="wb-perm-items wb-role-perms">${guestItems}</div>
+            <p class="wb-hint">游客没有任何留言、标记、编辑、下载或导出权限；地图始终不对游客开放。</p>
+          </div>
+        </section>
+        <section class="wb-panel wb-role-card">
+          <div class="wb-panel-head"><h2>普通账户</h2><span class="wb-hint">角色默认权限，单个账户可再增减</span></div>
+          <div class="wb-panel-body">
+            <div class="wb-perm-groups">${memberGroups}</div>
+            <p class="wb-hint">只读权限（查看仓库、笔记、工作台等）不在这里分配，仍到「全部账户」里按账号单独授予。</p>
+          </div>
+        </section>
+        <section class="wb-panel wb-role-card">
+          <div class="wb-panel-head"><h2>管理员</h2><span class="wb-chip wb-chip-admin">全部权限 · 不可收回</span></div>
+          <div class="wb-panel-body">
+            <div class="wb-role-fixed-list">${adminItems}</div>
+            <p class="wb-hint">管理员权限固定为全部，不能收回；目前站点由站长自行维护。</p>
+          </div>
+        </section>
+      </div>`;
   }
 
   function wordsHtml(data) {
@@ -1299,23 +1369,73 @@
         if (hint && item) hint.textContent = item.hint;
         return;
       }
-      const checkbox = event.target.closest("[data-perm]");
-      if (!checkbox) return;
-      const card = checkbox.closest("[data-user-card]");
-      if (!card) return;
-      try {
-        await api(`/api/admin/users/${card.dataset.userCard}/permissions`, {
-          method: "POST",
-          body: JSON.stringify({
-            permission: checkbox.dataset.perm,
-            granted: checkbox.checked,
-          }),
-        });
-        toast(checkbox.checked ? "已发放权限" : "已收回权限");
-        await loadAccounts();
-      } catch (err) {
-        checkbox.checked = !checkbox.checked;
-        toast(err.message);
+      const roleCheckbox = event.target.closest("[data-role-perm]");
+      if (roleCheckbox) {
+        try {
+          const data = await api("/api/admin/role-permissions", {
+            method: "POST",
+            body: JSON.stringify({
+              role: roleCheckbox.dataset.role,
+              permission: roleCheckbox.dataset.permission,
+              granted: roleCheckbox.checked,
+            }),
+          });
+          state.rolePermissionData = data;
+          state.roleDefaults = data.member_defaults || state.roleDefaults;
+          toast(roleCheckbox.checked ? "角色权限已开启" : "角色权限已关闭");
+          panel.innerHTML = rolesHtml(data);
+          if (window.lucide) lucide.createIcons();
+        } catch (err) {
+          roleCheckbox.checked = !roleCheckbox.checked;
+          toast(err.message);
+        }
+        return;
+      }
+      const modeSelect = event.target.closest("[data-perm-mode]");
+      if (modeSelect) {
+        const card = modeSelect.closest("[data-user-card]");
+        if (!card) return;
+        try {
+          await api(`/api/admin/users/${card.dataset.userCard}/permissions`, {
+            method: "POST",
+            body: JSON.stringify({
+              permission: modeSelect.dataset.permMode,
+              mode: modeSelect.value,
+            }),
+          });
+          toast(
+            modeSelect.value === "inherit"
+              ? "已改为继承角色"
+              : modeSelect.value === "allow"
+                ? "已单独允许"
+                : "已单独禁止"
+          );
+          await loadAccounts();
+        } catch (err) {
+          toast(err.message);
+          await loadAccounts();
+        }
+        return;
+      }
+      const adminCheckbox = event.target.closest("[data-perm-admin]");
+      if (adminCheckbox) {
+        const card = adminCheckbox.closest("[data-user-card]");
+        if (!card) return;
+        try {
+          await api(`/api/admin/users/${card.dataset.userCard}/permissions`, {
+            method: "POST",
+            body: JSON.stringify({
+              permission: adminCheckbox.dataset.permAdmin,
+              mode: adminCheckbox.checked ? "allow" : "inherit",
+            }),
+          });
+          toast(adminCheckbox.checked ? "已授予管理员" : "已取消管理员");
+          await loadAccounts();
+        } catch (err) {
+          adminCheckbox.checked = !adminCheckbox.checked;
+          toast(err.message);
+        }
+        return;
       }
     });
   }

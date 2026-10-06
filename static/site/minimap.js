@@ -252,6 +252,8 @@
     .catch(function (err) {
       if (err && (err.status === 401 || err.status === 403)) {
         dock.hidden = true;
+        var hud = document.getElementById("dockHud");
+        if (hud) hud.hidden = true;
       }
       if (countEl) countEl.hidden = true;
     });

@@ -208,7 +208,19 @@
       });
   }
 
+  function applyGuestPageVisibility(status) {
+    var isGuest = !status || !status.authenticated;
+    var allowed = {};
+    ((status && status.guest_pages) || []).forEach(function (key) {
+      allowed[key] = true;
+    });
+    document.querySelectorAll("[data-guest-page]").forEach(function (el) {
+      el.hidden = isGuest && !allowed[el.getAttribute("data-guest-page")];
+    });
+  }
+
   function applyAuthStatus(status) {
+    applyGuestPageVisibility(status);
     authState.enabled = Boolean(status.enabled);
     authState.authenticated = Boolean(status.authenticated);
     authState.role = status.role || (authState.authenticated ? "owner" : "guest");

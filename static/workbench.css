@@ -1492,3 +1492,73 @@ a.wb-btn {
     flex-wrap: wrap;
   }
 }
+
+/* ---------- 全部权限（角色） ---------- */
+.wb-role-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.wb-role-card .wb-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wb-role-perms {
+  gap: 6px;
+}
+
+.wb-role-perm {
+  padding: 7px 10px;
+  border: 1px solid var(--wb-line);
+  border-radius: 8px;
+  background: var(--wb-surface);
+}
+
+.wb-role-perm:hover {
+  background: var(--wb-hover);
+}
+
+.wb-role-perm input {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+
+.wb-role-fixed-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.wb-role-fixed {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: var(--wb-hover);
+  color: var(--wb-muted);
+  font-size: 12px;
+}
+
+.wb-perm-mode {
+  justify-content: space-between;
+}
+
+.wb-perm-mode span {
+  min-width: 0;
+}
+
+.wb-perm-mode select {
+  flex: 0 0 auto;
+  max-width: 190px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--wb-line);
+  border-radius: 7px;
+  background: var(--wb-surface);
+  color: var(--wb-text);
+  font-size: 12.5px;
+}

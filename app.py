@@ -89,45 +89,54 @@ AUTH_SESSION_DAYS = 7
 AUTH_SESSION_DAYS_REMEMBER = 30
 AUTH_PBKDF2_ITERATIONS = 200_000
 AUTH_STATE = {"enabled": False, "password_hash": "", "secret": ""}
-PUBLIC_PAGES = {
-    "/",
-    "/index.html",
-    "/login",
-    "/register",
-    "/messages",
-    "/moments",
-    "/recommendations",
-    "/music",
-    "/references",
-    "/games",
-    "/favicon.ico",
+# 游客角色可以控制的公开页面（对应「全部权限 → 游客」里的开关）
+GUEST_PAGE_RULES = {
+    "/messages": "guest:page:messages",
+    "/moments": "guest:page:moments",
+    "/recommendations": "guest:page:recommendations",
+    "/music": "guest:page:music",
+    "/references": "guest:page:references",
 }
-PUBLIC_GET_APIS = {
+GUEST_PAGE_PREFIX_RULES = (("/games/", "guest:page:games"),)
+GUEST_API_RULES = {
+    "/api/site/messages": "guest:page:messages",
+    "/api/moments": "guest:page:moments",
+    "/api/recommendations": "guest:page:recommendations",
+    "/api/site/music": "guest:page:music",
+}
+GUEST_DATA_RULES = (
+    ("moment_images/", "guest:page:moments"),
+    ("site_music_files/", "guest:page:music"),
+    ("music_covers/", "guest:page:music"),
+    ("recommend_images/", "guest:page:recommendations"),
+)
+# 永远公开的基础页：首页、登录、注册、静态资源和登录相关接口
+ALWAYS_PUBLIC_PAGES = {"/", "/index.html", "/login", "/register", "/favicon.ico"}
+ALWAYS_PUBLIC_APIS = {
     "/api/health",
     "/api/auth/status",
-    "/api/site/messages",
-    "/api/moments",
-    "/api/recommendations",
-    "/api/site/photos",
-    "/api/site/music",
-    "/api/site/links",
-}
-PUBLIC_POST_APIS = {
     "/api/login",
     "/api/register",
     "/api/logout",
 }
-PUBLIC_DATA_PREFIXES = (
+# 登录账号（普通账户）可以访问的公开站点模块，不受游客开关影响
+SITE_MEMBER_PAGES = {"/messages", "/moments", "/recommendations", "/music", "/references"}
+SITE_MEMBER_PAGE_PREFIXES = ("/games/",)
+SITE_MEMBER_APIS = {
+    "/api/site/messages",
+    "/api/moments",
+    "/api/recommendations",
+    "/api/site/music",
+    "/api/site/photos",
+    "/api/site/links",
+}
+SITE_MEMBER_DATA_PREFIXES = (
     "moment_images/",
     "site_photos/",
     "site_music_files/",
     "music_covers/",
     "recommend_images/",
 )
-if MAP_PUBLIC:
-    PUBLIC_PAGES.add("/map")
-    PUBLIC_GET_APIS.add("/api/map")
-    PUBLIC_DATA_PREFIXES = PUBLIC_DATA_PREFIXES + ("map_images/",)
 USERNAME_RE = re.compile(r"^[\w.-]{3,32}$", re.UNICODE)
 RESERVED_USERNAMES = {"owner", "admin", "administrator", "root", "system"}
 NICKNAME_RE = re.compile(r"^[\w\u4e00-\u9fff·．.\-_\u0020]{2,16}$", re.UNICODE)
@@ -225,6 +234,27 @@ GRANTABLE_PERMISSIONS = tuple(
     for item in group["items"]
 )
 
+ROLE_GUEST = "guest"
+ROLE_MEMBER = "member"
+ROLE_ADMIN = "admin"
+ROLE_LABELS = {"guest": "游客", "member": "普通账户", "admin": "管理员"}
+GUEST_PAGE_PERMISSIONS = (
+    {"key": "guest:page:messages", "label": "留言板"},
+    {"key": "guest:page:moments", "label": "Error酱动态"},
+    {"key": "guest:page:recommendations", "label": "Error酱推荐"},
+    {"key": "guest:page:music", "label": "歌单"},
+    {"key": "guest:page:games", "label": "游戏大厅"},
+    {"key": "guest:page:references", "label": "参考项目"},
+)
+GUEST_PAGE_PERMISSION_KEYS = tuple(item["key"] for item in GUEST_PAGE_PERMISSIONS)
+GUEST_PAGE_LABELS = {item["key"]: item["label"] for item in GUEST_PAGE_PERMISSIONS}
+MEMBER_ROLE_PERMISSIONS = tuple(
+    key
+    for key in GRANTABLE_PERMISSIONS
+    if key != ADMIN_PERMISSION and not key.endswith(":view")
+)
+MEMBER_ROLE_LABELS = {key: PERMISSION_LABELS.get(key, key) for key in MEMBER_ROLE_PERMISSIONS}
+
 PERMISSION_ROUTE_MODULES = (
     ("/api/parts", "inventory"),
     ("/api/categories", "inventory"),
@@ -254,6 +284,14 @@ PAGE_PERMISSIONS = {
     "/notes": ("notes:view", "notes:write"),
     "/workbench": ("workbench:view", "workbench:write", "prompts:view", "prompts:write"),
 }
+if MAP_PUBLIC:
+    # 地图不再对游客开放；登录账号需要至少一个地图权限才能查看
+    PAGE_PERMISSIONS["/map"] = (
+        "map:write",
+        "map:write_all",
+        "map:manage_categories",
+        "map:export",
+    )
 
 SENSITIVE_SEED_WORDS = (
     ("共产党", "政治"),
@@ -810,6 +848,14 @@ def init_db():
                 PRIMARY KEY (user_id, permission)
             );
 
+            CREATE TABLE IF NOT EXISTS role_permissions (
+                role TEXT NOT NULL,
+                permission TEXT NOT NULL,
+                granted_by TEXT,
+                granted_at TEXT NOT NULL,
+                PRIMARY KEY (role, permission)
+            );
+
             CREATE TABLE IF NOT EXISTS permission_audit (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 actor_kind TEXT NOT NULL DEFAULT 'owner',
@@ -1104,6 +1150,13 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
         ):
             if column not in user_columns:
                 conn.execute(ddl)
+        permission_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(user_permissions)").fetchall()
+        }
+        if "mode" not in permission_columns:
+            conn.execute(
+                "ALTER TABLE user_permissions ADD COLUMN mode TEXT NOT NULL DEFAULT 'allow'"
+            )
         message_file_columns = {
             row["name"]
             for row in conn.execute("PRAGMA table_info(site_message_files)").fetchall()
@@ -1193,6 +1246,38 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             """,
             (import_timestamp, import_timestamp),
         )
+        role_seed = conn.execute(
+            "SELECT value FROM app_meta WHERE key = 'role_permissions_v1'"
+        ).fetchone()
+        if not role_seed:
+            stamp = now_text()
+            for key in GUEST_PAGE_PERMISSION_KEYS:
+                conn.execute(
+                    """INSERT OR IGNORE INTO role_permissions
+                           (role, permission, granted_by, granted_at)
+                       VALUES (?, ?, ?, ?)""",
+                    (ROLE_GUEST, key, "系统初始化", stamp),
+                )
+            for key in DEFAULT_MEMBER_PERMISSIONS:
+                conn.execute(
+                    """INSERT OR IGNORE INTO role_permissions
+                           (role, permission, granted_by, granted_at)
+                       VALUES (?, ?, ?, ?)""",
+                    (ROLE_MEMBER, key, "系统初始化", stamp),
+                )
+            # 旧版批准账号时自动写入的 map:write 默认值，改为跟随「普通账户」角色
+            conn.execute(
+                """DELETE FROM user_permissions
+                   WHERE permission = 'map:write' AND mode = 'allow'
+                     AND user_id IN (
+                         SELECT user_id FROM user_permissions
+                         GROUP BY user_id HAVING COUNT(*) = 1
+                     )"""
+            )
+            conn.execute(
+                "INSERT INTO app_meta (key, value) VALUES ('role_permissions_v1', ?)",
+                (stamp,),
+            )
         seed_data(conn)
         conn.commit()
     finally:
@@ -4293,24 +4378,69 @@ def valid_nickname(value, exclude_user_id=None):
     return nickname
 
 
-def user_permission_set(user_id):
-    if not user_id:
-        return set()
-    rows = query("SELECT permission FROM user_permissions WHERE user_id = ?", (user_id,))
+def role_permission_set(role):
+    rows = query("SELECT permission FROM role_permissions WHERE role = ?", (role,))
     return {row["permission"] for row in rows}
 
 
+GUEST_PERMISSION_CACHE = {"at": 0.0, "value": None}
+
+
+def guest_permission_set():
+    """游客角色权限；2 秒缓存，避免每个请求都查库。"""
+    now = time.time()
+    cached = GUEST_PERMISSION_CACHE
+    if cached["value"] is not None and now - cached["at"] < 2:
+        return set(cached["value"])
+    value = role_permission_set(ROLE_GUEST)
+    cached["at"] = now
+    cached["value"] = value
+    return set(value)
+
+
+def guest_has_permission(permission):
+    return permission in guest_permission_set()
+
+
+def invalidate_guest_permission_cache():
+    GUEST_PERMISSION_CACHE["at"] = 0.0
+    GUEST_PERMISSION_CACHE["value"] = None
+
+
+def user_permission_overrides(user_id):
+    if not user_id:
+        return {}
+    rows = query("SELECT permission, mode FROM user_permissions WHERE user_id = ?", (user_id,))
+    return {row["permission"]: (row["mode"] or "allow") for row in rows}
+
+
+def user_permission_set(user_id):
+    """账号有效权限 = 普通账户角色默认 + 单账户允许 - 单账户禁止。"""
+    if not user_id:
+        return set()
+    permissions = role_permission_set(ROLE_MEMBER)
+    for permission, mode in user_permission_overrides(user_id).items():
+        if mode == "deny":
+            permissions.discard(permission)
+        else:
+            permissions.add(permission)
+    return permissions
+
+
 def user_has_permission(user_id, permission):
+    if not user_id:
+        return False
+    overrides = user_permission_overrides(user_id)
     if permission == ADMIN_PERMISSION:
-        return bool(
-            query_one(
-                "SELECT permission FROM user_permissions WHERE user_id = ? AND permission = ?",
-                (user_id, ADMIN_PERMISSION),
-            )
-        )
-    permissions = user_permission_set(user_id)
-    if ADMIN_PERMISSION in permissions:
+        return overrides.get(ADMIN_PERMISSION) == "allow"
+    if overrides.get(ADMIN_PERMISSION) == "allow":
         return True
+    permissions = role_permission_set(ROLE_MEMBER)
+    for key, mode in overrides.items():
+        if mode == "deny":
+            permissions.discard(key)
+        else:
+            permissions.add(key)
     return permission in permissions
 
 
@@ -4323,11 +4453,17 @@ def required_permission(path, method):
     if path == "/api/map/seen" and method == "POST":
         # 记录「已看到标记」是读状态，任何登录账号都可以
         return ""
+    # 公开站点模块：游客能否访问由游客角色权限控制；登录账号一律可以浏览
+    if path in SITE_MEMBER_PAGES or path == "/games" or path.startswith(SITE_MEMBER_PAGE_PREFIXES):
+        return ""
     if path == "/api/site/messages" or path.startswith("/api/site/messages/"):
         # 留言板：游客只能浏览；登录账号可以发表留言，删除仍仅管理员。
         if method == "POST":
             return ""
-        return None
+        return ""
+    if path.startswith("/api/site/message-files/"):
+        # 附件接口：游客只能看图片，非图片附件在处理器里再拦一次
+        return ""
     if path == "/api/moments" or path.startswith("/api/moments/"):
         # 动态：游客和普通账号只能浏览，发布/编辑/置顶/删除仅管理员。
         if method in ("POST", "PATCH", "DELETE"):
@@ -4338,19 +4474,31 @@ def required_permission(path, method):
         if method in ("POST", "PATCH", "DELETE"):
             return None
         return ""
+    if path == "/api/site/photos" or path.startswith("/api/site/photos/"):
+        return "photos:write" if method in ("POST", "PATCH", "DELETE") else ""
+    if path == "/api/site/links" or path.startswith("/api/site/links/"):
+        return "links:write" if method in ("POST", "PATCH", "DELETE") else ""
+    if path == "/api/site/music" or path.startswith("/api/site/music/"):
+        return "music:write" if method in ("POST", "PATCH", "DELETE") else ""
     if path.startswith("/api/admin"):
         return None
     if path.startswith("/api/map/export"):
+        if not MAP_PUBLIC:
+            return None
         return "map:export"
     if path.startswith("/api/map/categories"):
+        if not MAP_PUBLIC:
+            return None
         return "map:manage_categories"
     if path.startswith("/api/map/import"):
         # 导入标记仅管理员可用（不再作为可授予权限点）
         return None
     if path.startswith("/api/map"):
+        if not MAP_PUBLIC:
+            return None
         if method in ("POST", "PATCH", "DELETE"):
             return "map:write"
-        return ""
+        return ("map:write", "map:write_all", "map:manage_categories", "map:export")
     for prefix, module in PERMISSION_ROUTE_MODULES:
         if path.startswith(prefix):
             action = "write" if method in ("POST", "PATCH", "DELETE") else "view"
@@ -4360,6 +4508,45 @@ def required_permission(path, method):
     for page, permissions in PAGE_PERMISSIONS.items():
         if path.startswith(page + "/"):
             return permissions
+    return None
+
+
+MAP_VIEW_PERMISSIONS = (
+    "map:write",
+    "map:write_all",
+    "map:manage_categories",
+    "map:export",
+)
+# 私有模块数据目录：登录账号需要对应权限
+DATA_PERMISSION_RULES = (
+    ("note_images/", ("notes:view", "notes:write")),
+    ("part_images/", ("inventory:view", "inventory:write")),
+    ("workbench/", ("workbench:view", "workbench:write")),
+    ("bom_reports/", ("inventory:view", "inventory:write")),
+)
+# 游客可见模块的接口 / 子路径前缀
+GUEST_RULE_PREFIXES = (
+    ("/games/", "guest:page:games"),
+    ("/api/site/messages/", "guest:page:messages"),
+    ("/api/moments/", "guest:page:moments"),
+    ("/api/recommendations/", "guest:page:recommendations"),
+    ("/api/site/music/", "guest:page:music"),
+)
+
+
+def guest_page_permission_for_path(path):
+    """返回路径对应的游客页面权限点；None 表示不受游客角色控制。"""
+    if path in GUEST_PAGE_RULES:
+        return GUEST_PAGE_RULES[path]
+    if path in GUEST_API_RULES:
+        return GUEST_API_RULES[path]
+    if path == "/games" or path.startswith("/games/"):
+        return "guest:page:games"
+    if path.startswith("/api/site/message-files/"):
+        return "guest:page:messages"
+    for prefix, rule in GUEST_RULE_PREFIXES:
+        if path.startswith(prefix):
+            return rule
     return None
 
 
@@ -5034,25 +5221,69 @@ class InventoryHandler(BaseHTTPRequestHandler):
         parsed = urlsplit(origin)
         return bool(parsed.netloc) and parsed.netloc == host
 
-    def public_request_allowed(self, path, method):
+    def base_public_allowed(self, path, method):
+        """永远公开的基础请求：首页、登录注册、静态资源和登录相关接口。"""
         if path.startswith("/static/"):
+            return True
+        if path in ALWAYS_PUBLIC_PAGES or path in ALWAYS_PUBLIC_APIS:
+            return True
+        if method == "GET" and path == "/favicon.ico":
+            return True
+        return False
+
+    def data_file_allowed(self, relative, identity):
+        """site-files 数据的访问控制。"""
+        for prefix, permissions in DATA_PERMISSION_RULES:
+            if relative.startswith(prefix):
+                if identity is None:
+                    return False
+                if identity.get("kind") in ("owner", "admin"):
+                    return True
+                return any(
+                    user_has_permission(identity.get("user_id"), key)
+                    for key in permissions
+                )
+        if relative.startswith("map_images/"):
+            if identity is None:
+                return False
+            if identity.get("kind") in ("owner", "admin"):
+                return True
+            return self.map_view_allowed(identity)
+        for prefix, rule in GUEST_DATA_RULES:
+            if relative.startswith(prefix):
+                if guest_has_permission(rule):
+                    return True
+                return identity is not None
+        if relative.startswith(SITE_MEMBER_DATA_PREFIXES):
+            return identity is not None
+        return False
+
+    def map_view_allowed(self, identity=None):
+        """当前账号有没有地图查看权限（管理员恒有）。"""
+        if not MAP_PUBLIC:
+            return False
+        identity = identity if identity is not None else self.session_identity()
+        if not identity:
+            return False
+        if identity.get("kind") in ("owner", "admin"):
+            return True
+        return any(
+            user_has_permission(identity.get("user_id"), key)
+            for key in MAP_VIEW_PERMISSIONS
+        )
+
+    def guest_request_allowed(self, path, method, identity):
+        """游客（以及未登录请求）能访问的页面、接口和数据文件。"""
+        if self.base_public_allowed(path, method):
             return True
         if path.startswith("/site-files/"):
             relative = unquote(path[len("/site-files/") :])
-            if relative.startswith(PUBLIC_DATA_PREFIXES):
-                return True
-        if method == "GET":
-            if re.fullmatch(r"/api/recommendations/\d+/icon", path):
-                return True
-            if re.fullmatch(r"/api/site/message-files/\d+", path):
-                # 附件接口公开，但会按审核状态在处理器里二次鉴权
-                return True
-            if path in PUBLIC_PAGES or path.startswith("/games/"):
-                return True
-            if path in PUBLIC_GET_APIS:
-                return True
-        if method == "POST" and path in PUBLIC_POST_APIS:
-            return True
+            return self.data_file_allowed(relative, identity)
+        if method != "GET":
+            return False
+        rule = guest_page_permission_for_path(path)
+        if rule:
+            return guest_has_permission(rule)
         return False
 
     def guard_request(self, path, method):
@@ -5066,10 +5297,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 return False
         if not AUTH_STATE.get("enabled"):
             return True
-        if self.public_request_allowed(path, method):
-            return True
         identity = self.session_identity()
         if identity and identity.get("kind") in ("owner", "admin"):
+            return True
+        if self.guest_request_allowed(path, method, identity):
             return True
         if identity:
             required = required_permission(path, method)
@@ -5121,6 +5352,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "owner": bool(identity and identity.get("kind") == "owner"),
                 "admin": bool(identity and identity.get("kind") in ("owner", "admin")),
                 "permissions": permissions,
+                "guest_pages": [] if identity else sorted(guest_permission_set()),
+                "map_allowed": self.map_view_allowed(identity) if identity else False,
                 "pending_users": pending_users,
                 "pending_attachments": pending_attachments,
             },
@@ -5394,14 +5627,18 @@ class InventoryHandler(BaseHTTPRequestHandler):
                    ELSE 2 END, id DESC"""
         users = query(sql, values)
         permission_rows = query(
-            "SELECT user_id, permission FROM user_permissions ORDER BY permission"
+            "SELECT user_id, permission, mode FROM user_permissions ORDER BY permission"
         )
         grouped = {}
         for row in permission_rows:
-            grouped.setdefault(row["user_id"], []).append(row["permission"])
+            grouped.setdefault(row["user_id"], {})[row["permission"]] = (
+                row["mode"] or "allow"
+            )
         for user in users:
-            user["permissions"] = sorted(grouped.get(user["id"], []))
-            user["is_admin"] = ADMIN_PERMISSION in user["permissions"]
+            overrides = grouped.get(user["id"], {})
+            user["permission_overrides"] = overrides
+            user["permissions"] = sorted(user_permission_set(user["id"]))
+            user["is_admin"] = overrides.get(ADMIN_PERMISSION) == "allow"
         pending = query_one(
             "SELECT COUNT(*) AS n FROM users WHERE status = 'pending'"
         )["n"]
@@ -5413,6 +5650,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "total": len(users),
                 "grantable": list(GRANTABLE_PERMISSIONS),
                 "defaults": list(DEFAULT_MEMBER_PERMISSIONS),
+                "role_defaults": sorted(role_permission_set(ROLE_MEMBER)),
                 "default_message_limit": MESSAGE_DAILY_LIMIT,
             },
         )
@@ -5445,21 +5683,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
             "UPDATE users SET status = ?, approved_at = ?, updated_at = ? WHERE id = ?",
             (status, approved_at, stamp, user_id),
         )
-        if status == "approved":
-            existing = user_permission_set(user_id)
-            if not existing:
-                for permission in DEFAULT_MEMBER_PERMISSIONS:
-                    execute(
-                        """INSERT OR IGNORE INTO user_permissions
-                               (user_id, permission, granted_by, granted_at)
-                           VALUES (?, ?, ?, ?)""",
-                        (
-                            user_id,
-                            permission,
-                            self.session_identity().get("nickname") or "管理员",
-                            stamp,
-                        ),
-                    )
         write_audit(
             self.session_identity(),
             f"user_{action}",
@@ -5488,34 +5711,48 @@ class InventoryHandler(BaseHTTPRequestHandler):
             if user_has_permission(target["id"], ADMIN_PERMISSION):
                 api_error(self, 403, "只有站长可以管理其他管理员。")
                 return
-        granted = bool(payload.get("granted"))
+        mode = str(payload.get("mode") or "").strip().lower()
+        if mode not in ("allow", "deny", "inherit"):
+            mode = "allow" if bool(payload.get("granted")) else "inherit"
+        if permission == ADMIN_PERMISSION:
+            # 「授予管理员」只有两种状态：允许 / 继承（不授予）
+            mode = "allow" if mode == "allow" else "inherit"
+        granted = mode == "allow"
         stamp = now_text()
-        if granted:
+        if mode == "inherit":
+            execute(
+                "DELETE FROM user_permissions WHERE user_id = ? AND permission = ?",
+                (user_id, permission),
+            )
+        else:
             execute(
                 """INSERT OR REPLACE INTO user_permissions
-                       (user_id, permission, granted_by, granted_at)
-                   VALUES (?, ?, ?, ?)""",
+                       (user_id, permission, granted_by, granted_at, mode)
+                   VALUES (?, ?, ?, ?, ?)""",
                 (
                     user_id,
                     permission,
                     self.session_identity().get("nickname") or "管理员",
                     stamp,
+                    mode,
                 ),
             )
-        else:
-            execute(
-                "DELETE FROM user_permissions WHERE user_id = ? AND permission = ?",
-                (user_id, permission),
-            )
+        audit_action = "grant" if mode == "allow" else ("deny" if mode == "deny" else "revoke")
         write_audit(
             self.session_identity(),
-            "grant" if granted else "revoke",
-            f"{PERMISSION_LABELS.get(permission, permission)}（{permission}）",
+            audit_action,
+            f"{PERMISSION_LABELS.get(permission, permission)}（{permission}）"
+            + ("（禁止）" if mode == "deny" else ""),
             target,
         )
         self.send_json(
             200,
-            {"ok": True, "permissions": sorted(user_permission_set(user_id))},
+            {
+                "ok": True,
+                "mode": mode,
+                "overrides": user_permission_overrides(user_id),
+                "permissions": sorted(user_permission_set(user_id)),
+            },
         )
 
     def api_admin_user_message_limit(self, path, payload):
@@ -5655,6 +5892,82 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "defaults": list(DEFAULT_MEMBER_PERMISSIONS),
             },
         )
+
+    def role_permission_payload(self):
+        member_groups = []
+        for group in PERMISSION_GROUPS:
+            items = [
+                {"key": item["key"], "label": item["label"]}
+                for item in group["items"]
+                if item["key"] in MEMBER_ROLE_PERMISSIONS
+            ]
+            if items:
+                member_groups.append(
+                    {"key": group["key"], "label": group["label"], "items": items}
+                )
+        admin_items = [
+            {"key": item["key"], "label": item["label"]}
+            for group in PERMISSION_GROUPS
+            for item in group["items"]
+            if item["key"] != ADMIN_PERMISSION
+        ]
+        return {
+            "guest_options": list(GUEST_PAGE_PERMISSIONS),
+            "guest": sorted(role_permission_set(ROLE_GUEST)),
+            "member_groups": member_groups,
+            "member": sorted(role_permission_set(ROLE_MEMBER)),
+            "member_defaults": list(DEFAULT_MEMBER_PERMISSIONS),
+            "admin_permissions": admin_items,
+        }
+
+    def api_admin_role_permissions(self, params):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以查看角色权限。")
+            return
+        self.send_json(200, self.role_permission_payload())
+
+    def api_admin_role_permission_set(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以修改角色权限。")
+            return
+        role = str(payload.get("role") or "").strip()
+        permission = str(payload.get("permission") or "").strip()
+        if role == ROLE_GUEST:
+            allowed = set(GUEST_PAGE_PERMISSION_KEYS)
+            labels = GUEST_PAGE_LABELS
+        elif role == ROLE_MEMBER:
+            allowed = set(MEMBER_ROLE_PERMISSIONS)
+            labels = MEMBER_ROLE_LABELS
+        else:
+            api_error(self, 400, "未知角色。")
+            return
+        if permission not in allowed:
+            api_error(self, 400, "这个权限不能分配给该角色。")
+            return
+        granted = bool(payload.get("granted"))
+        stamp = now_text()
+        identity = self.session_identity()
+        actor = identity.get("nickname") or identity.get("username") or "管理员"
+        if granted:
+            execute(
+                """INSERT OR REPLACE INTO role_permissions
+                       (role, permission, granted_by, granted_at)
+                   VALUES (?, ?, ?, ?)""",
+                (role, permission, actor, stamp),
+            )
+        else:
+            execute(
+                "DELETE FROM role_permissions WHERE role = ? AND permission = ?",
+                (role, permission),
+            )
+        invalidate_guest_permission_cache()
+        write_audit(
+            identity,
+            "role_grant" if granted else "role_revoke",
+            f"{ROLE_LABELS.get(role, role)} · {labels.get(permission, permission)}（{permission}）",
+            {"id": None, "username": ROLE_LABELS.get(role, role)},
+        )
+        self.send_json(200, {"ok": True, **self.role_permission_payload()})
 
     def api_admin_audit(self, params):
         if not self.is_admin():
@@ -6367,6 +6680,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_admin_users(query)
             elif path == "/api/admin/permissions":
                 self.api_admin_permissions()
+            elif path == "/api/admin/role-permissions":
+                self.api_admin_role_permissions(query)
             elif path == "/api/admin/audit":
                 self.api_admin_audit(query)
             elif path == "/api/admin/logs/activity":
@@ -6483,6 +6798,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_account_nickname(payload)
             elif path == "/api/admin/sensitive-words":
                 self.api_admin_sensitive_word_add(payload)
+            elif path == "/api/admin/role-permissions":
+                self.api_admin_role_permission_set(payload)
             elif path == "/api/admin/sensitive-words/test":
                 self.api_admin_sensitive_test(payload)
             elif path == "/api/admin/notify":
@@ -7390,14 +7707,25 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 and row["uploaded_by"] == viewer_id
             )
             visible = approved or is_admin or owned
+            is_image = extension in MESSAGE_IMAGE_EXTENSIONS
+            guest_locked = viewer_id is None and not is_admin and not is_image
             entry = {
                 "id": row["id"],
                 "status": status,
-                "is_image": extension in MESSAGE_IMAGE_EXTENSIONS,
+                "is_image": is_image,
                 "visible": visible,
                 "can_save": bool(is_admin or owned),
+                "locked": guest_locked,
             }
-            if visible:
+            if guest_locked:
+                entry.update(
+                    {
+                        "file_name": row["file_name"],
+                        "file_size": row["file_size"],
+                        "mime_type": row["mime_type"],
+                    }
+                )
+            elif visible:
                 entry.update(
                     {
                         "file_name": row["file_name"],
@@ -9415,14 +9743,20 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not row:
             api_error(self, 404, "附件不存在。")
             return
+        identity = self.session_identity()
+        is_admin = self.is_admin()
         status = row.get("status") or "approved"
-        if status != "approved" and not self.is_admin():
-            identity = self.session_identity()
+        if status != "approved" and not is_admin:
             viewer_id = None
             if identity:
                 viewer_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
             if viewer_id is None or row.get("uploaded_by") is None or row["uploaded_by"] != viewer_id:
                 api_error(self, 403, "附件正在审核中。")
+                return
+        if identity is None:
+            extension = os.path.splitext(row.get("file_name") or "")[1].lower()
+            if extension not in MESSAGE_IMAGE_EXTENSIONS:
+                api_error(self, 403, "登录后才可以查看这个附件。")
                 return
         self.send_data_file(row["file_path"])
 

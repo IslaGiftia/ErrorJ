@@ -462,6 +462,15 @@ button.mg-file {
   cursor: zoom-in;
 }
 
+.mg-file-locked {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.mg-file-locked .mg-file-size {
+  opacity: 0.9;
+}
+
 .mg-file-view-tag {
   padding: 1px 7px;
   border-radius: 999px;

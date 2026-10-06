@@ -336,6 +336,16 @@
   function buildFiles(files) {
     var wrap = el("div", "mg-files");
     files.forEach(function (file) {
+      if (file.locked) {
+        var locked = el("span", "mg-file mg-file-locked");
+        var lockIcon = document.createElement("i");
+        lockIcon.setAttribute("data-lucide", "lock");
+        locked.appendChild(lockIcon);
+        locked.appendChild(el("span", "mg-file-name", file.file_name || "附件"));
+        locked.appendChild(el("span", "mg-file-size", "登录后可查看"));
+        wrap.appendChild(locked);
+        return;
+      }
       if (file.visible === false) {
         var pending = el("span", "mg-file mg-file-pending");
         var pendingIcon = document.createElement("i");
