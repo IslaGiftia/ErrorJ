@@ -83,6 +83,20 @@
     return stamp;
   }
 
+  function formatStamp(text) {
+    var match = String(text || "").match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+    return match
+      ? match[1] + "-" + match[2] + "-" + match[3] + " " + match[4] + ":" + match[5]
+      : String(text || "");
+  }
+
+  function hasTag(moment, tag) {
+    return String((moment && moment.tags) || "")
+      .split(/[,，]/)
+      .map(function (item) { return item.trim(); })
+      .indexOf(tag) >= 0;
+  }
+
   function fileToBase64(file) {
     return new Promise(function (resolve, reject) {
       var reader = new FileReader();
@@ -280,7 +294,13 @@
     var head = el("div", "mo-item-head");
     head.appendChild(el("span", "mo-nick", "Error酱"));
     if (moment.pinned) head.appendChild(el("span", "mo-pin-badge", "置顶"));
-    head.appendChild(el("span", "mo-time", formatTime(moment.created_at)));
+    head.appendChild(
+      el(
+        "span",
+        "mo-time",
+        hasTag(moment, "更新日志") ? formatStamp(moment.created_at) : formatTime(moment.created_at)
+      )
+    );
     if (moment.region) {
       head.appendChild(el("span", "mo-region", "IP 属地：" + moment.region));
     }

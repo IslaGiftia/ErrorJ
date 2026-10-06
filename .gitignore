@@ -34,6 +34,9 @@ errorjiang-backup*.zip
 # 本地工具产物
 smoke.js
 
+# 每日更新日志正文：只保留在本地和服务器，不进入版本库
+/config/changelog-seed.json
+
 # 编辑器与操作系统
 .DS_Store
 Thumbs.db
