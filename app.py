@@ -47,7 +47,6 @@ BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 DATA_DIR = BASE_DIR / "data"
 PROMPTS_SEED_PATH = BASE_DIR / "config" / "prompts-seed.json"
-MAP_SEED_PATH = BASE_DIR / "config" / "map-seed.json"
 DB_PATH = DATA_DIR / "inventory.db"
 HOST = os.environ.get("INVENTORY_HOST", "0.0.0.0")
 PORT = int(os.environ.get("INVENTORY_PORT", "8000"))
@@ -1173,100 +1172,6 @@ def seed_data(conn):
                 )
         conn.execute(
             "INSERT INTO app_meta (key, value) VALUES ('ai_prompts_seeded', ?)",
-            (now_text(),),
-        )
-
-    seeded = conn.execute(
-        "SELECT value FROM app_meta WHERE key = 'map_seeded'"
-    ).fetchone()
-    if not seeded:
-        count = conn.execute("SELECT COUNT(*) AS n FROM map_places").fetchone()["n"]
-        if count == 0:
-            try:
-                map_seed = json.loads(MAP_SEED_PATH.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                map_seed = {}
-            if not isinstance(map_seed, dict):
-                map_seed = {}
-            stamp = now_text()
-            category_ids = {}
-            for index, item in enumerate(map_seed.get("categories") or []):
-                if not isinstance(item, dict):
-                    continue
-                name = str(item.get("name") or "").strip()[:60]
-                if not name:
-                    continue
-                color = str(item.get("color") or "#7b68ee").strip()[:9]
-                cursor = conn.execute(
-                    """INSERT INTO map_categories
-                           (parent_id, name, glyph, color, note, sort_order, created_at)
-                       VALUES (NULL, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        name,
-                        str(item.get("glyph") or "·").strip()[:2] or "·",
-                        color,
-                        str(item.get("note") or "").strip()[:500] or None,
-                        index,
-                        stamp,
-                    ),
-                )
-                parent_id = cursor.lastrowid
-                category_ids[name] = parent_id
-                for child_index, child in enumerate(item.get("children") or []):
-                    if not isinstance(child, dict):
-                        continue
-                    child_name = str(child.get("name") or "").strip()[:60]
-                    if not child_name:
-                        continue
-                    child_cursor = conn.execute(
-                        """INSERT INTO map_categories
-                               (parent_id, name, glyph, color, note, sort_order, created_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                        (
-                            parent_id,
-                            child_name,
-                            str(child.get("glyph") or "·").strip()[:2] or "·",
-                            str(child.get("color") or color).strip()[:9],
-                            str(child.get("note") or "").strip()[:500] or None,
-                            child_index,
-                            stamp,
-                        ),
-                    )
-                    category_ids[child_name] = child_cursor.lastrowid
-            for item in map_seed.get("places") or []:
-                if not isinstance(item, dict):
-                    continue
-                name = str(item.get("name") or "").strip()[:120]
-                if not name:
-                    continue
-                try:
-                    lat = float(item.get("lat"))
-                    lng = float(item.get("lng"))
-                except (TypeError, ValueError):
-                    continue
-                if not (-90 <= lat <= 90 and -180 <= lng <= 180):
-                    continue
-                conn.execute(
-                    """INSERT INTO map_places
-                           (category_id, name, subtitle, address, note, signature,
-                            tags, lat, lng, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        category_ids.get(str(item.get("category") or "").strip()),
-                        name,
-                        str(item.get("subtitle") or "").strip()[:120] or None,
-                        str(item.get("address") or "").strip()[:300] or None,
-                        str(item.get("note") or "").strip()[:2000] or None,
-                        str(item.get("signature") or "").strip()[:300] or None,
-                        str(item.get("tags") or "").strip()[:200] or None,
-                        lat,
-                        lng,
-                        stamp,
-                        stamp,
-                    ),
-                )
-        conn.execute(
-            "INSERT INTO app_meta (key, value) VALUES ('map_seeded', ?)",
             (now_text(),),
         )
 
@@ -7648,8 +7553,21 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not self.can("map:export"):
             api_error(self, 403, "只有管理员可以导出地图数据。")
             return
+        categories = {row["id"]: row for row in self.map_category_rows()}
+
+        def category_path(category_id):
+            category = categories.get(category_id)
+            if not category:
+                return ""
+            if category.get("parent_id"):
+                parent = categories.get(category["parent_id"])
+                if parent:
+                    return f"{parent['name']} / {category['name']}"
+            return category["name"]
+
         features = []
         for row in self.map_place_rows():
+            path = category_path(row.get("category_id"))
             features.append(
                 {
                     "type": "Feature",
@@ -7666,6 +7584,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                         "rating": row.get("rating") or 0,
                         "added_by": row.get("created_by_name") or "",
                         "category": row.get("category_name") or "",
+                        "category_path": path,
                         "category_color": row.get("category_color") or "",
                         "category_glyph": row.get("category_glyph") or "",
                     },
@@ -7705,9 +7624,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 400, "单次最多导入 2000 个标记。")
             return
         stamp = now_text()
-        category_ids = {
-            row["name"]: row["id"] for row in query("SELECT id, name FROM map_categories")
-        }
         target_category_id = None
         raw_target = payload.get("category_id") if isinstance(payload, dict) else None
         if raw_target not in (None, "", 0, "0"):
@@ -7752,28 +7668,83 @@ class InventoryHandler(BaseHTTPRequestHandler):
             if not name:
                 skipped += 1
                 continue
-            category_name = str(properties.get("category") or "").strip()[:60]
+            existing = query_one(
+                """SELECT id FROM map_places
+                   WHERE name = ? AND ROUND(lat, 5) = ROUND(?, 5)
+                     AND ROUND(lng, 5) = ROUND(?, 5)""",
+                (name, lat, lng),
+            )
+            if existing:
+                skipped += 1
+                continue
             category_id = target_category_id
-            if category_id is None and category_name:
-                if category_name not in category_ids:
-                    if not is_admin:
-                        category_id = None
-                    else:
+            if category_id is None:
+                path_value = str(properties.get("category_path") or "").strip()[:200]
+                category_name = str(properties.get("category") or "").strip()[:60]
+                if path_value:
+                    parts = [part.strip()[:60] for part in path_value.split("/") if part.strip()]
+                elif category_name:
+                    parts = [category_name]
+                else:
+                    parts = []
+                if parts:
+                    top_name = parts[0]
+                    top = query_one(
+                        "SELECT id FROM map_categories WHERE name = ? AND parent_id IS NULL",
+                        (top_name,),
+                    )
+                    if not top and not is_admin:
+                        fallback = query_one(
+                            """SELECT id FROM map_categories WHERE name = ?
+                               ORDER BY parent_id IS NOT NULL LIMIT 1""",
+                            (top_name,),
+                        )
+                        if fallback:
+                            top = fallback
+                            parts = [top_name]
+                    if not top and is_admin:
                         color = str(properties.get("category_color") or "").strip()
                         if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
                             color = "#7b68ee"
                         glyph = str(properties.get("category_glyph") or "·").strip()[:2] or "·"
-                        cursor = execute(
-                            """INSERT INTO map_categories
-                                   (parent_id, name, glyph, color, note, sort_order, created_at)
-                               VALUES (NULL, ?, ?, ?, NULL, ?, ?)""",
-                            (category_name, glyph, color.lower(), next_sort, stamp),
-                        )
-                        category_ids[category_name] = cursor
+                        top = {
+                            "id": execute(
+                                """INSERT INTO map_categories
+                                       (parent_id, name, glyph, color, note, sort_order, created_at)
+                                   VALUES (NULL, ?, ?, ?, NULL, ?, ?)""",
+                                (top_name, glyph, color.lower(), next_sort, stamp),
+                            )
+                        }
                         next_sort += 1
-                        category_id = cursor
-                else:
-                    category_id = category_ids[category_name]
+                    if top:
+                        category_id = top["id"]
+                        if len(parts) >= 2:
+                            child_name = parts[1]
+                            child = query_one(
+                                """SELECT id FROM map_categories
+                                   WHERE name = ? AND parent_id = ?""",
+                                (child_name, top["id"]),
+                            )
+                            if not child and is_admin:
+                                child_sort = query_one(
+                                    """SELECT COALESCE(MAX(sort_order), -1) + 1 AS value
+                                       FROM map_categories WHERE parent_id = ?""",
+                                    (top["id"],),
+                                )["value"]
+                                color = str(properties.get("category_color") or "").strip()
+                                if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+                                    color = "#7b68ee"
+                                glyph = str(properties.get("category_glyph") or "·").strip()[:2] or "·"
+                                child = {
+                                    "id": execute(
+                                        """INSERT INTO map_categories
+                                               (parent_id, name, glyph, color, note, sort_order, created_at)
+                                           VALUES (?, ?, ?, ?, NULL, ?, ?)""",
+                                        (top["id"], child_name, glyph, color.lower(), child_sort, stamp),
+                                    )
+                                }
+                            if child:
+                                category_id = child["id"]
             execute(
                 """INSERT INTO map_places
                        (category_id, name, subtitle, address, note, signature,

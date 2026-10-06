@@ -979,7 +979,7 @@
     var selected = selectedId ? categoryById(selectedId) : null;
     var topId = selected ? selected.parent_id || selected.id : null;
     var subId = selected && selected.parent_id ? selected.id : null;
-    var html = '<option value="">未分类</option>';
+    var html = '<option value="">按文件里的分类</option>';
     topCategories().forEach(function (cat) {
       var children = childCategories(cat.id).length;
       html +=

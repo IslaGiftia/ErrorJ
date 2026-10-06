@@ -168,7 +168,7 @@
     if (pendingFiles.length) {
       hint.textContent = "已选 " + pendingFiles.length + " 个，共 " + formatSize(totalPendingBytes());
     } else {
-      hint.textContent = "支持图片、PDF、文本、表格、压缩包等";
+      hint.textContent = "支持图片、PDF、TXT、MD（附件会先送审核）";
     }
   }
 
