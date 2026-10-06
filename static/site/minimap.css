@@ -1,6 +1,6 @@
 .map-dock {
   position: fixed;
-  left: 20px;
+  right: 20px;
   bottom: calc(22px + env(safe-area-inset-bottom, 0px));
   z-index: 70;
   display: block;
@@ -155,13 +155,13 @@
 /* 地图入口上方的信息面板（与圆盘圆心左右对称、全透明） */
 .dock-hud {
   position: fixed;
-  left: calc(20px + clamp(108px, 9vw, 144px) / 2);
+  right: calc(20px + clamp(108px, 9vw, 144px) / 2);
   bottom: calc(22px + env(safe-area-inset-bottom, 0px) + clamp(108px, 9vw, 144px) + 10px);
   z-index: 69;
   display: inline-flex;
   align-items: baseline;
   gap: 6px;
-  transform: translateX(-50%);
+  transform: translateX(50%);
   color: var(--muted);
   font-family: inherit;
   font-size: clamp(11px, 0.55vw, 13px);
@@ -216,14 +216,14 @@
 /* 大屏（2K / 4K）按比例放大，并向上、向内收一些 */
 @media (min-width: 1600px) {
   .map-dock {
-    left: 28px;
+    right: 28px;
     bottom: calc(32px + env(safe-area-inset-bottom, 0px));
     width: clamp(144px, 8vw, 168px);
     font-size: 13px;
   }
 
   .dock-hud {
-    left: calc(28px + clamp(144px, 8vw, 168px) / 2);
+    right: calc(28px + clamp(144px, 8vw, 168px) / 2);
     bottom: calc(32px + env(safe-area-inset-bottom, 0px) + clamp(144px, 8vw, 168px) + 10px);
     font-size: 13px;
   }
@@ -231,14 +231,14 @@
 
 @media (min-width: 2100px) {
   .map-dock {
-    left: 40px;
+    right: 40px;
     bottom: calc(44px + env(safe-area-inset-bottom, 0px));
     width: clamp(176px, 7.4vw, 200px);
     font-size: 15px;
   }
 
   .dock-hud {
-    left: calc(40px + clamp(176px, 7.4vw, 200px) / 2);
+    right: calc(40px + clamp(176px, 7.4vw, 200px) / 2);
     bottom: calc(44px + env(safe-area-inset-bottom, 0px) + clamp(176px, 7.4vw, 200px) + 10px);
     font-size: 15px;
   }
@@ -246,14 +246,14 @@
 
 @media (min-width: 3000px) {
   .map-dock {
-    left: 52px;
+    right: 52px;
     bottom: calc(56px + env(safe-area-inset-bottom, 0px));
     width: 216px;
     font-size: 17px;
   }
 
   .dock-hud {
-    left: calc(52px + 108px);
+    right: calc(52px + 108px);
     bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 216px + 10px);
     font-size: 17px;
   }
@@ -261,14 +261,14 @@
 
 @media (max-width: 640px) {
   .map-dock {
-    left: 12px;
+    right: 12px;
     bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     width: 92px;
     font-size: 10px;
   }
 
   .dock-hud {
-    left: calc(12px + 46px);
+    right: calc(12px + 46px);
     bottom: calc(12px + env(safe-area-inset-bottom, 0px) + 92px + 8px);
     font-size: 10px;
   }
