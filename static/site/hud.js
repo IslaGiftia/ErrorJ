@@ -48,7 +48,7 @@
     frames += 1;
     if (now - lastFrame >= 1000) {
       var fps = Math.round((frames * 1000) / (now - lastFrame));
-      setValue(fpsEl, String(fps), fps <= 30 ? "bad" : fps <= 60 ? "ok" : "deep");
+      setValue(fpsEl, fps + "F", fps <= 30 ? "bad" : fps <= 60 ? "ok" : "deep");
       frames = 0;
       lastFrame = now;
     }
