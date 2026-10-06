@@ -862,7 +862,7 @@
     const eventItems = eventOptions
       .map(
         (item) =>
-          `<label class="wb-perm-item"><input type="checkbox" data-notify-event="${item.key}"${
+          `<label class="wb-perm-item wb-notify-event"><input type="checkbox" data-notify-event="${item.key}"${
             activeEvents.has(item.key) ? " checked" : ""
           }><span>${escapeHtml(item.label)}</span></label>`
       )
@@ -887,50 +887,54 @@
           <h2>推送通知</h2>
           <span class="wb-chip${data.enabled ? " wb-chip-approved" : ""}">${data.enabled ? "已开启" : "已关闭"}</span>
         </div>
-        <p class="wb-hint">新注册申请、待审核附件、新留言会推送到你的手机或群机器人；站内的工作台呼吸提醒仍然保留。</p>
-        <div class="wb-notify-grid">
-          <label class="wb-perm-item"><input type="checkbox" id="notifyEnabled"${data.enabled ? " checked" : ""}><span>开启通知</span></label>
-          <label class="wb-field"><span>渠道</span>
-            <select id="notifyChannel">
-              ${channels
-                .map(
-                  (item) =>
-                    `<option value="${item.key}"${item.key === data.channel ? " selected" : ""}>${escapeHtml(item.label)}</option>`
-                )
-                .join("")}
-            </select>
-          </label>
-          <label class="wb-field wb-field-wide"><span>Webhook 地址</span>
-            <input id="notifyUrl" type="text" autocomplete="off" placeholder="${
-              data.url_set ? "已保存，留空表示不修改" : "粘贴机器人 Webhook 地址"
-            }">
-          </label>
-        </div>
-        <p class="wb-hint" id="notifyHint">${escapeHtml(currentChannel.hint || "")}${
-          data.url_set ? ` · 当前：${escapeHtml(data.url_masked || "")}` : ""
-        }</p>
-        <div class="wb-perm-items">
-          <h4>推送哪些事件</h4>
-          ${eventItems}
-        </div>
-        <div class="wb-inline">
-          <button class="wb-btn wb-btn-primary" type="button" id="notifySave">
-            <i data-lucide="check"></i><span>保存设置</span>
-          </button>
-          <button class="wb-btn" type="button" id="notifyTest">
-            <i data-lucide="send"></i><span>发送测试通知</span>
-          </button>
-          ${
-            data.url_set
-              ? '<button class="wb-btn wb-btn-danger" type="button" id="notifyClearUrl"><i data-lucide="trash-2"></i><span>清除地址</span></button>'
-              : ""
-          }
-          <span class="wb-hint" id="notifyResult"></span>
+        <div class="wb-panel-body">
+          <p class="wb-hint">新注册申请、待审核附件、新留言会推送到你的手机或群机器人；站内的工作台呼吸提醒仍然保留。</p>
+          <div class="wb-notify-grid">
+            <label class="wb-perm-item"><input type="checkbox" id="notifyEnabled"${data.enabled ? " checked" : ""}><span>开启通知</span></label>
+            <label class="wb-field"><span>渠道</span>
+              <select id="notifyChannel">
+                ${channels
+                  .map(
+                    (item) =>
+                      `<option value="${item.key}"${item.key === data.channel ? " selected" : ""}>${escapeHtml(item.label)}</option>`
+                  )
+                  .join("")}
+              </select>
+            </label>
+            <label class="wb-field wb-field-wide"><span>Webhook 地址</span>
+              <input id="notifyUrl" type="text" autocomplete="off" placeholder="${
+                data.url_set ? "已保存，留空表示不修改" : "粘贴机器人 Webhook 地址"
+              }">
+            </label>
+          </div>
+          <p class="wb-hint" id="notifyHint">${escapeHtml(currentChannel.hint || "")}${
+            data.url_set ? ` · 当前：${escapeHtml(data.url_masked || "")}` : ""
+          }</p>
+          <div class="wb-perm-items wb-notify-events">
+            <h4>推送哪些事件</h4>
+            ${eventItems}
+          </div>
+          <div class="wb-inline">
+            <button class="wb-btn wb-btn-primary" type="button" id="notifySave">
+              <i data-lucide="check"></i><span>保存设置</span>
+            </button>
+            <button class="wb-btn" type="button" id="notifyTest">
+              <i data-lucide="send"></i><span>发送测试通知</span>
+            </button>
+            ${
+              data.url_set
+                ? '<button class="wb-btn wb-btn-danger" type="button" id="notifyClearUrl"><i data-lucide="trash-2"></i><span>清除地址</span></button>'
+                : ""
+            }
+            <span class="wb-hint" id="notifyResult"></span>
+          </div>
         </div>
       </div>
       <div class="wb-panel">
         <div class="wb-panel-head"><h2>最近通知</h2></div>
-        <div class="wb-audit-list">${logRows}</div>
+        <div class="wb-panel-body">
+          <div class="wb-audit-list">${logRows}</div>
+        </div>
       </div>`;
   }
 

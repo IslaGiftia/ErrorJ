@@ -1204,12 +1204,20 @@ svg {
 }
 
 /* ---------- 通知设置 ---------- */
+.wb-panel-body {
+  padding: 14px 16px 16px;
+}
+
+.wb-panel-body > .wb-hint:first-child {
+  margin-top: 0;
+}
+
 .wb-notify-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
   align-items: end;
-  margin: 10px 0 6px;
+  margin: 12px 0 4px;
 }
 
 .wb-notify-grid .wb-perm-item {
@@ -1244,6 +1252,39 @@ svg {
 .wb-perm-items h4 {
   margin: 4px 0 6px;
   font-size: 13px;
+}
+
+.wb-notify-events {
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.wb-notify-events h4 {
+  margin: 0 0 4px;
+}
+
+.wb-notify-event {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--wb-text);
+  font-size: 13px;
+  transition: background-color 0.15s ease;
+}
+
+.wb-notify-event:hover {
+  background: var(--wb-hover);
+}
+
+.wb-notify-event:has(input:checked) {
+  background: color-mix(in srgb, var(--wb-accent) 8%, transparent);
+}
+
+.wb-notify-event input {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  margin: 0;
 }
 
 @media (max-width: 720px) {
