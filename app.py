@@ -11,6 +11,7 @@ import io
 import json
 import mimetypes
 import os
+import queue
 import re
 import secrets
 import socket
@@ -299,16 +300,50 @@ NOTIFY_EVENTS = (
     {"key": "attachment", "label": "新的待审核附件", "default": True},
     {"key": "message", "label": "新的留言", "default": False},
     {"key": "place", "label": "新的标记点", "default": True},
+    {"key": "security", "label": "安全提醒（登录失败 / 敏感词拦截）", "default": True},
 )
 NOTIFY_DEFAULT_EVENTS = tuple(
     item["key"] for item in NOTIFY_EVENTS if item.get("default")
 )
 LOGIN_FAILURES = {}
+LOGIN_ALERT_SENT = {}
+LOGIN_ALERT_THRESHOLD = 5
+LOGIN_ALERT_WINDOW_SECONDS = 300
+LOGIN_ALERT_COOLDOWN_SECONDS = 1800
+SENSITIVE_ALERT_SENT = {}
+SENSITIVE_ALERT_COOLDOWN_SECONDS = 600
 RATE_LIMITS = {}
 RATE_LOCK = threading.Lock()
 TRUST_PROXY = os.environ.get("INVENTORY_TRUST_PROXY", "") not in ("", "0", "false")
 FORCE_SECURE_COOKIES = os.environ.get("INVENTORY_SECURE_COOKIES", "") not in ("", "0", "false")
 ACCESS_LOG = os.environ.get("INVENTORY_ACCESS_LOG", "") not in ("", "0", "false")
+try:
+    LOG_RETENTION_DAYS = max(1, int(os.environ.get("INVENTORY_LOG_DAYS", "29") or 29))
+except (TypeError, ValueError):
+    LOG_RETENTION_DAYS = 29
+LOG_CLEANUP_INTERVAL_SECONDS = 24 * 3600
+ACCESS_LOG_QUEUE = queue.Queue(maxsize=2000)
+PAGE_VIEW_PATHS = {
+    "/",
+    "/index.html",
+    "/login",
+    "/register",
+    "/inventory",
+    "/bookmarks",
+    "/notes",
+    "/messages",
+    "/workbench",
+    "/references",
+    "/moments",
+    "/map",
+    "/recommendations",
+    "/music",
+    "/games",
+    "/games/gomoku",
+    "/games/2048",
+    "/games/minesweeper",
+    "/games/memory",
+}
 MESSAGE_FILE_MAX_BYTES = 5 * 1024 * 1024
 MESSAGE_FILE_TOTAL_MAX_BYTES = 15 * 1024 * 1024
 MESSAGE_FILE_MAX_COUNT = 3
@@ -805,6 +840,36 @@ def init_db():
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS activity_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                actor_kind TEXT NOT NULL DEFAULT 'guest',
+                user_id INTEGER NOT NULL DEFAULT 0,
+                actor_name TEXT,
+                action TEXT NOT NULL,
+                target_type TEXT,
+                target_id INTEGER,
+                summary TEXT,
+                ip TEXT,
+                ip_region TEXT,
+                source_path TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS access_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                actor_kind TEXT NOT NULL DEFAULT 'guest',
+                ip TEXT,
+                ip_region TEXT,
+                path TEXT NOT NULL,
+                status INTEGER NOT NULL DEFAULT 200,
+                user_id INTEGER NOT NULL DEFAULT 0,
+                actor_name TEXT,
+                referer TEXT,
+                user_agent TEXT,
+                device TEXT
+            );
+
             CREATE TABLE IF NOT EXISTS learning_notes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
@@ -933,6 +998,14 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             CREATE INDEX IF NOT EXISTS idx_bookmark_folders_parent ON bookmark_folders(parent_id);
             CREATE INDEX IF NOT EXISTS idx_bookmarks_folder ON bookmarks(folder_id);
             CREATE INDEX IF NOT EXISTS idx_bookmarks_created ON bookmarks(created_at);
+            CREATE INDEX IF NOT EXISTS idx_activity_log_created ON activity_log(created_at);
+            CREATE INDEX IF NOT EXISTS idx_activity_log_action ON activity_log(action);
+            CREATE INDEX IF NOT EXISTS idx_activity_log_user ON activity_log(user_id);
+            CREATE INDEX IF NOT EXISTS idx_activity_log_ip ON activity_log(ip);
+            CREATE INDEX IF NOT EXISTS idx_access_log_created ON access_log(created_at);
+            CREATE INDEX IF NOT EXISTS idx_access_log_path ON access_log(path);
+            CREATE INDEX IF NOT EXISTS idx_access_log_ip ON access_log(ip);
+            CREATE INDEX IF NOT EXISTS idx_access_log_user ON access_log(user_id);
             """
         )
         columns = [row[1] for row in conn.execute("PRAGMA table_info(parts)").fetchall()]
@@ -4311,6 +4384,165 @@ def write_audit(actor, action, detail="", target=None):
     )
 
 
+# ---------- 站点日志（内容事件 / 页面访问） ----------
+
+def describe_user_agent(user_agent):
+    """把 User-Agent 压成「设备 · 浏览器」的短标签。"""
+    text = str(user_agent or "").lower()
+    if not text:
+        return ""
+    if "ipad" in text or ("tablet" in text and "mobile" not in text):
+        device = "平板"
+    elif (
+        "iphone" in text
+        or "ipod" in text
+        or "windows phone" in text
+        or "mobile" in text
+        or ("android" in text and "mobile" in text)
+    ):
+        device = "手机"
+    else:
+        device = "桌面"
+    if "micromessenger" in text:
+        browser = "微信"
+    elif "edg" in text or "edga" in text or "edgios" in text:
+        browser = "Edge"
+    elif "firefox" in text or "fxios" in text:
+        browser = "Firefox"
+    elif "chrome" in text or "crios" in text:
+        browser = "Chrome"
+    elif "safari" in text:
+        browser = "Safari"
+    else:
+        browser = "其他"
+    return f"{device} · {browser}"
+
+
+def write_activity(
+    actor,
+    action,
+    summary="",
+    target_type="",
+    target_id=None,
+    ip="",
+    ip_region="",
+    source_path="",
+):
+    """写入一条内容事件日志；失败只提示，不影响主流程。"""
+    actor = actor or {}
+    try:
+        execute(
+            """INSERT INTO activity_log
+                   (created_at, actor_kind, user_id, actor_name, action,
+                    target_type, target_id, summary, ip, ip_region, source_path)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                now_text(),
+                actor.get("kind") or "guest",
+                int(actor.get("user_id") or 0),
+                str(actor.get("nickname") or actor.get("username") or "")[:80],
+                str(action or "")[:80],
+                str(target_type or "")[:40] or None,
+                int(target_id) if target_id not in (None, "") else None,
+                str(summary or "")[:500],
+                str(ip or "")[:80],
+                str(ip_region or "")[:40],
+                str(source_path or "")[:200],
+            ),
+        )
+    except Exception as exc:
+        print(f"[activity] 写入失败: {exc}", file=sys.stderr)
+
+
+def enqueue_access_log(
+    path, ip, status=200, actor_kind="guest", user_id=0, actor_name="", referer="", user_agent=""
+):
+    """把页面访问丢进队列，由后台线程落库并补齐属地。"""
+    try:
+        ACCESS_LOG_QUEUE.put_nowait(
+            {
+                "created_at": now_text(),
+                "path": str(path or "")[:300],
+                "status": int(status or 200),
+                "actor_kind": str(actor_kind or "guest")[:20],
+                "ip": str(ip or "")[:80],
+                "user_id": int(user_id or 0),
+                "actor_name": str(actor_name or "")[:80],
+                "referer": str(referer or "")[:300],
+                "user_agent": str(user_agent or "")[:300],
+                "device": describe_user_agent(user_agent),
+            }
+        )
+    except queue.Full:
+        pass
+    except Exception as exc:
+        print(f"[access] 入队失败: {exc}", file=sys.stderr)
+
+
+def access_log_worker():
+    while True:
+        item = ACCESS_LOG_QUEUE.get()
+        try:
+            ip = item.get("ip") or ""
+            region = lookup_ip_region(ip) if ip else ""
+            execute(
+                """INSERT INTO access_log
+                       (created_at, actor_kind, ip, ip_region, path, status, user_id,
+                        actor_name, referer, user_agent, device)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    item["created_at"],
+                    item["actor_kind"],
+                    ip,
+                    region,
+                    item["path"],
+                    item["status"],
+                    item["user_id"],
+                    item["actor_name"],
+                    item["referer"],
+                    item["user_agent"],
+                    item["device"],
+                ),
+            )
+        except Exception as exc:
+            print(f"[access] 写入失败: {exc}", file=sys.stderr)
+        finally:
+            ACCESS_LOG_QUEUE.task_done()
+
+
+def start_access_log_worker():
+    thread = threading.Thread(target=access_log_worker, name="access-log-worker", daemon=True)
+    thread.start()
+    return thread
+
+
+def cleanup_logs():
+    """删除超过保留期的内容事件与访问明细，返回删除条数。"""
+    cutoff = (datetime.now() - timedelta(days=LOG_RETENTION_DAYS)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    removed = 0
+    for table in ("activity_log", "access_log"):
+        row = query_one(f"SELECT COUNT(*) AS n FROM {table} WHERE created_at < ?", (cutoff,))
+        removed += int((row or {}).get("n") or 0)
+        execute(f"DELETE FROM {table} WHERE created_at < ?", (cutoff,))
+    return removed
+
+
+def logs_maintenance_loop():
+    while True:
+        try:
+            removed = cleanup_logs()
+            if removed:
+                print(
+                    f"已清理 {removed} 条超过 {LOG_RETENTION_DAYS} 天的日志明细。",
+                    flush=True,
+                )
+        except Exception as exc:
+            print(f"[logs] 清理失败: {exc}", file=sys.stderr)
+        time.sleep(LOG_CLEANUP_INTERVAL_SECONDS)
+
+
 # ---------- 站长通知（Webhook 推送） ----------
 
 def app_meta_get(key, default=""):
@@ -4357,6 +4589,13 @@ def notify_settings():
                             events.append(item["key"])
                     app_meta_set("notify_events", json.dumps(events, ensure_ascii=False))
                     app_meta_set("notify_events_migrated_v2", "1")
+                # v3：加入「安全提醒」等后续新增的默认事件
+                if app_meta_get("notify_events_migrated_v3", "") != "1":
+                    for item in NOTIFY_EVENTS:
+                        if item.get("default") and item["key"] not in events:
+                            events.append(item["key"])
+                    app_meta_set("notify_events", json.dumps(events, ensure_ascii=False))
+                    app_meta_set("notify_events_migrated_v3", "1")
         except json.JSONDecodeError:
             events = list(NOTIFY_DEFAULT_EVENTS)
     channel = app_meta_get("notify_channel", "wecom")
@@ -4566,6 +4805,53 @@ def login_succeeded(identifier):
         LOGIN_FAILURES.pop(identifier, None)
 
 
+def maybe_alert_login_failures(identifier):
+    """同一 IP 5 分钟内失败达到阈值时推送一次，30 分钟内不重复提醒。"""
+    now = time.time()
+    with RATE_LOCK:
+        count = len(
+            [
+                item
+                for item in LOGIN_FAILURES.get(identifier, [])
+                if now - item < LOGIN_ALERT_WINDOW_SECONDS
+            ]
+        )
+        last_sent = LOGIN_ALERT_SENT.get(identifier, 0)
+        if count < LOGIN_ALERT_THRESHOLD or now - last_sent < LOGIN_ALERT_COOLDOWN_SECONDS:
+            return False
+        LOGIN_ALERT_SENT[identifier] = now
+
+    def worker():
+        region = lookup_ip_region(identifier)
+        where = identifier + (f"（{region}）" if region else "")
+        notify_async(
+            "security",
+            "Error酱：登录失败提醒",
+            f"IP {where} 在 5 分钟内登录失败 {count} 次，已触发登录限流。",
+            "/workbench?view=logs",
+        )
+
+    threading.Thread(target=worker, daemon=True).start()
+    return True
+
+
+def maybe_alert_sensitive(scene, sample="", actor=""):
+    """敏感词拦截提醒：同一场景 10 分钟内最多推送一次。"""
+    now = time.time()
+    if now - SENSITIVE_ALERT_SENT.get(scene, 0) < SENSITIVE_ALERT_COOLDOWN_SECONDS:
+        return False
+    SENSITIVE_ALERT_SENT[scene] = now
+    text = str(sample or "").strip().replace("\n", " ")[:60]
+    who = f"{str(actor).strip()[:40]} " if str(actor or "").strip() else ""
+    notify_async(
+        "security",
+        "Error酱：敏感词拦截",
+        f"{who}在{scene}中触发敏感词" + (f"：{text}" if text else "。"),
+        "/workbench?view=logs",
+    )
+    return True
+
+
 def safe_next_path(value):
     """只允许站内跳转，挡掉 //evil.com 这类开放重定向。"""
     text = str(value or "")
@@ -4654,6 +4940,64 @@ class InventoryHandler(BaseHTTPRequestHandler):
             if first:
                 return first
         return self.client_address[0] if self.client_address else "unknown"
+
+    def log_activity(
+        self,
+        action,
+        summary="",
+        target_type="",
+        target_id=None,
+        actor=None,
+        ip=None,
+        ip_region=None,
+        source_path="",
+    ):
+        """记录内容事件；自动补当前 IP 和省属地，失败不影响主流程。"""
+        try:
+            if ip is None:
+                ip = self.client_ip()
+            if ip_region is None:
+                ip_region = lookup_ip_region(ip) if ip else ""
+            identity = actor if actor is not None else self.session_identity()
+            write_activity(
+                identity,
+                action,
+                summary=summary,
+                target_type=target_type,
+                target_id=target_id,
+                ip=ip,
+                ip_region=ip_region,
+                source_path=source_path,
+            )
+        except Exception as exc:
+            print(f"[activity] {exc}", file=sys.stderr)
+
+    def log_page_view(self, path, status=200):
+        """记录一次页面访问（只记录真实页面，不记静态资源和接口）。"""
+        try:
+            identity = self.session_identity()
+            actor_kind = "guest"
+            user_id = 0
+            name = "游客"
+            if identity:
+                actor_kind = identity.get("kind") or "member"
+                if identity.get("kind") == "owner":
+                    name = identity.get("username") or "管理员"
+                else:
+                    user_id = int(identity.get("user_id") or 0)
+                    name = identity.get("nickname") or identity.get("username") or ""
+            enqueue_access_log(
+                path=path,
+                ip=self.client_ip(),
+                status=status,
+                actor_kind=actor_kind,
+                user_id=user_id,
+                actor_name=name,
+                referer=self.headers.get("Referer") or "",
+                user_agent=self.headers.get("User-Agent") or "",
+            )
+        except Exception as exc:
+            print(f"[access] {exc}", file=sys.stderr)
 
     def request_base_url(self):
         """按当前请求拼出站点根地址，用于通知里的可点击链接。"""
@@ -4785,6 +5129,15 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_login(self, payload):
         identifier = self.client_ip()
         if login_blocked(identifier):
+            self.log_activity(
+                "login_blocked",
+                f"登录尝试被限流：{str(payload.get('username') or '').strip() or '管理员'}",
+                actor={
+                    "kind": "guest",
+                    "username": str(payload.get("username") or "").strip() or "管理员",
+                },
+            )
+            maybe_alert_login_failures(identifier)
             api_error(self, 429, "密码错误次数过多，请 5 分钟后再试。")
             return
         username = str(payload.get("username") or "").strip()
@@ -4796,6 +5149,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
             )
             if not user:
                 login_failed(identifier)
+                self.log_activity(
+                    "login_fail",
+                    f"用户名不存在：{username}",
+                    actor={"kind": "guest", "username": username},
+                )
+                maybe_alert_login_failures(identifier)
                 api_error(self, 401, "用户名或密码不正确。")
                 return
             if user.get("status") != "approved":
@@ -4804,10 +5163,25 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "rejected": "账号申请未通过。",
                     "disabled": "账号已被停用。",
                 }.get(user.get("status"), "账号当前不可用。")
+                self.log_activity(
+                    "login_fail",
+                    f"账号状态不可用（{user.get('status')}）：{username}",
+                    actor={"kind": "guest", "username": username},
+                    target_type="user",
+                    target_id=user["id"],
+                )
                 api_error(self, 403, status_text)
                 return
             if not verify_password_hash(password, user.get("password_hash")):
                 login_failed(identifier)
+                self.log_activity(
+                    "login_fail",
+                    f"密码不正确：{username}",
+                    actor={"kind": "guest", "username": username},
+                    target_type="user",
+                    target_id=user["id"],
+                )
+                maybe_alert_login_failures(identifier)
                 api_error(self, 401, "用户名或密码不正确。")
                 return
             identity = {
@@ -4820,9 +5194,18 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?",
                 (now_text(), now_text(), user["id"]),
             )
+            self.log_activity(
+                "login", "登录成功", target_type="user", target_id=user["id"], actor=identity
+            )
         else:
             if not verify_password(password):
                 login_failed(identifier)
+                self.log_activity(
+                    "login_fail",
+                    "管理员密码不正确",
+                    actor={"kind": "guest", "username": "管理员"},
+                )
+                maybe_alert_login_failures(identifier)
                 api_error(self, 401, "管理员密码不正确。")
                 return
             identity = {
@@ -4831,6 +5214,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "username": "管理员",
                 "role": "owner",
             }
+            self.log_activity("login", "管理员登录成功", actor=identity)
         login_succeeded(identifier)
         days = AUTH_SESSION_DAYS_REMEMBER if payload.get("remember") else AUTH_SESSION_DAYS
         token = issue_session_token(days, identity)
@@ -4863,6 +5247,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 api_error(self, 400, "这个昵称不能使用，换一个吧。")
                 return
             if sensitive_contains(nickname):
+                maybe_alert_sensitive("注册昵称", nickname, username)
                 api_error(self, 400, "昵称包含不允许的词汇，请修改后再注册。")
                 return
             if query_one("SELECT id FROM users WHERE nickname = ? COLLATE NOCASE", (nickname,)):
@@ -4890,6 +5275,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
             "register",
             f"新注册申请：{username}" + (f"（{nickname}）" if nickname else ""),
             {"username": username, "nickname": nickname or ""},
+        )
+        self.log_activity(
+            "register",
+            f"提交注册申请：{username}" + (f"（{nickname}）" if nickname else ""),
+            actor={"kind": "guest", "username": username},
         )
         notify_async(
             "register",
@@ -4922,6 +5312,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 400, "这个昵称不能使用，换一个吧。")
             return
         if sensitive_contains(nickname):
+            maybe_alert_sensitive(
+                "修改昵称", nickname, identity.get("nickname") or identity.get("username") or ""
+            )
             api_error(self, 400, "昵称包含不允许的词汇，请修改。")
             return
         if query_one(
@@ -4953,6 +5346,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
             "nickname_change",
             f"{row.get('nickname') or row['username']} → {nickname}",
             {"id": user_id, "username": row["username"], "nickname": nickname},
+        )
+        self.log_activity(
+            "nickname_change",
+            f"昵称改为「{nickname}」",
+            target_type="user",
+            target_id=user_id,
+            actor=identity,
         )
         self.send_json(200, {"ok": True, "nickname": nickname, "changed": True})
 
@@ -5178,6 +5578,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 400, "这个昵称不能使用。")
             return
         if sensitive_contains(nickname):
+            actor = self.session_identity() or {}
+            maybe_alert_sensitive(
+                "管理员修改昵称",
+                nickname,
+                actor.get("nickname") or actor.get("username") or "",
+            )
             api_error(self, 400, "昵称包含不允许的词汇。")
             return
         if query_one(
@@ -5254,18 +5660,338 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not self.is_admin():
             api_error(self, 403, "只有管理员可以查看审计日志。")
             return
+        conditions = []
+        values = []
+        action = self.log_param(params, "action")
+        if action:
+            conditions.append("action = ?")
+            values.append(action)
+        keyword = self.log_param(params, "q")
+        if keyword:
+            like = f"%{keyword}%"
+            conditions.append("(actor_name LIKE ? OR target_name LIKE ? OR detail LIKE ?)")
+            values.extend([like, like, like])
+        date_from = self.log_param(params, "date_from")
+        date_to = self.log_param(params, "date_to")
+        if date_from:
+            conditions.append("created_at >= ?")
+            values.append(date_from + " 00:00:00")
+        if date_to:
+            conditions.append("created_at <= ?")
+            values.append(date_to + " 23:59:59")
+        where = self.where_clause(conditions)
+        if "page" in params:
+            page, page_limit = self.log_pagination(params)
+            total = query_one(
+                f"SELECT COUNT(*) AS n FROM permission_audit{where}", tuple(values)
+            )["n"]
+            rows = query(
+                f"""SELECT id, actor_kind, actor_name, target_id, target_name,
+                           action, detail, created_at
+                    FROM permission_audit{where}
+                    ORDER BY id DESC LIMIT ? OFFSET ?""",
+                tuple(values) + (page_limit, (page - 1) * page_limit),
+            )
+            actions = query(
+                """SELECT action, COUNT(*) AS count FROM permission_audit
+                   GROUP BY action ORDER BY count DESC, action"""
+            )
+            self.send_json(
+                200,
+                {
+                    "items": rows,
+                    "total": total,
+                    "page": page,
+                    "limit": page_limit,
+                    "actions": actions,
+                },
+            )
+            return
         try:
             limit = int((params.get("limit") or ["100"])[0])
         except (TypeError, ValueError):
             limit = 100
         limit = max(1, min(limit, 500))
         rows = query(
-            """SELECT id, actor_kind, actor_name, target_id, target_name,
-                      action, detail, created_at
-               FROM permission_audit ORDER BY id DESC LIMIT ?""",
-            (limit,),
+            f"""SELECT id, actor_kind, actor_name, target_id, target_name,
+                       action, detail, created_at
+                FROM permission_audit{where} ORDER BY id DESC LIMIT ?""",
+            tuple(values) + (limit,),
         )
         self.send_json(200, rows)
+
+    @staticmethod
+    def log_param(params, key, default=""):
+        return str((params.get(key) or [default])[0] or "").strip()
+
+    def log_date_filters(self, params, include_ip=True):
+        conditions = []
+        values = []
+        date_from = self.log_param(params, "date_from")
+        date_to = self.log_param(params, "date_to")
+        if date_from:
+            conditions.append("created_at >= ?")
+            values.append(date_from + " 00:00:00")
+        if date_to:
+            conditions.append("created_at <= ?")
+            values.append(date_to + " 23:59:59")
+        ip = self.log_param(params, "ip")
+        if include_ip and ip:
+            conditions.append("ip LIKE ?")
+            values.append(f"%{ip}%")
+        return conditions, values
+
+    def log_pagination(self, params):
+        try:
+            page = max(1, int(self.log_param(params, "page", "1") or 1))
+        except (TypeError, ValueError):
+            page = 1
+        try:
+            limit = int(self.log_param(params, "limit", "50") or 50)
+        except (TypeError, ValueError):
+            limit = 50
+        return page, max(1, min(limit, 200))
+
+    @staticmethod
+    def where_clause(conditions):
+        return (" WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    def activity_log_filters(self, params):
+        conditions, values = self.log_date_filters(params)
+        action = self.log_param(params, "action")
+        if action:
+            conditions.append("action = ?")
+            values.append(action)
+        user = self.log_param(params, "user")
+        if user == "guest":
+            conditions.append("actor_kind = 'guest'")
+        elif user == "admin":
+            conditions.append("actor_kind IN ('owner', 'admin')")
+        elif user.isdigit():
+            conditions.append("user_id = ?")
+            values.append(int(user))
+        keyword = self.log_param(params, "q")
+        if keyword:
+            like = f"%{keyword}%"
+            conditions.append(
+                "(summary LIKE ? OR actor_name LIKE ? OR source_path LIKE ?)"
+            )
+            values.extend([like, like, like])
+        return conditions, values
+
+    def access_log_filters(self, params):
+        conditions, values = self.log_date_filters(params)
+        path_keyword = self.log_param(params, "path")
+        if path_keyword:
+            conditions.append("path LIKE ?")
+            values.append(f"%{path_keyword}%")
+        visitor = self.log_param(params, "visitor")
+        if visitor == "guest":
+            conditions.append("actor_kind = 'guest'")
+        elif visitor == "user":
+            conditions.append("actor_kind != 'guest'")
+        return conditions, values
+
+    def api_admin_logs_activity(self, params):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以查看日志。")
+            return
+        conditions, values = self.activity_log_filters(params)
+        where = self.where_clause(conditions)
+        page, limit = self.log_pagination(params)
+        total = query_one(
+            f"SELECT COUNT(*) AS n FROM activity_log{where}", tuple(values)
+        )["n"]
+        rows = query(
+            f"""SELECT id, created_at, actor_kind, user_id, actor_name, action,
+                       target_type, target_id, summary, ip, ip_region, source_path
+                FROM activity_log{where}
+                ORDER BY id DESC LIMIT ? OFFSET ?""",
+            tuple(values) + (limit, (page - 1) * limit),
+        )
+        actions = query(
+            """SELECT action, COUNT(*) AS count FROM activity_log
+               GROUP BY action ORDER BY count DESC, action"""
+        )
+        users = query(
+            """SELECT user_id, actor_name, COUNT(*) AS count FROM activity_log
+               WHERE user_id > 0 GROUP BY user_id
+               ORDER BY count DESC, user_id LIMIT 100"""
+        )
+        self.send_json(
+            200,
+            {
+                "items": rows,
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "actions": actions,
+                "users": users,
+            },
+        )
+
+    def api_admin_logs_access(self, params):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以查看日志。")
+            return
+        conditions, values = self.access_log_filters(params)
+        where = self.where_clause(conditions)
+        page, limit = self.log_pagination(params)
+        total = query_one(
+            f"SELECT COUNT(*) AS n FROM access_log{where}", tuple(values)
+        )["n"]
+        rows = query(
+            f"""SELECT id, created_at, actor_kind, user_id, actor_name, ip, ip_region,
+                       path, status, referer, device, user_agent
+                FROM access_log{where}
+                ORDER BY id DESC LIMIT ? OFFSET ?""",
+            tuple(values) + (limit, (page - 1) * limit),
+        )
+        self.send_json(
+            200, {"items": rows, "total": total, "page": page, "limit": limit}
+        )
+
+    def api_admin_logs_stats(self, params):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以查看日志。")
+            return
+        try:
+            days = int(self.log_param(params, "days", "7") or 7)
+        except (TypeError, ValueError):
+            days = 7
+        days = max(1, min(days, 30))
+        today = date.today()
+        today_like = today.isoformat() + "%"
+        start = (today - timedelta(days=days - 1)).isoformat() + " 00:00:00"
+        today_pv = query_one(
+            "SELECT COUNT(*) AS n FROM access_log WHERE created_at LIKE ?",
+            (today_like,),
+        )["n"]
+        today_uv = query_one(
+            "SELECT COUNT(DISTINCT ip) AS n FROM access_log WHERE created_at LIKE ?",
+            (today_like,),
+        )["n"]
+        today_messages = query_one(
+            """SELECT COUNT(*) AS n FROM activity_log WHERE created_at LIKE ?
+               AND action IN ('message_create', 'message_reply')""",
+            (today_like,),
+        )["n"]
+        today_login_fail = query_one(
+            """SELECT COUNT(*) AS n FROM activity_log
+               WHERE created_at LIKE ? AND action = 'login_fail'""",
+            (today_like,),
+        )["n"]
+        rows = query(
+            """SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS pv,
+                      COUNT(DISTINCT ip) AS uv
+               FROM access_log WHERE created_at >= ?
+               GROUP BY day ORDER BY day""",
+            (start,),
+        )
+        by_day = {row["day"]: row for row in rows}
+        series = []
+        for offset in range(days):
+            day = (today - timedelta(days=days - 1 - offset)).isoformat()
+            item = by_day.get(day) or {}
+            series.append(
+                {
+                    "date": day,
+                    "pv": int(item.get("pv") or 0),
+                    "uv": int(item.get("uv") or 0),
+                }
+            )
+        top_paths = query(
+            """SELECT path, COUNT(*) AS count FROM access_log
+               WHERE created_at >= ? GROUP BY path
+               ORDER BY count DESC, path LIMIT 10""",
+            (start,),
+        )
+        top_ips = query(
+            """SELECT ip, ip_region, COUNT(*) AS count FROM access_log
+               WHERE created_at >= ? AND ip IS NOT NULL AND ip != ''
+               GROUP BY ip ORDER BY count DESC, ip LIMIT 10""",
+            (start,),
+        )
+        self.send_json(
+            200,
+            {
+                "today": {
+                    "pv": today_pv,
+                    "uv": today_uv,
+                    "messages": today_messages,
+                    "login_failed": today_login_fail,
+                },
+                "series": series,
+                "top_paths": top_paths,
+                "top_ips": top_ips,
+                "retention_days": LOG_RETENTION_DAYS,
+            },
+        )
+
+    def api_admin_logs_export(self, params):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以导出日志。")
+            return
+        kind = self.log_param(params, "kind", "activity") or "activity"
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        if kind == "access":
+            conditions, values = self.access_log_filters(params)
+            where = self.where_clause(conditions)
+            rows = query(
+                f"""SELECT created_at, actor_kind, actor_name, ip, ip_region, path,
+                           status, referer, device, user_agent
+                    FROM access_log{where} ORDER BY id DESC LIMIT 5000""",
+                tuple(values),
+            )
+            writer.writerow(
+                ["时间", "访客类型", "账号", "IP", "属地", "路径", "状态码", "来源页", "设备", "User-Agent"]
+            )
+            for row in rows:
+                writer.writerow(
+                    [
+                        row["created_at"],
+                        "登录" if row["actor_kind"] != "guest" else "游客",
+                        row["actor_name"] or "",
+                        row["ip"] or "",
+                        row["ip_region"] or "",
+                        row["path"] or "",
+                        row["status"],
+                        row["referer"] or "",
+                        row["device"] or "",
+                        row["user_agent"] or "",
+                    ]
+                )
+            download_name = f"errorjiang-访问日志-{today_text()}.csv"
+        else:
+            conditions, values = self.activity_log_filters(params)
+            where = self.where_clause(conditions)
+            rows = query(
+                f"""SELECT created_at, actor_kind, actor_name, action, target_type,
+                           target_id, summary, ip, ip_region, source_path
+                    FROM activity_log{where} ORDER BY id DESC LIMIT 5000""",
+                tuple(values),
+            )
+            writer.writerow(
+                ["时间", "操作者类型", "操作者", "动作", "对象类型", "对象 ID", "摘要", "IP", "属地", "来源页面"]
+            )
+            for row in rows:
+                writer.writerow(
+                    [
+                        row["created_at"],
+                        row["actor_kind"] or "",
+                        row["actor_name"] or "",
+                        row["action"] or "",
+                        row["target_type"] or "",
+                        row["target_id"] if row["target_id"] is not None else "",
+                        row["summary"] or "",
+                        row["ip"] or "",
+                        row["ip_region"] or "",
+                        row["source_path"] or "",
+                    ]
+                )
+            download_name = f"errorjiang-内容事件-{today_text()}.csv"
+        self.send_csv(200, "\ufeff" + buffer.getvalue(), download_name)
 
     def api_admin_sensitive_words(self, params):
         if not self.is_admin():
@@ -5540,9 +6266,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
             if not AUTH_STATE.get("enabled") or self.session_valid():
                 self.redirect(safe_next_path((query.get("next") or ["/"])[0]))
                 return
+            self.log_page_view(path)
             self.send_file("login.html")
             return
         if path == "/register":
+            self.log_page_view(path)
             self.send_file("register.html")
             return
         if path == "/prompts":
@@ -5561,6 +6289,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not self.guard_request(path, "GET"):
             return
         try:
+            if path in PAGE_VIEW_PATHS:
+                self.log_page_view(path)
             if path in ("/", "/index.html"):
                 self.send_site("home")
             elif path == "/inventory":
@@ -5639,6 +6369,14 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_admin_permissions()
             elif path == "/api/admin/audit":
                 self.api_admin_audit(query)
+            elif path == "/api/admin/logs/activity":
+                self.api_admin_logs_activity(query)
+            elif path == "/api/admin/logs/access":
+                self.api_admin_logs_access(query)
+            elif path == "/api/admin/logs/stats":
+                self.api_admin_logs_stats(query)
+            elif path == "/api/admin/logs/export":
+                self.api_admin_logs_export(query)
             elif path == "/api/admin/sensitive-words":
                 self.api_admin_sensitive_words(query)
             elif path == "/api/admin/review":
@@ -6118,6 +6856,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
             "INSERT INTO projects (name, description, status, created_at) VALUES (?, ?, ?, ?)",
             (name, payload.get("description") or "", payload.get("status") or "active", now_text()),
         )
+        self.log_activity(
+            "project_create",
+            f"新建项目：{name}",
+            target_type="project",
+            target_id=new_id,
+        )
         bom_report_info = None
         if bom_preview:
             file_name, match_mode, report = bom_preview
@@ -6139,7 +6883,14 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_project_item(self, path):
         item_id = int(path.rsplit("/", 1)[1])
         if self.command == "DELETE":
+            current = query_one("SELECT name FROM projects WHERE id = ?", (item_id,))
             execute("DELETE FROM projects WHERE id = ?", (item_id,))
+            self.log_activity(
+                "project_delete",
+                f"删除项目：{(current or {}).get('name') or item_id}",
+                target_type="project",
+                target_id=item_id,
+            )
             self.send_json(200, {"ok": True})
             return
         payload = get_payload(self)
@@ -6152,6 +6903,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
         execute(
             "UPDATE projects SET name = ?, description = ?, status = ? WHERE id = ?",
             (name, payload.get("description") or "", payload.get("status") or "active", item_id),
+        )
+        self.log_activity(
+            "project_update",
+            f"编辑项目：{name}",
+            target_type="project",
+            target_id=item_id,
         )
         self.send_json(200, {"ok": True})
 
@@ -6858,6 +7615,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         content = str(payload.get("content") or "").strip()
         parent_id = payload.get("parent_id")
         if content and sensitive_contains(content):
+            maybe_alert_sensitive("留言内容", content, nickname)
             api_error(self, 400, "留言内容包含不允许的词汇，请修改后再发。")
             return
         if len(content) > 1000:
@@ -6937,6 +7695,15 @@ class InventoryHandler(BaseHTTPRequestHandler):
             for _name, relative, _size in saved:
                 remove_data_file(relative)
             raise
+        self.log_activity(
+            "message_reply" if parent_id else "message_create",
+            f"{'回复' if parent_id else '发布'}留言：{(content[:60] if content else '（仅附件）')}",
+            target_type="message",
+            target_id=row_id,
+            actor=identity,
+            ip=client_ip,
+            ip_region=ip_region,
+        )
         if saved and not auto_approve:
             notify_async(
                 "attachment",
@@ -7116,6 +7883,14 @@ class InventoryHandler(BaseHTTPRequestHandler):
             for _name, relative, _size in saved:
                 remove_data_file(relative)
             raise
+        self.log_activity(
+            "moment_create",
+            f"发布动态：{(content[:60] if content else '（仅配图）')}",
+            target_type="moment",
+            target_id=row_id,
+            ip=client_ip,
+            ip_region=ip_region,
+        )
         self.send_json(200, {"id": row_id, "images": len(saved)})
 
     def api_moment_item(self, path):
@@ -7129,6 +7904,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
             execute("DELETE FROM moments WHERE id = ?", (moment_id,))
             for row in rows:
                 remove_data_file(row.get("file_path"))
+            self.log_activity(
+                "moment_delete",
+                f"删除动态 #{moment_id}",
+                target_type="moment",
+                target_id=moment_id,
+            )
             self.send_json(200, {"ok": True})
             return
         payload = get_payload(self)
@@ -7150,6 +7931,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
         execute(
             "UPDATE moments SET content = ?, tags = ?, pinned = ? WHERE id = ?",
             (content, tags, pinned, moment_id),
+        )
+        self.log_activity(
+            "moment_update",
+            f"编辑动态：{(content[:60] if content else '（仅配图）')}"
+            + ("（置顶）" if pinned else ""),
+            target_type="moment",
+            target_id=moment_id,
         )
         self.send_json(200, {"id": moment_id})
 
@@ -8080,6 +8868,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
             f"{detail}\n查看位置：{link}",
             link,
         )
+        self.log_activity(
+            "map_place_create",
+            f"新增标记「{name}」" + (f"（{address}）" if address else ""),
+            target_type="map_place",
+            target_id=row_id,
+        )
         self.send_json(201, {"id": row_id})
 
     def api_map_place_item(self, path):
@@ -8098,6 +8892,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
             execute("DELETE FROM map_places WHERE id = ?", (place_id,))
             for photo in photos:
                 remove_data_file(photo.get("file_path"))
+            self.log_activity(
+                "map_place_delete",
+                f"删除标记「{current.get('name') or place_id}」",
+                target_type="map_place",
+                target_id=place_id,
+            )
             self.send_json(200, {"ok": True})
             return
         payload = get_payload(self)
@@ -8115,6 +8915,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                    updated_at = ?
                WHERE id = ?""",
             (*values, now_text(), place_id),
+        )
+        self.log_activity(
+            "map_place_update",
+            f"编辑标记「{values[1] or current.get('name') or place_id}」",
+            target_type="map_place",
+            target_id=place_id,
         )
         self.send_json(200, {"id": place_id})
 
@@ -8170,6 +8976,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 now_text(),
             ),
         )
+        self.log_activity(
+            "map_photo_upload",
+            f"给标记「{place.get('name') or place_id}」上传照片",
+            target_type="map_place",
+            target_id=place_id,
+        )
         self.send_json(200, {"id": row_id, "url": "/site-files/" + relative})
 
     def api_map_photo_delete(self, path):
@@ -8184,6 +8996,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         execute("DELETE FROM map_place_photos WHERE id = ?", (photo_id,))
         remove_data_file(photo.get("file_path"))
+        self.log_activity(
+            "map_photo_delete",
+            f"删除标记「{(place or {}).get('name') or photo['place_id']}」的照片",
+            target_type="map_place",
+            target_id=photo["place_id"],
+        )
         self.send_json(200, {"ok": True})
 
     def api_map_export(self):
@@ -8491,6 +9309,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 stamp,
             ),
         )
+        self.log_activity(
+            "prompt_create",
+            f"新增提示词：{title}",
+            target_type="prompt",
+            target_id=prompt_id,
+        )
         self.send_json(201, {"id": prompt_id})
 
     def api_prompt_item(self, path):
@@ -8501,6 +9325,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         if self.command == "DELETE":
             execute("DELETE FROM ai_prompts WHERE id = ?", (prompt_id,))
+            self.log_activity(
+                "prompt_delete",
+                f"删除提示词：{current.get('title') or prompt_id}",
+                target_type="prompt",
+                target_id=prompt_id,
+            )
             self.send_json(200, {"ok": True})
             return
         payload = get_payload(self)
@@ -8532,6 +9362,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 prompt_id,
             ),
         )
+        self.log_activity(
+            "prompt_update",
+            f"编辑提示词：{title}" + ("（置顶）" if pinned else ""),
+            target_type="prompt",
+            target_id=prompt_id,
+        )
         self.send_json(200, {"id": prompt_id})
 
     def api_site_link_create(self, payload):
@@ -8562,6 +9398,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
         execute("DELETE FROM site_messages WHERE id = ?", (item_id,))
         for row in rows:
             remove_data_file(row.get("file_path"))
+        self.log_activity(
+            "message_delete",
+            f"删除留言 #{item_id}",
+            target_type="message",
+            target_id=item_id,
+        )
         self.send_json(200, {"ok": True})
 
     def api_site_message_file(self, path):
@@ -9337,6 +10179,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not row:
             api_error(self, 404, "文件不存在。")
             return
+        self.log_activity(
+            "asset_download",
+            f"下载资料：{row.get('original_name') or ('#' + str(asset_id))}",
+            target_type="asset",
+            target_id=asset_id,
+        )
         self.send_data_file(row["file_path"], row.get("original_name") or "download.bin")
 
     def api_workbench_asset_item(self, path):
@@ -9970,7 +10818,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if quantity <= 0:
             api_error(self, 400, "入库数量必须大于 0。")
             return
-        part = query_one("SELECT id FROM parts WHERE id = ?", (part_id,))
+        part = query_one("SELECT id, part_number FROM parts WHERE id = ?", (part_id,))
         location = query_one("SELECT id FROM locations WHERE id = ?", (location_id,))
         if not part or not location:
             api_error(self, 400, "元件或位置不存在。")
@@ -9987,6 +10835,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 order_number=payload.get("order_number") or "",
                 notes=payload.get("notes") or "",
             )
+        )
+        self.log_activity(
+            "stock_inbound",
+            f"元件入库：{(part or {}).get('part_number') or part_id} × {quantity:g}",
+            target_type="part",
+            target_id=part_id,
         )
         self.send_json(201, {"id": batch_id})
 
@@ -10067,6 +10921,23 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 project_id=project_id,
                 note=note,
             )
+        )
+        part_row = query_one("SELECT part_number FROM parts WHERE id = ?", (part_id,))
+        project_row = (
+            query_one("SELECT name FROM projects WHERE id = ?", (project_id,))
+            if project_id
+            else None
+        )
+        outbound_summary = (
+            f"元件出库：{(part_row or {}).get('part_number') or part_id} × {quantity:g}"
+        )
+        if project_row:
+            outbound_summary += f" → {project_row['name']}"
+        self.log_activity(
+            "stock_outbound",
+            outbound_summary,
+            target_type="part",
+            target_id=part_id,
         )
         self.send_json(200, result)
 
@@ -10170,6 +11041,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
             except ValueError as exc:
                 api_error(self, 400, str(exc))
                 return
+            self.log_activity(
+                "movement_delete",
+                f"删除出入库记录 #{movement_id}",
+                target_type="movement",
+                target_id=movement_id,
+            )
             self.send_json(200, {"ok": True})
             return
         payload = get_payload(self)
@@ -10180,6 +11057,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
         except ValueError as exc:
             api_error(self, 400, str(exc))
             return
+        self.log_activity(
+            "movement_update",
+            f"修改出入库记录 #{movement_id}",
+            target_type="movement",
+            target_id=movement_id,
+        )
         self.send_json(200, {"ok": True})
 
     def delete_movement(self, conn, movement_id):
@@ -10473,6 +11356,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
 def main():
     init_db()
     load_auth_state()
+    start_access_log_worker()
+    threading.Thread(
+        target=logs_maintenance_loop, name="logs-cleanup", daemon=True
+    ).start()
     server = ThreadingHTTPServer((HOST, PORT), InventoryHandler)
     print(f"电子元件库存系统已启动：http://127.0.0.1:{PORT}")
     for ip in local_ips():

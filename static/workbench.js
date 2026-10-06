@@ -16,6 +16,17 @@
     isAdmin: false,
     reviewFiles: [],
     defaultMessageLimit: 9,
+    logTab: "activity",
+    logPage: 1,
+    logLimit: 50,
+    logActions: [],
+    logUsers: [],
+    logFilters: { action: "", user: "", q: "", ip: "", dateFrom: "", dateTo: "", path: "", visitor: "" },
+    logStats: null,
+    auditPage: 1,
+    auditActions: [],
+    auditFilters: { action: "", q: "", dateFrom: "", dateTo: "" },
+    notifyLogs: [],
   };
 
   const $ = (id) => document.getElementById(id);
@@ -111,6 +122,8 @@
   }
 
   function setView(view) {
+    // 日志只对管理员开放，普通账号和游客一律退回概览
+    if (view === "logs" && !state.isAdmin) view = "overview";
     state.view = view;
     document.querySelectorAll(".wb-view").forEach((el) => {
       const active = el.id === `view-${view}`;
@@ -120,8 +133,8 @@
     document.querySelectorAll(".wb-nav button").forEach((button) => {
       button.classList.toggle("active", button.dataset.view === view);
     });
-    const headerUpload = $("headerUploadBtn");
-    if (headerUpload) headerUpload.hidden = view === "prompts";
+    const main = document.querySelector(".wb-main");
+    if (main) main.scrollTop = 0;
     if (window.history && history.replaceState) {
       const target =
         view === "overview"
@@ -133,14 +146,16 @@
     if (view === "repairs") loadRepairs();
     if (view === "accounts") loadAccounts();
     if (view === "review") loadReview();
+    if (view === "logs") loadLogs();
   }
 
   function initialView() {
-    const allowed = ["overview", "assets", "firmware", "repairs", "prompts", "accounts", "review"];
+    const allowed = ["overview", "assets", "firmware", "repairs", "prompts", "accounts", "review", "logs"];
     const params = new URLSearchParams(location.search);
     const candidate = (params.get("view") || (location.hash || "").replace("#", "") || "overview").trim();
     if (candidate === "accounts" && !state.isAdmin) return "overview";
     if (candidate === "review" && !state.isAdmin) return "overview";
+    if (candidate === "logs" && !state.isAdmin) return "overview";
     return allowed.includes(candidate) ? candidate : "overview";
   }
 
@@ -546,6 +561,7 @@
     bindEvents();
     bindAccountEvents();
     bindReviewEvents();
+    bindLogEvents();
     try {
       const status = await api("/api/auth/status");
       state.isOwner = Boolean(status.owner);
@@ -554,6 +570,8 @@
       if (accountsNav) accountsNav.hidden = !state.isAdmin;
       const reviewNav = document.querySelector('[data-view="review"]');
       if (reviewNav) reviewNav.hidden = !state.isAdmin;
+      const logsNav = document.querySelector('[data-view="logs"]');
+      if (logsNav) logsNav.hidden = !state.isAdmin;
       if (state.isAdmin) {
         setPendingBadge(status.pending_users || 0);
         setReviewBadge(status.pending_attachments || 0);
@@ -594,6 +612,11 @@
     delete_user: "删除账号",
     add_sensitive_word: "新增敏感词",
     remove_sensitive_word: "删除敏感词",
+    set_message_limit: "调整留言额度",
+    approve_attachment: "通过附件审核",
+    reject_attachment: "拒绝附件审核",
+    approve_attachment_batch: "批量通过附件",
+    notify_settings: "修改通知设置",
   };
 
   function permissionLabel(key) {
@@ -673,7 +696,8 @@
       state.notifySettings = data;
       panel.innerHTML = notifyHtml(data);
     } else {
-      state.auditRows = await api("/api/admin/audit?limit=200");
+      const data = await api("/api/admin/audit?limit=200");
+      state.auditRows = Array.isArray(data) ? data : data.items || [];
       panel.innerHTML = auditHtml();
     }
     if (window.lucide) lucide.createIcons();
@@ -862,26 +886,22 @@
       </div>`;
   }
 
-  function auditHtml() {
-    if (!state.auditRows.length) {
-      return '<div class="wb-empty">还没有审计记录。</div>';
-    }
-    return (
-      '<div class="wb-audit-list">' +
-      state.auditRows
-        .map(
-          (row) => `
+  function auditRowHtml(row) {
+    return `
       <article class="wb-audit-row">
         <span class="wb-audit-time">${formatTime(row.created_at)}</span>
         <span class="wb-audit-actor">${escapeHtml(row.actor_name || "系统")}</span>
         <span class="wb-audit-action">${escapeHtml(AUDIT_ACTION_LABELS[row.action] || row.action)}</span>
         <span class="wb-audit-target">${escapeHtml(row.target_name || "")}</span>
         <span class="wb-audit-detail">${escapeHtml(row.detail || "")}</span>
-      </article>`
-        )
-        .join("") +
-      "</div>"
-    );
+      </article>`;
+  }
+
+  function auditHtml() {
+    if (!state.auditRows.length) {
+      return '<div class="wb-empty">还没有审计记录。</div>';
+    }
+    return '<div class="wb-audit-list">' + state.auditRows.map(auditRowHtml).join("") + "</div>";
   }
 
   function notifyHtml(data) {
@@ -1297,6 +1317,428 @@
         checkbox.checked = !checkbox.checked;
         toast(err.message);
       }
+    });
+  }
+
+  // ---------- 日志 ----------
+  const LOG_ACTION_LABELS = {
+    message_create: "发布留言",
+    message_reply: "回复留言",
+    message_delete: "删除留言",
+    moment_create: "发布动态",
+    moment_update: "编辑动态",
+    moment_delete: "删除动态",
+    map_place_create: "新增标记",
+    map_place_update: "编辑标记",
+    map_place_delete: "删除标记",
+    map_photo_upload: "上传标记照片",
+    map_photo_delete: "删除标记照片",
+    register: "提交注册",
+    login: "登录成功",
+    login_fail: "登录失败",
+    login_blocked: "登录被限流",
+    nickname_change: "修改昵称",
+    asset_download: "下载资料",
+    prompt_create: "新增提示词",
+    prompt_update: "编辑提示词",
+    prompt_delete: "删除提示词",
+    stock_inbound: "元件入库",
+    stock_outbound: "元件出库",
+    movement_update: "修改出入库",
+    movement_delete: "删除出入库",
+    project_create: "新建项目",
+    project_update: "编辑项目",
+    project_delete: "删除项目",
+  };
+
+  function logFilterValue(id) {
+    const el = $(id);
+    return el ? String(el.value || "").trim() : "";
+  }
+
+  function renderLogStats(data) {
+    const today = (data && data.today) || {};
+    const retention = Number(data && data.retention_days) || 29;
+    $("logStats").innerHTML = [
+      ["今日 PV", today.pv || 0, "页面访问次数"],
+      ["今日 UV", today.uv || 0, "按 IP 去重"],
+      ["今日留言", today.messages || 0, "含回复"],
+      ["今日登录失败", today.login_failed || 0, `明细保留 ${retention} 天`],
+    ]
+      .map(
+        ([label, value, note]) => `
+      <article class="wb-stat">
+        <div class="wb-stat-label">${escapeHtml(label)}</div>
+        <div class="wb-stat-value">${Number(value) || 0}</div>
+        <div class="wb-stat-note">${escapeHtml(note)}</div>
+      </article>`
+      )
+      .join("");
+  }
+
+  async function loadLogs() {
+    try {
+      state.logStats = await api("/api/admin/logs/stats?days=7");
+      renderLogStats(state.logStats);
+    } catch (err) {
+      $("logStats").innerHTML = `<div class="wb-empty">${escapeHtml(err.message)}</div>`;
+    }
+    await loadLogTab();
+  }
+
+  async function loadLogTab() {
+    document.querySelectorAll("#logTabs button").forEach((button) => {
+      button.classList.toggle("active", button.dataset.logTab === state.logTab);
+    });
+    const panel = $("logPanel");
+    panel.innerHTML = '<div class="wb-empty">正在加载…</div>';
+    try {
+      if (state.logTab === "activity") {
+        const params = new URLSearchParams({ page: state.logPage, limit: state.logLimit });
+        const filters = state.logFilters;
+        if (filters.action) params.set("action", filters.action);
+        if (filters.user) params.set("user", filters.user);
+        if (filters.q) params.set("q", filters.q);
+        if (filters.ip) params.set("ip", filters.ip);
+        if (filters.dateFrom) params.set("date_from", filters.dateFrom);
+        if (filters.dateTo) params.set("date_to", filters.dateTo);
+        const data = await api("/api/admin/logs/activity?" + params.toString());
+        state.logActions = data.actions || [];
+        state.logUsers = data.users || [];
+        panel.innerHTML = activityLogHtml(data);
+      } else if (state.logTab === "access") {
+        const params = new URLSearchParams({ page: state.logPage, limit: state.logLimit });
+        const filters = state.logFilters;
+        if (filters.path) params.set("path", filters.path);
+        if (filters.ip) params.set("ip", filters.ip);
+        if (filters.visitor) params.set("visitor", filters.visitor);
+        if (filters.dateFrom) params.set("date_from", filters.dateFrom);
+        if (filters.dateTo) params.set("date_to", filters.dateTo);
+        const data = await api("/api/admin/logs/access?" + params.toString());
+        panel.innerHTML = accessLogHtml(data);
+      } else if (state.logTab === "audit") {
+        const params = new URLSearchParams({ page: state.auditPage, limit: state.logLimit });
+        const filters = state.auditFilters;
+        if (filters.action) params.set("action", filters.action);
+        if (filters.q) params.set("q", filters.q);
+        if (filters.dateFrom) params.set("date_from", filters.dateFrom);
+        if (filters.dateTo) params.set("date_to", filters.dateTo);
+        const data = await api("/api/admin/audit?" + params.toString());
+        state.auditRows = data.items || [];
+        state.auditActions = data.actions || [];
+        panel.innerHTML = auditLogHtml(data);
+      } else {
+        const data = await api("/api/admin/notify");
+        state.notifyLogs = data.log || [];
+        panel.innerHTML = notifyLogHtml();
+      }
+      if (window.lucide) lucide.createIcons();
+    } catch (err) {
+      panel.innerHTML = `<div class="wb-empty">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function logPagerHtml(total, page, limit) {
+    const size = Number(limit) || 50;
+    const pages = Math.max(1, Math.ceil((Number(total) || 0) / size));
+    const current = Math.max(1, Number(page) || 1);
+    return `<div class="wb-log-pager">
+      <button class="wb-btn" type="button" data-log-page="${current - 1}"${current <= 1 ? " disabled" : ""}>上一页</button>
+      <span>第 ${current} / ${pages} 页 · 共 ${Number(total) || 0} 条</span>
+      <button class="wb-btn" type="button" data-log-page="${current + 1}"${current >= pages ? " disabled" : ""}>下一页</button>
+    </div>`;
+  }
+
+  function trendChartHtml(series) {
+    const items = Array.isArray(series) ? series : [];
+    if (!items.length) {
+      return '<section class="wb-panel"><div class="wb-panel-head"><h2>近 7 天趋势</h2></div><div class="wb-panel-body"><div class="wb-empty">暂无数据。</div></div></section>';
+    }
+    const width = 720;
+    const height = 190;
+    const pad = { top: 16, right: 12, bottom: 30, left: 38 };
+    const innerW = width - pad.left - pad.right;
+    const innerH = height - pad.top - pad.bottom;
+    const maxValue = Math.max(
+      1,
+      ...items.map((item) => Math.max(Number(item.pv) || 0, Number(item.uv) || 0))
+    );
+    const groupW = innerW / items.length;
+    const barW = Math.max(6, Math.min(18, groupW * 0.26));
+    const baseline = pad.top + innerH;
+    const bars = items
+      .map((item, index) => {
+        const pv = Number(item.pv) || 0;
+        const uv = Number(item.uv) || 0;
+        const pvH = Math.round((pv / maxValue) * innerH);
+        const uvH = Math.round((uv / maxValue) * innerH);
+        const center = pad.left + index * groupW + groupW / 2;
+        const label = String(item.date || "").slice(5);
+        return `
+        <g>
+          <rect x="${(center - barW - 1.5).toFixed(1)}" y="${baseline - pvH}" width="${barW}" height="${pvH}" rx="2" fill="var(--wb-accent)"><title>${escapeHtml(item.date || "")} PV ${pv}</title></rect>
+          <rect x="${(center + 1.5).toFixed(1)}" y="${baseline - uvH}" width="${barW}" height="${uvH}" rx="2" fill="var(--wb-success)"><title>${escapeHtml(item.date || "")} UV ${uv}</title></rect>
+          <text x="${center.toFixed(1)}" y="${height - 9}" text-anchor="middle" font-size="11" fill="var(--wb-muted)">${escapeHtml(label)}</text>
+        </g>`;
+      })
+      .join("");
+    const grid = [0, 0.5, 1]
+      .map((ratio) => {
+        const y = pad.top + innerH * (1 - ratio);
+        return `<line x1="${pad.left}" y1="${y.toFixed(1)}" x2="${width - pad.right}" y2="${y.toFixed(1)}" stroke="var(--wb-line)" stroke-width="1"/><text x="${pad.left - 7}" y="${(y + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--wb-faint)">${Math.round(maxValue * ratio)}</text>`;
+      })
+      .join("");
+    const pvTotal = items.reduce((sum, item) => sum + (Number(item.pv) || 0), 0);
+    const uvAvg = Math.round(
+      items.reduce((sum, item) => sum + (Number(item.uv) || 0), 0) / items.length
+    );
+    return `
+      <section class="wb-panel">
+        <div class="wb-panel-head">
+          <h2>近 7 天趋势</h2>
+          <span class="wb-log-legend"><em class="pv"></em>PV<em class="uv"></em>UV · 合计 PV ${pvTotal} / 日均 UV ${uvAvg}</span>
+        </div>
+        <div class="wb-panel-body">
+          <svg class="wb-log-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="近 7 天 PV / UV 趋势">${grid}${bars}</svg>
+        </div>
+      </section>`;
+  }
+
+  function logExportHref() {
+    const params = new URLSearchParams({ kind: state.logTab === "access" ? "access" : "activity" });
+    const filters = state.logFilters;
+    if (filters.q) params.set("q", filters.q);
+    if (filters.action) params.set("action", filters.action);
+    if (filters.user) params.set("user", filters.user);
+    if (filters.ip) params.set("ip", filters.ip);
+    if (filters.path) params.set("path", filters.path);
+    if (filters.visitor) params.set("visitor", filters.visitor);
+    if (filters.dateFrom) params.set("date_from", filters.dateFrom);
+    if (filters.dateTo) params.set("date_to", filters.dateTo);
+    return "/api/admin/logs/export?" + params.toString();
+  }
+
+  function activityLogHtml(data) {
+    const items = data.items || [];
+    const options = state.logActions
+      .map(
+        (item) =>
+          `<option value="${escapeHtml(item.action)}"${
+            state.logFilters.action === item.action ? " selected" : ""
+          }>${escapeHtml(LOG_ACTION_LABELS[item.action] || item.action)}（${item.count}）</option>`
+      )
+      .join("");
+    const userOptions = state.logUsers
+      .map(
+        (item) =>
+          `<option value="${item.user_id}"${
+            state.logFilters.user === String(item.user_id) ? " selected" : ""
+          }>${escapeHtml(item.actor_name || "账号 " + item.user_id)}（${item.count}）</option>`
+      )
+      .join("");
+    const rows = items.length
+      ? items
+          .map(
+            (row) => `
+        <article class="wb-log-item">
+          <div class="wb-log-main">
+            <span class="wb-log-tag">${escapeHtml(LOG_ACTION_LABELS[row.action] || row.action)}</span>
+            <strong>${escapeHtml(row.summary || "")}</strong>
+          </div>
+          <div class="wb-log-meta">
+            <span>${formatTime(row.created_at)}</span>
+            <span>${escapeHtml(row.actor_name || "游客")}</span>
+            <span>${escapeHtml(row.ip || "未知 IP")}${row.ip_region ? " · " + escapeHtml(row.ip_region) : ""}</span>
+            ${row.source_path ? `<span>来源 ${escapeHtml(row.source_path)}</span>` : ""}
+          </div>
+        </article>`
+          )
+          .join("")
+      : '<div class="wb-empty">没有符合条件的记录。</div>';
+    return `
+      <section class="wb-panel">
+        <div class="wb-toolbar">
+          <label class="wb-search"><i data-lucide="search"></i><input id="logQ" value="${escapeHtml(state.logFilters.q)}" placeholder="搜索摘要、账号或来源"></label>
+          <select id="logAction"><option value="">全部动作</option>${options}</select>
+          <select id="logUser">
+            <option value="">全部账号</option>
+            <option value="guest"${state.logFilters.user === "guest" ? " selected" : ""}>游客</option>
+            <option value="admin"${state.logFilters.user === "admin" ? " selected" : ""}>管理员 / 本地</option>
+            ${userOptions}
+          </select>
+          <input class="wb-log-input" id="logIp" value="${escapeHtml(state.logFilters.ip)}" placeholder="IP">
+          <input class="wb-log-input" id="logDateFrom" type="date" value="${escapeHtml(state.logFilters.dateFrom)}">
+          <input class="wb-log-input" id="logDateTo" type="date" value="${escapeHtml(state.logFilters.dateTo)}">
+          <button class="wb-btn wb-btn-primary" id="logQueryBtn" type="button"><i data-lucide="filter"></i><span>查询</span></button>
+          <a class="wb-btn" href="${logExportHref()}"><i data-lucide="download"></i><span>导出 CSV</span></a>
+        </div>
+        <div class="wb-log-list">${rows}</div>
+        ${logPagerHtml(data.total, data.page, data.limit)}
+      </section>`;
+  }
+
+  function accessLogHtml(data) {
+    const items = data.items || [];
+    const stats = state.logStats || {};
+    const topPaths = (stats.top_paths || []).length
+      ? (stats.top_paths || [])
+          .map((row) => `<span class="wb-chip">${escapeHtml(row.path)} · ${row.count}</span>`)
+          .join("")
+      : '<span class="wb-hint">暂无数据</span>';
+    const rows = items.length
+      ? items
+          .map(
+            (row) => `
+        <article class="wb-log-item">
+          <div class="wb-log-main">
+            <span class="wb-log-tag">${row.actor_kind === "guest" ? "游客" : escapeHtml(row.actor_name || "登录")}</span>
+            <strong>${escapeHtml(row.path)}</strong>
+            <span class="wb-chip">${row.status}</span>
+          </div>
+          <div class="wb-log-meta">
+            <span>${formatTime(row.created_at)}</span>
+            <span>${escapeHtml(row.ip || "未知 IP")}${row.ip_region ? " · " + escapeHtml(row.ip_region) : ""}</span>
+            ${row.referer ? `<span>来源 ${escapeHtml(row.referer)}</span>` : ""}
+            ${row.device ? `<span>${escapeHtml(row.device)}</span>` : ""}
+          </div>
+        </article>`
+          )
+          .join("")
+      : '<div class="wb-empty">没有符合条件的访问记录。</div>';
+    return `
+      ${trendChartHtml(stats.series)}
+      <section class="wb-panel">
+        <div class="wb-panel-head"><h2>热门页面</h2><span class="wb-hint">近 7 天</span></div>
+        <div class="wb-panel-body"><div class="wb-log-hot">${topPaths}</div></div>
+      </section>
+      <section class="wb-panel">
+        <div class="wb-toolbar">
+          <label class="wb-search"><i data-lucide="search"></i><input id="logPath" value="${escapeHtml(state.logFilters.path)}" placeholder="按路径筛选，如 /messages"></label>
+          <input class="wb-log-input" id="logIp" value="${escapeHtml(state.logFilters.ip)}" placeholder="IP">
+          <select id="logVisitor">
+            <option value="">全部访客</option>
+            <option value="guest"${state.logFilters.visitor === "guest" ? " selected" : ""}>仅游客</option>
+            <option value="user"${state.logFilters.visitor === "user" ? " selected" : ""}>仅登录账号</option>
+          </select>
+          <input class="wb-log-input" id="logDateFrom" type="date" value="${escapeHtml(state.logFilters.dateFrom)}">
+          <input class="wb-log-input" id="logDateTo" type="date" value="${escapeHtml(state.logFilters.dateTo)}">
+          <button class="wb-btn wb-btn-primary" id="logQueryBtn" type="button"><i data-lucide="filter"></i><span>查询</span></button>
+          <a class="wb-btn" href="${logExportHref()}"><i data-lucide="download"></i><span>导出 CSV</span></a>
+        </div>
+        <div class="wb-log-list">${rows}</div>
+        ${logPagerHtml(data.total, data.page, data.limit)}
+      </section>`;
+  }
+
+  function auditLogHtml(data) {
+    const actionOptions = state.auditActions
+      .map(
+        (item) =>
+          `<option value="${escapeHtml(item.action)}"${
+            state.auditFilters.action === item.action ? " selected" : ""
+          }>${escapeHtml(AUDIT_ACTION_LABELS[item.action] || item.action)}（${item.count}）</option>`
+      )
+      .join("");
+    const rows = state.auditRows.length
+      ? '<div class="wb-audit-list">' + state.auditRows.map(auditRowHtml).join("") + "</div>"
+      : '<div class="wb-empty">还没有审计记录。</div>';
+    return `
+      <section class="wb-panel">
+        <div class="wb-panel-head"><h2>管理审计</h2><span class="wb-hint">注册审批、权限、敏感词与审核操作</span></div>
+        <div class="wb-panel-body">
+          <div class="wb-toolbar">
+            <label class="wb-search"><i data-lucide="search"></i><input id="auditQ" value="${escapeHtml(state.auditFilters.q)}" placeholder="搜索操作人、对象或详情"></label>
+            <select id="auditAction"><option value="">全部动作</option>${actionOptions}</select>
+            <input class="wb-log-input" id="auditDateFrom" type="date" value="${escapeHtml(state.auditFilters.dateFrom)}">
+            <input class="wb-log-input" id="auditDateTo" type="date" value="${escapeHtml(state.auditFilters.dateTo)}">
+            <button class="wb-btn wb-btn-primary" id="auditQueryBtn" type="button"><i data-lucide="filter"></i><span>查询</span></button>
+          </div>
+          ${rows}
+          ${logPagerHtml(data.total, data.page, data.limit)}
+        </div>
+      </section>`;
+  }
+
+  function notifyLogHtml() {
+    const rows = state.notifyLogs.length
+      ? state.notifyLogs
+          .map(
+            (row) => `
+        <article class="wb-audit-row">
+          <span class="wb-audit-time">${formatTime(row.created_at)}</span>
+          <span class="wb-audit-actor">${escapeHtml(row.channel || "")}</span>
+          <span class="wb-audit-action">${row.status === "ok" ? "成功" : "失败"}</span>
+          <span class="wb-audit-target">${escapeHtml(row.title || "")}</span>
+          <span class="wb-audit-detail">${escapeHtml(row.detail || "")}</span>
+        </article>`
+          )
+          .join("")
+      : "";
+    return `
+      <section class="wb-panel">
+        <div class="wb-panel-head"><h2>推送记录</h2><span class="wb-hint">最近 30 条</span></div>
+        <div class="wb-panel-body"><div class="wb-audit-list">${
+          rows || '<div class="wb-empty">还没有推送记录。</div>'
+        }</div></div>
+      </section>`;
+  }
+
+  function bindLogEvents() {
+    const tabs = $("logTabs");
+    tabs.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-log-tab]");
+      if (!button) return;
+      state.logTab = button.dataset.logTab;
+      state.logPage = 1;
+      state.auditPage = 1;
+      loadLogTab().catch((err) => toast(err.message));
+    });
+    const refresh = $("logRefreshBtn");
+    refresh.addEventListener("click", () => {
+      loadLogs().catch((err) => toast(err.message));
+    });
+    const panel = $("logPanel");
+    panel.addEventListener("click", (event) => {
+      const pageButton = event.target.closest("[data-log-page]");
+      if (pageButton) {
+        const page = Number(pageButton.dataset.logPage);
+        if (page >= 1) {
+          if (state.logTab === "audit") state.auditPage = page;
+          else state.logPage = page;
+          loadLogTab().catch((err) => toast(err.message));
+        }
+        return;
+      }
+      if (event.target.closest("#auditQueryBtn")) {
+        state.auditFilters = {
+          action: logFilterValue("auditAction"),
+          q: logFilterValue("auditQ"),
+          dateFrom: logFilterValue("auditDateFrom"),
+          dateTo: logFilterValue("auditDateTo"),
+        };
+        state.auditPage = 1;
+        loadLogTab().catch((err) => toast(err.message));
+        return;
+      }
+      if (!event.target.closest("#logQueryBtn")) return;
+      state.logFilters = {
+        action: logFilterValue("logAction"),
+        user: logFilterValue("logUser"),
+        q: logFilterValue("logQ"),
+        ip: logFilterValue("logIp"),
+        dateFrom: logFilterValue("logDateFrom"),
+        dateTo: logFilterValue("logDateTo"),
+        path: logFilterValue("logPath"),
+        visitor: logFilterValue("logVisitor"),
+      };
+      state.logPage = 1;
+      loadLogTab().catch((err) => toast(err.message));
+    });
+    panel.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || !event.target.matches("input")) return;
+      event.preventDefault();
+      const button = $("logQueryBtn") || $("auditQueryBtn");
+      if (button) button.click();
     });
   }
 

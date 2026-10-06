@@ -38,10 +38,8 @@
         <button type="button" data-view="prompts"><i data-lucide="sparkles"></i><span>提示词</span></button>
         <button type="button" data-view="accounts"><i data-lucide="shield-check"></i><span>账号权限</span><em class="wb-nav-badge" id="accountsNavBadge" hidden></em></button>
         <button type="button" data-view="review"><i data-lucide="inbox"></i><span>内容审核</span><em class="wb-nav-badge" id="reviewNavBadge" hidden></em></button>
+        <button type="button" data-view="logs"><i data-lucide="scroll-text"></i><span>日志</span></button>
       </nav>
-      <div class="wb-header-actions">
-        <button class="wb-btn wb-btn-primary" id="headerUploadBtn" type="button"><i data-lucide="upload"></i><span>上传文件</span></button>
-      </div>
     </header>
 
     <main class="wb-main">
@@ -51,6 +49,9 @@
             <h1>工作台概览</h1>
             <p>集中查看个人项目资料、固件和维修记录。</p>
           </div>
+          <button class="wb-btn wb-btn-primary" id="headerUploadBtn" type="button">
+            <i data-lucide="upload"></i><span>上传文件</span>
+          </button>
         </div>
         <div class="wb-stat-grid" id="overviewStats"></div>
         <div class="wb-two-column">
@@ -192,6 +193,26 @@
           </div>
         </div>
         <div class="wb-account-panel" id="reviewPanel"></div>
+      </section>
+
+      <section class="wb-view" id="view-logs" hidden>
+        <div class="wb-page-head">
+          <div>
+            <h1>日志</h1>
+            <p>站点访问、内容事件、管理审计和推送记录；明细按保留期自动清理（默认 29 天）。</p>
+          </div>
+          <button class="wb-btn" id="logRefreshBtn" type="button">
+            <i data-lucide="refresh-cw"></i><span>刷新</span>
+          </button>
+        </div>
+        <div class="wb-stat-grid" id="logStats"></div>
+        <div class="wb-tabs" id="logTabs">
+          <button class="active" type="button" data-log-tab="activity">内容事件</button>
+          <button type="button" data-log-tab="access">访问记录</button>
+          <button type="button" data-log-tab="audit">管理审计</button>
+          <button type="button" data-log-tab="notify">推送记录</button>
+        </div>
+        <div id="logPanel"></div>
       </section>
     </main>
   </div>
