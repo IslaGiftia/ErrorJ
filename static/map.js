@@ -2242,6 +2242,7 @@
     }).length;
     actions.classList.toggle("is-solo", visible === 0);
     actions.classList.toggle("one-action", visible === 1);
+    actions.classList.toggle("single-row", visible <= 2);
     app.style.setProperty(
       "--mp-actions-h",
       Math.round(actions.getBoundingClientRect().height) + "px"

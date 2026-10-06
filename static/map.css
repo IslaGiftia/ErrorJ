@@ -448,6 +448,10 @@ body {
   width: 100%;
 }
 
+.mp-actions.single-row .mp-actions-toggle {
+  grid-row: auto;
+}
+
 /* ---------- buttons & tools ---------- */
 
 .mp-btn {
