@@ -1458,6 +1458,19 @@ a.wb-btn {
   height: auto;
 }
 
+#logPanel .wb-toolbar {
+  flex-wrap: wrap;
+}
+
+#logPanel .wb-toolbar .wb-search {
+  flex: 1 1 240px;
+}
+
+#logPanel .wb-toolbar .wb-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .wb-log-legend {
   display: inline-flex;
   align-items: center;

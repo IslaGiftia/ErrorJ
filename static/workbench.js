@@ -647,7 +647,10 @@
       nav.hidden = value <= 0;
       nav.textContent = value > 99 ? "99+" : String(value);
     }
-    if (panel) panel.textContent = String(value);
+    if (panel) {
+      panel.hidden = value <= 0;
+      panel.textContent = value > 99 ? "99+" : String(value);
+    }
   }
 
   function updateMessageLimitHint(panel, userId, value) {
@@ -932,26 +935,30 @@
     return `
       <div class="wb-panel">
         <div class="wb-panel-head"><h2>敏感词库</h2><div class="wb-tags">${chips}</div></div>
-        <div class="wb-word-form">
-          <input id="newWordInput" maxlength="20" placeholder="新增敏感词，例如：赌博">
-          <select id="newWordCategory">
-            ${categories
-              .map((category) => `<option value="${category}">${category}</option>`)
-              .join("")}
-          </select>
-          <button class="wb-btn wb-btn-primary" type="button" id="addWordBtn">
-            <i data-lucide="plus"></i><span>添加</span>
-          </button>
+        <div class="wb-panel-body">
+          <div class="wb-word-form">
+            <input id="newWordInput" maxlength="20" placeholder="新增敏感词，例如：赌博">
+            <select id="newWordCategory">
+              ${categories
+                .map((category) => `<option value="${category}">${category}</option>`)
+                .join("")}
+            </select>
+            <button class="wb-btn wb-btn-primary" type="button" id="addWordBtn">
+              <i data-lucide="plus"></i><span>添加</span>
+            </button>
+          </div>
+          <p class="wb-hint">命中规则：忽略大小写、全角半角和空格符号干扰；昵称命中直接拒绝，留言命中直接拒绝。</p>
+          <div class="wb-word-list">${list}</div>
         </div>
-        <p class="wb-hint">命中规则：忽略大小写、全角半角和空格符号干扰；昵称命中直接拒绝，留言命中直接拒绝。</p>
-        <div class="wb-word-list">${list}</div>
       </div>
       <div class="wb-panel">
         <div class="wb-panel-head"><h2>测试</h2></div>
-        <textarea id="wordTestInput" rows="3" placeholder="输入一段文字，看看会命中哪些词"></textarea>
-        <div class="wb-inline">
-          <button class="wb-btn" type="button" id="wordTestBtn"><i data-lucide="search"></i><span>测试</span></button>
-          <span id="wordTestResult" class="wb-hint"></span>
+        <div class="wb-panel-body">
+          <textarea id="wordTestInput" rows="3" placeholder="输入一段文字，看看会命中哪些词"></textarea>
+          <div class="wb-inline">
+            <button class="wb-btn" type="button" id="wordTestBtn"><i data-lucide="search"></i><span>测试</span></button>
+            <span id="wordTestResult" class="wb-hint"></span>
+          </div>
         </div>
       </div>`;
   }
@@ -1677,23 +1684,25 @@
       : '<div class="wb-empty">没有符合条件的记录。</div>';
     return `
       <section class="wb-panel">
-        <div class="wb-toolbar">
-          <label class="wb-search"><i data-lucide="search"></i><input id="logQ" value="${escapeHtml(state.logFilters.q)}" placeholder="搜索摘要、账号或来源"></label>
-          <select id="logAction"><option value="">全部动作</option>${options}</select>
-          <select id="logUser">
-            <option value="">全部账号</option>
-            <option value="guest"${state.logFilters.user === "guest" ? " selected" : ""}>游客</option>
-            <option value="admin"${state.logFilters.user === "admin" ? " selected" : ""}>管理员 / 本地</option>
-            ${userOptions}
-          </select>
-          <input class="wb-log-input" id="logIp" value="${escapeHtml(state.logFilters.ip)}" placeholder="IP">
-          <input class="wb-log-input" id="logDateFrom" type="date" value="${escapeHtml(state.logFilters.dateFrom)}">
-          <input class="wb-log-input" id="logDateTo" type="date" value="${escapeHtml(state.logFilters.dateTo)}">
-          <button class="wb-btn wb-btn-primary" id="logQueryBtn" type="button"><i data-lucide="filter"></i><span>查询</span></button>
-          <a class="wb-btn" href="${logExportHref()}"><i data-lucide="download"></i><span>导出 CSV</span></a>
+        <div class="wb-panel-body">
+          <div class="wb-toolbar">
+            <label class="wb-search"><i data-lucide="search"></i><input id="logQ" value="${escapeHtml(state.logFilters.q)}" placeholder="搜索摘要、账号或来源"></label>
+            <select id="logAction"><option value="">全部动作</option>${options}</select>
+            <select id="logUser">
+              <option value="">全部账号</option>
+              <option value="guest"${state.logFilters.user === "guest" ? " selected" : ""}>游客</option>
+              <option value="admin"${state.logFilters.user === "admin" ? " selected" : ""}>管理员 / 本地</option>
+              ${userOptions}
+            </select>
+            <input class="wb-log-input" id="logIp" value="${escapeHtml(state.logFilters.ip)}" placeholder="IP">
+            <input class="wb-log-input" id="logDateFrom" type="date" value="${escapeHtml(state.logFilters.dateFrom)}">
+            <input class="wb-log-input" id="logDateTo" type="date" value="${escapeHtml(state.logFilters.dateTo)}">
+            <button class="wb-btn wb-btn-primary" id="logQueryBtn" type="button"><i data-lucide="filter"></i><span>查询</span></button>
+            <a class="wb-btn" href="${logExportHref()}"><i data-lucide="download"></i><span>导出 CSV</span></a>
+          </div>
+          <div class="wb-log-list">${rows}</div>
+          ${logPagerHtml(data.total, data.page, data.limit)}
         </div>
-        <div class="wb-log-list">${rows}</div>
-        ${logPagerHtml(data.total, data.page, data.limit)}
       </section>`;
   }
 
@@ -1732,21 +1741,23 @@
         <div class="wb-panel-body"><div class="wb-log-hot">${topPaths}</div></div>
       </section>
       <section class="wb-panel">
-        <div class="wb-toolbar">
-          <label class="wb-search"><i data-lucide="search"></i><input id="logPath" value="${escapeHtml(state.logFilters.path)}" placeholder="按路径筛选，如 /messages"></label>
-          <input class="wb-log-input" id="logIp" value="${escapeHtml(state.logFilters.ip)}" placeholder="IP">
-          <select id="logVisitor">
-            <option value="">全部访客</option>
-            <option value="guest"${state.logFilters.visitor === "guest" ? " selected" : ""}>仅游客</option>
-            <option value="user"${state.logFilters.visitor === "user" ? " selected" : ""}>仅登录账号</option>
-          </select>
-          <input class="wb-log-input" id="logDateFrom" type="date" value="${escapeHtml(state.logFilters.dateFrom)}">
-          <input class="wb-log-input" id="logDateTo" type="date" value="${escapeHtml(state.logFilters.dateTo)}">
-          <button class="wb-btn wb-btn-primary" id="logQueryBtn" type="button"><i data-lucide="filter"></i><span>查询</span></button>
-          <a class="wb-btn" href="${logExportHref()}"><i data-lucide="download"></i><span>导出 CSV</span></a>
+        <div class="wb-panel-body">
+          <div class="wb-toolbar">
+            <label class="wb-search"><i data-lucide="search"></i><input id="logPath" value="${escapeHtml(state.logFilters.path)}" placeholder="按路径筛选，如 /messages"></label>
+            <input class="wb-log-input" id="logIp" value="${escapeHtml(state.logFilters.ip)}" placeholder="IP">
+            <select id="logVisitor">
+              <option value="">全部访客</option>
+              <option value="guest"${state.logFilters.visitor === "guest" ? " selected" : ""}>仅游客</option>
+              <option value="user"${state.logFilters.visitor === "user" ? " selected" : ""}>仅登录账号</option>
+            </select>
+            <input class="wb-log-input" id="logDateFrom" type="date" value="${escapeHtml(state.logFilters.dateFrom)}">
+            <input class="wb-log-input" id="logDateTo" type="date" value="${escapeHtml(state.logFilters.dateTo)}">
+            <button class="wb-btn wb-btn-primary" id="logQueryBtn" type="button"><i data-lucide="filter"></i><span>查询</span></button>
+            <a class="wb-btn" href="${logExportHref()}"><i data-lucide="download"></i><span>导出 CSV</span></a>
+          </div>
+          <div class="wb-log-list">${rows}</div>
+          ${logPagerHtml(data.total, data.page, data.limit)}
         </div>
-        <div class="wb-log-list">${rows}</div>
-        ${logPagerHtml(data.total, data.page, data.limit)}
       </section>`;
   }
 
