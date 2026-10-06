@@ -78,6 +78,7 @@
   };
 
   var VIEW_KEY = "errorMapView";
+  var SEEN_KEY = "errorMapSeenPlaceId";
   var MAX_DOTS = 800;
 
   function isDarkTheme() {
@@ -170,6 +171,39 @@
     renderDots();
   }
 
+  function isRecentPlace(createdAt) {
+    var text = String(createdAt || "").trim();
+    if (!text) return false;
+    var time = Date.parse(text.replace(" ", "T"));
+    if (isNaN(time)) return false;
+    return Date.now() - time <= 24 * 3600 * 1000;
+  }
+
+  function updateDockPending() {
+    var seen = 0;
+    try {
+      seen = Number(localStorage.getItem(SEEN_KEY) || 0) || 0;
+    } catch (err) {}
+    var newestNewId = 0;
+    var newCount = 0;
+    places.forEach(function (place) {
+      var id = Number(place.id) || 0;
+      var isNew = seen > 0 ? id > seen : isRecentPlace(place.created_at);
+      if (!isNew) return;
+      newCount += 1;
+      if (id > newestNewId) newestNewId = id;
+    });
+    if (dock) {
+      dock.classList.toggle("has-pending", newestNewId > 0);
+      dock.href = newestNewId > 0 ? "/map?place=" + newestNewId : "/map";
+    }
+    window.dispatchEvent(
+      new CustomEvent("errordockstats", {
+        detail: { places: places.length, newPlaces: newCount }
+      })
+    );
+  }
+
   new MutationObserver(applyThemeBase).observe(document.documentElement, {
     attributes: true,
     attributeFilter: ["data-theme"]
@@ -192,6 +226,7 @@
       });
       renderDots();
       if (!savedView && places.length) fitAll();
+      updateDockPending();
       if (countEl) {
         if (places.length) {
           countEl.textContent = places.length + " 个标记";

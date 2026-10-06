@@ -1099,13 +1099,24 @@ svg {
 
 .wb-review-card {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 14px;
   padding: 12px;
   border: 1px solid var(--wb-line);
   border-radius: 8px;
   background: var(--wb-surface);
   flex-wrap: wrap;
+}
+
+.wb-review-card .wb-user-actions {
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 132px;
+}
+
+.wb-review-card .wb-user-actions .wb-btn {
+  justify-content: center;
 }
 
 .wb-review-thumb {

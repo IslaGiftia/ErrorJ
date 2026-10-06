@@ -169,6 +169,13 @@ body {
   font-size: 12px;
 }
 
+.mg-quota {
+  margin: 10px 0 0;
+  color: var(--mg-muted);
+  font-size: 12.5px;
+  text-align: right;
+}
+
 .mg-field {
   display: flex;
   flex-direction: column;

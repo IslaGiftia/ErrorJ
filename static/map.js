@@ -941,6 +941,13 @@
     return api("/api/map", { method: "GET" }).then(function (data) {
       state.categories = data.categories || [];
       state.places = data.places || [];
+      var maxPlaceId = 0;
+      state.places.forEach(function (place) {
+        maxPlaceId = Math.max(maxPlaceId, Number(place.id) || 0);
+      });
+      try {
+        localStorage.setItem("errorMapSeenPlaceId", String(maxPlaceId));
+      } catch (err) {}
       state.canManage = Boolean(data.can_manage);
       state.canAdd = Boolean(data.can_add);
       state.signedIn = Boolean(data.signed_in);

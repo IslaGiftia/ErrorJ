@@ -312,6 +312,7 @@ ACCESS_LOG = os.environ.get("INVENTORY_ACCESS_LOG", "") not in ("", "0", "false"
 MESSAGE_FILE_MAX_BYTES = 5 * 1024 * 1024
 MESSAGE_FILE_TOTAL_MAX_BYTES = 15 * 1024 * 1024
 MESSAGE_FILE_MAX_COUNT = 3
+MESSAGE_DAILY_LIMIT = 9
 MOMENT_CONTENT_MAX_CHARS = 2000
 MOMENT_IMAGE_MAX_BYTES = 5 * 1024 * 1024
 MAP_PHOTO_MAX_BYTES = 8 * 1024 * 1024
@@ -4190,6 +4191,8 @@ def required_permission(path, method):
     """把请求映射到权限点；返回 None 表示仍按"仅管理员"处理。"""
     if path == "/api/account/nickname":
         return ""
+    if path == "/api/site/messages/quota" and method == "GET":
+        return ""
     if path == "/api/site/messages" or path.startswith("/api/site/messages/"):
         # 留言板：游客只能浏览；登录账号可以发表留言，删除仍仅管理员。
         if method == "POST":
@@ -5516,6 +5519,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_wishlist()
             elif path == "/api/site/messages":
                 self.api_site_messages(query)
+            elif path == "/api/site/messages/quota":
+                self.api_site_message_quota()
             elif re.fullmatch(r"/api/site/message-files/\d+", path):
                 self.api_site_message_file(path)
             elif path == "/api/moments":
@@ -6557,6 +6562,31 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return str(user.get("username") or "普通用户")[:32]
         return str(row.get("nickname") or "").strip()[:16] or "普通用户"
 
+    def message_daily_used(self, user_id):
+        """统计该账号今天（服务器本地日期）已发布的留言和回复数量。"""
+        start = datetime.now().strftime("%Y-%m-%d 00:00:00")
+        row = query_one(
+            "SELECT COUNT(*) AS n FROM site_messages WHERE user_id = ? AND created_at >= ?",
+            (user_id, start),
+        )
+        return int(row["n"] if row else 0)
+
+    def api_site_message_quota(self):
+        identity = self.session_identity()
+        if not identity:
+            api_error(self, 401, "请先登录。")
+            return
+        user_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
+        used = self.message_daily_used(user_id)
+        self.send_json(
+            200,
+            {
+                "limit": MESSAGE_DAILY_LIMIT,
+                "used": used,
+                "remaining": max(0, MESSAGE_DAILY_LIMIT - used),
+            },
+        )
+
     def api_site_messages(self, params):
         rows = query(
             """SELECT id, nickname, content, parent_id, user_id, ip, ip_region,
@@ -6684,6 +6714,14 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 429, "留言太频繁，请稍后再试。")
             return
         user_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
+        daily_used = self.message_daily_used(user_id)
+        if daily_used >= MESSAGE_DAILY_LIMIT:
+            api_error(
+                self,
+                429,
+                f"今天的留言额度已用完（每天最多 {MESSAGE_DAILY_LIMIT} 条），明天 0 点恢复。",
+            )
+            return
         author = (
             query_one("SELECT nickname, username FROM users WHERE id = ?", (user_id,))
             if user_id
@@ -6794,6 +6832,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "id": row_id,
                 "files": len(saved),
                 "pending_review": bool(saved) and not auto_approve,
+                "daily_limit": MESSAGE_DAILY_LIMIT,
+                "daily_used": daily_used + 1,
+                "daily_remaining": max(0, MESSAGE_DAILY_LIMIT - daily_used - 1),
             },
         )
 

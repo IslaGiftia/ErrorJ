@@ -11,6 +11,8 @@
   var pendingFiles = [];
   var toastTimer = null;
   var canPost = false;
+  var dailyRemaining = null;
+  var dailyLimit = 0;
 
   function $(id) {
     return document.getElementById(id);
@@ -89,6 +91,40 @@
     try {
       localStorage.setItem(REGION_KEY, value ? "1" : "0");
     } catch (err) {}
+  }
+
+  function applyQuota(limit, remaining) {
+    dailyLimit = Number(limit) || 0;
+    dailyRemaining = Number(remaining);
+    var hint = $("messageQuota");
+    if (hint) {
+      if (!dailyLimit || isNaN(dailyRemaining)) {
+        hint.textContent = "";
+        hint.hidden = true;
+      } else if (dailyRemaining > 0) {
+        hint.textContent =
+          "每天最多 " + dailyLimit + " 条留言（含回复），今天还可以发 " + dailyRemaining + " 条";
+        hint.hidden = false;
+      } else {
+        hint.textContent = "今天的 " + dailyLimit + " 条留言已用完，明天 0 点恢复";
+        hint.hidden = false;
+      }
+    }
+    var full = !isNaN(dailyRemaining) && dailyRemaining <= 0;
+    Array.prototype.forEach.call(
+      document.querySelectorAll(".mg-send-btn"),
+      function (button) {
+        button.disabled = full;
+      }
+    );
+  }
+
+  function loadQuota() {
+    return api("/api/site/messages/quota")
+      .then(function (data) {
+        applyQuota(data.limit, data.remaining);
+      })
+      .catch(function () {});
   }
 
   // ---- 外观 ----
@@ -255,11 +291,14 @@
           ? "留言已发布，附件审核通过后其他人才能看到"
           : "留言已发布"
       );
+      if (result && result.daily_limit) {
+        applyQuota(result.daily_limit, result.daily_remaining);
+      }
       return loadMessages();
     }).catch(function (err) {
       toast(err.message);
     }).then(function () {
-      button.disabled = false;
+      button.disabled = !isNaN(dailyRemaining) && dailyRemaining <= 0;
     });
   });
 
@@ -381,6 +420,7 @@
     var cancelBtn = el("button", "mg-btn mg-btn-ghost", "取消");
     cancelBtn.type = "button";
     var sendBtn = el("button", "mg-btn mg-btn-primary", "提交回复");
+    sendBtn.classList.add("mg-send-btn");
     sendBtn.type = "submit";
     row.append(cancelBtn, sendBtn);
 
@@ -409,12 +449,13 @@
         }),
       }).then(function () {
         rememberRegionPreference(regionInput.checked);
+        applyQuota(dailyLimit, Math.max(0, (Number(dailyRemaining) || 0) - 1));
         toast("回复已发布");
         return loadMessages();
       }).catch(function (err) {
         toast(err.message);
       }).then(function () {
-        sendBtn.disabled = false;
+        sendBtn.disabled = !isNaN(dailyRemaining) && dailyRemaining <= 0;
       });
     });
 
@@ -585,6 +626,7 @@
   api("/api/auth/status").then(function (status) {
     canPost = Boolean(status.authenticated);
     $("messageComposerPanel").hidden = !canPost;
+    if (canPost) loadQuota();
     return loadMessages();
   }).catch(function () {
     canPost = false;
