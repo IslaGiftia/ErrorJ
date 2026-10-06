@@ -106,12 +106,12 @@ width: min(980px, 100%);
 
   <main class="reference-page">
     <h1>Error酱参考与搬运来源</h1>
-    <p>Error酱并不是从零原创，功能主要参考、搬运并组合以下开源项目。各项目的代码与设计仍遵循其原始许可证。</p>
+    <p>Error酱并不是从零原创，功能主要参考、搬运并组合以下开源项目。这里是截至 2026-10-07 的开发过程中实际参考、搬运或依赖的项目；只借鉴交互、未复制代码的会单独注明，各项目的代码与设计仍遵循其原始许可证。</p>
 
     <div class="reference-list">
       <article class="reference-item">
-        <a href="https://github.com/IslaGiftia/ErrorJ" target="_blank" rel="noopener noreferrer">Error酱 / ErrorJ</a>
-        <p>本项目自身源码仓库，记录 Error酱 的持续开发、部署脚本和功能更新。</p>
+        <a href="https://github.com/IslaGiftia/ErrorJ" target="_blank" rel="noopener noreferrer">Error酱 / ErrorJ（本站自身）</a>
+        <p>本站源码仓库，持续记录 Error酱 的开发、部署和功能更新。截至 2026-10-07 已包含：元件仓库、网页收藏（Firefox 增量导入）、学习笔记（Word / PDF 导入、HTML 导出）、工作台（资料 / 固件 / 维修 / 提示词 / 账号权限 / 内容审核 / 日志）、地图、歌单、照片墙、留言板、动态、推荐、游戏大厅、注册登录与权限体系；最近新增工作台日志（内容事件、访问记录、管理审计、推送记录，29 天自动清理）和登录失败 / 敏感词安全提醒。</p>
       </article>
 
       <article class="reference-item">
@@ -140,13 +140,43 @@ width: min(980px, 100%);
       </article>
 
       <article class="reference-item">
+        <a href="https://github.com/makerjackie/pinMark" target="_blank" rel="noopener noreferrer">PinMark</a>
+        <p>网页收藏模块的参考工程：借鉴浏览器书签的目录树、卡片 / 导航视图和书签整理交互。Error酱 在此基础上实现了纯增量导入（Firefox 只补新增网址，不回滚整理结果）、分类拖拽排序和备注标签，具体授权以原仓库说明为准。</p>
+      </article>
+
+      <article class="reference-item">
+        <a href="https://github.com/firecrawl/anydoc" target="_blank" rel="noopener noreferrer">firecrawl/anydoc</a>
+        <p>学习笔记的 Word / PDF 导入依赖（MIT 许可证，requirements.txt 中的 firecrawl-anydoc）：把 DOC / DOCX / PDF 转成结构化内容，再由 Error酱 渲染成站内 Markdown 并提取内嵌图片。</p>
+      </article>
+
+      <article class="reference-item">
         <a href="https://github.com/espressif/esptool-js" target="_blank" rel="noopener noreferrer">esptool-js</a>
         <p>作为后续浏览器在线烧录 ESP 系列固件的候选搬运实现。</p>
       </article>
 
       <article class="reference-item">
+        <a href="https://github.com/usememos/memos" target="_blank" rel="noopener noreferrer">Memos</a>
+        <p>动态（说说 / 日志）参考其卡片式时间线、置顶和标签组织，MIT 许可证；只借鉴交互，代码由本项目自行实现。</p>
+      </article>
+
+      <article class="reference-item">
+        <a href="https://github.com/lin-snow/Ech0" target="_blank" rel="noopener noreferrer">Ech0</a>
+        <p>同类中文动态 / 说说实现参考，AGPL-3.0 许可证；只参考产品形态和交互，未复制其代码。</p>
+      </article>
+
+      <article class="reference-item">
+        <a href="https://github.com/artitalkjs/Artitalk" target="_blank" rel="noopener noreferrer">Artitalk</a>
+        <p>参考其轻量说说的输入、图片上传与时间线交互，MIT 许可证；未直接引入其代码。</p>
+      </article>
+
+      <article class="reference-item">
         <a href="https://github.com/TranHuuDat2004/Caro-Board" target="_blank" rel="noopener noreferrer">Caro-Board</a>
         <p>搬运其五子棋双人对战、人机模式和点击落子逻辑，采用 MIT 许可证。</p>
+      </article>
+
+      <article class="reference-item">
+        <a href="https://github.com/gabrielecirulli/2048" target="_blank" rel="noopener noreferrer">2048</a>
+        <p>2048 的规则、合并逻辑与数值设计来源，MIT 许可证；本站按同一规则用原生 JS 重写了界面、计分、最高分存档和移动端滑动。</p>
       </article>
 
       <article class="reference-item">
