@@ -44,10 +44,6 @@
         <p class="mg-hint">文字、附件都行。单条最多 3 个附件，单个不超过 5MB；支持图片、PDF、文本，附件需要审核通过后其他人才能看到。</p>
         <form id="messageForm">
           <div class="mg-field">
-            <label for="msgNickname">昵称</label>
-            <input id="msgNickname" maxlength="30" value="匿名" autocomplete="nickname">
-          </div>
-          <div class="mg-field">
             <label for="msgContent">内容</label>
             <textarea id="msgContent" maxlength="1000" placeholder="想说的话，也可以直接把截图粘贴进来…"></textarea>
           </div>
@@ -76,6 +72,18 @@
   </div>
 
   <div class="mg-toast" id="toast" hidden></div>
+
+  <div class="mg-viewer" id="fileViewer" hidden>
+    <div class="mg-viewer-dialog" role="dialog" aria-modal="true" aria-labelledby="fileViewerTitle">
+      <header class="mg-viewer-head">
+        <strong id="fileViewerTitle">查看</strong>
+        <button class="mg-icon-btn" id="fileViewerClose" type="button" aria-label="关闭">
+          <i data-lucide="x"></i>
+        </button>
+      </header>
+      <div class="mg-viewer-body" id="fileViewerBody"></div>
+    </div>
+  </div>
 
   <script src="/static/vendor/lucide.min.js"></script>
   <script src="/static/site/rain.js"></script>

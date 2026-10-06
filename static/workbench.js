@@ -1244,12 +1244,14 @@
       state.reviewFiles
         .map((file) => {
           const thumb = file.is_image
-            ? `<img src="${escapeHtml(file.url)}" alt="" loading="lazy">`
+            ? `<button class="wb-review-thumb wb-review-thumb-btn" type="button" data-review-preview="${file.id}" title="点击预览">
+                 <img src="${escapeHtml(file.url)}" alt="" loading="lazy">
+               </button>`
             : '<i data-lucide="file-text"></i>';
           const excerpt = (file.message_content || "").slice(0, 120);
           return `
         <article class="wb-review-card">
-          <div class="wb-review-thumb">${thumb}</div>
+          ${file.is_image ? thumb : `<div class="wb-review-thumb">${thumb}</div>`}
           <div class="wb-review-body">
             <div class="wb-user-title">
               <strong>${escapeHtml(file.file_name)}</strong>
@@ -1261,6 +1263,9 @@
             ${excerpt ? `<p class="wb-review-text">${escapeHtml(excerpt)}</p>` : ""}
           </div>
           <div class="wb-user-actions">
+            <a class="wb-btn" href="${escapeHtml(file.url)}" download="${escapeHtml(file.file_name)}">
+              <i data-lucide="download"></i><span>下载</span>
+            </a>
             <button class="wb-btn wb-btn-primary" type="button" data-review-action="approve" data-review-id="${file.id}">
               <i data-lucide="check"></i><span>通过</span>
             </button>
@@ -1273,6 +1278,18 @@
         .join("") +
       "</div>"
     );
+  }
+
+  function openReviewPreview(file) {
+    const overlay = $("reviewPreview");
+    const body = $("reviewPreviewBody");
+    const title = $("reviewPreviewTitle");
+    if (!overlay || !body) return;
+    if (title) title.textContent = file.file_name || "附件预览";
+    body.innerHTML = file.is_image
+      ? `<img src="${escapeHtml(file.url)}" alt="">`
+      : `<iframe src="${escapeHtml(file.url)}" title="${escapeHtml(file.file_name || "附件预览")}"></iframe>`;
+    overlay.hidden = false;
   }
 
   function bindReviewEvents() {
@@ -1313,6 +1330,14 @@
     const panel = $("reviewPanel");
     if (!panel) return;
     panel.addEventListener("click", async (event) => {
+      const previewBtn = event.target.closest("[data-review-preview]");
+      if (previewBtn) {
+        const file = state.reviewFiles.find(
+          (item) => String(item.id) === previewBtn.dataset.reviewPreview
+        );
+        if (file) openReviewPreview(file);
+        return;
+      }
       const button = event.target.closest("[data-review-action]");
       if (!button) return;
       const action = button.dataset.reviewAction;

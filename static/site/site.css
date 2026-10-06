@@ -610,6 +610,7 @@ img {
 }
 
 .landing-module-btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -642,6 +643,40 @@ img {
   color: var(--muted);
   cursor: default;
   opacity: 0.75;
+}
+
+.landing-module-btn.has-pending {
+  border-color: color-mix(in srgb, var(--primary) 60%, var(--line));
+  animation: repoPendingPulse 2.4s ease-in-out infinite;
+}
+
+.landing-module-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  z-index: 2;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 22px;
+  text-align: center;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--primary) 55%, transparent);
+}
+
+.landing-module-badge[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-module-btn.has-pending {
+    animation: none;
+  }
 }
 
 .landing-links {

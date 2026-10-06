@@ -6,7 +6,6 @@
   var MAX_TOTAL_BYTES = 15 * 1024 * 1024;
   var IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
   var FILE_EXTENSIONS = IMAGE_EXTENSIONS.concat([".pdf", ".txt", ".md"]);
-  var NICKNAME_KEY = "errorMessageNickname";
   var REGION_KEY = "errorShowRegion";
 
   var pendingFiles = [];
@@ -220,22 +219,6 @@
     }
   });
 
-  function nicknameValue(inputId) {
-    var input = $(inputId);
-    return (input && input.value.trim()) || "匿名";
-  }
-
-  function rememberNickname(value) {
-    try {
-      localStorage.setItem(NICKNAME_KEY, value);
-    } catch (err) {}
-  }
-
-  try {
-    var savedNickname = localStorage.getItem(NICKNAME_KEY);
-    if (savedNickname) $("msgNickname").value = savedNickname;
-  } catch (err) {}
-
   $("messageForm").addEventListener("submit", function (event) {
     event.preventDefault();
     var content = $("msgContent").value.trim();
@@ -257,14 +240,12 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          nickname: nicknameValue("msgNickname"),
           content: content,
           files: files,
           show_region: $("msgShowRegion").checked,
         }),
       });
     }).then(function (result) {
-      rememberNickname(nicknameValue("msgNickname"));
       rememberRegionPreference($("msgShowRegion").checked);
       $("msgContent").value = "";
       pendingFiles = [];
@@ -283,6 +264,36 @@
   });
 
   // ---- 列表 ----
+  function openFileViewer(file) {
+    var viewer = $("fileViewer");
+    var body = $("fileViewerBody");
+    var title = $("fileViewerTitle");
+    if (!viewer || !body) return;
+    if (title) title.textContent = file.file_name || "查看附件";
+    body.innerHTML = "";
+    if (file.is_image) {
+      var image = document.createElement("img");
+      image.src = file.url;
+      image.alt = file.file_name || "";
+      image.draggable = false;
+      body.appendChild(image);
+    } else {
+      var frame = document.createElement("iframe");
+      frame.src = file.url;
+      frame.title = file.file_name || "附件预览";
+      frame.setAttribute("referrerpolicy", "no-referrer");
+      body.appendChild(frame);
+    }
+    viewer.hidden = false;
+  }
+
+  function closeFileViewer() {
+    var viewer = $("fileViewer");
+    var body = $("fileViewerBody");
+    if (viewer) viewer.hidden = true;
+    if (body) body.innerHTML = "";
+  }
+
   function buildFiles(files) {
     var wrap = el("div", "mg-files");
     files.forEach(function (file) {
@@ -297,37 +308,54 @@
         return;
       }
       var url = file.url;
+      var canSave = Boolean(file.can_save);
       if (file.is_image) {
-        var thumbLink = el("a", "mg-thumb");
-        thumbLink.href = url;
-        thumbLink.target = "_blank";
-        thumbLink.rel = "noopener";
-        thumbLink.title = file.pending
+        var thumb = el("button", "mg-thumb " + (canSave ? "can-save" : "no-save"));
+        thumb.type = "button";
+        thumb.title = file.pending
           ? file.file_name + "（审核中，仅你和管理员可见）"
-          : file.file_name;
-        if (file.pending) thumbLink.classList.add("is-pending");
+          : canSave
+            ? file.file_name
+            : file.file_name + "（仅可查看）";
+        if (file.pending) thumb.classList.add("is-pending");
         var image = document.createElement("img");
         image.src = url;
         image.alt = file.file_name;
         image.loading = "lazy";
-        thumbLink.appendChild(image);
-        wrap.appendChild(thumbLink);
+        image.draggable = false;
+        thumb.appendChild(image);
+        thumb.appendChild(el("span", "mg-media-guard", ""));
+        thumb.addEventListener("click", function () {
+          openFileViewer(file);
+        });
+        wrap.appendChild(thumb);
         return;
       }
-      var link = el("a", "mg-file");
-      link.href = url;
-      link.download = file.file_name;
-      link.rel = "noopener";
-      if (file.pending) link.classList.add("mg-file-pending");
+      var node;
+      if (canSave) {
+        node = el("a", "mg-file");
+        node.href = url;
+        node.download = file.file_name;
+        node.rel = "noopener";
+      } else {
+        node = el("button", "mg-file mg-file-view");
+        node.type = "button";
+        node.title = file.file_name + "（仅可查看）";
+        node.addEventListener("click", function () {
+          openFileViewer(file);
+        });
+      }
+      if (file.pending) node.classList.add("mg-file-pending");
       var icon = document.createElement("i");
       icon.setAttribute("data-lucide", "file");
-      link.appendChild(icon);
-      link.appendChild(el("span", "mg-file-name", file.file_name));
+      node.appendChild(icon);
+      node.appendChild(el("span", "mg-file-name", file.file_name));
       if (file.pending) {
-        link.appendChild(el("span", "mg-file-size", "审核中"));
+        node.appendChild(el("span", "mg-file-size", "审核中"));
       }
-      link.appendChild(el("span", "mg-file-size", formatSize(file.file_size)));
-      wrap.appendChild(link);
+      node.appendChild(el("span", "mg-file-size", formatSize(file.file_size)));
+      if (!canSave) node.appendChild(el("span", "mg-file-view-tag", "查看"));
+      wrap.appendChild(node);
     });
     return wrap;
   }
@@ -335,19 +363,6 @@
   function buildReplyForm(rootId) {
     var form = el("form", "mg-reply-form");
     form.hidden = true;
-
-    var nickField = el("div", "mg-field");
-    nickField.appendChild(el("label", "", "昵称"));
-    var nickInput = document.createElement("input");
-    nickInput.maxLength = 30;
-    nickInput.value = (function () {
-      try {
-        return localStorage.getItem(NICKNAME_KEY) || "匿名";
-      } catch (err) {
-        return "匿名";
-      }
-    })();
-    nickField.appendChild(nickInput);
 
     var textField = el("div", "mg-field");
     textField.appendChild(el("label", "", "回复"));
@@ -369,7 +384,7 @@
     sendBtn.type = "submit";
     row.append(cancelBtn, sendBtn);
 
-    form.append(nickField, textField, regionLabel, row);
+    form.append(textField, regionLabel, row);
 
     cancelBtn.addEventListener("click", function () {
       textArea.value = "";
@@ -388,15 +403,12 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          nickname: nickInput.value.trim() || "匿名",
           content: content,
           parent_id: rootId,
           show_region: regionInput.checked,
         }),
       }).then(function () {
-        rememberNickname(nickInput.value.trim() || "匿名");
         rememberRegionPreference(regionInput.checked);
-        $("msgNickname").value = nickInput.value.trim() || "匿名";
         toast("回复已发布");
         return loadMessages();
       }).catch(function (err) {
@@ -410,7 +422,7 @@
   }
 
   function buildMessage(message) {
-    var item = el("article", "mg-item");
+    var item = el("article", "mg-item " + (message.can_save ? "can-save" : "no-save"));
     var head = el("div", "mg-item-head");
     head.appendChild(el("span", "mg-nick", message.nickname || "匿名"));
     head.appendChild(el("span", "mg-time", formatTime(message.created_at)));
@@ -443,7 +455,7 @@
       replyForm = buildReplyForm(message.id);
     }
     (message.replies || []).forEach(function (reply) {
-      var row = el("div", "mg-reply");
+      var row = el("div", "mg-reply " + (reply.can_save ? "can-save" : "no-save"));
       var replyHead = el("div", "mg-item-head");
       replyHead.appendChild(el("span", "mg-nick", reply.nickname || "匿名"));
       replyHead.appendChild(el("span", "mg-time", formatTime(reply.created_at)));
@@ -499,9 +511,17 @@
     return api("/api/site/messages").then(function (rows) {
       list.innerHTML = "";
       var total = 0;
+      var newest = 0;
       rows.forEach(function (row) {
         total += 1 + (row.replies || []).length;
+        newest = Math.max(newest, Number(row.id) || 0);
+        (row.replies || []).forEach(function (reply) {
+          newest = Math.max(newest, Number(reply.id) || 0);
+        });
       });
+      try {
+        localStorage.setItem("errorMessagesSeen", String(newest));
+      } catch (err) {}
       $("messageCount").textContent = rows.length ? "共 " + total + " 条" : "";
       if (!rows.length) {
         list.appendChild(
@@ -522,6 +542,46 @@
   renderPending();
   $("msgShowRegion").checked = regionPreference();
   refreshIcons();
+
+  var messageList = $("messageList");
+  if (messageList) {
+    messageList.addEventListener("contextmenu", function (event) {
+      var target = event.target;
+      if (!target || !target.closest) return;
+      if (target.closest(".can-save") || target.closest("input, textarea")) return;
+      event.preventDefault();
+    });
+    messageList.addEventListener("dragstart", function (event) {
+      var target = event.target;
+      if (target && target.closest && target.closest("img")) {
+        event.preventDefault();
+      }
+    });
+    messageList.addEventListener("copy", function (event) {
+      var target = event.target;
+      if (!target || !target.closest) return;
+      if (target.closest(".can-save") || target.closest("input, textarea")) return;
+      event.preventDefault();
+    });
+  }
+
+  var fileViewer = $("fileViewer");
+  if (fileViewer) {
+    fileViewer.addEventListener("click", function (event) {
+      if (event.target === fileViewer) closeFileViewer();
+    });
+    fileViewer.addEventListener("contextmenu", function (event) {
+      event.preventDefault();
+    });
+  }
+  var fileViewerClose = $("fileViewerClose");
+  if (fileViewerClose) {
+    fileViewerClose.addEventListener("click", closeFileViewer);
+  }
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") closeFileViewer();
+  });
+
   api("/api/auth/status").then(function (status) {
     canPost = Boolean(status.authenticated);
     $("messageComposerPanel").hidden = !canPost;

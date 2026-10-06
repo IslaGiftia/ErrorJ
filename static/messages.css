@@ -378,11 +378,15 @@ body {
 .mg-thumb {
   position: relative;
   display: block;
+  padding: 0;
   border: 1px solid var(--mg-border);
   border-radius: 8px;
   overflow: hidden;
   line-height: 0;
+  font: inherit;
+  color: inherit;
   background: var(--mg-bg);
+  cursor: zoom-in;
 }
 
 .mg-thumb.is-pending::after {
@@ -406,6 +410,30 @@ body {
   height: auto;
 }
 
+.mg-thumb.no-save img {
+  pointer-events: none;
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+.mg-media-guard {
+  position: absolute;
+  inset: 0;
+}
+
+.mg-thumb.can-save .mg-media-guard {
+  display: none;
+}
+
+.mg-item.no-save .mg-text,
+.mg-item.no-save .mg-reply-text,
+.mg-reply.no-save .mg-reply-text {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
 .mg-file {
   display: inline-flex;
   align-items: center;
@@ -418,6 +446,22 @@ body {
   color: var(--mg-text);
   text-decoration: none;
   font-size: 13px;
+}
+
+button.mg-file {
+  font: inherit;
+  font-size: 13px;
+  color: var(--mg-text);
+  cursor: zoom-in;
+}
+
+.mg-file-view-tag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--mg-accent-soft);
+  color: var(--mg-accent);
+  font-size: 11.5px;
+  font-weight: 700;
 }
 
 .mg-file-pending {
@@ -537,6 +581,75 @@ body {
   font-size: 13px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
   z-index: 40;
+}
+
+.mg-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(12, 16, 22, 0.72);
+  backdrop-filter: blur(4px);
+}
+
+.mg-viewer[hidden] {
+  display: none;
+}
+
+.mg-viewer-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(920px, 100%);
+  max-height: 90vh;
+  border: 1px solid var(--mg-border);
+  border-radius: 10px;
+  background: var(--mg-surface);
+  overflow: hidden;
+}
+
+.mg-viewer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--mg-border);
+}
+
+.mg-viewer-head strong {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mg-viewer-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--mg-bg);
+  text-align: center;
+}
+
+.mg-viewer-body img {
+  display: block;
+  max-width: 100%;
+  max-height: 76vh;
+  margin: 0 auto;
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+.mg-viewer-body iframe {
+  display: block;
+  width: 100%;
+  height: 76vh;
+  border: 0;
+  background: var(--mg-surface);
 }
 
 @media (max-width: 640px) {

@@ -225,26 +225,51 @@
   });
 
   // ---------- 列表 ----------
-  function buildImages(files) {
+  function openImageViewer(file) {
+    var viewer = $("momentViewer");
+    var body = $("momentViewerBody");
+    var title = $("momentViewerTitle");
+    if (!viewer || !body) return;
+    if (title) title.textContent = file.file_name || "查看图片";
+    body.innerHTML = "";
+    var image = document.createElement("img");
+    image.src = "/site-files/" + file.file_path;
+    image.alt = file.file_name || "";
+    image.draggable = false;
+    body.appendChild(image);
+    viewer.hidden = false;
+  }
+
+  function closeImageViewer() {
+    var viewer = $("momentViewer");
+    var body = $("momentViewerBody");
+    if (viewer) viewer.hidden = true;
+    if (body) body.innerHTML = "";
+  }
+
+  function buildImages(files, canSave) {
     var wrap = el("div", "mo-images" + (files.length === 1 ? " is-single" : ""));
     files.forEach(function (file) {
-      var link = document.createElement("a");
-      link.href = "/site-files/" + file.file_path;
-      link.target = "_blank";
-      link.rel = "noopener";
-      link.title = file.file_name;
+      var thumb = el("button", "mo-thumb " + (canSave ? "can-save" : "no-save"));
+      thumb.type = "button";
+      thumb.title = canSave ? file.file_name : file.file_name + "（仅可查看）";
       var image = document.createElement("img");
-      image.src = link.href;
+      image.src = "/site-files/" + file.file_path;
       image.alt = file.file_name;
       image.loading = "lazy";
-      link.appendChild(image);
-      wrap.appendChild(link);
+      image.draggable = false;
+      thumb.appendChild(image);
+      thumb.appendChild(el("span", "mo-media-guard", ""));
+      thumb.addEventListener("click", function () {
+        openImageViewer(file);
+      });
+      wrap.appendChild(thumb);
     });
     return wrap;
   }
 
   function buildMoment(moment) {
-    var item = el("article", "mo-card mo-item");
+    var item = el("article", "mo-card mo-item " + (moment.can_save ? "can-save" : "no-save"));
     var avatar = document.createElement("img");
     avatar.className = "mo-avatar";
     avatar.src = "/static/site/error-chan-favicon.png?v=3";
@@ -264,7 +289,9 @@
     if (moment.content) body.appendChild(el("p", "mo-text", moment.content));
 
     var files = moment.files || [];
-    if (files.length) body.appendChild(buildImages(files));
+    if (files.length) {
+      body.appendChild(buildImages(files, Boolean(moment.can_save)));
+    }
 
     if (moment.tags) {
       var tagWrap = el("div", "mo-tags");
@@ -380,6 +407,46 @@
   renderPending();
   $("momentShowRegion").checked = regionPreference();
   refreshIcons();
+
+  var momentList = $("momentList");
+  if (momentList) {
+    momentList.addEventListener("contextmenu", function (event) {
+      var target = event.target;
+      if (!target || !target.closest) return;
+      if (target.closest(".can-save") || target.closest("input, textarea")) return;
+      event.preventDefault();
+    });
+    momentList.addEventListener("dragstart", function (event) {
+      var target = event.target;
+      if (target && target.closest && target.closest("img")) {
+        event.preventDefault();
+      }
+    });
+    momentList.addEventListener("copy", function (event) {
+      var target = event.target;
+      if (!target || !target.closest) return;
+      if (target.closest(".can-save") || target.closest("input, textarea")) return;
+      event.preventDefault();
+    });
+  }
+
+  var imageViewer = $("momentViewer");
+  if (imageViewer) {
+    imageViewer.addEventListener("click", function (event) {
+      if (event.target === imageViewer) closeImageViewer();
+    });
+    imageViewer.addEventListener("contextmenu", function (event) {
+      event.preventDefault();
+    });
+  }
+  var imageViewerClose = $("momentViewerClose");
+  if (imageViewerClose) {
+    imageViewerClose.addEventListener("click", closeImageViewer);
+  }
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") closeImageViewer();
+  });
+
   api("/api/auth/status").then(function (status) {
     var canManage = Boolean(status.admin);
     $("momentForm").hidden = !canManage;

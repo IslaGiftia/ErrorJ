@@ -581,6 +581,7 @@ def init_db():
                 nickname TEXT NOT NULL,
                 content TEXT NOT NULL,
                 parent_id INTEGER REFERENCES site_messages(id) ON DELETE CASCADE,
+                user_id INTEGER,
                 ip TEXT,
                 ip_region TEXT,
                 show_region INTEGER NOT NULL DEFAULT 1,
@@ -1040,6 +1041,7 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             row["name"] for row in conn.execute("PRAGMA table_info(site_messages)").fetchall()
         }
         for column, ddl in (
+            ("user_id", "ALTER TABLE site_messages ADD COLUMN user_id INTEGER"),
             ("ip", "ALTER TABLE site_messages ADD COLUMN ip TEXT"),
             ("ip_region", "ALTER TABLE site_messages ADD COLUMN ip_region TEXT"),
             (
@@ -6504,6 +6506,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "status": status,
                 "is_image": extension in MESSAGE_IMAGE_EXTENSIONS,
                 "visible": visible,
+                "can_save": bool(is_admin or owned),
             }
             if visible:
                 entry.update(
@@ -6518,20 +6521,63 @@ class InventoryHandler(BaseHTTPRequestHandler):
             grouped.setdefault(row["message_id"], []).append(entry)
         return grouped
 
+    def message_display_name(self, row, authors, viewer_signed_in):
+        """留言展示名：优先账号昵称；游客看不到普通账号的用户名。"""
+        user_id = row.get("user_id")
+        if user_id is None:
+            return str(row.get("nickname") or "匿名")[:30]
+        if user_id == 0:
+            return "管理员"
+        user = authors.get(user_id)
+        nickname = str((user or {}).get("nickname") or "").strip()
+        if nickname:
+            return nickname[:16]
+        if viewer_signed_in and user:
+            return str(user.get("username") or "普通用户")[:32]
+        return str(row.get("nickname") or "").strip()[:16] or "普通用户"
+
     def api_site_messages(self, params):
         rows = query(
-            """SELECT id, nickname, content, parent_id, ip_region, show_region, created_at
+            """SELECT id, nickname, content, parent_id, user_id, ip_region, show_region, created_at
                FROM site_messages
                ORDER BY COALESCE(parent_id, id) DESC, id ASC"""
         )
+        identity = self.session_identity()
+        viewer_id = None
+        if identity:
+            viewer_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
+        viewer_signed_in = identity is not None
         can_delete = self.is_admin()
+        user_ids = sorted(
+            {row["user_id"] for row in rows if row.get("user_id") not in (None, 0)}
+        )
+        authors = {}
+        if user_ids:
+            placeholders = ",".join("?" for _ in user_ids)
+            for user in query(
+                f"SELECT id, username, nickname FROM users WHERE id IN ({placeholders})",
+                tuple(user_ids),
+            ):
+                authors[user["id"]] = user
         files = self.site_message_files_map([row["id"] for row in rows])
         for row in rows:
             row["files"] = files.get(row["id"], [])
             row["can_delete"] = can_delete
+            row["nickname"] = self.message_display_name(
+                row, authors, viewer_signed_in
+            )
+            row["can_save"] = bool(
+                can_delete
+                or (
+                    viewer_id is not None
+                    and row.get("user_id") is not None
+                    and row.get("user_id") == viewer_id
+                )
+            )
             row["region"] = (
                 normalize_region(row.get("ip_region")) if row.get("show_region") else ""
             )
+            row.pop("user_id", None)
             row.pop("ip_region", None)
             row.pop("show_region", None)
         roots = [row for row in rows if not row.get("parent_id")]
@@ -6593,15 +6639,27 @@ class InventoryHandler(BaseHTTPRequestHandler):
         return prepared, ""
 
     def api_site_message_create(self, payload):
+        identity = self.session_identity()
+        if not identity:
+            api_error(self, 401, "请先登录。")
+            return
         if not rate_allow("message", self.client_ip(), 5, 60):
             api_error(self, 429, "留言太频繁，请稍后再试。")
             return
-        nickname = str(payload.get("nickname") or "匿名").strip()[:30] or "匿名"
+        user_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
+        author = (
+            query_one("SELECT nickname, username FROM users WHERE id = ?", (user_id,))
+            if user_id
+            else None
+        )
+        if identity.get("kind") == "owner":
+            nickname = "管理员"
+        elif author:
+            nickname = (author.get("nickname") or "").strip()[:16]
+        else:
+            nickname = ""
         content = str(payload.get("content") or "").strip()
         parent_id = payload.get("parent_id")
-        if sensitive_contains(nickname):
-            api_error(self, 400, "昵称包含不允许的词汇，请修改后再留言。")
-            return
         if content and sensitive_contains(content):
             api_error(self, 400, "留言内容包含不允许的词汇，请修改后再发。")
             return
@@ -6637,20 +6695,19 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 400, str(exc))
             return
         auto_approve = self.is_admin() or self.can("messages:attach_auto")
-        identity = self.session_identity()
-        uploader_id = None
-        if identity:
-            uploader_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
+        uploader_id = user_id
 
         def write(conn):
             cursor = conn.execute(
                 """INSERT INTO site_messages
-                       (nickname, content, parent_id, ip, ip_region, show_region, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                       (nickname, content, parent_id, user_id, ip, ip_region,
+                        show_region, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     nickname,
                     content,
                     parent_id or None,
+                    user_id,
                     client_ip,
                     ip_region,
                     show_region,
@@ -6744,6 +6801,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             row["files"] = files.get(row["id"], [])
             row["pinned"] = bool(row["pinned"])
             row["can_manage"] = can_manage
+            row["can_save"] = can_manage
             row["region"] = (
                 normalize_region(row.get("ip_region")) if row.get("show_region") else ""
             )

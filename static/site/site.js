@@ -154,6 +154,60 @@
     }
   }
 
+  var MESSAGES_SEEN_KEY = "errorMessagesSeen";
+
+  function applyMessagesBadge(count) {
+    var entry = document.getElementById("messagesEntry");
+    var badge = document.getElementById("messagesPending");
+    var value = Number(count) || 0;
+    if (entry) entry.classList.toggle("has-pending", value > 0);
+    if (badge) {
+      badge.hidden = value <= 0;
+      badge.textContent = value > 99 ? "99+" : String(value);
+    }
+  }
+
+  function loadMessagesBadge() {
+    var raw = null;
+    try {
+      raw = localStorage.getItem(MESSAGES_SEEN_KEY);
+    } catch (err) {}
+    fetch("/api/site/messages", { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : [];
+      })
+      .then(function (rows) {
+        var newest = 0;
+        var ids = [];
+        (rows || []).forEach(function (row) {
+          var id = Number(row.id) || 0;
+          ids.push(id);
+          if (id > newest) newest = id;
+          (row.replies || []).forEach(function (reply) {
+            var replyId = Number(reply.id) || 0;
+            ids.push(replyId);
+            if (replyId > newest) newest = replyId;
+          });
+        });
+        if (raw === null || raw === "") {
+          // 第一次访问：以当前最新一条作为基线，之后的新留言才提醒
+          try {
+            localStorage.setItem(MESSAGES_SEEN_KEY, String(newest));
+          } catch (err) {}
+          applyMessagesBadge(0);
+          return;
+        }
+        var seen = Number(raw) || 0;
+        var count = ids.filter(function (id) {
+          return id > seen;
+        }).length;
+        applyMessagesBadge(count);
+      })
+      .catch(function () {
+        applyMessagesBadge(0);
+      });
+  }
+
   function applyAuthStatus(status) {
     authState.enabled = Boolean(status.enabled);
     authState.authenticated = Boolean(status.authenticated);
@@ -520,6 +574,7 @@
     });
   }
 
+  loadMessagesBadge();
   setAuthUi();
   fetch("/api/auth/status", { cache: "no-store" })
     .then(function (response) { return response.json(); })
