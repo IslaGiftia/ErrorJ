@@ -1,12 +1,13 @@
 .map-dock {
   position: fixed;
-  left: 18px;
-  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  left: 20px;
+  bottom: calc(22px + env(safe-area-inset-bottom, 0px));
   z-index: 70;
   display: block;
-  width: clamp(104px, 9vw, 136px);
+  width: clamp(108px, 9vw, 144px);
   aspect-ratio: 1 / 1;
   border-radius: 50%;
+  font-size: clamp(11px, 0.55vw, 13px);
   text-decoration: none;
   color: #fff;
   transition: transform 0.16s ease;
@@ -67,16 +68,16 @@
 
 .map-dock-north {
   position: absolute;
-  top: 2px;
+  top: 0.18em;
   left: 50%;
   transform: translateX(-50%);
-  padding: 0 4px;
+  padding: 0 0.36em;
   border-radius: 999px;
   background: rgba(12, 16, 22, 0.72);
   color: #fff;
-  font-size: 9px;
+  font-size: 0.78em;
   font-weight: 800;
-  line-height: 13px;
+  line-height: 1.5em;
   letter-spacing: 0.04em;
   pointer-events: none;
 }
@@ -85,8 +86,8 @@
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 14px;
-  height: 14px;
+  width: 1.3em;
+  height: 1.3em;
   transform: translate(-50%, -50%);
   pointer-events: none;
 }
@@ -118,20 +119,48 @@
 .map-dock-count {
   position: absolute;
   left: 50%;
-  bottom: 4px;
+  bottom: 0.38em;
   transform: translateX(-50%);
-  min-width: 24px;
-  padding: 0 7px;
+  min-width: 2.2em;
+  padding: 0 0.65em;
   border: 1px solid rgba(255, 255, 255, 0.45);
   border-radius: 999px;
   background: rgba(12, 16, 22, 0.72);
   color: #fff;
-  font-size: 10px;
+  font-size: 0.85em;
   font-weight: 800;
-  line-height: 15px;
+  line-height: 1.65em;
   text-align: center;
   white-space: nowrap;
   pointer-events: none;
+}
+
+/* 大屏（2K / 4K）按比例放大，并向上、向内收一些 */
+@media (min-width: 1600px) {
+  .map-dock {
+    left: 28px;
+    bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+    width: clamp(144px, 8vw, 168px);
+    font-size: 13px;
+  }
+}
+
+@media (min-width: 2100px) {
+  .map-dock {
+    left: 40px;
+    bottom: calc(44px + env(safe-area-inset-bottom, 0px));
+    width: clamp(176px, 7.4vw, 200px);
+    font-size: 15px;
+  }
+}
+
+@media (min-width: 3000px) {
+  .map-dock {
+    left: 52px;
+    bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+    width: 216px;
+    font-size: 17px;
+  }
 }
 
 @media (max-width: 640px) {
@@ -139,6 +168,7 @@
     left: 12px;
     bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     width: 92px;
+    font-size: 10px;
   }
 
   .landing {

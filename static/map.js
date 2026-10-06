@@ -810,19 +810,37 @@
     marker.on("dragend", function () {
       var latlng = marker.getLatLng();
       var wgs = dataLatLng(latlng.lat, latlng.lng);
-      api("/api/map/places/" + place.id, {
-        method: "PATCH",
-        body: JSON.stringify({ lat: Number(wgs[0].toFixed(6)), lng: Number(wgs[1].toFixed(6)) })
-      })
-        .then(function () {
-          place.lat = Number(wgs[0].toFixed(6));
-          place.lng = Number(wgs[1].toFixed(6));
-          toast("位置已更新");
-        })
-        .catch(function (err) {
-          toast(err.message);
-          marker.setLatLng(displayLatLng(place.lat, place.lng));
-        });
+      var nextLat = Number(wgs[0].toFixed(6));
+      var nextLng = Number(wgs[1].toFixed(6));
+      if (nextLat === Number(place.lat) && nextLng === Number(place.lng)) {
+        return;
+      }
+      askConfirm(
+        "更新标记位置？",
+        "把「" + place.name + "」移动到新位置？确认后会保存到地图数据里。",
+        "保存位置",
+        function () {
+          api("/api/map/places/" + place.id, {
+            method: "PATCH",
+            body: JSON.stringify({ lat: nextLat, lng: nextLng })
+          })
+            .then(function () {
+              place.lat = nextLat;
+              place.lng = nextLng;
+              toast("位置已更新");
+            })
+            .catch(function (err) {
+              toast(err.message);
+              marker.setLatLng(displayLatLng(place.lat, place.lng));
+            });
+        },
+        {
+          danger: false,
+          onCancel: function () {
+            marker.setLatLng(displayLatLng(place.lat, place.lng));
+          }
+        }
+      );
     });
     return marker;
   }
@@ -935,19 +953,31 @@
   }
 
   var confirmAction = null;
-  function askConfirm(title, text, okText, onOk) {
+  var confirmCancelAction = null;
+  function askConfirm(title, text, okText, onOk, options) {
+    var opts = options || {};
     confirmAction = onOk;
+    confirmCancelAction = opts.onCancel || null;
     $("mapConfirmTitle").textContent = title;
     $("mapConfirmText").textContent = text;
-    $("mapConfirmOk").textContent = okText || "确定";
+    var okButton = $("mapConfirmOk");
+    okButton.textContent = okText || "确定";
+    okButton.classList.toggle("mp-btn-danger", opts.danger !== false);
+    okButton.classList.toggle("mp-btn-primary", opts.danger === false);
     openModal("mapConfirmModal");
   }
 
   function resolveConfirm(ok) {
     var action = ok ? confirmAction : null;
+    var cancelAction = ok ? null : confirmCancelAction;
     confirmAction = null;
+    confirmCancelAction = null;
     closeModal("mapConfirmModal");
-    if (action) action();
+    if (action) {
+      action();
+    } else if (cancelAction) {
+      cancelAction();
+    }
   }
 
   function fillSubSelect(topId, selectedSubId) {
