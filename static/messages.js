@@ -5,10 +5,7 @@
   var MAX_FILE_BYTES = 5 * 1024 * 1024;
   var MAX_TOTAL_BYTES = 15 * 1024 * 1024;
   var IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
-  var FILE_EXTENSIONS = IMAGE_EXTENSIONS.concat([
-    ".7z", ".bin", ".csv", ".doc", ".docx", ".elf", ".gz", ".hex", ".json",
-    ".log", ".md", ".pdf", ".rar", ".tar", ".txt", ".xls", ".xlsx", ".zip",
-  ]);
+  var FILE_EXTENSIONS = IMAGE_EXTENSIONS.concat([".pdf", ".txt", ".md"]);
   var NICKNAME_KEY = "errorMessageNickname";
 
   var pendingFiles = [];
@@ -249,12 +246,16 @@
           files: files,
         }),
       });
-    }).then(function () {
+    }).then(function (result) {
       rememberNickname(nicknameValue("msgNickname"));
       $("msgContent").value = "";
       pendingFiles = [];
       renderPending();
-      toast("留言已发布");
+      toast(
+        result && result.pending_review
+          ? "留言已发布，附件审核通过后其他人才能看到"
+          : "留言已发布"
+      );
       return loadMessages();
     }).catch(function (err) {
       toast(err.message);
@@ -267,13 +268,26 @@
   function buildFiles(files) {
     var wrap = el("div", "mg-files");
     files.forEach(function (file) {
-      var url = "/site-files/" + file.file_path;
+      if (file.visible === false) {
+        var pending = el("span", "mg-file mg-file-pending");
+        var pendingIcon = document.createElement("i");
+        pendingIcon.setAttribute("data-lucide", "clock");
+        pending.appendChild(pendingIcon);
+        pending.appendChild(el("span", "mg-file-name", "附件审核中"));
+        pending.title = "审核通过后其他人才能看到";
+        wrap.appendChild(pending);
+        return;
+      }
+      var url = file.url;
       if (file.is_image) {
         var thumbLink = el("a", "mg-thumb");
         thumbLink.href = url;
         thumbLink.target = "_blank";
         thumbLink.rel = "noopener";
-        thumbLink.title = file.file_name;
+        thumbLink.title = file.pending
+          ? file.file_name + "（审核中，仅你和管理员可见）"
+          : file.file_name;
+        if (file.pending) thumbLink.classList.add("is-pending");
         var image = document.createElement("img");
         image.src = url;
         image.alt = file.file_name;
@@ -286,10 +300,14 @@
       link.href = url;
       link.download = file.file_name;
       link.rel = "noopener";
+      if (file.pending) link.classList.add("mg-file-pending");
       var icon = document.createElement("i");
       icon.setAttribute("data-lucide", "file");
       link.appendChild(icon);
       link.appendChild(el("span", "mg-file-name", file.file_name));
+      if (file.pending) {
+        link.appendChild(el("span", "mg-file-size", "审核中"));
+      }
       link.appendChild(el("span", "mg-file-size", formatSize(file.file_size)));
       wrap.appendChild(link);
     });

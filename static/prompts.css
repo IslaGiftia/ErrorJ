@@ -478,6 +478,30 @@ input {
   font-size: 22px;
 }
 
+.pr-dialog-head {
+  position: sticky;
+  /* 抵消 .pr-dialog 的 24px 内边距，滚动时标题栏贴住弹窗顶边 */
+  top: -24px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: -24px -24px 16px;
+  padding: 18px 24px 12px;
+  background: var(--pr-panel);
+  border-bottom: 1px solid var(--pr-line);
+}
+
+.pr-dialog-head h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.pr-dialog-head .pr-dialog-close {
+  position: static;
+  margin-left: auto;
+}
+
 .pr-dialog-close {
   position: absolute;
   top: 12px;

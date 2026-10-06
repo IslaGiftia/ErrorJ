@@ -1511,3 +1511,49 @@ body[data-page] .under-construction {
     width: 844px;
   }
 }
+
+/* 有待审核注册申请时，工作台入口呼吸高亮 */
+.repo-entry.has-pending {
+  border-color: color-mix(in srgb, var(--primary) 60%, var(--line));
+  animation: repoPendingPulse 2.4s ease-in-out infinite;
+}
+
+@keyframes repoPendingPulse {
+  0%,
+  100% {
+    box-shadow: 0 10px 34px rgba(0, 0, 0, 0.12);
+  }
+  50% {
+    box-shadow:
+      0 0 0 5px color-mix(in srgb, var(--primary) 22%, transparent),
+      0 0 26px color-mix(in srgb, var(--primary) 55%, transparent);
+  }
+}
+
+.repo-pending {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 2;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 22px;
+  text-align: center;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--primary) 55%, transparent);
+}
+
+.repo-pending[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .repo-entry.has-pending {
+    animation: none;
+  }
+}

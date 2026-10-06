@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <meta name="tab-name" content="ej-music">
+  <title>听Error酱的歌单</title>
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
+  <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
+  <link rel="stylesheet" href="/static/music.css">
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
+  <script src="/static/site/tabname.js"></script>
+  <link rel="stylesheet" href="/static/fonts.css">
+</head>
+<body>
+  <div class="mu-app">
+    <header class="mu-header">
+      <a class="mu-brand" href="/">
+        <i data-lucide="arrow-left"></i>
+        <strong>听Error酱的歌单</strong>
+      </a>
+      <span class="mu-count" id="musicCount"></span>
+      <button class="mu-btn mu-btn-primary" id="musicUploadBtn" type="button" hidden>
+        <i data-lucide="upload"></i><span>上传歌曲</span>
+      </button>
+    </header>
+
+    <main class="mu-main">
+      <section class="mu-player" id="playerPanel">
+        <div class="mu-cover" id="playerCover">
+          <img id="playerCoverImg" alt="" hidden>
+          <span class="mu-cover-fallback" id="playerCoverFallback">♪</span>
+        </div>
+        <div class="mu-now">
+          <h1 class="mu-title" id="playerTitle">还没有选择歌曲</h1>
+          <p class="mu-meta" id="playerMeta">上传后点击右侧歌单里的歌曲开始播放</p>
+          <div class="mu-progress">
+            <span id="playerCurrent">0:00</span>
+            <input id="playerSeek" type="range" min="0" max="1000" step="1" value="0" aria-label="播放进度">
+            <span id="playerDuration">0:00</span>
+          </div>
+          <div class="mu-controls">
+            <button class="mu-icon-btn" id="btnShuffle" type="button" title="随机播放" aria-label="随机播放">
+              <i data-lucide="shuffle"></i>
+            </button>
+            <button class="mu-icon-btn" id="btnPrev" type="button" title="上一首" aria-label="上一首">
+              <i data-lucide="skip-back"></i>
+            </button>
+            <button class="mu-icon-btn mu-play" id="btnPlay" type="button" title="播放 / 暂停" aria-label="播放">
+              <i data-lucide="play"></i>
+            </button>
+            <button class="mu-icon-btn" id="btnNext" type="button" title="下一首" aria-label="下一首">
+              <i data-lucide="skip-forward"></i>
+            </button>
+            <button class="mu-icon-btn" id="btnRepeat" type="button" title="循环：关闭" aria-label="循环模式">
+              <i data-lucide="repeat"></i>
+            </button>
+            <div class="mu-volume">
+              <button class="mu-icon-btn" id="btnMute" type="button" title="静音" aria-label="静音">
+                <i data-lucide="volume-2"></i>
+              </button>
+              <input id="playerVolume" type="range" min="0" max="1" step="0.01" value="0.8" aria-label="音量">
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="mu-list-panel">
+        <div class="mu-list-head">
+          <h2>歌单</h2>
+          <label class="mu-search">
+            <i data-lucide="search"></i>
+            <input id="musicSearch" type="search" placeholder="搜索歌名、歌手或专辑">
+          </label>
+        </div>
+        <div class="mu-list" id="musicList"></div>
+      </section>
+    </main>
+  </div>
+
+  <audio id="audioEl" preload="metadata"></audio>
+
+  <div class="mu-modal" id="uploadModal" hidden>
+    <div class="mu-dialog" role="dialog" aria-modal="true" aria-labelledby="uploadTitle">
+      <header class="mu-dialog-head">
+        <h2 id="uploadTitle">上传歌曲</h2>
+        <button class="mu-icon-btn" id="uploadClose" type="button" aria-label="关闭">
+          <i data-lucide="x"></i>
+        </button>
+      </header>
+      <label class="mu-file-field">
+        <input id="uploadFiles" type="file" accept="audio/*,.mp3,.wav,.flac,.m4a,.aac,.ogg,.opus" multiple>
+        <span><i data-lucide="music"></i><strong id="uploadFileLabel">选择音频文件</strong></span>
+        <small>支持 mp3 / wav / flac / m4a / aac / ogg / opus，单个不超过 60MB；会尝试读取文件里的歌名、歌手、专辑和内嵌封面。</small>
+      </label>
+      <div class="mu-field-row" id="uploadMetaFields">
+        <label class="mu-field"><span>歌名（可留空）</span><input id="uploadTitleInput" maxlength="80" placeholder="自动读取标签"></label>
+        <label class="mu-field"><span>歌手（可留空）</span><input id="uploadArtistInput" maxlength="80"></label>
+        <label class="mu-field"><span>专辑（可留空）</span><input id="uploadAlbumInput" maxlength="80"></label>
+      </div>
+      <p class="mu-hint" id="uploadHint">多选文件时按文件内的标签信息命名，上面三个输入框只在单文件上传时生效。</p>
+      <div class="mu-dialog-actions">
+        <span class="mu-spacer"></span>
+        <button class="mu-btn" id="uploadCancel" type="button">取消</button>
+        <button class="mu-btn mu-btn-primary" id="uploadSubmit" type="button">开始上传</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="mu-modal" id="editModal" hidden>
+    <form class="mu-dialog" id="editForm">
+      <header class="mu-dialog-head">
+        <h2 id="editTitle">编辑歌曲</h2>
+        <button class="mu-icon-btn" id="editClose" type="button" aria-label="关闭">
+          <i data-lucide="x"></i>
+        </button>
+      </header>
+      <label class="mu-field"><span>歌名</span><input id="editTitleInput" maxlength="80" required></label>
+      <div class="mu-field-row">
+        <label class="mu-field"><span>歌手</span><input id="editArtistInput" maxlength="80"></label>
+        <label class="mu-field"><span>专辑</span><input id="editAlbumInput" maxlength="80"></label>
+      </div>
+      <p class="mu-form-error" id="editError" hidden></p>
+      <div class="mu-dialog-actions">
+        <button class="mu-btn mu-btn-danger" id="editDelete" type="button">
+          <i data-lucide="trash-2"></i><span>删除</span>
+        </button>
+        <span class="mu-spacer"></span>
+        <button class="mu-btn" id="editCancel" type="button">取消</button>
+        <button class="mu-btn mu-btn-primary" type="submit">保存</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="mu-toast" id="musicToast" hidden></div>
+
+  <script src="/static/vendor/lucide.min.js"></script>
+  <script src="/static/music.js"></script>
+</body>
+</html>

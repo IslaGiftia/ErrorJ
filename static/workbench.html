@@ -7,6 +7,7 @@
   <title>工作台 · Error酱</title>
   <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
   <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
+  <link rel="stylesheet" href="/static/prompts.css">
   <link rel="stylesheet" href="/static/workbench.css">
   <meta name="tab-name" content="ej-workbench">
   <script src="/static/site/tabname.js"></script>
@@ -34,6 +35,9 @@
         <button type="button" data-view="assets"><i data-lucide="folder-open"></i><span>资料</span></button>
         <button type="button" data-view="firmware"><i data-lucide="cpu"></i><span>固件</span></button>
         <button type="button" data-view="repairs"><i data-lucide="clipboard-list"></i><span>维修台账</span></button>
+        <button type="button" data-view="prompts"><i data-lucide="sparkles"></i><span>提示词</span></button>
+        <button type="button" data-view="accounts"><i data-lucide="shield-check"></i><span>账号权限</span><em class="wb-nav-badge" id="accountsNavBadge" hidden></em></button>
+        <button type="button" data-view="review"><i data-lucide="inbox"></i><span>内容审核</span><em class="wb-nav-badge" id="reviewNavBadge" hidden></em></button>
       </nav>
       <div class="wb-header-actions">
         <button class="wb-btn wb-btn-primary" id="headerUploadBtn" type="button"><i data-lucide="upload"></i><span>上传文件</span></button>
@@ -130,8 +134,124 @@
         </div>
         <div class="wb-list" id="repairList"></div>
       </section>
+
+      <section class="wb-view" id="view-prompts" hidden>
+        <div class="wb-page-head">
+          <div>
+            <h1>AI 提示词</h1>
+            <p>把常用的好提示词放在手边，支持搜索、分类筛选和置顶。</p>
+          </div>
+          <button class="wb-btn wb-btn-primary" id="promptAddBtn" type="button" hidden>
+            <i data-lucide="plus"></i><span>新增提示词</span>
+          </button>
+        </div>
+        <section class="pr-toolbar">
+          <label class="pr-search">
+            <i data-lucide="search"></i>
+            <input id="promptSearch" type="search" placeholder="搜索提示词、标签或用途">
+          </label>
+          <div class="pr-tabs" id="promptTabs"></div>
+        </section>
+        <section class="pr-grid" id="promptGrid"></section>
+        <div class="pr-empty" id="promptEmpty" hidden>没有匹配的提示词。</div>
+      </section>
+
+      <section class="wb-view" id="view-accounts" hidden>
+        <div class="wb-page-head">
+          <div>
+            <h1>账号与权限</h1>
+            <p>审批注册申请、发放或收回权限、维护敏感词库，并查看所有敏感操作的审计日志。</p>
+          </div>
+          <button class="wb-btn" id="accountRefreshBtn" type="button">
+            <i data-lucide="refresh-cw"></i><span>刷新</span>
+          </button>
+        </div>
+        <div class="wb-tabs" id="accountTabs">
+          <button class="active" type="button" data-account-tab="pending">待审核 <em id="pendingCount">0</em></button>
+          <button type="button" data-account-tab="users">全部账号</button>
+          <button type="button" data-account-tab="words">敏感词库</button>
+          <button type="button" data-account-tab="notify">通知设置</button>
+          <button type="button" data-account-tab="audit">审计日志</button>
+        </div>
+        <div class="wb-account-panel" id="accountPanel"></div>
+      </section>
+
+      <section class="wb-view" id="view-review" hidden>
+        <div class="wb-page-head">
+          <div>
+            <h1>内容审核</h1>
+            <p>留言附件审核通过后，游客和普通账户才能看到；拒绝会直接删除文件。</p>
+          </div>
+          <div class="wb-inline">
+            <button class="wb-btn" id="reviewRefreshBtn" type="button">
+              <i data-lucide="refresh-cw"></i><span>刷新</span>
+            </button>
+            <button class="wb-btn wb-btn-primary" id="reviewApproveAllBtn" type="button">
+              <i data-lucide="check-check"></i><span>全部通过</span>
+            </button>
+          </div>
+        </div>
+        <div class="wb-account-panel" id="reviewPanel"></div>
+      </section>
     </main>
   </div>
+
+  <div class="pr-modal" id="promptModal" hidden>
+    <div class="pr-dialog" role="dialog" aria-modal="true" aria-labelledby="promptModalTitle">
+      <header class="pr-dialog-head">
+        <h2 id="promptModalTitle">新增提示词</h2>
+        <button class="pr-dialog-close" id="promptModalClose" type="button" aria-label="关闭">×</button>
+      </header>
+      <form id="promptForm">
+        <div class="pr-form-grid">
+          <label>
+            <span>标题</span>
+            <input id="promptTitle" maxlength="120" required>
+          </label>
+          <label>
+            <span>分类</span>
+            <input id="promptCategory" maxlength="40" placeholder="例如：编程">
+          </label>
+        </div>
+        <label>
+          <span>说明</span>
+          <input id="promptDescription" maxlength="300" placeholder="这个提示词适合做什么">
+        </label>
+        <label>
+          <span>标签</span>
+          <input id="promptTags" maxlength="200" placeholder="用逗号分隔">
+        </label>
+        <label>
+          <span>提示词内容</span>
+          <textarea id="promptBody" rows="10" maxlength="12000" required></textarea>
+        </label>
+        <div class="pr-form-error" id="promptFormError" hidden></div>
+        <div class="pr-dialog-actions">
+          <button class="pr-action" id="promptCancel" type="button">取消</button>
+          <button class="pr-action primary" id="promptSave" type="submit">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="pr-preview" id="promptPreview" hidden>
+    <div class="pr-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="previewTitle">
+      <button class="pr-dialog-close" id="promptPreviewClose" type="button" aria-label="关闭">×</button>
+      <div class="pr-preview-head">
+        <span class="pr-preview-category" id="previewCategory"></span>
+        <h2 id="previewTitle"></h2>
+        <p class="pr-preview-description" id="previewDescription"></p>
+      </div>
+      <div class="pr-preview-tags" id="previewTags"></div>
+      <pre class="pr-preview-body" id="previewBody"></pre>
+      <div class="pr-preview-actions">
+        <button class="pr-action primary" id="previewCopy" type="button">复制提示词</button>
+        <button class="pr-action" id="promptPreviewCloseFooter" type="button">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="pr-toast" id="promptToast" hidden></div>
 
   <div class="wb-modal-overlay" id="assetModal" hidden>
     <form class="wb-modal" id="assetForm">
@@ -207,5 +327,6 @@
 
   <script src="/static/vendor/lucide.min.js"></script>
   <script src="/static/workbench.js"></script>
+  <script src="/static/prompts.js"></script>
 </body>
 </html>

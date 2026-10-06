@@ -730,3 +730,477 @@ svg {
     width: min(2200px, 100%);
   }
 }
+
+/* ---------- 提示词（并入工作台） ---------- */
+#view-prompts .pr-toolbar {
+  margin-bottom: 16px;
+}
+
+#view-prompts .pr-grid {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+#view-prompts .pr-empty {
+  padding: 40px 20px;
+}
+
+/* ---------- 账号与权限 ---------- */
+.wb-nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--wb-accent);
+  color: #fff;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 18px;
+}
+
+.wb-nav-badge[hidden] {
+  display: none;
+}
+
+.wb-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--wb-line);
+  padding-bottom: 10px;
+}
+
+.wb-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 13px;
+  border: 1px solid var(--wb-line);
+  border-radius: 8px;
+  background: var(--wb-surface);
+  color: var(--wb-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.wb-tabs button:hover {
+  color: var(--wb-text);
+  border-color: var(--wb-accent);
+}
+
+.wb-tabs button.active {
+  background: color-mix(in srgb, var(--wb-accent) 14%, transparent);
+  border-color: var(--wb-accent);
+  color: var(--wb-accent);
+}
+
+.wb-tabs em {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--wb-accent);
+  color: #fff;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.wb-account-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.wb-user-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wb-user-card {
+  padding: 14px;
+  border: 1px solid var(--wb-line);
+  border-radius: 8px;
+  background: var(--wb-surface);
+}
+
+.wb-user-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.wb-user-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.wb-user-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wb-user-meta {
+  margin-top: 2px;
+  color: var(--wb-muted);
+  font-size: 12px;
+}
+
+.wb-user-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.wb-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--wb-hover);
+  color: var(--wb-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.wb-chip-pending {
+  background: #fdf0d5;
+  color: #9a6400;
+}
+
+.wb-chip-approved {
+  background: #e3f5e8;
+  color: #1d7a3c;
+}
+
+.wb-chip-rejected,
+.wb-chip-disabled {
+  background: var(--wb-danger-soft);
+  color: var(--wb-danger);
+}
+
+.wb-chip-admin {
+  background: color-mix(in srgb, var(--wb-accent) 16%, transparent);
+  color: var(--wb-accent);
+}
+
+.wb-user-perms {
+  margin-top: 10px;
+}
+
+.wb-user-perms summary {
+  cursor: pointer;
+  color: var(--wb-muted);
+  font-size: 13px;
+}
+
+.wb-perm-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.wb-perm-group h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.wb-perm-items {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.wb-perm-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--wb-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.wb-perm-item input {
+  accent-color: var(--wb-accent);
+}
+
+.wb-user-reset {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.wb-user-reset input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--wb-line);
+  border-radius: 8px;
+  background: var(--wb-surface-2, var(--wb-hover));
+  color: var(--wb-text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.wb-word-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.wb-word-form input,
+.wb-word-form select,
+.wb-account-panel textarea {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--wb-line);
+  border-radius: 8px;
+  background: var(--wb-surface);
+  color: var(--wb-text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.wb-word-form input {
+  flex: 1;
+  min-width: 140px;
+}
+
+.wb-account-panel textarea {
+  width: 100%;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.wb-word-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.wb-word {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid var(--wb-line);
+  border-radius: 999px;
+  background: var(--wb-surface);
+  font-size: 12.5px;
+}
+
+.wb-word em {
+  color: var(--wb-muted);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.wb-word button {
+  border: 0;
+  background: transparent;
+  color: var(--wb-danger);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.wb-audit-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--wb-line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--wb-surface);
+}
+
+.wb-audit-row {
+  display: grid;
+  grid-template-columns: 150px 110px 120px 130px minmax(0, 1fr);
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--wb-line);
+  font-size: 12.5px;
+}
+
+.wb-audit-row:last-child {
+  border-bottom: 0;
+}
+
+.wb-audit-time {
+  color: var(--wb-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.wb-audit-actor {
+  font-weight: 700;
+}
+
+.wb-audit-target {
+  color: var(--wb-accent);
+}
+
+.wb-audit-detail {
+  color: var(--wb-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.wb-hint {
+  margin: 6px 0 0;
+  color: var(--wb-muted);
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .wb-audit-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .wb-audit-detail {
+    white-space: normal;
+  }
+}
+
+/* ---------- 内容审核 ---------- */
+.wb-review-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wb-review-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--wb-line);
+  border-radius: 8px;
+  background: var(--wb-surface);
+  flex-wrap: wrap;
+}
+
+.wb-review-thumb {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 96px;
+  height: 96px;
+  border: 1px solid var(--wb-line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--wb-hover);
+  color: var(--wb-muted);
+}
+
+.wb-review-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.wb-review-thumb svg {
+  width: 28px;
+  height: 28px;
+}
+
+.wb-review-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.wb-review-text {
+  margin: 6px 0 0;
+  color: var(--wb-muted);
+  font-size: 12.5px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+@media (max-width: 640px) {
+  .wb-review-thumb {
+    width: 72px;
+    height: 72px;
+  }
+}
+
+/* ---------- 通知设置 ---------- */
+.wb-notify-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  align-items: end;
+  margin: 10px 0 6px;
+}
+
+.wb-notify-grid .wb-perm-item {
+  align-self: center;
+}
+
+.wb-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  color: var(--wb-muted);
+  font-size: 12.5px;
+}
+
+.wb-field input,
+.wb-field select {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--wb-line);
+  border-radius: 8px;
+  background: var(--wb-surface);
+  color: var(--wb-text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.wb-field-wide {
+  grid-column: span 2;
+}
+
+.wb-perm-items h4 {
+  margin: 4px 0 6px;
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .wb-field-wide {
+    grid-column: span 1;
+  }
+}

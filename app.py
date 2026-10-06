@@ -20,13 +20,14 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 import uuid
 import zipfile
 import xml.etree.ElementTree as ET
 from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, quote, unquote, urljoin, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlencode, urljoin, urlsplit
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
@@ -35,15 +36,27 @@ mimetypes.add_type("font/woff2", ".woff2")
 mimetypes.add_type("font/woff", ".woff")
 mimetypes.add_type("font/ttf", ".ttf")
 mimetypes.add_type("font/otf", ".otf")
+mimetypes.add_type("audio/flac", ".flac")
+mimetypes.add_type("audio/ogg", ".opus")
+mimetypes.add_type("audio/ogg", ".oga")
+mimetypes.add_type("audio/mp4", ".m4a")
+mimetypes.add_type("audio/aac", ".aac")
 
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 DATA_DIR = BASE_DIR / "data"
 PROMPTS_SEED_PATH = BASE_DIR / "config" / "prompts-seed.json"
+MAP_SEED_PATH = BASE_DIR / "config" / "map-seed.json"
 DB_PATH = DATA_DIR / "inventory.db"
 HOST = os.environ.get("INVENTORY_HOST", "0.0.0.0")
 PORT = int(os.environ.get("INVENTORY_PORT", "8000"))
+MAP_PUBLIC = os.environ.get("INVENTORY_MAP_PUBLIC", "1").strip().lower() not in (
+    "0",
+    "false",
+    "off",
+    "no",
+)
 XLSX_NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 BOM_REPORT_DIR = DATA_DIR / "bom_reports"
 BOM_WATCH_STATE_PATH = DATA_DIR / "bom_watch_state.json"
@@ -51,6 +64,8 @@ PART_IMAGE_DIR = DATA_DIR / "part_images"
 BOOKMARK_FAVICON_DIR = DATA_DIR / "bookmark_favicons"
 NOTE_IMAGE_DIR = DATA_DIR / "note_images"
 RECOMMEND_IMAGE_DIR = DATA_DIR / "recommend_images"
+MAP_IMAGE_DIR = DATA_DIR / "map_images"
+MUSIC_COVER_DIR = DATA_DIR / "music_covers"
 WORKBENCH_DIR = DATA_DIR / "workbench"
 NOTE_CONTENT_MAX_CHARS = 2_000_000
 NOTE_IMAGE_MAX_BYTES = 20 * 1024 * 1024
@@ -77,6 +92,7 @@ PUBLIC_PAGES = {
     "/messages",
     "/moments",
     "/recommendations",
+    "/music",
     "/references",
     "/games",
     "/favicon.ico",
@@ -98,14 +114,194 @@ PUBLIC_POST_APIS = {
     "/api/site/messages",
 }
 PUBLIC_DATA_PREFIXES = (
-    "site_message_files/",
     "moment_images/",
     "site_photos/",
     "site_music_files/",
+    "music_covers/",
     "recommend_images/",
 )
+if MAP_PUBLIC:
+    PUBLIC_PAGES.add("/map")
+    PUBLIC_GET_APIS.add("/api/map")
+    PUBLIC_DATA_PREFIXES = PUBLIC_DATA_PREFIXES + ("map_images/",)
 USERNAME_RE = re.compile(r"^[\w.-]{3,32}$", re.UNICODE)
 RESERVED_USERNAMES = {"owner", "admin", "administrator", "root", "system"}
+NICKNAME_RE = re.compile(r"^[\w\u4e00-\u9fff·．.\-_\u0020]{2,16}$", re.UNICODE)
+RESERVED_NICKNAMES = {
+    "管理员",
+    "admin",
+    "administrator",
+    "owner",
+    "root",
+    "system",
+    "error酱",
+    "errorjiang",
+    "系统",
+    "官方",
+}
+NICKNAME_CHANGE_DAYS = 30
+ADMIN_PERMISSION = "system:admin"
+
+PERMISSION_GROUPS = (
+    {
+        "key": "inventory",
+        "label": "仓库（电子元件）",
+        "items": (
+            {"key": "inventory:view", "label": "查看仓库、元件、出入库记录"},
+            {"key": "inventory:write", "label": "增删改元件、出入库、BOM 对比"},
+        ),
+    },
+    {
+        "key": "bookmarks",
+        "label": "网页收藏",
+        "items": (
+            {"key": "bookmarks:view", "label": "查看网页收藏"},
+            {"key": "bookmarks:write", "label": "增删改收藏、导入 Firefox、检查链接"},
+        ),
+    },
+    {
+        "key": "notes",
+        "label": "学习笔记",
+        "items": (
+            {"key": "notes:view", "label": "查看学习笔记"},
+            {"key": "notes:write", "label": "新增、编辑、导入导出笔记"},
+        ),
+    },
+    {
+        "key": "workbench",
+        "label": "工作台",
+        "items": (
+            {"key": "workbench:view", "label": "查看工作台资料与维修台账"},
+            {"key": "workbench:write", "label": "上传资料、维护维修台账"},
+            {"key": "prompts:view", "label": "查看 AI 提示词"},
+            {"key": "prompts:write", "label": "增删改 AI 提示词"},
+        ),
+    },
+    {
+        "key": "map",
+        "label": "地图",
+        "items": (
+            {"key": "map:write", "label": "添加标记、管理自己添加的标记与照片"},
+            {"key": "map:write_all", "label": "编辑和删除所有标记"},
+            {"key": "map:manage_categories", "label": "管理地图分类"},
+            {"key": "map:import", "label": "导入标记数据"},
+            {"key": "map:export", "label": "导出地图数据"},
+        ),
+    },
+    {
+        "key": "site",
+        "label": "站点内容",
+        "items": (
+            {"key": "moments:write", "label": "发布、编辑 Error酱动态"},
+            {"key": "recommendations:write", "label": "管理 Error酱推荐"},
+            {"key": "music:write", "label": "上传、编辑歌单"},
+            {"key": "links:write", "label": "管理宝藏网站链接"},
+            {"key": "photos:write", "label": "管理照片墙"},
+            {"key": "messages:attach_auto", "label": "留言附件免审核（可信用户）"},
+        ),
+    },
+    {
+        "key": "system",
+        "label": "系统",
+        "items": (
+            {
+                "key": ADMIN_PERMISSION,
+                "label": "授予管理员（拥有全部权限，除不能删除站长）",
+                "admin_only": True,
+            },
+        ),
+    },
+)
+PERMISSION_LABELS = {
+    item["key"]: item["label"]
+    for group in PERMISSION_GROUPS
+    for item in group["items"]
+}
+DEFAULT_MEMBER_PERMISSIONS = ("map:write", "map:import")
+GRANTABLE_PERMISSIONS = tuple(
+    item["key"]
+    for group in PERMISSION_GROUPS
+    for item in group["items"]
+)
+
+PERMISSION_ROUTE_MODULES = (
+    ("/api/parts", "inventory"),
+    ("/api/categories", "inventory"),
+    ("/api/locations", "inventory"),
+    ("/api/projects", "inventory"),
+    ("/api/inventory", "inventory"),
+    ("/api/movements", "inventory"),
+    ("/api/wishlist", "inventory"),
+    ("/api/warehouse", "inventory"),
+    ("/api/bom", "inventory"),
+    ("/api/dashboard", "inventory"),
+    ("/api/import/lcsc", "inventory"),
+    ("/api/bookmarks", "bookmarks"),
+    ("/api/bookmark-folders", "bookmarks"),
+    ("/api/notes", "notes"),
+    ("/api/workbench", "workbench"),
+    ("/api/prompts", "prompts"),
+    ("/api/moments", "moments"),
+    ("/api/recommendations", "recommendations"),
+    ("/api/site/music", "music"),
+    ("/api/site/photos", "photos"),
+    ("/api/site/links", "links"),
+)
+PAGE_PERMISSIONS = {
+    "/inventory": ("inventory:view", "inventory:write"),
+    "/bookmarks": ("bookmarks:view", "bookmarks:write"),
+    "/notes": ("notes:view", "notes:write"),
+    "/workbench": ("workbench:view", "workbench:write", "prompts:view", "prompts:write"),
+}
+
+SENSITIVE_SEED_WORDS = (
+    ("共产党", "政治"),
+    ("国民党", "政治"),
+    ("杀人", "暴力"),
+    ("砍死", "暴力"),
+    ("砍人", "暴力"),
+    ("自杀", "暴力"),
+    ("爆炸", "暴力"),
+    ("炸弹", "暴力"),
+    ("枪支", "暴力"),
+    ("毒品", "暴力"),
+    ("傻逼", "辱骂"),
+    ("脑残", "辱骂"),
+    ("废物", "辱骂"),
+    ("去死", "辱骂"),
+    ("贱人", "辱骂"),
+    ("色情", "色情"),
+    ("嫖娼", "色情"),
+    ("卖淫", "色情"),
+    ("约炮", "色情"),
+    ("成人影片", "色情"),
+    ("加微信", "广告"),
+    ("加QQ", "广告"),
+    ("代购", "广告"),
+    ("刷单", "广告"),
+    ("博彩", "广告"),
+    ("赌博", "广告"),
+    ("网贷", "广告"),
+    ("优惠券群", "广告"),
+)
+SENSITIVE_CATEGORIES = ("政治", "暴力", "辱骂", "色情", "广告", "自定义")
+
+NOTIFY_CHANNELS = (
+    {"key": "wecom", "label": "企业微信群机器人", "hint": "群机器人 Webhook 地址"},
+    {"key": "dingtalk", "label": "钉钉群机器人", "hint": "机器人 Webhook 地址（安全设置建议用关键词，关键词填 Error酱）"},
+    {"key": "feishu", "label": "飞书群机器人", "hint": "自定义机器人 Webhook 地址"},
+    {"key": "bark", "label": "Bark（iOS）", "hint": "形如 https://api.day.app/你的Key"},
+    {"key": "serverchan", "label": "Server酱（微信）", "hint": "形如 https://sctapi.ftqq.com/你的SendKey.send"},
+    {"key": "json", "label": "通用 JSON Webhook", "hint": "会 POST {title, body, event, url, time} 到该地址"},
+)
+NOTIFY_EVENTS = (
+    {"key": "register", "label": "新的注册申请", "default": True},
+    {"key": "attachment", "label": "新的待审核附件", "default": True},
+    {"key": "message", "label": "新的留言", "default": False},
+)
+NOTIFY_DEFAULT_EVENTS = tuple(
+    item["key"] for item in NOTIFY_EVENTS if item.get("default")
+)
 LOGIN_FAILURES = {}
 RATE_LIMITS = {}
 RATE_LOCK = threading.Lock()
@@ -117,28 +313,18 @@ MESSAGE_FILE_TOTAL_MAX_BYTES = 15 * 1024 * 1024
 MESSAGE_FILE_MAX_COUNT = 3
 MOMENT_CONTENT_MAX_CHARS = 2000
 MOMENT_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+MAP_PHOTO_MAX_BYTES = 8 * 1024 * 1024
+MAP_PHOTO_MAX_COUNT = 9
+MUSIC_MAX_BYTES = 60 * 1024 * 1024
+MUSIC_COVER_MAX_BYTES = 5 * 1024 * 1024
+MUSIC_EXTENSIONS = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".oga", ".opus"}
 MOMENT_IMAGE_TOTAL_MAX_BYTES = 15 * 1024 * 1024
 MOMENT_IMAGE_MAX_COUNT = 9
 MESSAGE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 MESSAGE_FILE_EXTENSIONS = MESSAGE_IMAGE_EXTENSIONS | {
-    ".7z",
-    ".bin",
-    ".csv",
-    ".doc",
-    ".docx",
-    ".elf",
-    ".gz",
-    ".hex",
-    ".json",
-    ".log",
-    ".md",
     ".pdf",
-    ".rar",
-    ".tar",
     ".txt",
-    ".xls",
-    ".xlsx",
-    ".zip",
+    ".md",
 }
 WORKBENCH_CATEGORIES = {"source", "firmware", "document", "image", "other"}
 WORKBENCH_REPAIR_STATUSES = {"open", "repairing", "completed", "cancelled"}
@@ -279,6 +465,8 @@ def init_db():
     DATA_DIR.mkdir(exist_ok=True)
     BOOKMARK_FAVICON_DIR.mkdir(exist_ok=True)
     NOTE_IMAGE_DIR.mkdir(exist_ok=True)
+    MAP_IMAGE_DIR.mkdir(exist_ok=True)
+    MUSIC_COVER_DIR.mkdir(exist_ok=True)
     WORKBENCH_DIR.mkdir(exist_ok=True)
     conn = get_conn()
     try:
@@ -403,6 +591,10 @@ def init_db():
                 file_path TEXT NOT NULL,
                 file_size INTEGER NOT NULL DEFAULT 0,
                 mime_type TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                uploaded_by INTEGER,
+                reviewed_by TEXT,
+                reviewed_at TEXT,
                 created_at TEXT NOT NULL
             );
 
@@ -437,9 +629,13 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
                 artist TEXT,
+                album TEXT,
                 source_type TEXT NOT NULL DEFAULT 'url',
                 source_id TEXT,
                 cover_path TEXT,
+                duration REAL,
+                file_size INTEGER,
+                mime_type TEXT,
                 sort_order INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL
             );
@@ -494,16 +690,103 @@ def init_db():
                 value TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS map_categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                parent_id INTEGER REFERENCES map_categories(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                glyph TEXT NOT NULL DEFAULT '·',
+                color TEXT NOT NULL DEFAULT '#7b68ee',
+                note TEXT,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS map_places (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category_id INTEGER REFERENCES map_categories(id) ON DELETE SET NULL,
+                name TEXT NOT NULL,
+                subtitle TEXT,
+                address TEXT,
+                note TEXT,
+                signature TEXT,
+                tags TEXT,
+                lat REAL NOT NULL,
+                lng REAL NOT NULL,
+                status TEXT,
+                rating INTEGER NOT NULL DEFAULT 0,
+                created_by INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_map_places_category
+                ON map_places(category_id);
+
+            CREATE TABLE IF NOT EXISTS map_place_photos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                place_id INTEGER NOT NULL REFERENCES map_places(id) ON DELETE CASCADE,
+                file_path TEXT NOT NULL,
+                original_name TEXT,
+                mime_type TEXT,
+                size_bytes INTEGER NOT NULL DEFAULT 0,
+                created_by INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_map_place_photos_place
+                ON map_place_photos(place_id);
+
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                nickname TEXT,
                 password_hash TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
                 role TEXT NOT NULL DEFAULT 'member',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 approved_at TEXT,
+                nickname_updated_at TEXT,
+                silenced_until TEXT,
                 last_login_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS user_permissions (
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                permission TEXT NOT NULL,
+                granted_by TEXT,
+                granted_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, permission)
+            );
+
+            CREATE TABLE IF NOT EXISTS permission_audit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                actor_kind TEXT NOT NULL DEFAULT 'owner',
+                actor_id INTEGER NOT NULL DEFAULT 0,
+                actor_name TEXT,
+                target_id INTEGER,
+                target_name TEXT,
+                action TEXT NOT NULL,
+                detail TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS sensitive_words (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                word TEXT NOT NULL UNIQUE,
+                category TEXT NOT NULL DEFAULT '自定义',
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS notify_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event TEXT NOT NULL,
+                title TEXT,
+                body TEXT,
+                channel TEXT,
+                status TEXT NOT NULL,
+                detail TEXT,
+                created_at TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS learning_notes (
@@ -691,6 +974,86 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_bookmarks_link_status ON bookmarks(link_status)"
         )
+        map_place_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(map_places)").fetchall()
+        }
+        for column, ddl in (
+            ("status", "ALTER TABLE map_places ADD COLUMN status TEXT"),
+            ("rating", "ALTER TABLE map_places ADD COLUMN rating INTEGER NOT NULL DEFAULT 0"),
+            ("created_by", "ALTER TABLE map_places ADD COLUMN created_by INTEGER NOT NULL DEFAULT 0"),
+        ):
+            if column not in map_place_columns:
+                conn.execute(ddl)
+        map_category_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(map_categories)").fetchall()
+        }
+        if "parent_id" not in map_category_columns:
+            conn.execute(
+                """ALTER TABLE map_categories
+                   ADD COLUMN parent_id INTEGER REFERENCES map_categories(id) ON DELETE CASCADE"""
+            )
+        music_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(site_music)").fetchall()
+        }
+        for column, ddl in (
+            ("album", "ALTER TABLE site_music ADD COLUMN album TEXT"),
+            ("cover_path", "ALTER TABLE site_music ADD COLUMN cover_path TEXT"),
+            ("duration", "ALTER TABLE site_music ADD COLUMN duration REAL"),
+            ("file_size", "ALTER TABLE site_music ADD COLUMN file_size INTEGER"),
+            ("mime_type", "ALTER TABLE site_music ADD COLUMN mime_type TEXT"),
+        ):
+            if column not in music_columns:
+                conn.execute(ddl)
+        user_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()
+        }
+        for column, ddl in (
+            ("nickname", "ALTER TABLE users ADD COLUMN nickname TEXT"),
+            ("nickname_updated_at", "ALTER TABLE users ADD COLUMN nickname_updated_at TEXT"),
+            ("silenced_until", "ALTER TABLE users ADD COLUMN silenced_until TEXT"),
+        ):
+            if column not in user_columns:
+                conn.execute(ddl)
+        message_file_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(site_message_files)").fetchall()
+        }
+        for column, ddl in (
+            (
+                "status",
+                # 老数据本来就已公开显示，迁移时直接标记为已通过
+                "ALTER TABLE site_message_files ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'",
+            ),
+            ("uploaded_by", "ALTER TABLE site_message_files ADD COLUMN uploaded_by INTEGER"),
+            ("reviewed_by", "ALTER TABLE site_message_files ADD COLUMN reviewed_by TEXT"),
+            ("reviewed_at", "ALTER TABLE site_message_files ADD COLUMN reviewed_at TEXT"),
+        ):
+            if column not in message_file_columns:
+                conn.execute(ddl)
+        migrated = conn.execute(
+            "SELECT value FROM app_meta WHERE key = 'map_categories_v2'"
+        ).fetchone()
+        if not migrated:
+            total = conn.execute("SELECT COUNT(*) AS n FROM map_categories").fetchone()["n"]
+            top_count = conn.execute(
+                "SELECT COUNT(*) AS n FROM map_categories WHERE parent_id IS NULL"
+            ).fetchone()["n"]
+            if total > 0 and top_count == total:
+                cursor = conn.execute(
+                    """INSERT INTO map_categories
+                           (parent_id, name, glyph, color, note, sort_order, created_at)
+                       VALUES (NULL, ?, ?, ?, ?, ?, ?)""",
+                    ("美食", "食", "#e0762e", "餐厅、小吃、饮品等", -1, now_text()),
+                )
+                parent_id = cursor.lastrowid
+                conn.execute(
+                    "UPDATE map_categories SET parent_id = ? WHERE id != ?",
+                    (parent_id, parent_id),
+                )
+            conn.execute(
+                "INSERT INTO app_meta (key, value) VALUES ('map_categories_v2', ?)",
+                (now_text(),),
+            )
         import_timestamp = now_text()
         conn.execute(
             """
@@ -812,6 +1175,109 @@ def seed_data(conn):
             "INSERT INTO app_meta (key, value) VALUES ('ai_prompts_seeded', ?)",
             (now_text(),),
         )
+
+    seeded = conn.execute(
+        "SELECT value FROM app_meta WHERE key = 'map_seeded'"
+    ).fetchone()
+    if not seeded:
+        count = conn.execute("SELECT COUNT(*) AS n FROM map_places").fetchone()["n"]
+        if count == 0:
+            try:
+                map_seed = json.loads(MAP_SEED_PATH.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                map_seed = {}
+            if not isinstance(map_seed, dict):
+                map_seed = {}
+            stamp = now_text()
+            category_ids = {}
+            for index, item in enumerate(map_seed.get("categories") or []):
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name") or "").strip()[:60]
+                if not name:
+                    continue
+                color = str(item.get("color") or "#7b68ee").strip()[:9]
+                cursor = conn.execute(
+                    """INSERT INTO map_categories
+                           (parent_id, name, glyph, color, note, sort_order, created_at)
+                       VALUES (NULL, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        name,
+                        str(item.get("glyph") or "·").strip()[:2] or "·",
+                        color,
+                        str(item.get("note") or "").strip()[:500] or None,
+                        index,
+                        stamp,
+                    ),
+                )
+                parent_id = cursor.lastrowid
+                category_ids[name] = parent_id
+                for child_index, child in enumerate(item.get("children") or []):
+                    if not isinstance(child, dict):
+                        continue
+                    child_name = str(child.get("name") or "").strip()[:60]
+                    if not child_name:
+                        continue
+                    child_cursor = conn.execute(
+                        """INSERT INTO map_categories
+                               (parent_id, name, glyph, color, note, sort_order, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            parent_id,
+                            child_name,
+                            str(child.get("glyph") or "·").strip()[:2] or "·",
+                            str(child.get("color") or color).strip()[:9],
+                            str(child.get("note") or "").strip()[:500] or None,
+                            child_index,
+                            stamp,
+                        ),
+                    )
+                    category_ids[child_name] = child_cursor.lastrowid
+            for item in map_seed.get("places") or []:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name") or "").strip()[:120]
+                if not name:
+                    continue
+                try:
+                    lat = float(item.get("lat"))
+                    lng = float(item.get("lng"))
+                except (TypeError, ValueError):
+                    continue
+                if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+                    continue
+                conn.execute(
+                    """INSERT INTO map_places
+                           (category_id, name, subtitle, address, note, signature,
+                            tags, lat, lng, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        category_ids.get(str(item.get("category") or "").strip()),
+                        name,
+                        str(item.get("subtitle") or "").strip()[:120] or None,
+                        str(item.get("address") or "").strip()[:300] or None,
+                        str(item.get("note") or "").strip()[:2000] or None,
+                        str(item.get("signature") or "").strip()[:300] or None,
+                        str(item.get("tags") or "").strip()[:200] or None,
+                        lat,
+                        lng,
+                        stamp,
+                        stamp,
+                    ),
+                )
+        conn.execute(
+            "INSERT INTO app_meta (key, value) VALUES ('map_seeded', ?)",
+            (now_text(),),
+        )
+
+    count = conn.execute("SELECT COUNT(*) AS n FROM sensitive_words").fetchone()["n"]
+    if count == 0:
+        stamp = now_text()
+        for word, category in SENSITIVE_SEED_WORDS:
+            conn.execute(
+                "INSERT OR IGNORE INTO sensitive_words (word, category, created_at) VALUES (?, ?, ?)",
+                (word, category, stamp),
+            )
 
 
 def path_text(table, row_id, code_field="name"):
@@ -3095,6 +3561,389 @@ def remove_data_file(relative):
         return False
 
 
+# ---------- 音频元数据（MP3 / FLAC / M4A / WAV） ----------
+
+def _image_ext_from_magic(data):
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return ".gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return ".webp"
+    return None
+
+
+def _image_ext_from_mime(mime):
+    mime = (mime or "").lower()
+    if "png" in mime:
+        return ".png"
+    if "gif" in mime:
+        return ".gif"
+    if "webp" in mime:
+        return ".webp"
+    return ".jpg"
+
+
+def _id3_decode_text(frame):
+    if not frame:
+        return ""
+    encoding = frame[0]
+    payload = frame[1:]
+    try:
+        if encoding == 0:
+            text = payload.decode("latin-1", "ignore")
+        elif encoding == 1:
+            text = payload.decode("utf-16", "ignore")
+        elif encoding == 2:
+            text = payload.decode("utf-16-be", "ignore")
+        else:
+            text = payload.decode("utf-8", "ignore")
+    except Exception:
+        return ""
+    return text.split("\x00")[0].strip()
+
+
+def _id3_picture(frame, major):
+    if not frame:
+        return None
+    encoding = frame[0]
+    rest = frame[1:]
+    if major == 2:
+        mime = {
+            "PNG": "image/png",
+            "JPG": "image/jpeg",
+        }.get(rest[:3].decode("latin-1", "ignore").upper(), "image/jpeg")
+        rest = rest[3:]
+    else:
+        zero = rest.find(b"\x00")
+        if zero < 0:
+            return None
+        mime = rest[:zero].decode("latin-1", "ignore")
+        rest = rest[zero + 1 :]
+    if not rest:
+        return None
+    rest = rest[1:]  # 图片类型
+    if encoding in (1, 2):
+        end = -1
+        index = 0
+        while index + 1 < len(rest):
+            if rest[index] == 0 and rest[index + 1] == 0:
+                end = index
+                break
+            index += 2
+        rest = rest[end + 2 :] if end >= 0 else b""
+    else:
+        zero = rest.find(b"\x00")
+        rest = rest[zero + 1 :] if zero >= 0 else b""
+    if not rest:
+        return None
+    return rest, (_image_ext_from_magic(rest) or _image_ext_from_mime(mime))
+
+
+def parse_id3v2(raw):
+    """解析 ID3v2 标签，返回标题、歌手、专辑和内嵌封面。"""
+    info = {"title": "", "artist": "", "album": "", "cover": None}
+    if len(raw) < 10 or raw[:3] != b"ID3":
+        return info
+    major = raw[3]
+    size = (
+        ((raw[6] & 0x7F) << 21)
+        | ((raw[7] & 0x7F) << 14)
+        | ((raw[8] & 0x7F) << 7)
+        | (raw[9] & 0x7F)
+    )
+    body = raw[10 : 10 + size]
+    pos = 0
+    while pos < len(body):
+        if major == 2:
+            frame_id = body[pos : pos + 3]
+            header_size = 6
+            if len(frame_id) < 3 or not frame_id.strip(b"\x00"):
+                break
+            frame_size = int.from_bytes(body[pos + 3 : pos + 6], "big")
+        else:
+            frame_id = body[pos : pos + 4]
+            header_size = 10
+            if len(frame_id) < 4 or not frame_id.strip(b"\x00"):
+                break
+            if major == 4:
+                frame_size = (
+                    ((body[pos + 4] & 0x7F) << 21)
+                    | ((body[pos + 5] & 0x7F) << 14)
+                    | ((body[pos + 6] & 0x7F) << 7)
+                    | (body[pos + 7] & 0x7F)
+                )
+            else:
+                frame_size = int.from_bytes(body[pos + 4 : pos + 8], "big")
+        if frame_size <= 0 or pos + header_size + frame_size > len(body):
+            break
+        frame = body[pos + header_size : pos + header_size + frame_size]
+        pos += header_size + frame_size
+        key = frame_id.decode("latin-1", "ignore")
+        if key in ("TIT2", "TT2"):
+            info["title"] = _id3_decode_text(frame)
+        elif key in ("TPE1", "TP1"):
+            info["artist"] = _id3_decode_text(frame)
+        elif key in ("TALB", "TAL"):
+            info["album"] = _id3_decode_text(frame)
+        elif key in ("APIC", "PIC"):
+            picture = _id3_picture(frame, major)
+            if picture:
+                info["cover"] = picture
+    return info
+
+
+_MP3_BITRATES_V1_L3 = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320]
+_MP3_BITRATES_V2_L3 = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160]
+_MP3_RATES = {3: [44100, 48000, 32000], 2: [22050, 24000, 16000], 0: [11025, 12000, 8000]}
+
+
+def mp3_duration(raw):
+    """MP3 时长：优先读 Xing/Info 帧，否则按首帧码率估算。"""
+    start = 0
+    if raw[:3] == b"ID3" and len(raw) >= 10:
+        size = (
+            ((raw[6] & 0x7F) << 21)
+            | ((raw[7] & 0x7F) << 14)
+            | ((raw[8] & 0x7F) << 7)
+            | (raw[9] & 0x7F)
+        )
+        start = 10 + size
+        if raw[5] & 0x10:
+            start += 10
+    pos = start
+    while pos + 4 <= len(raw):
+        header = int.from_bytes(raw[pos : pos + 4], "big")
+        if (header & 0xFFE00000) == 0xFFE00000:
+            version = (header >> 19) & 3
+            layer = (header >> 17) & 3
+            bitrate_index = (header >> 12) & 0xF
+            rate_index = (header >> 10) & 3
+            if (
+                version != 1
+                and layer == 1
+                and bitrate_index not in (0, 15)
+                and rate_index != 3
+            ):
+                break
+        pos += 1
+    else:
+        return None
+    version = (header >> 19) & 3
+    bitrate_index = (header >> 12) & 0xF
+    rate_index = (header >> 10) & 3
+    sample_rate = _MP3_RATES.get(version, _MP3_RATES[3])[rate_index]
+    bitrate = (
+        _MP3_BITRATES_V1_L3[bitrate_index]
+        if version == 3
+        else _MP3_BITRATES_V2_L3[bitrate_index]
+    )
+    side_info = 32 if version == 3 else 17
+    xing_pos = pos + 4 + side_info
+    if raw[xing_pos : xing_pos + 4] in (b"Xing", b"Info"):
+        flags = (
+            int.from_bytes(raw[xing_pos + 4 : xing_pos + 8], "big")
+            if len(raw) >= xing_pos + 8
+            else 0
+        )
+        if flags & 0x1 and len(raw) >= xing_pos + 12:
+            frames = int.from_bytes(raw[xing_pos + 8 : xing_pos + 12], "big")
+            samples_per_frame = 1152 if version == 3 else 576
+            if frames > 0 and sample_rate:
+                return frames * samples_per_frame / sample_rate
+    if bitrate and sample_rate:
+        audio_bytes = max(0, len(raw) - pos)
+        return audio_bytes * 8 / (bitrate * 1000)
+    return None
+
+
+def parse_flac(raw):
+    """解析 FLAC：STREAMINFO 时长、VORBIS 注释、PICTURE 封面。"""
+    info = {"title": "", "artist": "", "album": "", "cover": None, "duration": None}
+    if raw[:4] != b"fLaC":
+        return info
+    pos = 4
+    while pos + 4 <= len(raw):
+        block_header = raw[pos]
+        block_type = block_header & 0x7F
+        last = bool(block_header & 0x80)
+        size = int.from_bytes(raw[pos + 1 : pos + 4], "big")
+        block = raw[pos + 4 : pos + 4 + size]
+        pos += 4 + size
+        if block_type == 0 and len(block) >= 18:
+            bits = int.from_bytes(block[10:18], "big")
+            sample_rate = bits >> 44
+            total_samples = bits & ((1 << 36) - 1)
+            if sample_rate and total_samples:
+                info["duration"] = total_samples / sample_rate
+        elif block_type == 4 and len(block) >= 8:
+            cursor = 0
+            vendor_len = int.from_bytes(block[cursor : cursor + 4], "little")
+            cursor += 4 + vendor_len
+            if cursor + 4 <= len(block):
+                count = int.from_bytes(block[cursor : cursor + 4], "little")
+                cursor += 4
+                for _ in range(min(count, 200)):
+                    if cursor + 4 > len(block):
+                        break
+                    item_len = int.from_bytes(block[cursor : cursor + 4], "little")
+                    cursor += 4
+                    item = block[cursor : cursor + item_len]
+                    cursor += item_len
+                    if b"=" not in item:
+                        continue
+                    key, _, value = item.partition(b"=")
+                    key = key.decode("utf-8", "ignore").upper()
+                    value = value.decode("utf-8", "ignore").strip()
+                    if key == "TITLE" and not info["title"]:
+                        info["title"] = value
+                    elif key == "ARTIST" and not info["artist"]:
+                        info["artist"] = value
+                    elif key == "ALBUM" and not info["album"]:
+                        info["album"] = value
+        elif block_type == 6 and len(block) >= 32:
+            cursor = 4
+            mime_len = int.from_bytes(block[cursor : cursor + 4], "big")
+            cursor += 4
+            mime = block[cursor : cursor + mime_len].decode("latin-1", "ignore")
+            cursor += mime_len
+            if cursor + 4 <= len(block):
+                desc_len = int.from_bytes(block[cursor : cursor + 4], "big")
+                cursor += 4 + desc_len + 16
+                if cursor + 4 <= len(block):
+                    data_len = int.from_bytes(block[cursor : cursor + 4], "big")
+                    cursor += 4
+                    data = block[cursor : cursor + data_len]
+                    if data:
+                        info["cover"] = (
+                            data,
+                            _image_ext_from_magic(data) or _image_ext_from_mime(mime),
+                        )
+        if last:
+            break
+    return info
+
+
+def _mp4_children(raw, start, end):
+    pos = start
+    while pos + 8 <= end:
+        size = int.from_bytes(raw[pos : pos + 4], "big")
+        kind = raw[pos + 4 : pos + 8]
+        header = 8
+        if size == 1 and pos + 16 <= end:
+            size = int.from_bytes(raw[pos + 8 : pos + 16], "big")
+            header = 16
+        elif size == 0:
+            size = end - pos
+        if size < header or pos + size > end:
+            break
+        yield kind, pos + header, pos + size
+        pos += size
+
+
+def parse_mp4(raw):
+    """解析 M4A/MP4：mvhd 时长、ilst 标签与 covr 封面。"""
+    info = {"title": "", "artist": "", "album": "", "cover": None, "duration": None}
+    moov = None
+    for kind, start, end in _mp4_children(raw, 0, len(raw)):
+        if kind == b"moov":
+            moov = (start, end)
+            break
+    if not moov:
+        return info
+    for kind, start, end in _mp4_children(raw, moov[0], moov[1]):
+        if kind != b"mvhd":
+            continue
+        version = raw[start] if start < end else 0
+        if version == 1 and start + 32 <= end:
+            timescale = int.from_bytes(raw[start + 20 : start + 24], "big")
+            duration = int.from_bytes(raw[start + 24 : start + 32], "big")
+        elif start + 20 <= end:
+            timescale = int.from_bytes(raw[start + 12 : start + 16], "big")
+            duration = int.from_bytes(raw[start + 16 : start + 20], "big")
+        else:
+            timescale = duration = 0
+        if timescale and duration:
+            info["duration"] = duration / timescale
+        break
+
+    def walk(node_start, node_end):
+        for kind, start, end in _mp4_children(raw, node_start, node_end):
+            if kind == b"udta":
+                walk(start, end)
+            elif kind == b"meta":
+                walk(start + 4, end)
+            elif kind == b"ilst":
+                for item_kind, item_start, item_end in _mp4_children(raw, start, end):
+                    for data_kind, data_start, data_end in _mp4_children(
+                        raw, item_start, item_end
+                    ):
+                        if data_kind != b"data" or data_start + 8 > data_end:
+                            continue
+                        data_type = (
+                            int.from_bytes(raw[data_start : data_start + 4], "big")
+                            & 0xFFFFFF
+                        )
+                        payload = raw[data_start + 8 : data_end]
+                        if item_kind == b"\xa9nam" and data_type == 1:
+                            info["title"] = payload.decode("utf-8", "ignore").strip()
+                        elif item_kind == b"\xa9ART" and data_type == 1:
+                            info["artist"] = payload.decode("utf-8", "ignore").strip()
+                        elif item_kind == b"\xa9alb" and data_type == 1:
+                            info["album"] = payload.decode("utf-8", "ignore").strip()
+                        elif item_kind == b"covr" and payload:
+                            ext = ".png" if data_type == 14 else ".jpg"
+                            info["cover"] = (
+                                payload,
+                                _image_ext_from_magic(payload) or ext,
+                            )
+                    break
+
+    walk(moov[0], moov[1])
+    return info
+
+
+def parse_wav(raw):
+    info = {"duration": None}
+    if len(raw) < 12 or raw[:4] != b"RIFF" or raw[8:12] != b"WAVE":
+        return info
+    pos = 12
+    byte_rate = 0
+    data_size = 0
+    while pos + 8 <= len(raw):
+        kind = raw[pos : pos + 4]
+        size = int.from_bytes(raw[pos + 4 : pos + 8], "little")
+        if kind == b"fmt " and pos + 8 + 16 <= len(raw):
+            byte_rate = int.from_bytes(raw[pos + 16 : pos + 20], "little")
+        elif kind == b"data":
+            data_size = size
+        pos += 8 + size + (size % 2)
+    if byte_rate and data_size:
+        info["duration"] = data_size / byte_rate
+    return info
+
+
+def parse_audio_metadata(raw, filename):
+    """按扩展名和文件头解析音频元数据。"""
+    extension = os.path.splitext(filename or "")[1].lower()
+    info = {"title": "", "artist": "", "album": "", "duration": None, "cover": None}
+    try:
+        if extension == ".mp3" or raw[:3] == b"ID3":
+            info.update(parse_id3v2(raw))
+            info["duration"] = mp3_duration(raw)
+        elif extension == ".flac" or raw[:4] == b"fLaC":
+            info.update(parse_flac(raw))
+        elif extension in (".m4a", ".mp4", ".aac") or raw[4:8] == b"ftyp":
+            info.update(parse_mp4(raw))
+        elif extension == ".wav" or raw[:4] == b"RIFF":
+            info.update(parse_wav(raw))
+    except Exception:
+        return info
+    return info
+
+
 def api_error(handler, status, message):
     handler.send_json(status, {"error": message})
 
@@ -3172,6 +4021,328 @@ def valid_username(value):
     if username.casefold() in RESERVED_USERNAMES:
         return ""
     return username
+
+
+# ---------- 敏感词过滤 ----------
+
+_SENSITIVE_CACHE = {"key": None, "trie": None, "words": ()}
+_ZERO_WIDTH = {ord(ch) for ch in "\u200b\u200c\u200d\ufeff"}
+
+
+def _normalize_for_match(text):
+    """归一化文本并记录每个字符在原串中的位置，便于回填掩码。"""
+    chars = []
+    indexes = []
+    for index, char in enumerate(str(text or "")):
+        if ord(char) in _ZERO_WIDTH:
+            continue
+        normalized = unicodedata.normalize("NFKC", char).casefold()
+        for piece in normalized:
+            if piece.isspace() or not piece.isalnum():
+                # 标点和空白不参与连续匹配，用于挡住"共 产-党"这类插入干扰
+                continue
+            chars.append(piece)
+            indexes.append(index)
+    return "".join(chars), indexes
+
+
+def _build_sensitive_trie(words):
+    trie = {}
+    for word in words:
+        normalized, _ = _normalize_for_match(word)
+        if not normalized:
+            continue
+        node = trie
+        for char in normalized:
+            node = node.setdefault(char, {})
+        node["$"] = word
+    return trie
+
+
+def sensitive_word_rows():
+    return query("SELECT id, word, category FROM sensitive_words ORDER BY category, word")
+
+
+def sensitive_trie():
+    rows = sensitive_word_rows()
+    key = (len(rows), max((row["id"] for row in rows), default=0))
+    if _SENSITIVE_CACHE["key"] != key:
+        _SENSITIVE_CACHE["words"] = rows
+        _SENSITIVE_CACHE["trie"] = _build_sensitive_trie(row["word"] for row in rows)
+        _SENSITIVE_CACHE["key"] = key
+    return _SENSITIVE_CACHE["trie"]
+
+
+def sensitive_hits(text):
+    """返回命中区间（原串下标）和命中的词，最长优先。"""
+    normalized, indexes = _normalize_for_match(text)
+    if not normalized:
+        return []
+    trie = sensitive_trie()
+    hits = []
+    for start in range(len(normalized)):
+        node = trie
+        for cursor in range(start, len(normalized)):
+            node = node.get(normalized[cursor])
+            if node is None:
+                break
+            if "$" in node:
+                hits.append(
+                    {
+                        "word": node["$"],
+                        "start": indexes[start],
+                        "end": indexes[cursor] + 1,
+                    }
+                )
+                break
+    return hits
+
+
+def sensitive_contains(text):
+    return bool(sensitive_hits(text))
+
+
+def mask_sensitive(text):
+    hits = sensitive_hits(text)
+    if not hits:
+        return str(text or ""), 0
+    chars = list(str(text or ""))
+    for hit in hits:
+        for index in range(hit["start"], min(hit["end"], len(chars))):
+            chars[index] = "*"
+    return "".join(chars), len(hits)
+
+
+# ---------- 昵称与权限 ----------
+
+def valid_nickname(value, exclude_user_id=None):
+    nickname = str(value or "").strip()
+    if not NICKNAME_RE.fullmatch(nickname):
+        return ""
+    if any(char.isalnum() for char in nickname) is False:
+        return ""
+    if nickname.casefold() in RESERVED_NICKNAMES:
+        return ""
+    if sensitive_contains(nickname):
+        return ""
+    row = query_one(
+        "SELECT id FROM users WHERE nickname = ? COLLATE NOCASE", (nickname,)
+    )
+    if row and row["id"] != exclude_user_id:
+        return ""
+    return nickname
+
+
+def user_permission_set(user_id):
+    if not user_id:
+        return set()
+    rows = query("SELECT permission FROM user_permissions WHERE user_id = ?", (user_id,))
+    return {row["permission"] for row in rows}
+
+
+def user_has_permission(user_id, permission):
+    if permission == ADMIN_PERMISSION:
+        return bool(
+            query_one(
+                "SELECT permission FROM user_permissions WHERE user_id = ? AND permission = ?",
+                (user_id, ADMIN_PERMISSION),
+            )
+        )
+    permissions = user_permission_set(user_id)
+    if ADMIN_PERMISSION in permissions:
+        return True
+    return permission in permissions
+
+
+def required_permission(path, method):
+    """把请求映射到权限点；返回 None 表示仍按"仅管理员"处理。"""
+    if path == "/api/account/nickname":
+        return ""
+    if path.startswith("/api/admin"):
+        return None
+    if path.startswith("/api/map/export"):
+        return "map:export"
+    if path.startswith("/api/map/categories"):
+        return "map:manage_categories"
+    if path.startswith("/api/map/import"):
+        return "map:import"
+    if path.startswith("/api/map"):
+        if method in ("POST", "PATCH", "DELETE"):
+            return "map:write"
+        return ""
+    for prefix, module in PERMISSION_ROUTE_MODULES:
+        if path.startswith(prefix):
+            action = "write" if method in ("POST", "PATCH", "DELETE") else "view"
+            return f"{module}:{action}"
+    if path in PAGE_PERMISSIONS:
+        return PAGE_PERMISSIONS[path]
+    for page, permissions in PAGE_PERMISSIONS.items():
+        if path.startswith(page + "/"):
+            return permissions
+    return None
+
+
+def write_audit(actor, action, detail="", target=None):
+    """记录一次敏感操作，actor 为 session_identity() 的结果。"""
+    actor = actor or {}
+    target = target or {}
+    execute(
+        """INSERT INTO permission_audit
+               (actor_kind, actor_id, actor_name, target_id, target_name, action, detail, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            actor.get("kind") or "system",
+            int(actor.get("user_id") or 0),
+            actor.get("nickname") or actor.get("username") or "",
+            target.get("id"),
+            target.get("nickname") or target.get("username") or "",
+            action,
+            str(detail or "")[:500],
+            now_text(),
+        ),
+    )
+
+
+# ---------- 站长通知（Webhook 推送） ----------
+
+def app_meta_get(key, default=""):
+    row = query_one("SELECT value FROM app_meta WHERE key = ?", (key,))
+    return row["value"] if row else default
+
+
+def app_meta_set(key, value):
+    execute(
+        "INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)", (key, str(value))
+    )
+
+
+def mask_notify_url(url):
+    """只显示域名和末尾几位，避免把带密钥的地址回显给前端。"""
+    text = str(url or "")
+    if not text:
+        return ""
+    try:
+        parsed = urlsplit(text)
+        host = parsed.netloc or ""
+        tail = parsed.path[-4:] if len(parsed.path) > 4 else parsed.path
+        return f"{parsed.scheme}://{host}/...{tail}"
+    except ValueError:
+        return "已配置"
+
+
+def notify_event_keys():
+    return {item["key"] for item in NOTIFY_EVENTS}
+
+
+def notify_settings():
+    raw_events = app_meta_get("notify_events", "")
+    events = list(NOTIFY_DEFAULT_EVENTS)
+    if raw_events:
+        try:
+            parsed = json.loads(raw_events)
+            if isinstance(parsed, list):
+                events = [key for key in parsed if key in notify_event_keys()]
+        except json.JSONDecodeError:
+            events = list(NOTIFY_DEFAULT_EVENTS)
+    channel = app_meta_get("notify_channel", "wecom")
+    if channel not in {item["key"] for item in NOTIFY_CHANNELS}:
+        channel = "wecom"
+    return {
+        "enabled": app_meta_get("notify_enabled", "0") == "1",
+        "channel": channel,
+        "url": app_meta_get("notify_url", ""),
+        "events": events,
+    }
+
+
+def notify_log_write(event, title, body, channel, status, detail=""):
+    execute(
+        """INSERT INTO notify_log (event, title, body, channel, status, detail, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (event, title, body[:500], channel, status, str(detail)[:300], now_text()),
+    )
+
+
+def deliver_notification(channel, url, title, body, event):
+    """按渠道组装请求并发送，返回 (是否成功, 说明)。"""
+    text = f"{title}\n{body}"
+    try:
+        if channel in ("wecom", "dingtalk"):
+            payload = json.dumps(
+                {"msgtype": "text", "text": {"content": text}}, ensure_ascii=False
+            ).encode("utf-8")
+            content_type = "application/json"
+        elif channel == "feishu":
+            payload = json.dumps(
+                {"msg_type": "text", "content": {"text": text}}, ensure_ascii=False
+            ).encode("utf-8")
+            content_type = "application/json"
+        elif channel == "bark":
+            payload = json.dumps({"title": title, "body": body}, ensure_ascii=False).encode(
+                "utf-8"
+            )
+            content_type = "application/json"
+        elif channel == "serverchan":
+            payload = urlencode({"title": title, "desp": body}).encode("utf-8")
+            content_type = "application/x-www-form-urlencoded"
+        else:
+            payload = json.dumps(
+                {
+                    "title": title,
+                    "body": body,
+                    "event": event,
+                    "url": "/workbench",
+                    "time": now_text(),
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
+            content_type = "application/json"
+        request = Request(
+            url,
+            data=payload,
+            headers={
+                "Content-Type": content_type,
+                "User-Agent": "ErrorJ-Notifier/1.0",
+            },
+            method="POST",
+        )
+        with urlopen(request, timeout=8) as response:
+            return True, f"HTTP {response.status}"
+    except HTTPError as exc:
+        return False, f"HTTP {exc.code}"
+    except (URLError, ValueError, OSError) as exc:
+        return False, str(exc)[:200]
+
+
+def notify_async(event, title, body):
+    """事件触发时异步推送，不阻塞请求。"""
+    settings = notify_settings()
+    if (
+        not settings["enabled"]
+        or not settings["url"]
+        or event not in settings["events"]
+    ):
+        return False
+    channel, url = settings["channel"], settings["url"]
+
+    def worker():
+        ok, detail = deliver_notification(channel, url, title, body, event)
+        notify_log_write(event, title, body, channel, "ok" if ok else "fail", detail)
+
+    threading.Thread(target=worker, daemon=True).start()
+    return True
+
+
+def notify_test(channel, url):
+    ok, detail = deliver_notification(
+        channel,
+        url,
+        "Error酱测试通知",
+        "如果你看到这条消息，说明 Webhook 配置成功。",
+        "test",
+    )
+    notify_log_write("test", "Error酱测试通知", "Webhook 测试", channel, "ok" if ok else "fail", detail)
+    return ok, detail
 
 
 def load_auth_state():
@@ -3327,16 +4498,18 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "role": "owner",
             }
         row = query_one(
-            "SELECT id, username, status FROM users WHERE id = ?",
+            "SELECT id, username, nickname, status FROM users WHERE id = ?",
             (claims["user_id"],),
         )
         if not row or row.get("status") != "approved":
             return None
+        is_admin_user = user_has_permission(row["id"], ADMIN_PERMISSION)
         return {
-            "kind": "member",
+            "kind": "admin" if is_admin_user else "member",
             "user_id": row["id"],
             "username": row["username"],
-            "role": "member",
+            "nickname": row.get("nickname") or row["username"],
+            "role": "admin" if is_admin_user else "member",
         }
 
     def session_valid(self):
@@ -3345,6 +4518,19 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def is_owner(self):
         identity = self.session_identity()
         return bool(identity and identity.get("kind") == "owner")
+
+    def is_admin(self):
+        identity = self.session_identity()
+        return bool(identity and identity.get("kind") in ("owner", "admin"))
+
+    def can(self, permission):
+        """当前请求是否具备某个权限点（管理员直接通过）。"""
+        identity = self.session_identity()
+        if not identity:
+            return False
+        if identity.get("kind") in ("owner", "admin"):
+            return True
+        return user_has_permission(identity.get("user_id"), permission)
 
     def client_ip(self):
         if TRUST_PROXY:
@@ -3386,6 +4572,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if method == "GET":
             if re.fullmatch(r"/api/recommendations/\d+/icon", path):
                 return True
+            if re.fullmatch(r"/api/site/message-files/\d+", path):
+                # 附件接口公开，但会按审核状态在处理器里二次鉴权
+                return True
             if path in PUBLIC_PAGES or path.startswith("/games/"):
                 return True
             if path in PUBLIC_GET_APIS:
@@ -3408,13 +4597,24 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if self.public_request_allowed(path, method):
             return True
         identity = self.session_identity()
-        if identity and identity.get("kind") == "owner":
+        if identity and identity.get("kind") in ("owner", "admin"):
             return True
         if identity:
+            required = required_permission(path, method)
+            if required == "":
+                return True
+            if isinstance(required, tuple):
+                if any(
+                    user_has_permission(identity.get("user_id"), permission)
+                    for permission in required
+                ):
+                    return True
+            elif required and user_has_permission(identity.get("user_id"), required):
+                return True
             if path.startswith("/api/") or path.startswith("/site-files/"):
                 api_error(self, 403, "当前账号没有访问权限。")
             else:
-                self.redirect("/?access=owner-only")
+                self.redirect("/?access=denied")
             return False
         if path.startswith("/api/") or path.startswith("/site-files/"):
             api_error(self, 401, "请先登录。")
@@ -3426,6 +4626,18 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_auth_status(self):
         enabled = bool(AUTH_STATE.get("enabled"))
         identity = self.session_identity()
+        permissions = []
+        pending_users = 0
+        pending_attachments = 0
+        if identity and identity.get("kind") != "owner":
+            permissions = sorted(user_permission_set(identity.get("user_id")))
+        if identity and identity.get("kind") in ("owner", "admin"):
+            pending_users = query_one(
+                "SELECT COUNT(*) AS n FROM users WHERE status = 'pending'"
+            )["n"]
+            pending_attachments = query_one(
+                "SELECT COUNT(*) AS n FROM site_message_files WHERE status = 'pending'"
+            )["n"]
         self.send_json(
             200,
             {
@@ -3433,7 +4645,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "authenticated": identity is not None,
                 "role": identity.get("role") if identity else "guest",
                 "username": identity.get("username") if identity else "",
+                "nickname": identity.get("nickname") if identity else "",
                 "owner": bool(identity and identity.get("kind") == "owner"),
+                "admin": bool(identity and identity.get("kind") in ("owner", "admin")),
+                "permissions": permissions,
+                "pending_users": pending_users,
+                "pending_attachments": pending_attachments,
             },
         )
 
@@ -3505,9 +4722,22 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 429, "注册请求太频繁，请稍后再试。")
             return
         username = valid_username(payload.get("username"))
+        nickname = str(payload.get("nickname") or "").strip()
         password = str(payload.get("password") or "")
         if not username:
             api_error(self, 400, "用户名需为 3-32 位，只能包含文字、字母、数字、点、下划线或短横线。")
+            return
+        if not NICKNAME_RE.fullmatch(nickname):
+            api_error(self, 400, "昵称需为 2-16 位，支持中英文、数字和常见符号。")
+            return
+        if nickname.casefold() in RESERVED_NICKNAMES:
+            api_error(self, 400, "这个昵称不能使用，换一个吧。")
+            return
+        if sensitive_contains(nickname):
+            api_error(self, 400, "昵称包含不允许的词汇，请修改后再注册。")
+            return
+        if query_one("SELECT id FROM users WHERE nickname = ? COLLATE NOCASE", (nickname,)):
+            api_error(self, 409, "昵称已被使用。")
             return
         if len(password) < 8 or len(password) > 128:
             api_error(self, 400, "密码长度需为 8-128 位。")
@@ -3519,12 +4749,505 @@ class InventoryHandler(BaseHTTPRequestHandler):
         execute(
             """
             INSERT INTO users
-                (username, password_hash, status, role, created_at, updated_at)
-            VALUES (?, ?, 'pending', 'member', ?, ?)
+                (username, nickname, password_hash, status, role, created_at, updated_at)
+            VALUES (?, ?, ?, 'pending', 'member', ?, ?)
             """,
-            (username, hash_password(password), stamp, stamp),
+            (username, nickname, hash_password(password), stamp, stamp),
+        )
+        write_audit(
+            None,
+            "register",
+            f"新注册申请：{username}（{nickname}）",
+            {"username": username, "nickname": nickname},
+        )
+        notify_async(
+            "register",
+            "Error酱：新的注册申请",
+            f"{nickname}（用户名 {username}）提交了注册申请，请到工作台「账号权限」处理。",
         )
         self.send_json(201, {"ok": True, "status": "pending"})
+
+    def api_account_nickname(self, payload):
+        identity = self.session_identity()
+        if not identity:
+            api_error(self, 401, "请先登录。")
+            return
+        if identity.get("kind") == "owner":
+            api_error(self, 400, "站长账号没有独立昵称。")
+            return
+        user_id = identity.get("user_id")
+        row = query_one(
+            "SELECT id, username, nickname, nickname_updated_at FROM users WHERE id = ?",
+            (user_id,),
+        )
+        if not row:
+            api_error(self, 404, "账号不存在。")
+            return
+        nickname = str(payload.get("nickname") or "").strip()
+        if not NICKNAME_RE.fullmatch(nickname):
+            api_error(self, 400, "昵称需为 2-16 位，支持中英文、数字和常见符号。")
+            return
+        if nickname.casefold() in RESERVED_NICKNAMES:
+            api_error(self, 400, "这个昵称不能使用，换一个吧。")
+            return
+        if sensitive_contains(nickname):
+            api_error(self, 400, "昵称包含不允许的词汇，请修改。")
+            return
+        if query_one(
+            "SELECT id FROM users WHERE nickname = ? COLLATE NOCASE AND id != ?",
+            (nickname, user_id),
+        ):
+            api_error(self, 409, "昵称已被使用。")
+            return
+        if row.get("nickname") == nickname:
+            self.send_json(200, {"ok": True, "nickname": nickname, "changed": False})
+            return
+        updated_at = row.get("nickname_updated_at")
+        if updated_at:
+            try:
+                last = datetime.strptime(updated_at, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                last = None
+            if last and datetime.now() - last < timedelta(days=NICKNAME_CHANGE_DAYS):
+                next_date = (last + timedelta(days=NICKNAME_CHANGE_DAYS)).strftime("%Y-%m-%d")
+                api_error(self, 429, f"昵称每 {NICKNAME_CHANGE_DAYS} 天只能修改一次，下次可在 {next_date} 修改。")
+                return
+        stamp = now_text()
+        execute(
+            "UPDATE users SET nickname = ?, nickname_updated_at = ?, updated_at = ? WHERE id = ?",
+            (nickname, stamp, stamp, user_id),
+        )
+        write_audit(
+            identity,
+            "nickname_change",
+            f"{row.get('nickname') or row['username']} → {nickname}",
+            {"id": user_id, "username": row["username"], "nickname": nickname},
+        )
+        self.send_json(200, {"ok": True, "nickname": nickname, "changed": True})
+
+    # ---------- 账号与权限管理（管理员） ----------
+    def admin_target_user(self, user_id):
+        row = query_one(
+            """SELECT id, username, nickname, status, role, created_at, updated_at,
+                      approved_at, last_login_at, nickname_updated_at, silenced_until
+               FROM users WHERE id = ?""",
+            (user_id,),
+        )
+        return row
+
+    def admin_can_touch(self, target):
+        """普通管理员不能操作其他管理员，只有站长可以。"""
+        if not target:
+            return False
+        if self.is_owner():
+            return True
+        if user_has_permission(target["id"], ADMIN_PERMISSION):
+            api_error(self, 403, "只有站长可以管理其他管理员。")
+            return False
+        return True
+
+    def api_admin_users(self, params):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以查看账号列表。")
+            return
+        status_filter = str((params.get("status") or [""])[0] or "").strip()
+        sql = """SELECT id, username, nickname, status, role, created_at, updated_at,
+                        approved_at, last_login_at, nickname_updated_at, silenced_until
+                 FROM users"""
+        values = ()
+        if status_filter in ("pending", "approved", "rejected", "disabled"):
+            sql += " WHERE status = ?"
+            values = (status_filter,)
+        sql += """ ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1
+                   ELSE 2 END, id DESC"""
+        users = query(sql, values)
+        permission_rows = query(
+            "SELECT user_id, permission FROM user_permissions ORDER BY permission"
+        )
+        grouped = {}
+        for row in permission_rows:
+            grouped.setdefault(row["user_id"], []).append(row["permission"])
+        for user in users:
+            user["permissions"] = sorted(grouped.get(user["id"], []))
+            user["is_admin"] = ADMIN_PERMISSION in user["permissions"]
+        pending = query_one(
+            "SELECT COUNT(*) AS n FROM users WHERE status = 'pending'"
+        )["n"]
+        self.send_json(
+            200,
+            {
+                "users": users,
+                "pending": pending,
+                "total": len(users),
+                "grantable": list(GRANTABLE_PERMISSIONS),
+                "defaults": list(DEFAULT_MEMBER_PERMISSIONS),
+            },
+        )
+
+    def api_admin_user_status(self, path, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以审批账号。")
+            return
+        user_id = int(path.split("/")[4])
+        target = self.admin_target_user(user_id)
+        if not target:
+            api_error(self, 404, "账号不存在。")
+            return
+        if not self.admin_can_touch(target):
+            return
+        action = str(payload.get("action") or "").strip()
+        mapping = {
+            "approve": ("approved", "同意注册"),
+            "reject": ("rejected", "拒绝注册"),
+            "disable": ("disabled", "停用账号"),
+            "enable": ("approved", "启用账号"),
+        }
+        if action not in mapping:
+            api_error(self, 400, "未知操作。")
+            return
+        status, label = mapping[action]
+        stamp = now_text()
+        approved_at = stamp if status == "approved" else target.get("approved_at")
+        execute(
+            "UPDATE users SET status = ?, approved_at = ?, updated_at = ? WHERE id = ?",
+            (status, approved_at, stamp, user_id),
+        )
+        if status == "approved":
+            existing = user_permission_set(user_id)
+            if not existing:
+                for permission in DEFAULT_MEMBER_PERMISSIONS:
+                    execute(
+                        """INSERT OR IGNORE INTO user_permissions
+                               (user_id, permission, granted_by, granted_at)
+                           VALUES (?, ?, ?, ?)""",
+                        (
+                            user_id,
+                            permission,
+                            self.session_identity().get("nickname") or "管理员",
+                            stamp,
+                        ),
+                    )
+        write_audit(
+            self.session_identity(),
+            f"user_{action}",
+            label + (f"：{payload.get('note')}" if payload.get("note") else ""),
+            target,
+        )
+        self.send_json(200, {"ok": True, "status": status})
+
+    def api_admin_user_permission(self, path, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以发放权限。")
+            return
+        user_id = int(path.split("/")[4])
+        target = self.admin_target_user(user_id)
+        if not target:
+            api_error(self, 404, "账号不存在。")
+            return
+        permission = str(payload.get("permission") or "").strip()
+        if permission not in GRANTABLE_PERMISSIONS:
+            api_error(self, 400, "未知权限点。")
+            return
+        if permission == ADMIN_PERMISSION and not self.is_owner():
+            api_error(self, 403, "只有站长可以授予或收回管理员。")
+            return
+        if not self.is_owner() and target["id"] != self.session_identity().get("user_id"):
+            if user_has_permission(target["id"], ADMIN_PERMISSION):
+                api_error(self, 403, "只有站长可以管理其他管理员。")
+                return
+        granted = bool(payload.get("granted"))
+        stamp = now_text()
+        if granted:
+            execute(
+                """INSERT OR REPLACE INTO user_permissions
+                       (user_id, permission, granted_by, granted_at)
+                   VALUES (?, ?, ?, ?)""",
+                (
+                    user_id,
+                    permission,
+                    self.session_identity().get("nickname") or "管理员",
+                    stamp,
+                ),
+            )
+        else:
+            execute(
+                "DELETE FROM user_permissions WHERE user_id = ? AND permission = ?",
+                (user_id, permission),
+            )
+        write_audit(
+            self.session_identity(),
+            "grant" if granted else "revoke",
+            f"{PERMISSION_LABELS.get(permission, permission)}（{permission}）",
+            target,
+        )
+        self.send_json(
+            200,
+            {"ok": True, "permissions": sorted(user_permission_set(user_id))},
+        )
+
+    def api_admin_user_nickname(self, path, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以修改昵称。")
+            return
+        user_id = int(path.split("/")[4])
+        target = self.admin_target_user(user_id)
+        if not target:
+            api_error(self, 404, "账号不存在。")
+            return
+        nickname = str(payload.get("nickname") or "").strip()
+        if not NICKNAME_RE.fullmatch(nickname):
+            api_error(self, 400, "昵称需为 2-16 位，支持中英文、数字和常见符号。")
+            return
+        if nickname.casefold() in RESERVED_NICKNAMES:
+            api_error(self, 400, "这个昵称不能使用。")
+            return
+        if sensitive_contains(nickname):
+            api_error(self, 400, "昵称包含不允许的词汇。")
+            return
+        if query_one(
+            "SELECT id FROM users WHERE nickname = ? COLLATE NOCASE AND id != ?",
+            (nickname, user_id),
+        ):
+            api_error(self, 409, "昵称已被使用。")
+            return
+        execute(
+            "UPDATE users SET nickname = ?, updated_at = ? WHERE id = ?",
+            (nickname, now_text(), user_id),
+        )
+        write_audit(
+            self.session_identity(),
+            "set_nickname",
+            f"{target.get('nickname') or target['username']} → {nickname}",
+            target,
+        )
+        self.send_json(200, {"ok": True, "nickname": nickname})
+
+    def api_admin_user_password(self, path, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以重置密码。")
+            return
+        user_id = int(path.split("/")[4])
+        target = self.admin_target_user(user_id)
+        if not target:
+            api_error(self, 404, "账号不存在。")
+            return
+        if not self.admin_can_touch(target):
+            return
+        password = str(payload.get("password") or "")
+        if len(password) < 8 or len(password) > 128:
+            api_error(self, 400, "密码长度需为 8-128 位。")
+            return
+        execute(
+            "UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?",
+            (hash_password(password), now_text(), user_id),
+        )
+        write_audit(self.session_identity(), "reset_password", "重置了登录密码", target)
+        self.send_json(200, {"ok": True})
+
+    def api_admin_user_delete(self, path):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以删除账号。")
+            return
+        user_id = int(path.rsplit("/", 1)[1])
+        target = self.admin_target_user(user_id)
+        if not target:
+            api_error(self, 404, "账号不存在。")
+            return
+        if not self.admin_can_touch(target):
+            return
+        if target["id"] == (self.session_identity() or {}).get("user_id"):
+            api_error(self, 400, "不能删除自己。")
+            return
+        execute("DELETE FROM users WHERE id = ?", (user_id,))
+        write_audit(self.session_identity(), "delete_user", "删除了账号", target)
+        self.send_json(200, {"ok": True})
+
+    def api_admin_permissions(self):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以查看权限表。")
+            return
+        self.send_json(
+            200,
+            {
+                "groups": PERMISSION_GROUPS,
+                "defaults": list(DEFAULT_MEMBER_PERMISSIONS),
+            },
+        )
+
+    def api_admin_audit(self, params):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以查看审计日志。")
+            return
+        try:
+            limit = int((params.get("limit") or ["100"])[0])
+        except (TypeError, ValueError):
+            limit = 100
+        limit = max(1, min(limit, 500))
+        rows = query(
+            """SELECT id, actor_kind, actor_name, target_id, target_name,
+                      action, detail, created_at
+               FROM permission_audit ORDER BY id DESC LIMIT ?""",
+            (limit,),
+        )
+        self.send_json(200, rows)
+
+    def api_admin_sensitive_words(self, params):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以查看敏感词。")
+            return
+        rows = sensitive_word_rows()
+        grouped = {}
+        for row in rows:
+            grouped[row["category"]] = grouped.get(row["category"], 0) + 1
+        self.send_json(
+            200,
+            {
+                "words": rows,
+                "categories": list(SENSITIVE_CATEGORIES),
+                "counts": grouped,
+            },
+        )
+
+    def api_admin_sensitive_word_add(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以维护敏感词。")
+            return
+        word = str(payload.get("word") or "").strip()
+        category = str(payload.get("category") or "自定义").strip() or "自定义"
+        if not 1 <= len(word) <= 20:
+            api_error(self, 400, "敏感词长度需为 1-20 个字符。")
+            return
+        if category not in SENSITIVE_CATEGORIES:
+            category = "自定义"
+        if query_one("SELECT id FROM sensitive_words WHERE word = ?", (word,)):
+            api_error(self, 409, "这个词已经在词库里了。")
+            return
+        word_id = execute(
+            "INSERT INTO sensitive_words (word, category, created_at) VALUES (?, ?, ?)",
+            (word, category, now_text()),
+        )
+        write_audit(
+            self.session_identity(),
+            "add_sensitive_word",
+            f"{category}：{word}",
+            {"id": word_id, "nickname": word},
+        )
+        self.send_json(200, {"id": word_id})
+
+    def api_admin_sensitive_word_delete(self, path):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以维护敏感词。")
+            return
+        word_id = int(path.rsplit("/", 1)[1])
+        row = query_one("SELECT id, word, category FROM sensitive_words WHERE id = ?", (word_id,))
+        if not row:
+            api_error(self, 404, "词条不存在。")
+            return
+        execute("DELETE FROM sensitive_words WHERE id = ?", (word_id,))
+        write_audit(
+            self.session_identity(),
+            "remove_sensitive_word",
+            f"{row['category']}：{row['word']}",
+            {"id": word_id, "nickname": row["word"]},
+        )
+        self.send_json(200, {"ok": True})
+
+    def api_admin_sensitive_test(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以测试敏感词。")
+            return
+        text = str(payload.get("text") or "")
+        hits = sensitive_hits(text)
+        masked, count = mask_sensitive(text)
+        self.send_json(
+            200,
+            {
+                "count": count,
+                "words": sorted({hit["word"] for hit in hits}),
+                "masked": masked,
+            },
+        )
+
+    # ---------- 通知设置（管理员） ----------
+    def api_admin_notify(self, params):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以查看通知设置。")
+            return
+        settings = notify_settings()
+        logs = query(
+            """SELECT id, event, title, body, channel, status, detail, created_at
+               FROM notify_log ORDER BY id DESC LIMIT 30"""
+        )
+        self.send_json(
+            200,
+            {
+                "enabled": settings["enabled"],
+                "channel": settings["channel"],
+                "url_set": bool(settings["url"]),
+                "url_masked": mask_notify_url(settings["url"]),
+                "events": settings["events"],
+                "channels": NOTIFY_CHANNELS,
+                "event_options": NOTIFY_EVENTS,
+                "log": logs,
+            },
+        )
+
+    def api_admin_notify_save(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以修改通知设置。")
+            return
+        channel = str(payload.get("channel") or "wecom")
+        if channel not in {item["key"] for item in NOTIFY_CHANNELS}:
+            api_error(self, 400, "未知的通知渠道。")
+            return
+        raw_events = payload.get("events")
+        events = (
+            [key for key in raw_events if key in notify_event_keys()]
+            if isinstance(raw_events, list)
+            else []
+        )
+        enabled = bool(payload.get("enabled"))
+        current = notify_settings()
+        url = str(payload.get("url") or "").strip()
+        if payload.get("clear_url"):
+            url = ""
+        elif not url:
+            url = current["url"]
+        if url and not url.startswith(("http://", "https://")):
+            api_error(self, 400, "Webhook 地址必须以 http:// 或 https:// 开头。")
+            return
+        if enabled and not url:
+            api_error(self, 400, "开启通知前请先填写 Webhook 地址。")
+            return
+        app_meta_set("notify_enabled", "1" if enabled else "0")
+        app_meta_set("notify_channel", channel)
+        app_meta_set("notify_url", url)
+        app_meta_set("notify_events", json.dumps(events, ensure_ascii=False))
+        write_audit(
+            self.session_identity(),
+            "notify_settings",
+            f"通知{'开启' if enabled else '关闭'}，渠道 {channel}，事件 {','.join(events) or '无'}",
+        )
+        self.send_json(200, {"ok": True, "url_masked": mask_notify_url(url)})
+
+    def api_admin_notify_test(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以测试通知。")
+            return
+        current = notify_settings()
+        channel = str(payload.get("channel") or current["channel"])
+        if channel not in {item["key"] for item in NOTIFY_CHANNELS}:
+            api_error(self, 400, "未知的通知渠道。")
+            return
+        url = str(payload.get("url") or "").strip() or current["url"]
+        if not url:
+            api_error(self, 400, "请先填写 Webhook 地址。")
+            return
+        if not url.startswith(("http://", "https://")):
+            api_error(self, 400, "Webhook 地址必须以 http:// 或 https:// 开头。")
+            return
+        ok, detail = notify_test(channel, url)
+        self.send_json(200 if ok else 502, {"ok": ok, "detail": detail})
 
     def api_logout(self):
         self.send_json(
@@ -3646,6 +5369,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if path == "/register":
             self.send_file("register.html")
             return
+        if path == "/prompts":
+            self.send_response(302)
+            self.send_header("Location", "/workbench?view=prompts")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         if path == "/logout":
             self.send_response(302)
             self.send_header("Location", "/login")
@@ -3672,10 +5401,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.send_file("references.html")
             elif path == "/moments":
                 self.send_file("moments.html")
+            elif path == "/map":
+                self.send_file("map.html")
             elif path == "/recommendations":
                 self.send_file("recommendations.html")
-            elif path == "/prompts":
-                self.send_file("prompts.html")
+            elif path == "/music":
+                self.send_file("music.html")
             elif path == "/games/gomoku":
                 self.send_file("games/caro/index.html")
             elif path == "/games":
@@ -3714,10 +5445,28 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_wishlist()
             elif path == "/api/site/messages":
                 self.api_site_messages(query)
+            elif re.fullmatch(r"/api/site/message-files/\d+", path):
+                self.api_site_message_file(path)
             elif path == "/api/moments":
                 self.api_moments(query)
             elif path == "/api/recommendations":
                 self.api_recommendations(query)
+            elif path == "/api/map":
+                self.api_map()
+            elif path == "/api/admin/users":
+                self.api_admin_users(query)
+            elif path == "/api/admin/permissions":
+                self.api_admin_permissions()
+            elif path == "/api/admin/audit":
+                self.api_admin_audit(query)
+            elif path == "/api/admin/sensitive-words":
+                self.api_admin_sensitive_words(query)
+            elif path == "/api/admin/review":
+                self.api_admin_review(query)
+            elif path == "/api/admin/notify":
+                self.api_admin_notify(query)
+            elif path == "/api/map/export":
+                self.api_map_export()
             elif re.fullmatch(r"/api/recommendations/\d+/icon", path):
                 self.api_recommendation_icon(path)
             elif path == "/api/site/photos":
@@ -3802,6 +5551,36 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_message_create(payload)
             elif path == "/api/moments":
                 self.api_moment_create(payload)
+            elif path == "/api/map/categories":
+                self.api_map_category_create(payload)
+            elif path == "/api/map/places":
+                self.api_map_place_create(payload)
+            elif re.fullmatch(r"/api/map/places/\d+/photos", path):
+                self.api_map_place_photo_upload(path, payload)
+            elif path == "/api/map/import":
+                self.api_map_import(payload)
+            elif path == "/api/account/nickname":
+                self.api_account_nickname(payload)
+            elif path == "/api/admin/sensitive-words":
+                self.api_admin_sensitive_word_add(payload)
+            elif path == "/api/admin/sensitive-words/test":
+                self.api_admin_sensitive_test(payload)
+            elif path == "/api/admin/notify":
+                self.api_admin_notify_save(payload)
+            elif path == "/api/admin/notify/test":
+                self.api_admin_notify_test(payload)
+            elif path == "/api/admin/review/approve-all":
+                self.api_admin_review_all(payload)
+            elif re.fullmatch(r"/api/admin/review/\d+", path):
+                self.api_admin_review_action(path, payload)
+            elif re.fullmatch(r"/api/admin/users/\d+/status", path):
+                self.api_admin_user_status(path, payload)
+            elif re.fullmatch(r"/api/admin/users/\d+/permissions", path):
+                self.api_admin_user_permission(path, payload)
+            elif re.fullmatch(r"/api/admin/users/\d+/nickname", path):
+                self.api_admin_user_nickname(path, payload)
+            elif re.fullmatch(r"/api/admin/users/\d+/password", path):
+                self.api_admin_user_password(path, payload)
             elif path == "/api/recommendations":
                 self.api_recommendation_create(payload)
             elif path == "/api/recommendations/images":
@@ -3881,6 +5660,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_note_item(path)
             elif re.fullmatch(r"/api/moments/\d+", path):
                 self.api_moment_item(path)
+            elif re.fullmatch(r"/api/map/categories/\d+", path):
+                self.api_map_category_item(path)
+            elif re.fullmatch(r"/api/map/places/\d+", path):
+                self.api_map_place_item(path)
             elif re.fullmatch(r"/api/recommendations/\d+", path):
                 self.api_recommendation_item(path)
             elif re.fullmatch(r"/api/workbench/assets/\d+", path):
@@ -3891,6 +5674,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_bookmark_folder_item(path)
             elif re.fullmatch(r"/api/prompts/\d+", path):
                 self.api_prompt_item(path)
+            elif re.fullmatch(r"/api/site/music/\d+", path):
+                self.api_site_music_item(path)
             else:
                 api_error(self, 404, "接口不存在。")
         except Exception as exc:
@@ -3924,12 +5709,22 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_message_delete(path)
             elif re.fullmatch(r"/api/moments/\d+", path):
                 self.api_moment_item(path)
+            elif re.fullmatch(r"/api/map/categories/\d+", path):
+                self.api_map_category_item(path)
+            elif re.fullmatch(r"/api/map/places/\d+", path):
+                self.api_map_place_item(path)
+            elif re.fullmatch(r"/api/map/photos/\d+", path):
+                self.api_map_photo_delete(path)
+            elif re.fullmatch(r"/api/admin/users/\d+", path):
+                self.api_admin_user_delete(path)
+            elif re.fullmatch(r"/api/admin/sensitive-words/\d+", path):
+                self.api_admin_sensitive_word_delete(path)
             elif re.fullmatch(r"/api/recommendations/\d+", path):
                 self.api_recommendation_item(path)
             elif re.fullmatch(r"/api/site/photos/\d+", path):
                 self.api_site_photo_delete(path)
             elif re.fullmatch(r"/api/site/music/\d+", path):
-                self.api_site_music_delete(path)
+                self.api_site_music_item(path)
             elif re.fullmatch(r"/api/site/links/\d+", path):
                 self.api_site_link_delete(path)
             elif re.fullmatch(r"/api/prompts/\d+", path):
@@ -4537,6 +6332,44 @@ class InventoryHandler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", cache_control)
             self.end_headers()
             return
+        total_size = stat_result.st_size
+        range_header = (self.headers.get("Range") or "").strip()
+        if range_header.startswith("bytes=") and not download_name:
+            spec = range_header[len("bytes=") :].split(",")[0].strip()
+            start_text, _, end_text = spec.partition("-")
+            try:
+                if start_text:
+                    start = int(start_text)
+                    end = int(end_text) if end_text else total_size - 1
+                else:
+                    start = max(0, total_size - int(end_text or 0))
+                    end = total_size - 1
+            except ValueError:
+                start, end = 0, total_size - 1
+            start = max(0, min(start, max(0, total_size - 1)))
+            end = max(start, min(end, total_size - 1))
+            length = max(0, end - start + 1)
+            try:
+                with full.open("rb") as handle:
+                    handle.seek(start)
+                    body = handle.read(length)
+                self.send_response(206)
+                self.send_header("Content-Type", content_type)
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Accept-Ranges", "bytes")
+                self.send_header(
+                    "Content-Range", f"bytes {start}-{end}/{total_size}"
+                )
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", cache_control)
+                self.send_header("ETag", etag)
+                self.end_headers()
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                pass
+            except OSError:
+                api_error(self, 404, "文件不存在。")
+            return
         body = full.read_bytes()
         encoding = self.maybe_gzip(body, content_type)
         if encoding:
@@ -4545,6 +6378,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", content_type)
             self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Accept-Ranges", "bytes")
             if download_name:
                 encoded_name = quote(os.path.basename(download_name))
                 self.send_header(
@@ -4592,25 +6426,46 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return {}
         placeholders = ",".join("?" for _ in message_ids)
         rows = query(
-            f"""SELECT id, message_id, file_name, file_path, file_size, mime_type
+            f"""SELECT id, message_id, file_name, file_path, file_size, mime_type,
+                       status, uploaded_by
                 FROM site_message_files
                 WHERE message_id IN ({placeholders})
                 ORDER BY id""",
             tuple(message_ids),
         )
+        identity = self.session_identity()
+        viewer_id = None
+        if identity:
+            viewer_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
+        is_admin = self.is_admin()
         grouped = {}
         for row in rows:
             extension = os.path.splitext(row.get("file_name") or "")[1].lower()
-            grouped.setdefault(row["message_id"], []).append(
-                {
-                    "id": row["id"],
-                    "file_name": row["file_name"],
-                    "file_path": row["file_path"],
-                    "file_size": row["file_size"],
-                    "mime_type": row["mime_type"],
-                    "is_image": extension in MESSAGE_IMAGE_EXTENSIONS,
-                }
+            status = row.get("status") or "approved"
+            approved = status == "approved"
+            owned = (
+                viewer_id is not None
+                and row.get("uploaded_by") is not None
+                and row["uploaded_by"] == viewer_id
             )
+            visible = approved or is_admin or owned
+            entry = {
+                "id": row["id"],
+                "status": status,
+                "is_image": extension in MESSAGE_IMAGE_EXTENSIONS,
+                "visible": visible,
+            }
+            if visible:
+                entry.update(
+                    {
+                        "file_name": row["file_name"],
+                        "file_size": row["file_size"],
+                        "mime_type": row["mime_type"],
+                        "url": f"/api/site/message-files/{row['id']}",
+                        "pending": not approved,
+                    }
+                )
+            grouped.setdefault(row["message_id"], []).append(entry)
         return grouped
 
     def api_site_messages(self, params):
@@ -4619,7 +6474,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                FROM site_messages
                ORDER BY COALESCE(parent_id, id) DESC, id ASC"""
         )
-        can_delete = self.is_owner()
+        can_delete = self.is_admin()
         files = self.site_message_files_map([row["id"] for row in rows])
         for row in rows:
             row["files"] = files.get(row["id"], [])
@@ -4648,12 +6503,30 @@ class InventoryHandler(BaseHTTPRequestHandler):
             extension = os.path.splitext(name)[1].lower()
             if extension not in MESSAGE_FILE_EXTENSIONS:
                 return None, f"不支持的附件类型：{name}"
+            if sensitive_contains(name):
+                return None, f"附件名包含不允许的词汇：{name}"
             try:
                 raw = base64.b64decode(str(item.get("data_base64") or ""), validate=True)
             except Exception:
                 return None, f"附件数据无效：{name}"
             if not raw:
                 return None, f"附件内容为空：{name}"
+            if extension in MESSAGE_IMAGE_EXTENSIONS:
+                detected = _image_ext_from_magic(raw)
+                if not detected or detected not in (
+                    {extension, ".jpg"} if extension in (".jpg", ".jpeg") else {extension}
+                ):
+                    return None, f"图片内容与扩展名不符：{name}"
+            elif extension == ".pdf":
+                if not raw.startswith(b"%PDF-"):
+                    return None, f"不是有效的 PDF 文件：{name}"
+            else:
+                if b"\x00" in raw[:4096]:
+                    return None, f"文本附件包含二进制内容：{name}"
+                try:
+                    raw[:4096].decode("utf-8")
+                except UnicodeDecodeError:
+                    return None, f"文本附件不是 UTF-8 编码：{name}"
             if len(raw) > MESSAGE_FILE_MAX_BYTES:
                 limit_mb = MESSAGE_FILE_MAX_BYTES // (1024 * 1024)
                 return None, f"单个附件不能超过 {limit_mb}MB：{name}"
@@ -4671,6 +6544,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
         nickname = str(payload.get("nickname") or "匿名").strip()[:30] or "匿名"
         content = str(payload.get("content") or "").strip()
         parent_id = payload.get("parent_id")
+        if sensitive_contains(nickname):
+            api_error(self, 400, "昵称包含不允许的词汇，请修改后再留言。")
+            return
+        if content and sensitive_contains(content):
+            api_error(self, 400, "留言内容包含不允许的词汇，请修改后再发。")
+            return
         if len(content) > 1000:
             api_error(self, 400, "留言内容不能超过 1000 字。")
             return
@@ -4699,6 +6578,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 remove_data_file(relative)
             api_error(self, 400, str(exc))
             return
+        auto_approve = self.is_admin() or self.can("messages:attach_auto")
+        identity = self.session_identity()
+        uploader_id = None
+        if identity:
+            uploader_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
 
         def write(conn):
             cursor = conn.execute(
@@ -4709,9 +6593,19 @@ class InventoryHandler(BaseHTTPRequestHandler):
             for name, relative, size in saved:
                 conn.execute(
                     """INSERT INTO site_message_files
-                       (message_id, file_name, file_path, file_size, mime_type, created_at)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
-                    (message_id, name, relative, size, mimetypes.guess_type(name)[0], created_at),
+                       (message_id, file_name, file_path, file_size, mime_type,
+                        status, uploaded_by, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        message_id,
+                        name,
+                        relative,
+                        size,
+                        mimetypes.guess_type(name)[0],
+                        "approved" if auto_approve else "pending",
+                        uploader_id,
+                        created_at,
+                    ),
                 )
             return message_id
 
@@ -4721,7 +6615,25 @@ class InventoryHandler(BaseHTTPRequestHandler):
             for _name, relative, _size in saved:
                 remove_data_file(relative)
             raise
-        self.send_json(200, {"id": row_id, "files": len(saved)})
+        if saved and not auto_approve:
+            notify_async(
+                "attachment",
+                "Error酱：有新的待审附件",
+                f"{nickname} 的留言附件等待审核，请到工作台「内容审核」处理。",
+            )
+        notify_async(
+            "message",
+            "Error酱：新的留言",
+            f"{nickname}：{(content[:60] if content else '（仅附件）')}",
+        )
+        self.send_json(
+            200,
+            {
+                "id": row_id,
+                "files": len(saved),
+                "pending_review": bool(saved) and not auto_approve,
+            },
+        )
 
     def api_site_photos(self, params):
         rows = query("SELECT * FROM site_photos ORDER BY album, sort_order, id DESC")
@@ -4758,7 +6670,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                FROM moments
                ORDER BY pinned DESC, created_at DESC, id DESC"""
         )
-        can_manage = self.is_owner()
+        can_manage = self.can("moments:write")
         files = self.moment_files_map([row["id"] for row in rows])
         for row in rows:
             row["files"] = files.get(row["id"], [])
@@ -4946,7 +6858,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             200,
             {
                 "items": self.recommendation_rows(params),
-                "can_manage": self.is_owner(),
+                "can_manage": self.can("recommendations:write"),
             },
         )
 
@@ -5225,6 +7137,14 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def api_site_music(self, params):
         rows = query("SELECT * FROM site_music ORDER BY sort_order, id")
+        for row in rows:
+            if row.get("source_type") == "file":
+                row["url"] = "/site-files/" + (row.get("source_id") or "")
+            else:
+                row["url"] = row.get("source_id") or ""
+            row["cover_url"] = (
+                "/site-files/" + row["cover_path"] if row.get("cover_path") else ""
+            )
         self.send_json(200, rows)
 
     def api_site_music_create(self, payload):
@@ -5244,26 +7164,647 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_site_music_upload(self, payload):
         title = str(payload.get("title") or "").strip()[:80]
         artist = str(payload.get("artist") or "").strip()[:80]
+        album = str(payload.get("album") or "").strip()[:80]
+        file_name = os.path.basename(str(payload.get("file_name") or "music.mp3"))
+        extension = os.path.splitext(file_name)[1].lower()
+        if extension not in MUSIC_EXTENSIONS:
+            api_error(self, 400, "支持 mp3、wav、flac、m4a、aac、ogg、opus 格式。")
+            return
         try:
-            relative = self.save_site_file(
-                payload.get("data_base64") or "",
-                payload.get("file_name") or "music.mp3",
-                "site_music_files",
+            raw = base64.b64decode(str(payload.get("data_base64") or ""), validate=True)
+        except Exception:
+            api_error(self, 400, "音频数据不是有效的 base64。")
+            return
+        if not raw:
+            api_error(self, 400, "音频内容为空。")
+            return
+        if len(raw) > MUSIC_MAX_BYTES:
+            limit_mb = MUSIC_MAX_BYTES // (1024 * 1024)
+            api_error(self, 400, f"单个音频文件不能超过 {limit_mb}MB。")
+            return
+        metadata = parse_audio_metadata(raw, file_name)
+        try:
+            relative = self.save_data_file(
+                raw, file_name, "site_music_files", max_bytes=MUSIC_MAX_BYTES
             )
         except ValueError as exc:
             api_error(self, 400, str(exc))
             return
+        cover_path = None
+        cover = metadata.get("cover")
+        if cover:
+            try:
+                cover_path = self.save_data_file(
+                    cover[0],
+                    "cover" + (cover[1] or ".jpg"),
+                    "music_covers",
+                    max_bytes=MUSIC_COVER_MAX_BYTES,
+                )
+            except ValueError:
+                cover_path = None
         if not title:
-            title = os.path.basename(payload.get("file_name") or "未命名歌曲")
+            title = metadata.get("title") or os.path.splitext(file_name)[0]
+        if not artist:
+            artist = metadata.get("artist") or ""
+        if not album:
+            album = metadata.get("album") or ""
+        sort_order = query_one(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 AS value FROM site_music"
+        )["value"]
         row_id = execute(
-            "INSERT INTO site_music (title, artist, source_type, source_id, sort_order, created_at) VALUES (?, ?, 'file', ?, 0, ?)",
-            (title, artist or None, relative, now_text()),
+            """INSERT INTO site_music
+                   (title, artist, album, source_type, source_id, cover_path,
+                    duration, file_size, mime_type, sort_order, created_at)
+               VALUES (?, ?, ?, 'file', ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                title,
+                artist or None,
+                album or None,
+                relative,
+                cover_path,
+                metadata.get("duration"),
+                len(raw),
+                mimetypes.guess_type(file_name)[0] or "audio/mpeg",
+                sort_order,
+                now_text(),
+            ),
         )
-        self.send_json(200, {"id": row_id, "source_id": relative})
+        self.send_json(
+            200,
+            {
+                "id": row_id,
+                "source_id": relative,
+                "cover_path": cover_path,
+                "title": title,
+                "artist": artist,
+                "album": album,
+                "duration": metadata.get("duration"),
+            },
+        )
+
+    def api_site_music_item(self, path):
+        item_id = int(path.rsplit("/", 1)[1])
+        current = query_one("SELECT * FROM site_music WHERE id = ?", (item_id,))
+        if not current:
+            api_error(self, 404, "歌曲不存在。")
+            return
+        if self.command == "DELETE":
+            if current.get("source_type") == "file" and current.get("source_id"):
+                remove_data_file(current["source_id"])
+            if current.get("cover_path"):
+                remove_data_file(current["cover_path"])
+            execute("DELETE FROM site_music WHERE id = ?", (item_id,))
+            self.send_json(200, {"ok": True})
+            return
+        payload = get_payload(self)
+        if payload is None:
+            return
+        title = str(payload.get("title", current.get("title", "")) or "").strip()[:80]
+        if not title:
+            api_error(self, 400, "歌名不能为空。")
+            return
+        artist = str(payload.get("artist", current.get("artist", "")) or "").strip()[:80]
+        album = str(payload.get("album", current.get("album", "")) or "").strip()[:80]
+        try:
+            sort_order = int(
+                payload.get("sort_order", current.get("sort_order", 0)) or 0
+            )
+        except (TypeError, ValueError):
+            api_error(self, 400, "排序值必须是整数。")
+            return
+        execute(
+            "UPDATE site_music SET title = ?, artist = ?, album = ?, sort_order = ? WHERE id = ?",
+            (title, artist or None, album or None, sort_order, item_id),
+        )
+        self.send_json(200, {"id": item_id})
 
     def api_site_links(self, params):
         rows = query("SELECT * FROM site_links ORDER BY category, sort_order, id")
         self.send_json(200, rows)
+
+    # ---------- 地图 ----------
+    def map_category_rows(self):
+        return query(
+            """SELECT c.id, c.parent_id, c.name, c.glyph, c.color, c.note, c.sort_order,
+                      c.created_at, COUNT(p.id) AS place_count
+               FROM map_categories c
+               LEFT JOIN map_places p ON p.category_id = c.id
+               GROUP BY c.id
+               ORDER BY COALESCE(c.parent_id, c.id), c.parent_id IS NOT NULL, c.sort_order, c.id"""
+        )
+
+    def map_place_rows(self):
+        return query(
+            """SELECT p.id, p.category_id, p.name, p.subtitle, p.address, p.note,
+                      p.signature, p.tags, p.lat, p.lng, p.status, p.rating,
+                      p.created_by, p.created_at, p.updated_at,
+                      c.name AS category_name, c.glyph AS category_glyph,
+                      c.color AS category_color,
+                      CASE WHEN p.created_by = 0 THEN '管理员'
+                           ELSE COALESCE(u.username, '未知用户') END AS created_by_name
+               FROM map_places p
+               LEFT JOIN map_categories c ON c.id = p.category_id
+               LEFT JOIN users u ON u.id = p.created_by
+               ORDER BY p.id"""
+        )
+
+    def map_photos_map(self, place_ids):
+        if not place_ids:
+            return {}
+        placeholders = ",".join("?" for _ in place_ids)
+        rows = query(
+            f"""SELECT id, place_id, file_path, original_name, mime_type,
+                       size_bytes, created_by, created_at
+                FROM map_place_photos
+                WHERE place_id IN ({placeholders})
+                ORDER BY id""",
+            tuple(place_ids),
+        )
+        grouped = {}
+        for row in rows:
+            row["url"] = "/site-files/" + row["file_path"]
+            grouped.setdefault(row["place_id"], []).append(row)
+        return grouped
+
+    def map_identity_user_id(self):
+        identity = self.session_identity()
+        if not identity:
+            return None
+        if identity.get("kind") == "owner":
+            return 0
+        return identity.get("user_id")
+
+    def map_admin(self):
+        identity = self.session_identity()
+        return bool(identity and identity.get("kind") == "owner")
+
+    def map_place_can_edit(self, row):
+        if not row:
+            return False
+        if self.is_admin():
+            return True
+        user_id = self.map_identity_user_id()
+        if user_id is None:
+            return False
+        if user_has_permission(user_id, "map:write_all"):
+            return True
+        return row.get("created_by") == user_id
+
+    def api_map(self):
+        identity = self.session_identity()
+        is_admin = self.is_admin()
+        user_id = self.map_identity_user_id()
+        places = self.map_place_rows()
+        photos = self.map_photos_map([row["id"] for row in places])
+        for row in places:
+            row["photos"] = photos.get(row["id"], [])
+            row["can_edit"] = bool(
+                identity
+                and (
+                    is_admin
+                    or (user_id is not None and row.get("created_by") == user_id)
+                )
+            )
+        self.send_json(
+            200,
+            {
+                "categories": self.map_category_rows(),
+                "places": places,
+                "can_manage": is_admin,
+                "can_add": self.can("map:write"),
+                "can_import": self.can("map:import"),
+                "can_export": self.can("map:export"),
+                "can_manage_categories": self.can("map:manage_categories"),
+                "signed_in": identity is not None,
+                "map_public": MAP_PUBLIC,
+            },
+        )
+
+    def map_category_payload(self, payload, current=None, category_id=None):
+        current = current or {}
+        name = str(payload.get("name", current.get("name", "")) or "").strip()[:60]
+        if not name:
+            raise ValueError("分类名称不能为空。")
+        glyph = str(payload.get("glyph", current.get("glyph", "·")) or "·").strip()[:2] or "·"
+        color = str(payload.get("color", current.get("color", "#7b68ee")) or "#7b68ee").strip()
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+            raise ValueError("颜色需要是 #RRGGBB 格式。")
+        note = str(payload.get("note", current.get("note", "")) or "").strip()[:500]
+        try:
+            sort_order = int(payload.get("sort_order", current.get("sort_order", 0)) or 0)
+        except (TypeError, ValueError):
+            raise ValueError("排序值必须是整数。")
+        raw_parent = payload.get("parent_id", current.get("parent_id"))
+        parent_id = None
+        if raw_parent not in (None, "", 0, "0"):
+            try:
+                parent_id = int(raw_parent)
+            except (TypeError, ValueError):
+                raise ValueError("上级分类无效。")
+            if category_id is not None and parent_id == category_id:
+                raise ValueError("分类不能把自己设为上级。")
+            parent = query_one(
+                "SELECT id, parent_id FROM map_categories WHERE id = ?", (parent_id,)
+            )
+            if not parent:
+                raise ValueError("上级分类不存在。")
+            if parent.get("parent_id"):
+                raise ValueError("最多支持两级分类。")
+            if category_id is not None:
+                children = query_one(
+                    "SELECT COUNT(*) AS n FROM map_categories WHERE parent_id = ?",
+                    (category_id,),
+                )["n"]
+                if children:
+                    raise ValueError("该分类下已有子分类，不能再设为子分类。")
+        return name, glyph, color.lower(), (note or None), sort_order, parent_id
+
+    def api_map_category_create(self, payload):
+        try:
+            name, glyph, color, note, _sort_order, parent_id = self.map_category_payload(payload)
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        if parent_id:
+            sort_order = query_one(
+                "SELECT COALESCE(MAX(sort_order), -1) + 1 AS value FROM map_categories WHERE parent_id = ?",
+                (parent_id,),
+            )["value"]
+        else:
+            sort_order = query_one(
+                "SELECT COALESCE(MAX(sort_order), -1) + 1 AS value FROM map_categories WHERE parent_id IS NULL"
+            )["value"]
+        row_id = execute(
+            """INSERT INTO map_categories
+                   (parent_id, name, glyph, color, note, sort_order, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (parent_id, name, glyph, color, note, sort_order, now_text()),
+        )
+        self.send_json(201, {"id": row_id})
+
+    def api_map_category_item(self, path):
+        category_id = int(path.rsplit("/", 1)[1])
+        current = query_one("SELECT * FROM map_categories WHERE id = ?", (category_id,))
+        if not current:
+            api_error(self, 404, "分类不存在。")
+            return
+        if self.command == "DELETE":
+            execute("DELETE FROM map_categories WHERE id = ?", (category_id,))
+            self.send_json(200, {"ok": True})
+            return
+        payload = get_payload(self)
+        if payload is None:
+            return
+        try:
+            name, glyph, color, note, sort_order, parent_id = self.map_category_payload(
+                payload, current, category_id
+            )
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        execute(
+            """UPDATE map_categories
+               SET parent_id = ?, name = ?, glyph = ?, color = ?, note = ?, sort_order = ?
+               WHERE id = ?""",
+            (parent_id, name, glyph, color, note, sort_order, category_id),
+        )
+        self.send_json(200, {"id": category_id})
+
+    def map_place_payload(self, payload, current=None):
+        current = current or {}
+        name = str(payload.get("name", current.get("name", "")) or "").strip()[:120]
+        if not name:
+            raise ValueError("地点名称不能为空。")
+        try:
+            lat = float(payload.get("lat", current.get("lat")))
+            lng = float(payload.get("lng", current.get("lng")))
+        except (TypeError, ValueError):
+            raise ValueError("坐标无效。")
+        if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+            raise ValueError("坐标超出有效范围。")
+        raw_category = payload.get("category_id", current.get("category_id"))
+        category_id = None
+        if raw_category not in (None, "", 0, "0"):
+            try:
+                category_id = int(raw_category)
+            except (TypeError, ValueError):
+                raise ValueError("分类无效。")
+            if not query_one("SELECT id FROM map_categories WHERE id = ?", (category_id,)):
+                raise ValueError("分类不存在。")
+        subtitle = str(payload.get("subtitle", current.get("subtitle", "")) or "").strip()[:120]
+        address = str(payload.get("address", current.get("address", "")) or "").strip()[:300]
+        note = str(payload.get("note", current.get("note", "")) or "").strip()[:2000]
+        signature = str(payload.get("signature", current.get("signature", "")) or "").strip()[:300]
+        tags = str(payload.get("tags", current.get("tags", "")) or "")
+        tags = tags.replace("，", ",").replace("、", ",").strip()[:200]
+        status = str(payload.get("status", current.get("status", "")) or "").strip().lower()
+        if status not in ("", "wish", "visited"):
+            raise ValueError("打卡状态不正确。")
+        try:
+            rating = int(payload.get("rating", current.get("rating", 0)) or 0)
+        except (TypeError, ValueError):
+            raise ValueError("推荐度必须是整数。")
+        if not 0 <= rating <= 5:
+            raise ValueError("推荐度范围是 0 到 5。")
+        return (
+            category_id,
+            name,
+            subtitle or None,
+            address or None,
+            note or None,
+            signature or None,
+            tags or None,
+            lat,
+            lng,
+            status or None,
+            rating,
+        )
+
+    def api_map_place_create(self, payload):
+        user_id = self.map_identity_user_id()
+        if user_id is None:
+            api_error(self, 401, "请先登录。")
+            return
+        try:
+            values = self.map_place_payload(payload)
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        stamp = now_text()
+        row_id = execute(
+            """INSERT INTO map_places
+                   (category_id, name, subtitle, address, note, signature,
+                    tags, lat, lng, status, rating, created_by, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (*values, user_id, stamp, stamp),
+        )
+        self.send_json(201, {"id": row_id})
+
+    def api_map_place_item(self, path):
+        place_id = int(path.rsplit("/", 1)[1])
+        current = query_one("SELECT * FROM map_places WHERE id = ?", (place_id,))
+        if not current:
+            api_error(self, 404, "标记不存在。")
+            return
+        if not self.map_place_can_edit(current):
+            api_error(self, 403, "只能修改自己添加的标记。")
+            return
+        if self.command == "DELETE":
+            photos = query(
+                "SELECT file_path FROM map_place_photos WHERE place_id = ?", (place_id,)
+            )
+            execute("DELETE FROM map_places WHERE id = ?", (place_id,))
+            for photo in photos:
+                remove_data_file(photo.get("file_path"))
+            self.send_json(200, {"ok": True})
+            return
+        payload = get_payload(self)
+        if payload is None:
+            return
+        try:
+            values = self.map_place_payload(payload, current)
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        execute(
+            """UPDATE map_places
+               SET category_id = ?, name = ?, subtitle = ?, address = ?, note = ?,
+                   signature = ?, tags = ?, lat = ?, lng = ?, status = ?, rating = ?,
+                   updated_at = ?
+               WHERE id = ?""",
+            (*values, now_text(), place_id),
+        )
+        self.send_json(200, {"id": place_id})
+
+    def api_map_place_photo_upload(self, path, payload):
+        place_id = int(path.split("/")[4])
+        place = query_one("SELECT * FROM map_places WHERE id = ?", (place_id,))
+        if not place:
+            api_error(self, 404, "标记不存在。")
+            return
+        if not self.map_place_can_edit(place):
+            api_error(self, 403, "只能给自己添加的标记上传照片。")
+            return
+        count = query_one(
+            "SELECT COUNT(*) AS n FROM map_place_photos WHERE place_id = ?", (place_id,)
+        )["n"]
+        if count >= MAP_PHOTO_MAX_COUNT:
+            api_error(self, 400, f"每个标记最多 {MAP_PHOTO_MAX_COUNT} 张照片。")
+            return
+        name = os.path.basename(str(payload.get("name") or "photo.jpg")).strip() or "photo.jpg"
+        extension = os.path.splitext(name)[1].lower()
+        if extension not in MESSAGE_IMAGE_EXTENSIONS:
+            api_error(self, 400, "只支持 png、jpg、jpeg、gif、webp、bmp 图片。")
+            return
+        try:
+            raw = base64.b64decode(str(payload.get("data_base64") or ""), validate=True)
+        except Exception:
+            api_error(self, 400, "图片数据无效。")
+            return
+        if not raw:
+            api_error(self, 400, "图片内容为空。")
+            return
+        if len(raw) > MAP_PHOTO_MAX_BYTES:
+            limit_mb = MAP_PHOTO_MAX_BYTES // (1024 * 1024)
+            api_error(self, 400, f"单张照片不能超过 {limit_mb}MB。")
+            return
+        try:
+            relative = self.save_data_file(raw, name, "map_images", max_bytes=MAP_PHOTO_MAX_BYTES)
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        row_id = execute(
+            """INSERT INTO map_place_photos
+                   (place_id, file_path, original_name, mime_type, size_bytes,
+                    created_by, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                place_id,
+                relative,
+                name,
+                mimetypes.guess_type(name)[0] or "image/*",
+                len(raw),
+                self.map_identity_user_id() or 0,
+                now_text(),
+            ),
+        )
+        self.send_json(200, {"id": row_id, "url": "/site-files/" + relative})
+
+    def api_map_photo_delete(self, path):
+        photo_id = int(path.rsplit("/", 1)[1])
+        photo = query_one("SELECT * FROM map_place_photos WHERE id = ?", (photo_id,))
+        if not photo:
+            api_error(self, 404, "照片不存在。")
+            return
+        place = query_one("SELECT * FROM map_places WHERE id = ?", (photo["place_id"],))
+        if not self.map_place_can_edit(place):
+            api_error(self, 403, "只能删除自己标记下的照片。")
+            return
+        execute("DELETE FROM map_place_photos WHERE id = ?", (photo_id,))
+        remove_data_file(photo.get("file_path"))
+        self.send_json(200, {"ok": True})
+
+    def api_map_export(self):
+        if not self.can("map:export"):
+            api_error(self, 403, "只有管理员可以导出地图数据。")
+            return
+        features = []
+        for row in self.map_place_rows():
+            features.append(
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [row["lng"], row["lat"]]},
+                    "properties": {
+                        "id": row["id"],
+                        "name": row["name"],
+                        "subtitle": row.get("subtitle") or "",
+                        "address": row.get("address") or "",
+                        "note": row.get("note") or "",
+                        "signature": row.get("signature") or "",
+                        "tags": row.get("tags") or "",
+                        "status": row.get("status") or "",
+                        "rating": row.get("rating") or 0,
+                        "added_by": row.get("created_by_name") or "",
+                        "category": row.get("category_name") or "",
+                        "category_color": row.get("category_color") or "",
+                        "category_glyph": row.get("category_glyph") or "",
+                    },
+                }
+            )
+        body = json.dumps(
+            {"type": "FeatureCollection", "features": features},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/geo+json; charset=utf-8")
+        self.send_header(
+            "Content-Disposition",
+            "attachment; filename*=UTF-8''"
+            + quote(f"errorjiang-map-{today_text()}.geojson"),
+        )
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def api_map_import(self, payload):
+        user_id = self.map_identity_user_id()
+        if user_id is None:
+            api_error(self, 401, "请先登录。")
+            return
+        is_admin = self.is_admin()
+        if isinstance(payload, dict):
+            features = payload.get("features")
+        else:
+            features = payload
+        if not isinstance(features, list) or not features:
+            api_error(self, 400, "没有找到可导入的 GeoJSON 要素。")
+            return
+        if len(features) > 2000:
+            api_error(self, 400, "单次最多导入 2000 个标记。")
+            return
+        stamp = now_text()
+        category_ids = {
+            row["name"]: row["id"] for row in query("SELECT id, name FROM map_categories")
+        }
+        target_category_id = None
+        raw_target = payload.get("category_id") if isinstance(payload, dict) else None
+        if raw_target not in (None, "", 0, "0"):
+            try:
+                target_category_id = int(raw_target)
+            except (TypeError, ValueError):
+                api_error(self, 400, "目标分类无效。")
+                return
+            if not query_one("SELECT id FROM map_categories WHERE id = ?", (target_category_id,)):
+                api_error(self, 400, "目标分类不存在。")
+                return
+        next_sort = query_one(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 AS value FROM map_categories WHERE parent_id IS NULL"
+        )["value"]
+        imported = 0
+        skipped = 0
+        for feature in features:
+            if not isinstance(feature, dict):
+                skipped += 1
+                continue
+            geometry = feature.get("geometry") or {}
+            coordinates = geometry.get("coordinates") if isinstance(geometry, dict) else None
+            if (
+                not isinstance(coordinates, (list, tuple))
+                or len(coordinates) < 2
+                or not isinstance(geometry, dict)
+                or geometry.get("type") != "Point"
+            ):
+                skipped += 1
+                continue
+            try:
+                lng = float(coordinates[0])
+                lat = float(coordinates[1])
+            except (TypeError, ValueError):
+                skipped += 1
+                continue
+            if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+                skipped += 1
+                continue
+            properties = feature.get("properties") if isinstance(feature.get("properties"), dict) else {}
+            name = str(properties.get("name") or properties.get("title") or "").strip()[:120]
+            if not name:
+                skipped += 1
+                continue
+            category_name = str(properties.get("category") or "").strip()[:60]
+            category_id = target_category_id
+            if category_id is None and category_name:
+                if category_name not in category_ids:
+                    if not is_admin:
+                        category_id = None
+                    else:
+                        color = str(properties.get("category_color") or "").strip()
+                        if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+                            color = "#7b68ee"
+                        glyph = str(properties.get("category_glyph") or "·").strip()[:2] or "·"
+                        cursor = execute(
+                            """INSERT INTO map_categories
+                                   (parent_id, name, glyph, color, note, sort_order, created_at)
+                               VALUES (NULL, ?, ?, ?, NULL, ?, ?)""",
+                            (category_name, glyph, color.lower(), next_sort, stamp),
+                        )
+                        category_ids[category_name] = cursor
+                        next_sort += 1
+                        category_id = cursor
+                else:
+                    category_id = category_ids[category_name]
+            execute(
+                """INSERT INTO map_places
+                       (category_id, name, subtitle, address, note, signature,
+                        tags, lat, lng, status, rating, created_by, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    category_id,
+                    name,
+                    str(properties.get("subtitle") or "").strip()[:120] or None,
+                    str(properties.get("address") or "").strip()[:300] or None,
+                    str(properties.get("note") or "").strip()[:2000] or None,
+                    str(properties.get("signature") or "").strip()[:300] or None,
+                    str(properties.get("tags") or "").strip()[:200] or None,
+                    lat,
+                    lng,
+                    (
+                        str(properties.get("status") or "").strip().lower()
+                        if str(properties.get("status") or "").strip().lower()
+                        in ("wish", "visited")
+                        else None
+                    ),
+                    max(0, min(5, int(properties.get("rating") or 0)))
+                    if str(properties.get("rating") or "0").lstrip("-").isdigit()
+                    else 0,
+                    user_id,
+                    stamp,
+                    stamp,
+                ),
+            )
+            imported += 1
+        self.send_json(200, {"imported": imported, "skipped": skipped})
 
     def api_prompts(self, params):
         rows = query(
@@ -5280,7 +7821,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             200,
             {
                 "items": rows,
-                "can_manage": self.is_owner(),
+                "can_manage": self.can("prompts:write"),
             },
         )
 
@@ -5415,6 +7956,116 @@ class InventoryHandler(BaseHTTPRequestHandler):
             remove_data_file(row.get("file_path"))
         self.send_json(200, {"ok": True})
 
+    def api_site_message_file(self, path):
+        """留言附件：已通过的对所有人开放，待审核的只有上传者和管理员可见。"""
+        file_id = int(path.rsplit("/", 1)[1])
+        row = query_one(
+            "SELECT * FROM site_message_files WHERE id = ?", (file_id,)
+        )
+        if not row:
+            api_error(self, 404, "附件不存在。")
+            return
+        status = row.get("status") or "approved"
+        if status != "approved" and not self.is_admin():
+            identity = self.session_identity()
+            viewer_id = None
+            if identity:
+                viewer_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
+            if viewer_id is None or row.get("uploaded_by") is None or row["uploaded_by"] != viewer_id:
+                api_error(self, 403, "附件正在审核中。")
+                return
+        self.send_data_file(row["file_path"])
+
+    # ---------- 内容审核（管理员） ----------
+    def api_admin_review(self, params):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以查看审核队列。")
+            return
+        status_filter = str((params.get("status") or ["pending"])[0] or "pending").strip()
+        if status_filter not in ("pending", "approved"):
+            status_filter = "pending"
+        rows = query(
+            """SELECT f.id, f.message_id, f.file_name, f.file_size, f.mime_type,
+                      f.status, f.uploaded_by, f.created_at, f.reviewed_at, f.reviewed_by,
+                      m.nickname AS message_nickname, m.content AS message_content,
+                      m.created_at AS message_created_at
+               FROM site_message_files f
+               LEFT JOIN site_messages m ON m.id = f.message_id
+               WHERE f.status = ?
+               ORDER BY f.id DESC
+               LIMIT 200""",
+            (status_filter,),
+        )
+        for row in rows:
+            extension = os.path.splitext(row.get("file_name") or "")[1].lower()
+            row["is_image"] = extension in MESSAGE_IMAGE_EXTENSIONS
+            row["url"] = f"/api/site/message-files/{row['id']}"
+        pending = query_one(
+            "SELECT COUNT(*) AS n FROM site_message_files WHERE status = 'pending'"
+        )["n"]
+        self.send_json(200, {"files": rows, "pending": pending})
+
+    def api_admin_review_action(self, path, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以审核附件。")
+            return
+        file_id = int(path.split("/")[4])
+        row = query_one("SELECT * FROM site_message_files WHERE id = ?", (file_id,))
+        if not row:
+            api_error(self, 404, "附件不存在。")
+            return
+        action = str(payload.get("action") or "").strip()
+        identity = self.session_identity()
+        reviewer = (identity or {}).get("nickname") or "管理员"
+        if action == "approve":
+            execute(
+                """UPDATE site_message_files
+                   SET status = 'approved', reviewed_by = ?, reviewed_at = ?
+                   WHERE id = ?""",
+                (reviewer, now_text(), file_id),
+            )
+            write_audit(
+                identity,
+                "approve_attachment",
+                row.get("file_name") or "",
+                {"id": row.get("message_id"), "nickname": row.get("file_name")},
+            )
+            self.send_json(200, {"ok": True, "status": "approved"})
+            return
+        if action == "reject":
+            execute("DELETE FROM site_message_files WHERE id = ?", (file_id,))
+            remove_data_file(row.get("file_path"))
+            write_audit(
+                identity,
+                "reject_attachment",
+                row.get("file_name") or "",
+                {"id": row.get("message_id"), "nickname": row.get("file_name")},
+            )
+            self.send_json(200, {"ok": True, "status": "rejected"})
+            return
+        api_error(self, 400, "未知审核操作。")
+
+    def api_admin_review_all(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以审核附件。")
+            return
+        identity = self.session_identity()
+        reviewer = (identity or {}).get("nickname") or "管理员"
+        rows = query("SELECT id FROM site_message_files WHERE status = 'pending'")
+        if not rows:
+            self.send_json(200, {"ok": True, "approved": 0})
+            return
+        stamp = now_text()
+        for row in rows:
+            execute(
+                """UPDATE site_message_files
+                   SET status = 'approved', reviewed_by = ?, reviewed_at = ?
+                   WHERE id = ?""",
+                (reviewer, stamp, row["id"]),
+            )
+        write_audit(identity, "approve_attachment_batch", f"批量通过 {len(rows)} 个附件")
+        self.send_json(200, {"ok": True, "approved": len(rows)})
+
     def api_site_photo_delete(self, path):
         item_id = int(path.split("/")[4])
         row = query_one("SELECT image_path FROM site_photos WHERE id = ?", (item_id,))
@@ -5427,20 +8078,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
             except (ValueError, OSError):
                 pass
         execute("DELETE FROM site_photos WHERE id = ?", (item_id,))
-        self.send_json(200, {"ok": True})
-
-    def api_site_music_delete(self, path):
-        item_id = int(path.split("/")[4])
-        row = query_one("SELECT source_type, source_id FROM site_music WHERE id = ?", (item_id,))
-        if row and row.get("source_type") == "file" and row.get("source_id"):
-            try:
-                full = (DATA_DIR / row["source_id"]).resolve()
-                full.relative_to(DATA_DIR.resolve())
-                if full.is_file():
-                    full.unlink()
-            except (ValueError, OSError):
-                pass
-        execute("DELETE FROM site_music WHERE id = ?", (item_id,))
         self.send_json(200, {"ok": True})
 
     def api_site_link_delete(self, path):

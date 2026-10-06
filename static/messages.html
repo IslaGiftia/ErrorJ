@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#7b68ee">
-  <title>留言板 · Error酱</title>
+  <title>给Error酱留言</title>
   <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
   <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
   <link rel="stylesheet" href="/static/messages.css">
@@ -41,7 +41,7 @@
     <main class="mg-main">
       <section class="mg-panel">
         <h1>给 Error酱 留言</h1>
-        <p class="mg-hint">文字、附件都行。单条最多 3 个附件，单个不超过 5MB，图片会直接显示缩略图。</p>
+        <p class="mg-hint">文字、附件都行。单条最多 3 个附件，单个不超过 5MB；支持图片、PDF、文本，附件需要审核通过后其他人才能看到。</p>
         <form id="messageForm">
           <div class="mg-field">
             <label for="msgNickname">昵称</label>
@@ -55,7 +55,7 @@
             <button class="mg-btn mg-btn-ghost" id="pickFileBtn" type="button">
               <i data-lucide="paperclip"></i><span>添加附件</span>
             </button>
-            <span class="mg-attach-hint" id="attachHint">支持图片、PDF、文本、表格、压缩包等</span>
+            <span class="mg-attach-hint" id="attachHint">支持图片、PDF、TXT、MD（附件会先送审核）</span>
           </div>
           <input type="file" id="fileInput" multiple hidden>
           <ul class="mg-file-list" id="pendingList"></ul>

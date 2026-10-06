@@ -88,7 +88,10 @@
     ready: false,
     role: "guest",
     username: "",
+    nickname: "",
     owner: false,
+    admin: false,
+    permissions: [],
   };
   function setText(id, text) {
     var node = document.getElementById(id);
@@ -96,7 +99,12 @@
   }
 
   function canViewModule(moduleName) {
-    return authState.authenticated && authState.owner;
+    if (!authState.authenticated) return false;
+    if (authState.owner || authState.admin) return true;
+    return (
+      authState.permissions.indexOf(moduleName + ":view") >= 0 ||
+      authState.permissions.indexOf(moduleName + ":write") >= 0
+    );
   }
 
   function setPrivateModuleState() {
@@ -131,12 +139,16 @@
     } else if (authState.owner) {
       text.textContent = "管理员";
     } else {
-      text.textContent = authState.username || "普通用户";
+      text.textContent = authState.nickname || authState.username || "普通用户";
     }
     if (menuUser) {
       menuUser.textContent = authState.owner
         ? (authState.enabled ? "管理员已登录" : "本地模式")
-        : ("已登录：" + (authState.username || "普通用户"));
+        : ("已登录：" + (authState.nickname || authState.username || "普通用户"));
+    }
+    var nicknameBtn = document.getElementById("nicknameBtn");
+    if (nicknameBtn) {
+      nicknameBtn.hidden = !authState.authenticated || authState.owner;
     }
     button.setAttribute(
       "aria-label",
@@ -144,6 +156,41 @@
     );
     button.setAttribute("aria-haspopup", authState.authenticated ? "menu" : "dialog");
     if (!authState.authenticated && menu) menu.hidden = true;
+  }
+
+  function applyPendingBadge(count) {
+    var entry = document.querySelector('.repo-entry[href="/workbench"]');
+    var badge = document.getElementById("workbenchPending");
+    var value = Number(count) || 0;
+    if (entry) entry.classList.toggle("has-pending", value > 0);
+    if (badge) {
+      badge.hidden = value <= 0;
+      badge.textContent = value > 99 ? "99+" : String(value);
+    }
+  }
+
+  function applyAuthStatus(status) {
+    authState.enabled = Boolean(status.enabled);
+    authState.authenticated = Boolean(status.authenticated);
+    authState.role = status.role || (authState.authenticated ? "owner" : "guest");
+    authState.username = status.username || "";
+    authState.nickname = status.nickname || "";
+    authState.owner = Boolean(status.owner) || (!status.enabled && authState.authenticated);
+    authState.admin = Boolean(status.admin) || authState.owner;
+    authState.permissions = Array.isArray(status.permissions) ? status.permissions : [];
+    authState.ready = true;
+    setAuthUi();
+    setPrivateModuleState();
+    if (authState.admin) {
+      applyPendingBadge(
+        (status.pending_users || 0) + (status.pending_attachments || 0)
+      );
+    } else {
+      applyPendingBadge(0);
+    }
+    if (authState.authenticated) {
+      loadPrivateLandingData();
+    }
   }
 
   function openAuthModal() {
@@ -390,10 +437,15 @@
         authState.role = data.role || "member";
         authState.username = data.username || "";
         authState.owner = authState.role === "owner";
-        setAuthUi();
-        setPrivateModuleState();
         closeAuthModal();
-        loadPrivateLandingData();
+        fetch("/api/auth/status", { cache: "no-store" })
+          .then(function (response) { return response.json(); })
+          .then(applyAuthStatus)
+          .catch(function () {
+            setAuthUi();
+            setPrivateModuleState();
+            loadPrivateLandingData();
+          });
       }).catch(function (err) {
         error.textContent = err.message || "登录失败";
         error.hidden = false;
@@ -415,27 +467,82 @@
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape") {
       closeAuthModal();
+      closeNicknameModal();
       if (authMenu) authMenu.hidden = true;
     }
   });
+
+  var nicknameModal = document.getElementById("nicknameModal");
+  var nicknameBtn = document.getElementById("nicknameBtn");
+
+  function closeNicknameModal() {
+    if (nicknameModal) nicknameModal.hidden = true;
+  }
+
+  if (nicknameBtn) {
+    nicknameBtn.addEventListener("click", function () {
+      var input = document.getElementById("nicknameInput");
+      var error = document.getElementById("nicknameError");
+      if (input) input.value = authState.nickname || "";
+      if (error) error.hidden = true;
+      if (nicknameModal) nicknameModal.hidden = false;
+      if (authMenu) authMenu.hidden = true;
+      if (input) setTimeout(function () { input.focus(); }, 30);
+    });
+  }
+
+  var nicknameClose = document.getElementById("nicknameClose");
+  if (nicknameClose) {
+    nicknameClose.addEventListener("click", closeNicknameModal);
+  }
+  if (nicknameModal) {
+    nicknameModal.addEventListener("click", function (event) {
+      if (event.target === nicknameModal) closeNicknameModal();
+    });
+  }
+
+  var nicknameForm = document.getElementById("nicknameForm");
+  if (nicknameForm) {
+    nicknameForm.addEventListener("submit", function (event) {
+      event.preventDefault();
+      var input = document.getElementById("nicknameInput");
+      var error = document.getElementById("nicknameError");
+      var submit = document.getElementById("nicknameSubmit");
+      var value = input ? input.value.trim() : "";
+      if (value.length < 2 || value.length > 16) {
+        error.textContent = "昵称需为 2-16 位。";
+        error.hidden = false;
+        return;
+      }
+      if (submit) submit.disabled = true;
+      fetch("/api/account/nickname", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nickname: value }),
+      }).then(function (response) {
+        return response.json().catch(function () { return {}; }).then(function (data) {
+          if (!response.ok) throw new Error(data.error || "修改失败");
+          return data;
+        });
+      }).then(function (data) {
+        authState.nickname = data.nickname || value;
+        setAuthUi();
+        closeNicknameModal();
+        showLandingToast("昵称已更新");
+      }).catch(function (err) {
+        error.textContent = err.message || "修改失败";
+        error.hidden = false;
+      }).then(function () {
+        if (submit) submit.disabled = false;
+      });
+    });
+  }
 
   setPrivateModuleState();
   setAuthUi();
   fetch("/api/auth/status", { cache: "no-store" })
     .then(function (response) { return response.json(); })
-    .then(function (status) {
-      authState.enabled = Boolean(status.enabled);
-      authState.authenticated = Boolean(status.authenticated);
-      authState.role = status.role || (authState.authenticated ? "owner" : "guest");
-      authState.username = status.username || "";
-      authState.owner = Boolean(status.owner) || (!status.enabled && authState.authenticated);
-      authState.ready = true;
-      setAuthUi();
-      setPrivateModuleState();
-      if (authState.authenticated) {
-        loadPrivateLandingData();
-      }
-    })
+    .then(applyAuthStatus)
     .catch(function () {
       authState.ready = true;
       setPrivateModuleState();

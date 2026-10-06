@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <meta name="tab-name" content="ej-map">
+  <title>Error酱的足迹</title>
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
+  <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
+  <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/static/vendor/leaflet-markercluster/MarkerCluster.css">
+  <link rel="stylesheet" href="/static/vendor/leaflet-markercluster/MarkerCluster.Default.css">
+  <link rel="stylesheet" href="/static/map.css">
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
+  <script src="/static/site/tabname.js"></script>
+  <link rel="stylesheet" href="/static/fonts.css">
+</head>
+<body>
+  <div class="mp-app" id="mapApp">
+    <div class="mp-map" id="map"></div>
+
+    <aside class="mp-sidebar" id="mapSidebar">
+      <header class="mp-sidebar-head">
+        <a class="mp-brand" href="/">
+          <i data-lucide="arrow-left"></i>
+          <strong>Error酱地图</strong>
+        </a>
+        <span class="mp-count" id="mapCount"></span>
+      </header>
+
+      <div class="mp-search">
+        <i data-lucide="search"></i>
+        <input id="mapSearch" type="search" autocomplete="off" placeholder="搜索名称、地址、备注">
+      </div>
+
+      <div class="mp-cats" id="mapCategories"></div>
+      <div class="mp-cats mp-subcats" id="mapSubcats" hidden></div>
+      <div class="mp-tags" id="mapTags" hidden></div>
+      <div class="mp-list" id="mapList"></div>
+
+      <footer class="mp-sidebar-foot" id="mapSidebarFoot">
+        <a class="mp-guest-hint" id="mapGuestHint" href="/login?next=/map" hidden>登录后可以添加标记</a>
+        <button class="mp-btn mp-btn-primary" id="mapAddBtn" type="button" hidden>
+          <i data-lucide="plus"></i><span>添加标记</span>
+        </button>
+        <button class="mp-btn" id="mapCatsBtn" type="button" hidden>
+          <i data-lucide="tags"></i><span>分类</span>
+        </button>
+        <button class="mp-btn" id="mapImportBtn" type="button" hidden>
+          <i data-lucide="upload"></i><span>导入</span>
+        </button>
+        <a class="mp-btn" id="mapExportLink" href="/api/map/export" download>
+          <i data-lucide="download"></i><span>导出</span>
+        </a>
+      </footer>
+    </aside>
+
+    <button class="mp-sidebar-toggle" id="mapSidebarToggle" type="button" aria-label="打开标记清单">
+      <i data-lucide="list"></i>
+    </button>
+
+    <div class="mp-tools">
+      <button type="button" id="mapBaseBtn" title="切换底图" aria-label="切换底图" aria-haspopup="menu">
+        <i data-lucide="layers"></i>
+      </button>
+      <button type="button" id="mapLocateBtn" title="定位到我的位置" aria-label="定位到我的位置">
+        <i data-lucide="locate-fixed"></i>
+      </button>
+      <button type="button" id="mapFitBtn" title="显示全部标记" aria-label="显示全部标记">
+        <i data-lucide="maximize"></i>
+      </button>
+    </div>
+
+    <div class="mp-base-panel" id="mapBasePanel" role="menu" aria-label="底图选择" hidden></div>
+
+    <div class="mp-hint" id="mapHint" hidden></div>
+    <div class="mp-toast" id="mapToast" hidden></div>
+  </div>
+
+  <div class="mp-modal" id="mapPlaceModal" hidden>
+    <div class="mp-dialog" role="dialog" aria-modal="true" aria-labelledby="mapPlaceTitle">
+      <header class="mp-dialog-head">
+        <h2 id="mapPlaceTitle">添加标记</h2>
+        <button class="mp-icon-btn" id="mapPlaceClose" type="button" aria-label="关闭">
+          <i data-lucide="x"></i>
+        </button>
+      </header>
+      <form id="mapPlaceForm">
+        <div class="mp-field">
+          <label for="placeName">名称 *</label>
+          <input id="placeName" type="text" maxlength="120" required>
+        </div>
+        <div class="mp-field-row">
+          <div class="mp-field">
+            <label for="placeCategoryTop">一级分类</label>
+            <select id="placeCategoryTop"></select>
+          </div>
+          <div class="mp-field">
+            <label for="placeCategorySub">二级分类</label>
+            <select id="placeCategorySub"></select>
+          </div>
+        </div>
+        <div class="mp-field">
+          <label for="placeSubtitle">别名 / 小注</label>
+          <input id="placeSubtitle" type="text" maxlength="120" placeholder="比如：早市、总店">
+        </div>
+        <div class="mp-field">
+          <label for="placeAddress">地址</label>
+          <input id="placeAddress" type="text" maxlength="300" placeholder="街道、门牌、附近地标">
+        </div>
+        <div class="mp-field">
+          <label for="placeSignature">招牌 / 推荐</label>
+          <input id="placeSignature" type="text" maxlength="300" placeholder="必点的东西">
+        </div>
+        <div class="mp-field">
+          <label for="placeTags">标签</label>
+          <input id="placeTags" type="text" maxlength="200" placeholder="用逗号分隔，比如：夜宵, 人均30">
+        </div>
+        <div class="mp-field">
+          <label for="placeNote">备注</label>
+          <textarea id="placeNote" rows="4" maxlength="2000" placeholder="营业时间、排队情况、怎么去、注意什么"></textarea>
+        </div>
+        <div class="mp-field">
+          <label>打卡状态</label>
+          <div class="mp-seg" id="placeStatus" role="group" aria-label="打卡状态">
+            <button type="button" data-status="">未标记</button>
+            <button type="button" data-status="wish">想去</button>
+            <button type="button" data-status="visited">去过</button>
+          </div>
+        </div>
+        <div class="mp-field">
+          <label>推荐度</label>
+          <div class="mp-stars" id="placeRating" role="group" aria-label="推荐度">
+            <button type="button" data-star="1" aria-label="1 星">★</button>
+            <button type="button" data-star="2" aria-label="2 星">★</button>
+            <button type="button" data-star="3" aria-label="3 星">★</button>
+            <button type="button" data-star="4" aria-label="4 星">★</button>
+            <button type="button" data-star="5" aria-label="5 星">★</button>
+            <span class="mp-stars-value" id="placeRatingText">未评分</span>
+          </div>
+        </div>
+        <div class="mp-field">
+          <label for="placePhotoInput">照片</label>
+          <div class="mp-photo-list" id="placePhotos"></div>
+          <input id="placePhotoInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp" multiple>
+          <p class="mp-field-hint">最多 9 张，单张不超过 8MB，保存后上传。</p>
+        </div>
+        <div class="mp-field-row mp-coords">
+          <div class="mp-field">
+            <label for="placeLat">纬度</label>
+            <input id="placeLat" type="number" step="0.000001" min="-90" max="90" required>
+          </div>
+          <div class="mp-field">
+            <label for="placeLng">经度</label>
+            <input id="placeLng" type="number" step="0.000001" min="-180" max="180" required>
+          </div>
+        </div>
+        <p class="mp-form-error" id="mapPlaceError" hidden></p>
+        <div class="mp-dialog-actions">
+          <button class="mp-btn mp-btn-danger" id="mapPlaceDelete" type="button" hidden>
+            <i data-lucide="trash-2"></i><span>删除</span>
+          </button>
+          <span class="mp-spacer"></span>
+          <button class="mp-btn" id="mapPlaceCancel" type="button">取消</button>
+          <button class="mp-btn mp-btn-primary" id="mapPlaceSave" type="submit">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="mp-modal" id="mapCatsModal" hidden>
+    <div class="mp-dialog mp-dialog-wide" role="dialog" aria-modal="true" aria-labelledby="mapCatsTitle">
+      <header class="mp-dialog-head">
+        <h2 id="mapCatsTitle">分类管理</h2>
+        <button class="mp-icon-btn" id="mapCatsClose" type="button" aria-label="关闭">
+          <i data-lucide="x"></i>
+        </button>
+      </header>
+      <p class="mp-dialog-note">颜色和字会显示在地图标记上。删除分类后，原有标记会变成未分类。</p>
+      <div class="mp-cat-rows" id="mapCatRows"></div>
+      <div class="mp-dialog-actions">
+        <button class="mp-btn" id="mapCatAdd" type="button">
+          <i data-lucide="plus"></i><span>新增一级分类</span>
+        </button>
+        <span class="mp-spacer"></span>
+        <button class="mp-btn mp-btn-primary" id="mapCatsDone" type="button">完成</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="mp-modal" id="mapImportModal" hidden>
+    <div class="mp-dialog" role="dialog" aria-modal="true" aria-labelledby="mapImportTitle">
+      <header class="mp-dialog-head">
+        <h2 id="mapImportTitle">导入标记数据</h2>
+        <button class="mp-icon-btn" id="mapImportClose" type="button" aria-label="关闭">
+          <i data-lucide="x"></i>
+        </button>
+      </header>
+      <p class="mp-dialog-note">支持 GeoJSON、KML、GPX、CSV（名称,经度,纬度）和 MapBridge 高德导出（自动按 WGS-84 处理）。高德 / 腾讯网页导出的坐标选 GCJ-02，百度选 BD-09，导入的标记会归到你选择的分类。</p>
+      <div class="mp-field-row">
+        <div class="mp-field">
+          <label for="mapImportCoord">坐标来源</label>
+          <select id="mapImportCoord">
+            <option value="wgs84">WGS-84（OSM / Google / 本站导出）</option>
+            <option value="gcj02">GCJ-02（高德 / 腾讯）</option>
+            <option value="bd09">BD-09（百度）</option>
+          </select>
+        </div>
+        <div class="mp-field">
+          <label for="mapImportCategory">导入到分类</label>
+          <select id="mapImportCategory"></select>
+        </div>
+      </div>
+      <div class="mp-field">
+        <label for="mapImportFile">选择文件</label>
+        <input id="mapImportFile" type="file" accept=".geojson,.json,.kml,.gpx,.csv,.tsv,.txt,application/geo+json,application/json">
+      </div>
+      <div class="mp-field">
+        <label for="mapImportText">或粘贴内容</label>
+        <textarea id="mapImportText" rows="6" placeholder="GeoJSON / KML / GPX / CSV（名称,经度,纬度）"></textarea>
+      </div>
+      <p class="mp-form-error" id="mapImportError" hidden></p>
+      <div class="mp-dialog-actions">
+        <span class="mp-spacer"></span>
+        <button class="mp-btn" id="mapImportCancel" type="button">取消</button>
+        <button class="mp-btn mp-btn-primary" id="mapImportSubmit" type="button">导入</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="mp-modal" id="mapConfirmModal" hidden>
+    <div class="mp-dialog mp-dialog-small" role="alertdialog" aria-modal="true" aria-labelledby="mapConfirmTitle">
+      <header class="mp-dialog-head">
+        <h2 id="mapConfirmTitle">确认</h2>
+      </header>
+      <p class="mp-confirm-text" id="mapConfirmText"></p>
+      <div class="mp-dialog-actions">
+        <span class="mp-spacer"></span>
+        <button class="mp-btn" id="mapConfirmCancel" type="button">取消</button>
+        <button class="mp-btn mp-btn-danger" id="mapConfirmOk" type="button">删除</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/vendor/leaflet/leaflet.js"></script>
+  <script src="/static/vendor/leaflet-markercluster/leaflet.markercluster.js"></script>
+  <script src="/static/vendor/lucide.min.js"></script>
+  <script src="/static/map.js"></script>
+</body>
+</html>

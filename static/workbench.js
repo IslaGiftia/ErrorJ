@@ -7,6 +7,14 @@
     editingAssetId: null,
     editingRepairId: null,
     assetCategory: "document",
+    accountTab: "pending",
+    adminUsers: [],
+    permissionGroups: [],
+    sensitiveWords: [],
+    auditRows: [],
+    isOwner: false,
+    isAdmin: false,
+    reviewFiles: [],
   };
 
   const $ = (id) => document.getElementById(id);
@@ -111,8 +119,28 @@
     document.querySelectorAll(".wb-nav button").forEach((button) => {
       button.classList.toggle("active", button.dataset.view === view);
     });
+    const headerUpload = $("headerUploadBtn");
+    if (headerUpload) headerUpload.hidden = view === "prompts";
+    if (window.history && history.replaceState) {
+      const target =
+        view === "overview"
+          ? location.pathname
+          : location.pathname + "?view=" + encodeURIComponent(view);
+      history.replaceState(null, "", target);
+    }
     if (view === "assets" || view === "firmware") loadAssets();
     if (view === "repairs") loadRepairs();
+    if (view === "accounts") loadAccounts();
+    if (view === "review") loadReview();
+  }
+
+  function initialView() {
+    const allowed = ["overview", "assets", "firmware", "repairs", "prompts", "accounts", "review"];
+    const params = new URLSearchParams(location.search);
+    const candidate = (params.get("view") || (location.hash || "").replace("#", "") || "overview").trim();
+    if (candidate === "accounts" && !state.isAdmin) return "overview";
+    if (candidate === "review" && !state.isAdmin) return "overview";
+    return allowed.includes(candidate) ? candidate : "overview";
   }
 
   function projectOptions(selected, includeEmpty = true) {
@@ -515,14 +543,787 @@
     applyTheme(themePreference, false);
     if (window.lucide) lucide.createIcons();
     bindEvents();
+    bindAccountEvents();
+    bindReviewEvents();
+    try {
+      const status = await api("/api/auth/status");
+      state.isOwner = Boolean(status.owner);
+      state.isAdmin = Boolean(status.admin || status.owner);
+      const accountsNav = document.querySelector('[data-view="accounts"]');
+      if (accountsNav) accountsNav.hidden = !state.isAdmin;
+      const reviewNav = document.querySelector('[data-view="review"]');
+      if (reviewNav) reviewNav.hidden = !state.isAdmin;
+    } catch (err) {}
     try {
       state.projects = await api("/api/projects");
       syncProjectSelects();
-      await Promise.all([loadSummary(), loadAssets(), loadRepairs()]);
-      setView("overview");
     } catch (err) {
-      toast(err.message || "工作台加载失败");
+      toast(err.message || "工作台数据加载失败");
     }
+    await Promise.allSettled([loadSummary(), loadAssets(), loadRepairs()]);
+    setView(initialView());
+  }
+
+  // ---------- 账号与权限 ----------
+  const ACCOUNT_STATUS_LABELS = {
+    pending: "待审核",
+    approved: "正常",
+    rejected: "已拒绝",
+    disabled: "已停用",
+  };
+
+  const AUDIT_ACTION_LABELS = {
+    register: "提交注册申请",
+    user_approve: "同意注册",
+    user_reject: "拒绝注册",
+    user_disable: "停用账号",
+    user_enable: "启用账号",
+    grant: "发放权限",
+    revoke: "收回权限",
+    set_nickname: "管理员修改昵称",
+    nickname_change: "用户修改昵称",
+    reset_password: "重置密码",
+    delete_user: "删除账号",
+    add_sensitive_word: "新增敏感词",
+    remove_sensitive_word: "删除敏感词",
+  };
+
+  function permissionLabel(key) {
+    for (const group of state.permissionGroups) {
+      for (const item of group.items || []) {
+        if (item.key === key) return item.label;
+      }
+    }
+    return key;
+  }
+
+  function setPendingBadge(count) {
+    const value = Number(count) || 0;
+    const nav = $("accountsNavBadge");
+    const panel = $("pendingCount");
+    if (nav) {
+      nav.hidden = value <= 0;
+      nav.textContent = value > 99 ? "99+" : String(value);
+    }
+    if (panel) panel.textContent = String(value);
+  }
+
+  async function loadAccounts() {
+    const panel = $("accountPanel");
+    panel.innerHTML = '<div class="wb-empty">正在加载…</div>';
+    try {
+      const data = await api("/api/admin/users");
+      state.adminUsers = data.users || [];
+      setPendingBadge(data.pending || 0);
+      if (!state.permissionGroups.length) {
+        const catalog = await api("/api/admin/permissions");
+        state.permissionGroups = catalog.groups || [];
+      }
+      await loadAccountTab(state.accountTab, true);
+    } catch (err) {
+      panel.innerHTML = `<div class="wb-empty">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  async function loadAccountTab(tab, skipUsers) {
+    state.accountTab = tab;
+    document.querySelectorAll("#accountTabs button").forEach((button) => {
+      button.classList.toggle("active", button.dataset.accountTab === tab);
+    });
+    const panel = $("accountPanel");
+    if (tab === "pending" || tab === "users") {
+      if (!skipUsers) {
+        const data = await api("/api/admin/users");
+        state.adminUsers = data.users || [];
+        setPendingBadge(data.pending || 0);
+      }
+      panel.innerHTML = tab === "pending" ? pendingHtml() : usersHtml();
+    } else if (tab === "words") {
+      const data = await api("/api/admin/sensitive-words");
+      state.sensitiveWords = data.words || [];
+      state.wordCategories = data.categories || [];
+      panel.innerHTML = wordsHtml(data);
+    } else if (tab === "notify") {
+      const data = await api("/api/admin/notify");
+      state.notifySettings = data;
+      panel.innerHTML = notifyHtml(data);
+    } else {
+      state.auditRows = await api("/api/admin/audit?limit=200");
+      panel.innerHTML = auditHtml();
+    }
+    if (window.lucide) lucide.createIcons();
+  }
+
+  function pendingHtml() {
+    const pending = state.adminUsers.filter((user) => user.status === "pending");
+    if (!pending.length) {
+      return '<div class="wb-empty">没有待审核的注册申请。</div>';
+    }
+    return (
+      '<div class="wb-user-list">' +
+      pending
+        .map(
+          (user) => `
+        <article class="wb-user-card">
+          <div class="wb-user-main">
+            <div class="wb-user-title">
+              <strong>${escapeHtml(user.nickname || user.username)}</strong>
+              <span class="wb-chip">待审核</span>
+            </div>
+            <div class="wb-user-meta">
+              用户名 ${escapeHtml(user.username)} · 申请于 ${formatTime(user.created_at)}
+            </div>
+          </div>
+          <div class="wb-user-actions">
+            <button class="wb-btn wb-btn-primary" type="button" data-user-status="approve" data-user-id="${user.id}">
+              <i data-lucide="check"></i><span>同意</span>
+            </button>
+            <button class="wb-btn" type="button" data-user-status="reject" data-user-id="${user.id}">
+              <i data-lucide="x"></i><span>拒绝</span>
+            </button>
+          </div>
+        </article>`
+        )
+        .join("") +
+      "</div>"
+    );
+  }
+
+  function usersHtml() {
+    if (!state.adminUsers.length) {
+      return '<div class="wb-empty">还没有注册账号。</div>';
+    }
+    const groups = state.permissionGroups
+      .map((group) => {
+        const items = (group.items || [])
+          .map((item) => {
+            const isAdminPerm = item.key === "system:admin";
+            return `<label class="wb-perm-item"><input type="checkbox" data-perm="${item.key}"${
+              isAdminPerm && !state.isOwner ? " disabled" : ""
+            }><span>${escapeHtml(item.label)}</span></label>`;
+          })
+          .join("");
+        return `<div class="wb-perm-group"><h4>${escapeHtml(group.label)}</h4><div class="wb-perm-items">${items}</div></div>`;
+      })
+      .join("");
+    return (
+      '<div class="wb-user-list">' +
+      state.adminUsers
+        .map((user) => {
+          const permissions = new Set(user.permissions || []);
+          const statusLabel = ACCOUNT_STATUS_LABELS[user.status] || user.status;
+          const actions = [];
+          if (user.status === "approved") {
+            actions.push(
+              `<button class="wb-btn" type="button" data-user-status="disable" data-user-id="${user.id}"><i data-lucide="ban"></i><span>停用</span></button>`
+            );
+          } else {
+            actions.push(
+              `<button class="wb-btn" type="button" data-user-status="approve" data-user-id="${user.id}"><i data-lucide="check"></i><span>通过</span></button>`
+            );
+          }
+          actions.push(
+            `<button class="wb-btn" type="button" data-user-reset="${user.id}"><i data-lucide="key-round"></i><span>重置密码</span></button>`,
+            `<button class="wb-btn" type="button" data-user-nickname="${user.id}"><i data-lucide="pencil"></i><span>改昵称</span></button>`,
+            `<button class="wb-btn wb-btn-danger" type="button" data-user-delete="${user.id}"><i data-lucide="trash-2"></i><span>删除</span></button>`
+          );
+          const permHtml = groups
+            .replace(/data-perm="([^"]+)"/g, (match, key) =>
+              permissions.has(key) ? `${match} checked` : match
+            );
+          return `
+        <article class="wb-user-card" data-user-card="${user.id}">
+          <div class="wb-user-head">
+            <div class="wb-user-main">
+              <div class="wb-user-title">
+                <strong>${escapeHtml(user.nickname || user.username)}</strong>
+                <span class="wb-chip wb-chip-${user.status}">${statusLabel}</span>
+                ${user.is_admin ? '<span class="wb-chip wb-chip-admin">管理员</span>' : ""}
+              </div>
+              <div class="wb-user-meta">
+                用户名 ${escapeHtml(user.username)} · 注册 ${formatTime(user.created_at)}
+                ${user.last_login_at ? ` · 最近登录 ${formatTime(user.last_login_at)}` : ""}
+              </div>
+            </div>
+            <div class="wb-user-actions">${actions.join("")}</div>
+          </div>
+          <details class="wb-user-perms">
+            <summary>权限设置（已授予 ${permissions.size} 项）</summary>
+            <div class="wb-perm-groups">${permHtml}</div>
+          </details>
+          <div class="wb-user-reset" data-reset-row="${user.id}" hidden>
+            <input type="password" minlength="8" maxlength="128" placeholder="新的登录密码（至少 8 位）" data-reset-input="${user.id}">
+            <button class="wb-btn wb-btn-primary" type="button" data-reset-save="${user.id}">保存密码</button>
+          </div>
+          <div class="wb-user-reset" data-nickname-row="${user.id}" hidden>
+            <input maxlength="16" placeholder="新的昵称（2-16 位）" data-nickname-input="${user.id}">
+            <button class="wb-btn wb-btn-primary" type="button" data-nickname-save="${user.id}">保存昵称</button>
+          </div>
+        </article>`;
+        })
+        .join("") +
+      "</div>"
+    );
+  }
+
+  function wordsHtml(data) {
+    const counts = data.counts || {};
+    const categories = data.categories || [];
+    const words = data.words || [];
+    const chips = categories
+      .map(
+        (category) =>
+          `<span class="wb-chip">${escapeHtml(category)} ${counts[category] || 0}</span>`
+      )
+      .join("");
+    const list = words.length
+      ? words
+          .map(
+            (row) => `
+        <span class="wb-word">
+          ${escapeHtml(row.word)}
+          <em>${escapeHtml(row.category)}</em>
+          <button type="button" data-word-delete="${row.id}" title="删除">×</button>
+        </span>`
+          )
+          .join("")
+      : '<span class="wb-empty">词库是空的。</span>';
+    return `
+      <div class="wb-panel">
+        <div class="wb-panel-head"><h2>敏感词库</h2><div class="wb-tags">${chips}</div></div>
+        <div class="wb-word-form">
+          <input id="newWordInput" maxlength="20" placeholder="新增敏感词，例如：赌博">
+          <select id="newWordCategory">
+            ${categories
+              .map((category) => `<option value="${category}">${category}</option>`)
+              .join("")}
+          </select>
+          <button class="wb-btn wb-btn-primary" type="button" id="addWordBtn">
+            <i data-lucide="plus"></i><span>添加</span>
+          </button>
+        </div>
+        <p class="wb-hint">命中规则：忽略大小写、全角半角和空格符号干扰；昵称命中直接拒绝，留言命中直接拒绝。</p>
+        <div class="wb-word-list">${list}</div>
+      </div>
+      <div class="wb-panel">
+        <div class="wb-panel-head"><h2>测试</h2></div>
+        <textarea id="wordTestInput" rows="3" placeholder="输入一段文字，看看会命中哪些词"></textarea>
+        <div class="wb-inline">
+          <button class="wb-btn" type="button" id="wordTestBtn"><i data-lucide="search"></i><span>测试</span></button>
+          <span id="wordTestResult" class="wb-hint"></span>
+        </div>
+      </div>`;
+  }
+
+  function auditHtml() {
+    if (!state.auditRows.length) {
+      return '<div class="wb-empty">还没有审计记录。</div>';
+    }
+    return (
+      '<div class="wb-audit-list">' +
+      state.auditRows
+        .map(
+          (row) => `
+      <article class="wb-audit-row">
+        <span class="wb-audit-time">${formatTime(row.created_at)}</span>
+        <span class="wb-audit-actor">${escapeHtml(row.actor_name || "系统")}</span>
+        <span class="wb-audit-action">${escapeHtml(AUDIT_ACTION_LABELS[row.action] || row.action)}</span>
+        <span class="wb-audit-target">${escapeHtml(row.target_name || "")}</span>
+        <span class="wb-audit-detail">${escapeHtml(row.detail || "")}</span>
+      </article>`
+        )
+        .join("") +
+      "</div>"
+    );
+  }
+
+  function notifyHtml(data) {
+    const channels = data.channels || [];
+    const eventOptions = data.event_options || [];
+    const activeEvents = new Set(data.events || []);
+    const logs = data.log || [];
+    const currentChannel = channels.find((item) => item.key === data.channel) || channels[0] || {};
+    const eventItems = eventOptions
+      .map(
+        (item) =>
+          `<label class="wb-perm-item"><input type="checkbox" data-notify-event="${item.key}"${
+            activeEvents.has(item.key) ? " checked" : ""
+          }><span>${escapeHtml(item.label)}</span></label>`
+      )
+      .join("");
+    const logRows = logs.length
+      ? logs
+          .map(
+            (row) => `
+        <article class="wb-audit-row">
+          <span class="wb-audit-time">${formatTime(row.created_at)}</span>
+          <span class="wb-audit-actor">${escapeHtml(row.channel || "")}</span>
+          <span class="wb-audit-action">${row.status === "ok" ? "成功" : "失败"}</span>
+          <span class="wb-audit-target">${escapeHtml(row.title || "")}</span>
+          <span class="wb-audit-detail">${escapeHtml(row.detail || "")}</span>
+        </article>`
+          )
+          .join("")
+      : '<div class="wb-empty">还没有推送记录。</div>';
+    return `
+      <div class="wb-panel">
+        <div class="wb-panel-head">
+          <h2>推送通知</h2>
+          <span class="wb-chip${data.enabled ? " wb-chip-approved" : ""}">${data.enabled ? "已开启" : "已关闭"}</span>
+        </div>
+        <p class="wb-hint">新注册申请、待审核附件、新留言会推送到你的手机或群机器人；站内的工作台呼吸提醒仍然保留。</p>
+        <div class="wb-notify-grid">
+          <label class="wb-perm-item"><input type="checkbox" id="notifyEnabled"${data.enabled ? " checked" : ""}><span>开启通知</span></label>
+          <label class="wb-field"><span>渠道</span>
+            <select id="notifyChannel">
+              ${channels
+                .map(
+                  (item) =>
+                    `<option value="${item.key}"${item.key === data.channel ? " selected" : ""}>${escapeHtml(item.label)}</option>`
+                )
+                .join("")}
+            </select>
+          </label>
+          <label class="wb-field wb-field-wide"><span>Webhook 地址</span>
+            <input id="notifyUrl" type="text" autocomplete="off" placeholder="${
+              data.url_set ? "已保存，留空表示不修改" : "粘贴机器人 Webhook 地址"
+            }">
+          </label>
+        </div>
+        <p class="wb-hint" id="notifyHint">${escapeHtml(currentChannel.hint || "")}${
+          data.url_set ? ` · 当前：${escapeHtml(data.url_masked || "")}` : ""
+        }</p>
+        <div class="wb-perm-items">
+          <h4>推送哪些事件</h4>
+          ${eventItems}
+        </div>
+        <div class="wb-inline">
+          <button class="wb-btn wb-btn-primary" type="button" id="notifySave">
+            <i data-lucide="check"></i><span>保存设置</span>
+          </button>
+          <button class="wb-btn" type="button" id="notifyTest">
+            <i data-lucide="send"></i><span>发送测试通知</span>
+          </button>
+          ${
+            data.url_set
+              ? '<button class="wb-btn wb-btn-danger" type="button" id="notifyClearUrl"><i data-lucide="trash-2"></i><span>清除地址</span></button>'
+              : ""
+          }
+          <span class="wb-hint" id="notifyResult"></span>
+        </div>
+      </div>
+      <div class="wb-panel">
+        <div class="wb-panel-head"><h2>最近通知</h2></div>
+        <div class="wb-audit-list">${logRows}</div>
+      </div>`;
+  }
+
+  function notifyFormPayload() {
+    const panel = $("accountPanel");
+    const enabled = panel.querySelector("#notifyEnabled");
+    const channel = panel.querySelector("#notifyChannel");
+    const url = panel.querySelector("#notifyUrl");
+    const events = Array.from(panel.querySelectorAll("[data-notify-event]"))
+      .filter((box) => box.checked)
+      .map((box) => box.dataset.notifyEvent);
+    return {
+      enabled: Boolean(enabled && enabled.checked),
+      channel: channel ? channel.value : "wecom",
+      url: url ? url.value.trim() : "",
+      events,
+    };
+  }
+
+  function bindAccountEvents() {
+    const tabs = $("accountTabs");
+    if (tabs) {
+      tabs.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-account-tab]");
+        if (!button) return;
+        loadAccountTab(button.dataset.accountTab).catch((err) => toast(err.message));
+      });
+    }
+    const refresh = $("accountRefreshBtn");
+    if (refresh) {
+      refresh.addEventListener("click", () => {
+        loadAccounts().catch((err) => toast(err.message));
+      });
+    }
+    const panel = $("accountPanel");
+    if (!panel) return;
+    panel.addEventListener("click", async (event) => {
+      const statusBtn = event.target.closest("[data-user-status]");
+      if (statusBtn) {
+        try {
+          await api(`/api/admin/users/${statusBtn.dataset.userId}/status`, {
+            method: "POST",
+            body: JSON.stringify({ action: statusBtn.dataset.userStatus }),
+          });
+          toast("已更新账号状态");
+          await loadAccounts();
+        } catch (err) {
+          toast(err.message);
+        }
+        return;
+      }
+      const resetBtn = event.target.closest("[data-user-reset]");
+      if (resetBtn) {
+        const row = panel.querySelector(`[data-reset-row="${resetBtn.dataset.userReset}"]`);
+        if (row) row.hidden = !row.hidden;
+        return;
+      }
+      const resetSave = event.target.closest("[data-reset-save]");
+      if (resetSave) {
+        const id = resetSave.dataset.resetSave;
+        const input = panel.querySelector(`[data-reset-input="${id}"]`);
+        const value = input ? input.value : "";
+        if (value.length < 8) {
+          toast("密码至少 8 位");
+          return;
+        }
+        try {
+          await api(`/api/admin/users/${id}/password`, {
+            method: "POST",
+            body: JSON.stringify({ password: value }),
+          });
+          toast("密码已重置");
+          if (input) input.value = "";
+        } catch (err) {
+          toast(err.message);
+        }
+        return;
+      }
+      const nicknameBtn = event.target.closest("[data-user-nickname]");
+      if (nicknameBtn) {
+        const row = panel.querySelector(`[data-nickname-row="${nicknameBtn.dataset.userNickname}"]`);
+        if (row) row.hidden = !row.hidden;
+        return;
+      }
+      const nicknameSave = event.target.closest("[data-nickname-save]");
+      if (nicknameSave) {
+        const id = nicknameSave.dataset.nicknameSave;
+        const input = panel.querySelector(`[data-nickname-input="${id}"]`);
+        const value = input ? input.value.trim() : "";
+        if (value.length < 2 || value.length > 16) {
+          toast("昵称需为 2-16 位");
+          return;
+        }
+        try {
+          await api(`/api/admin/users/${id}/nickname`, {
+            method: "POST",
+            body: JSON.stringify({ nickname: value }),
+          });
+          toast("昵称已更新");
+          await loadAccounts();
+        } catch (err) {
+          toast(err.message);
+        }
+        return;
+      }
+      const deleteBtn = event.target.closest("[data-user-delete]");
+      if (deleteBtn) {
+        const label = deleteBtn.querySelector("span");
+        if (deleteBtn.dataset.armed !== "1") {
+          deleteBtn.dataset.armed = "1";
+          if (label) label.textContent = "再点一次确认";
+          setTimeout(() => {
+            if (deleteBtn.isConnected) {
+              deleteBtn.dataset.armed = "0";
+              if (label) label.textContent = "删除";
+            }
+          }, 4000);
+          return;
+        }
+        try {
+          await api(`/api/admin/users/${deleteBtn.dataset.userDelete}`, { method: "DELETE" });
+          toast("账号已删除");
+          await loadAccounts();
+        } catch (err) {
+          toast(err.message);
+        }
+        return;
+      }
+      const addWord = event.target.closest("#addWordBtn");
+      if (addWord) {
+        const input = $("newWordInput");
+        const category = $("newWordCategory");
+        const word = input ? input.value.trim() : "";
+        if (!word) {
+          toast("请输入敏感词");
+          return;
+        }
+        try {
+          await api("/api/admin/sensitive-words", {
+            method: "POST",
+            body: JSON.stringify({ word, category: category ? category.value : "自定义" }),
+          });
+          toast("已添加");
+          await loadAccountTab("words");
+        } catch (err) {
+          toast(err.message);
+        }
+        return;
+      }
+      const deleteWord = event.target.closest("[data-word-delete]");
+      if (deleteWord) {
+        try {
+          await api(`/api/admin/sensitive-words/${deleteWord.dataset.wordDelete}`, {
+            method: "DELETE",
+          });
+          toast("已删除");
+          await loadAccountTab("words");
+        } catch (err) {
+          toast(err.message);
+        }
+        return;
+      }
+      const testBtn = event.target.closest("#wordTestBtn");
+      if (testBtn) {
+        const input = $("wordTestInput");
+        const result = $("wordTestResult");
+        try {
+          const data = await api("/api/admin/sensitive-words/test", {
+            method: "POST",
+            body: JSON.stringify({ text: input ? input.value : "" }),
+          });
+          if (result) {
+            result.textContent = data.count
+              ? `命中 ${data.count} 处：${data.words.join("、")}；替换后：${data.masked}`
+              : "没有命中。";
+          }
+        } catch (err) {
+          if (result) result.textContent = err.message;
+        }
+        return;
+      }
+      const notifySave = event.target.closest("#notifySave");
+      if (notifySave) {
+        const result = $("notifyResult");
+        try {
+          await api("/api/admin/notify", {
+            method: "POST",
+            body: JSON.stringify(notifyFormPayload()),
+          });
+          toast("通知设置已保存");
+          await loadAccountTab("notify");
+        } catch (err) {
+          if (result) result.textContent = err.message;
+          toast(err.message);
+        }
+        return;
+      }
+      const notifyTest = event.target.closest("#notifyTest");
+      if (notifyTest) {
+        const result = $("notifyResult");
+        if (result) result.textContent = "正在发送…";
+        try {
+          await api("/api/admin/notify", {
+            method: "POST",
+            body: JSON.stringify(notifyFormPayload()),
+          });
+          const data = await api("/api/admin/notify/test", {
+            method: "POST",
+            body: JSON.stringify({}),
+          });
+          toast("测试通知已发送");
+          await loadAccountTab("notify");
+          const fresh = $("notifyResult");
+          if (fresh) fresh.textContent = "已发送：" + (data.detail || "OK");
+        } catch (err) {
+          if (result) result.textContent = err.message;
+          toast(err.message);
+        }
+        return;
+      }
+      const notifyClear = event.target.closest("#notifyClearUrl");
+      if (notifyClear) {
+        if (notifyClear.dataset.armed !== "1") {
+          notifyClear.dataset.armed = "1";
+          notifyClear.querySelector("span").textContent = "再点一次确认";
+          setTimeout(() => {
+            if (notifyClear.isConnected) {
+              notifyClear.dataset.armed = "0";
+              notifyClear.querySelector("span").textContent = "清除地址";
+            }
+          }, 4000);
+          return;
+        }
+        const payload = notifyFormPayload();
+        payload.clear_url = true;
+        payload.enabled = false;
+        try {
+          await api("/api/admin/notify", {
+            method: "POST",
+            body: JSON.stringify(payload),
+          });
+          toast("已清除 Webhook 地址");
+          await loadAccountTab("notify");
+        } catch (err) {
+          toast(err.message);
+        }
+        return;
+      }
+    });
+    panel.addEventListener("change", async (event) => {
+      const channelSelect = event.target.closest("#notifyChannel");
+      if (channelSelect && state.notifySettings) {
+        const item = (state.notifySettings.channels || []).find(
+          (entry) => entry.key === channelSelect.value
+        );
+        const hint = $("notifyHint");
+        if (hint && item) hint.textContent = item.hint;
+        return;
+      }
+      const checkbox = event.target.closest("[data-perm]");
+      if (!checkbox) return;
+      const card = checkbox.closest("[data-user-card]");
+      if (!card) return;
+      try {
+        await api(`/api/admin/users/${card.dataset.userCard}/permissions`, {
+          method: "POST",
+          body: JSON.stringify({
+            permission: checkbox.dataset.perm,
+            granted: checkbox.checked,
+          }),
+        });
+        toast(checkbox.checked ? "已发放权限" : "已收回权限");
+        await loadAccounts();
+      } catch (err) {
+        checkbox.checked = !checkbox.checked;
+        toast(err.message);
+      }
+    });
+  }
+
+  // ---------- 内容审核 ----------
+  function setReviewBadge(count) {
+    const value = Number(count) || 0;
+    const nav = $("reviewNavBadge");
+    if (nav) {
+      nav.hidden = value <= 0;
+      nav.textContent = value > 99 ? "99+" : String(value);
+    }
+  }
+
+  async function loadReview() {
+    const panel = $("reviewPanel");
+    panel.innerHTML = '<div class="wb-empty">正在加载…</div>';
+    try {
+      const data = await api("/api/admin/review?status=pending");
+      state.reviewFiles = data.files || [];
+      setReviewBadge(data.pending || 0);
+      panel.innerHTML = reviewHtml();
+      if (window.lucide) lucide.createIcons();
+    } catch (err) {
+      panel.innerHTML = `<div class="wb-empty">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function reviewHtml() {
+    if (!state.reviewFiles.length) {
+      return '<div class="wb-empty">没有待审核的附件。</div>';
+    }
+    return (
+      '<div class="wb-review-grid">' +
+      state.reviewFiles
+        .map((file) => {
+          const thumb = file.is_image
+            ? `<img src="${escapeHtml(file.url)}" alt="" loading="lazy">`
+            : '<i data-lucide="file-text"></i>';
+          const excerpt = (file.message_content || "").slice(0, 120);
+          return `
+        <article class="wb-review-card">
+          <div class="wb-review-thumb">${thumb}</div>
+          <div class="wb-review-body">
+            <div class="wb-user-title">
+              <strong>${escapeHtml(file.file_name)}</strong>
+              <span class="wb-chip wb-chip-pending">待审核</span>
+            </div>
+            <div class="wb-user-meta">
+              ${escapeHtml(file.message_nickname || "匿名")} · ${formatTime(file.created_at)} · ${formatBytes(file.file_size)}
+            </div>
+            ${excerpt ? `<p class="wb-review-text">${escapeHtml(excerpt)}</p>` : ""}
+          </div>
+          <div class="wb-user-actions">
+            <button class="wb-btn wb-btn-primary" type="button" data-review-action="approve" data-review-id="${file.id}">
+              <i data-lucide="check"></i><span>通过</span>
+            </button>
+            <button class="wb-btn wb-btn-danger" type="button" data-review-action="reject" data-review-id="${file.id}">
+              <i data-lucide="trash-2"></i><span>拒绝并删除</span>
+            </button>
+          </div>
+        </article>`;
+        })
+        .join("") +
+      "</div>"
+    );
+  }
+
+  function bindReviewEvents() {
+    const refresh = $("reviewRefreshBtn");
+    if (refresh) {
+      refresh.addEventListener("click", () => {
+        loadReview().catch((err) => toast(err.message));
+      });
+    }
+    const approveAll = $("reviewApproveAllBtn");
+    if (approveAll) {
+      approveAll.addEventListener("click", async () => {
+        if (approveAll.dataset.armed !== "1") {
+          approveAll.dataset.armed = "1";
+          approveAll.querySelector("span").textContent = "再点一次确认";
+          setTimeout(() => {
+            if (approveAll.isConnected) {
+              approveAll.dataset.armed = "0";
+              approveAll.querySelector("span").textContent = "全部通过";
+            }
+          }, 4000);
+          return;
+        }
+        approveAll.dataset.armed = "0";
+        approveAll.querySelector("span").textContent = "全部通过";
+        try {
+          const data = await api("/api/admin/review/approve-all", {
+            method: "POST",
+            body: JSON.stringify({}),
+          });
+          toast(`已通过 ${data.approved} 个附件`);
+          await loadReview();
+        } catch (err) {
+          toast(err.message);
+        }
+      });
+    }
+    const panel = $("reviewPanel");
+    if (!panel) return;
+    panel.addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-review-action]");
+      if (!button) return;
+      const action = button.dataset.reviewAction;
+      const id = button.dataset.reviewId;
+      if (action === "reject" && button.dataset.armed !== "1") {
+        button.dataset.armed = "1";
+        const label = button.querySelector("span");
+        if (label) label.textContent = "再点一次确认";
+        setTimeout(() => {
+          if (button.isConnected) {
+            button.dataset.armed = "0";
+            if (label) label.textContent = "拒绝并删除";
+          }
+        }, 4000);
+        return;
+      }
+      try {
+        await api(`/api/admin/review/${id}`, {
+          method: "POST",
+          body: JSON.stringify({ action }),
+        });
+        toast(action === "approve" ? "已通过" : "已拒绝并删除");
+        await loadReview();
+      } catch (err) {
+        toast(err.message);
+      }
+    });
   }
 
   boot();

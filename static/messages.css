@@ -354,12 +354,26 @@ body {
 }
 
 .mg-thumb {
+  position: relative;
   display: block;
   border: 1px solid var(--mg-border);
   border-radius: 8px;
   overflow: hidden;
   line-height: 0;
   background: var(--mg-bg);
+}
+
+.mg-thumb.is-pending::after {
+  content: "审核中";
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(12, 16, 22, 0.75);
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
 }
 
 .mg-thumb img {
@@ -382,6 +396,12 @@ body {
   color: var(--mg-text);
   text-decoration: none;
   font-size: 13px;
+}
+
+.mg-file-pending {
+  border-style: dashed;
+  color: var(--mg-muted);
+  cursor: default;
 }
 
 .mg-file:hover {

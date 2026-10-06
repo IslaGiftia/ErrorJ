@@ -141,6 +141,11 @@
       <input id="username" type="text" autocomplete="username" maxlength="32" required>
     </label>
     <label class="register-field">
+      <span>昵称</span>
+      <input id="nickname" type="text" autocomplete="nickname" maxlength="16" minlength="2" required>
+      <small>2-16 位，支持中英文、数字和常见符号；昵称唯一，注册后 30 天可改一次。</small>
+    </label>
+    <label class="register-field">
       <span>密码</span>
       <input id="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>
     </label>
@@ -170,8 +175,13 @@
       form.addEventListener("submit", function (event) {
         event.preventDefault();
         var username = document.getElementById("username").value.trim();
+        var nickname = document.getElementById("nickname").value.trim();
         var password = document.getElementById("password").value;
         var confirmPassword = document.getElementById("confirmPassword").value;
+        if (nickname.length < 2 || nickname.length > 16) {
+          showMessage("昵称需为 2-16 位。", true);
+          return;
+        }
         if (password !== confirmPassword) {
           showMessage("两次输入的密码不一致。", true);
           return;
@@ -180,7 +190,7 @@
         fetch("/api/register", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username: username, password: password }),
+          body: JSON.stringify({ username: username, nickname: nickname, password: password }),
         }).then(function (response) {
           return response.json().catch(function () { return {}; }).then(function (data) {
             if (!response.ok) throw new Error(data.error || "注册失败");

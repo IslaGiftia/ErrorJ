@@ -9,6 +9,8 @@
   <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
 <link rel="stylesheet" href="/static/site/site.css">
 <link rel="stylesheet" href="/static/site/rain.css">
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="/static/site/minimap.css">
   <script>
     (function () {
       try {
@@ -34,14 +36,24 @@
 
   <div class="auth-menu" id="authMenu" hidden>
     <strong id="authMenuUser">已登录</strong>
+    <button type="button" id="nicknameBtn" hidden>修改昵称</button>
     <button type="button" id="logoutBtn">退出登录</button>
   </div>
+
+  <a class="map-dock" id="mapDock" href="/map" aria-label="打开 Error酱地图" title="Error酱地图">
+    <span class="map-dock-mini" id="mapDockMini" aria-hidden="true"></span>
+    <span class="map-dock-grid" aria-hidden="true"></span>
+    <span class="map-dock-cross" aria-hidden="true"></span>
+    <span class="map-dock-north" aria-hidden="true">N</span>
+    <span class="map-dock-ring" aria-hidden="true"></span>
+    <span class="map-dock-count" id="mapDockCount" hidden>地图</span>
+  </a>
 
   <main class="landing landing-three rain-scene" id="rainScene">
     <div class="rain-layer" id="rainLayer" aria-hidden="true"></div>
     <div class="landing-inner">
       <h1 class="landing-title"><span id="landingTitleText">使用Error酱工作和学习</span></h1>
-      <p class="landing-desc" id="landingDesc">Error酱是一个学习平台，她由Codex和DeepSeek完成，没有原创，全是搬运。当然，Error酱也是开源的</p>
+      <p class="landing-desc" id="landingDesc">Error酱是一个学习平台，她由Codex和DeepSeek完成，参考了很多优秀项目。当然，Error酱也是开源的</p>
 
       <div class="repo-grid">
         <a class="repo-entry" href="/inventory" target="ej-inventory" data-private-module="inventory">
@@ -66,6 +78,7 @@
         </a>
 
         <a class="repo-entry" href="/workbench" target="ej-workbench" data-private-module="workbench">
+          <span class="repo-pending" id="workbenchPending" hidden></span>
           <span class="repo-entry-label">
             <span class="repo-entry-text">🧰<span id="workbenchCount">登录后查看</span></span>
           </span>
@@ -76,9 +89,9 @@
       <div class="landing-module-actions" aria-label="工作台功能入口">
         <a class="landing-module-btn" href="/messages">给Error酱留言</a>
         <a class="landing-module-btn" href="/games">和Error酱玩游戏</a>
-        <a class="landing-module-btn" href="/moments">Error酱动态</a>
-        <a class="landing-module-btn" href="/recommendations" target="ej-recommendations">Error酱推荐</a>
-        <a class="landing-module-btn" href="/prompts" data-private-module="prompts">提示词</a>
+        <a class="landing-module-btn" href="/music">听Error酱的歌单</a>
+        <a class="landing-module-btn" href="/moments">Error酱的动态</a>
+        <a class="landing-module-btn" href="/recommendations">Error的酱推荐</a>
       </div>
 
       <nav class="landing-links" aria-label="项目相关链接">
@@ -119,6 +132,24 @@
 
   <div class="landing-toast" id="landingToast" hidden></div>
 
+  <div class="auth-modal" id="nicknameModal" hidden>
+    <div class="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="nicknameTitle">
+      <button class="auth-close" id="nicknameClose" type="button" aria-label="关闭">×</button>
+      <h2 id="nicknameTitle">修改昵称</h2>
+      <p>2-16 位，支持中英文、数字和常见符号；昵称唯一，每 30 天可修改一次。</p>
+      <form id="nicknameForm">
+        <label class="auth-field">
+          <span>新昵称</span>
+          <input id="nicknameInput" type="text" maxlength="16" minlength="2" autocomplete="nickname" required>
+        </label>
+        <button class="auth-submit" id="nicknameSubmit" type="submit">保存</button>
+        <div class="auth-error" id="nicknameError" hidden></div>
+      </form>
+    </div>
+  </div>
+
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script src="/static/site/minimap.js"></script>
 <script src="/static/site/rain.js"></script>
 <script src="/static/site/site.js"></script>
 </body>
