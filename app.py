@@ -187,7 +187,6 @@ PERMISSION_GROUPS = (
             {"key": "map:write", "label": "添加标记、管理自己添加的标记与照片"},
             {"key": "map:write_all", "label": "编辑和删除所有标记"},
             {"key": "map:manage_categories", "label": "管理地图分类"},
-            {"key": "map:import", "label": "导入标记数据"},
             {"key": "map:export", "label": "导出地图数据"},
         ),
     },
@@ -218,7 +217,7 @@ PERMISSION_LABELS = {
     for group in PERMISSION_GROUPS
     for item in group["items"]
 }
-DEFAULT_MEMBER_PERMISSIONS = ("map:write", "map:import")
+DEFAULT_MEMBER_PERMISSIONS = ("map:write",)
 GRANTABLE_PERMISSIONS = tuple(
     item["key"]
     for group in PERMISSION_GROUPS
@@ -4210,7 +4209,8 @@ def required_permission(path, method):
     if path.startswith("/api/map/categories"):
         return "map:manage_categories"
     if path.startswith("/api/map/import"):
-        return "map:import"
+        # 导入标记仅管理员可用（不再作为可授予权限点）
+        return None
     if path.startswith("/api/map"):
         if method in ("POST", "PATCH", "DELETE"):
             return "map:write"
@@ -7450,7 +7450,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "places": places,
                 "can_manage": is_admin,
                 "can_add": self.can("map:write"),
-                "can_import": self.can("map:import"),
+                "can_import": is_admin,
                 "can_export": self.can("map:export"),
                 "can_manage_categories": self.can("map:manage_categories"),
                 "signed_in": identity is not None,

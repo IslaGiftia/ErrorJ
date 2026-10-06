@@ -1782,7 +1782,7 @@
 
   // ---------- placing ----------
   function startPlacing() {
-    if (!state.canManage) return;
+    if (!state.canAdd) return;
     state.placing = true;
     map.getContainer().style.cursor = "crosshair";
     setHint("点击地图选择位置，按 Esc 取消");

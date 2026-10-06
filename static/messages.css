@@ -62,8 +62,9 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 0 12px;
-  background: var(--mg-bg);
+  padding: 14px max(16px, calc((100% - 868px) / 2)) 12px;
+  background: color-mix(in srgb, var(--mg-bg) 88%, transparent);
+  backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--mg-border);
 }
 
@@ -541,6 +542,11 @@ body {
 @media (max-width: 640px) {
   .mg-app {
     padding: 0 12px 48px;
+  }
+
+  .mg-header {
+    padding-left: 12px;
+    padding-right: 12px;
   }
 
   .mg-panel,
