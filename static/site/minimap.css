@@ -140,51 +140,31 @@
   pointer-events: none;
 }
 
-/* 地图入口上方的「游戏风」信息面板 */
+/* 地图入口上方的信息面板（与圆盘圆心左右对称、全透明） */
 .dock-hud {
   position: fixed;
-  left: 20px;
-  bottom: calc(22px + env(safe-area-inset-bottom, 0px) + clamp(108px, 9vw, 144px) + 12px);
+  left: calc(20px + clamp(108px, 9vw, 144px) / 2);
+  bottom: calc(22px + env(safe-area-inset-bottom, 0px) + clamp(108px, 9vw, 144px) + 10px);
   z-index: 69;
-  display: grid;
-  grid-template-columns: auto auto;
-  gap: 1px 12px;
-  min-width: 132px;
-  padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--primary, #7b68ee) 45%, #0f172a);
-  border-radius: 8px;
-  background: rgba(10, 14, 22, 0.72);
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
-    0 8px 22px rgba(10, 14, 20, 0.35);
-  color: #d7f9e5;
-  font-family: "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
-  font-size: 11.5px;
-  line-height: 1.55;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  transform: translateX(-50%);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: clamp(11px, 0.55vw, 13px);
+  line-height: 1.4;
+  white-space: nowrap;
   pointer-events: none;
 }
 
 .dock-hud-label {
-  color: #7dd3a8;
-  opacity: 0.85;
-  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .dock-hud-value {
-  color: #6ee7a8;
+  color: var(--primary);
   font-weight: 700;
-  text-align: right;
-  text-shadow: 0 0 8px rgba(74, 222, 128, 0.45);
-}
-
-.dock-hud-value[data-level="warn"] {
-  color: #fbbf24;
-  text-shadow: 0 0 8px rgba(251, 191, 36, 0.4);
-}
-
-.dock-hud-value[data-level="bad"] {
-  color: #f87171;
-  text-shadow: 0 0 8px rgba(248, 113, 113, 0.4);
 }
 
 /* 大屏（2K / 4K）按比例放大，并向上、向内收一些 */
@@ -197,8 +177,9 @@
   }
 
   .dock-hud {
-    left: 28px;
-    bottom: calc(32px + env(safe-area-inset-bottom, 0px) + clamp(144px, 8vw, 168px) + 12px);
+    left: calc(28px + clamp(144px, 8vw, 168px) / 2);
+    bottom: calc(32px + env(safe-area-inset-bottom, 0px) + clamp(144px, 8vw, 168px) + 10px);
+    font-size: 13px;
   }
 }
 
@@ -211,8 +192,9 @@
   }
 
   .dock-hud {
-    left: 40px;
-    bottom: calc(44px + env(safe-area-inset-bottom, 0px) + clamp(176px, 7.4vw, 200px) + 12px);
+    left: calc(40px + clamp(176px, 7.4vw, 200px) / 2);
+    bottom: calc(44px + env(safe-area-inset-bottom, 0px) + clamp(176px, 7.4vw, 200px) + 10px);
+    font-size: 15px;
   }
 }
 
@@ -225,8 +207,9 @@
   }
 
   .dock-hud {
-    left: 52px;
-    bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 216px + 12px);
+    left: calc(52px + 108px);
+    bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 216px + 10px);
+    font-size: 17px;
   }
 }
 
@@ -239,10 +222,8 @@
   }
 
   .dock-hud {
-    left: 12px;
-    bottom: calc(12px + env(safe-area-inset-bottom, 0px) + 92px + 10px);
-    min-width: 104px;
-    padding: 6px 8px;
+    left: calc(12px + 46px);
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px) + 92px + 8px);
     font-size: 10px;
   }
 
