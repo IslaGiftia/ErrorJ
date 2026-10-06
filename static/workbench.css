@@ -959,6 +959,56 @@ svg {
   font-size: 13px;
 }
 
+.wb-msg-limit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--wb-line);
+  border-radius: 8px;
+  background: var(--wb-surface-2, var(--wb-hover));
+}
+
+.wb-msg-limit-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.wb-msg-limit-hint {
+  margin-top: 3px;
+  color: var(--wb-muted);
+  font-size: 12px;
+}
+
+.wb-msg-limit-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wb-msg-limit-control input {
+  width: 64px;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--wb-line);
+  border-radius: 8px;
+  background: var(--wb-surface);
+  color: var(--wb-text);
+  font: inherit;
+  font-size: 13px;
+  text-align: center;
+}
+
+.wb-step-btn {
+  width: 34px;
+  padding: 0;
+}
+
 .wb-word-form {
   display: flex;
   gap: 8px;

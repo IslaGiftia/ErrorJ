@@ -763,6 +763,7 @@ def init_db():
                 approved_at TEXT,
                 nickname_updated_at TEXT,
                 silenced_until TEXT,
+                message_daily_limit INTEGER,
                 last_login_at TEXT
             );
 
@@ -1026,6 +1027,7 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             ("nickname", "ALTER TABLE users ADD COLUMN nickname TEXT"),
             ("nickname_updated_at", "ALTER TABLE users ADD COLUMN nickname_updated_at TEXT"),
             ("silenced_until", "ALTER TABLE users ADD COLUMN silenced_until TEXT"),
+            ("message_daily_limit", "ALTER TABLE users ADD COLUMN message_daily_limit INTEGER"),
         ):
             if column not in user_columns:
                 conn.execute(ddl)
@@ -4132,19 +4134,10 @@ def is_recent_place(created_at, hours=24):
     return datetime.now() - moment <= timedelta(hours=hours)
 
 
-def lookup_ip_region(address):
-    """把公网 IP 解析到省级属地（如「广东」）；失败或未配置高德 Key 时返回空串。"""
-    text = str(address or "").strip()
-    if is_private_ip(text) or not AMAP_WEB_KEY:
+def amap_ip_region(text):
+    """高德 IP 定位；未配置 Key 或没返回省份时返回空串。"""
+    if not AMAP_WEB_KEY:
         return ""
-    now = time.time()
-    with IP_REGION_CACHE_LOCK:
-        cached = IP_REGION_CACHE.get(text)
-        if cached:
-            ttl = IP_REGION_CACHE_TTL if cached[1] else IP_REGION_CACHE_FAIL_TTL
-            if now - cached[0] < ttl:
-                return cached[1]
-    region = ""
     try:
         request = Request(
             "https://restapi.amap.com/v3/ip?"
@@ -4153,10 +4146,53 @@ def lookup_ip_region(address):
         )
         with urlopen(request, timeout=3) as response:
             payload = json.loads(response.read().decode("utf-8", "replace") or "{}")
-        if str(payload.get("status")) == "1":
-            region = normalize_region(payload.get("province"))
     except (URLError, socket.timeout, OSError, json.JSONDecodeError):
-        region = ""
+        return ""
+    if str(payload.get("status")) == "1":
+        return normalize_region(payload.get("province"))
+    return ""
+
+
+def pconline_ip_region(text):
+    """高德对部分运营商 IP 返回空省份，再用太平洋电脑网的库兜底。"""
+    try:
+        request = Request(
+            "https://whois.pconline.com.cn/ipJson.jsp?"
+            + urlencode({"ip": text, "json": "true"}),
+            headers={
+                "User-Agent": "ErrorJiang/1.0",
+                "Referer": "https://whois.pconline.com.cn/",
+            },
+        )
+        with urlopen(request, timeout=3) as response:
+            raw = response.read()
+    except (URLError, socket.timeout, OSError):
+        return ""
+    payload = {}
+    for encoding in ("utf-8", "gbk"):
+        try:
+            payload = json.loads(raw.decode(encoding).strip() or "{}")
+            break
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            payload = {}
+    if not isinstance(payload, dict):
+        return ""
+    return normalize_region(payload.get("pro") or payload.get("province") or "")
+
+
+def lookup_ip_region(address):
+    """把公网 IP 解析到省级属地（如「广东」）；解析失败时返回空串。"""
+    text = str(address or "").strip()
+    if is_private_ip(text):
+        return ""
+    now = time.time()
+    with IP_REGION_CACHE_LOCK:
+        cached = IP_REGION_CACHE.get(text)
+        if cached:
+            ttl = IP_REGION_CACHE_TTL if cached[1] else IP_REGION_CACHE_FAIL_TTL
+            if now - cached[0] < ttl:
+                return cached[1]
+    region = amap_ip_region(text) or pconline_ip_region(text)
     with IP_REGION_CACHE_LOCK:
         if len(IP_REGION_CACHE) >= IP_REGION_CACHE_LIMIT:
             IP_REGION_CACHE.clear()
@@ -4947,7 +4983,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         status_filter = str((params.get("status") or [""])[0] or "").strip()
         sql = """SELECT id, username, nickname, status, role, created_at, updated_at,
-                        approved_at, last_login_at, nickname_updated_at, silenced_until
+                        approved_at, last_login_at, nickname_updated_at, silenced_until,
+                        message_daily_limit
                  FROM users"""
         values = ()
         if status_filter in ("pending", "approved", "rejected", "disabled"):
@@ -4976,6 +5013,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "total": len(users),
                 "grantable": list(GRANTABLE_PERMISSIONS),
                 "defaults": list(DEFAULT_MEMBER_PERMISSIONS),
+                "default_message_limit": MESSAGE_DAILY_LIMIT,
             },
         )
 
@@ -5078,6 +5116,49 @@ class InventoryHandler(BaseHTTPRequestHandler):
         self.send_json(
             200,
             {"ok": True, "permissions": sorted(user_permission_set(user_id))},
+        )
+
+    def api_admin_user_message_limit(self, path, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以调整留言次数。")
+            return
+        user_id = int(path.split("/")[4])
+        target = self.admin_target_user(user_id)
+        if not target:
+            api_error(self, 404, "账号不存在。")
+            return
+        if not self.admin_can_touch(target):
+            return
+        raw = payload.get("limit")
+        if raw is None or raw == "":
+            new_limit = None
+        else:
+            try:
+                new_limit = int(raw)
+            except (TypeError, ValueError):
+                api_error(self, 400, "留言次数需为 0-999 之间的整数。")
+                return
+            if new_limit < 0 or new_limit > 999:
+                api_error(self, 400, "留言次数需为 0-999 之间的整数。")
+                return
+        execute(
+            "UPDATE users SET message_daily_limit = ?, updated_at = ? WHERE id = ?",
+            (new_limit, now_text(), user_id),
+        )
+        shown = MESSAGE_DAILY_LIMIT if new_limit is None else new_limit
+        write_audit(
+            self.session_identity(),
+            "set_message_limit",
+            f"每日留言上限改为 {shown} 条" + ("（默认）" if new_limit is None else ""),
+            target,
+        )
+        self.send_json(
+            200,
+            {
+                "ok": True,
+                "limit": shown,
+                "custom": new_limit is not None,
+            },
         )
 
     def api_admin_user_nickname(self, path, payload):
@@ -5678,6 +5759,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_admin_user_status(path, payload)
             elif re.fullmatch(r"/api/admin/users/\d+/permissions", path):
                 self.api_admin_user_permission(path, payload)
+            elif re.fullmatch(r"/api/admin/users/\d+/message-limit", path):
+                self.api_admin_user_message_limit(path, payload)
             elif re.fullmatch(r"/api/admin/users/\d+/nickname", path):
                 self.api_admin_user_nickname(path, payload)
             elif re.fullmatch(r"/api/admin/users/\d+/password", path):
@@ -6594,6 +6677,21 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )
         return int(row["n"] if row else 0)
 
+    def message_limit_for_user(self, user_id):
+        """该账号每天的留言上限；没单独设置时用全局默认 9 条。"""
+        if user_id in (None, 0):
+            return MESSAGE_DAILY_LIMIT
+        row = query_one(
+            "SELECT message_daily_limit FROM users WHERE id = ?", (user_id,)
+        )
+        value = row.get("message_daily_limit") if row else None
+        if value is None:
+            return MESSAGE_DAILY_LIMIT
+        try:
+            return max(0, min(999, int(value)))
+        except (TypeError, ValueError):
+            return MESSAGE_DAILY_LIMIT
+
     def api_site_message_quota(self):
         identity = self.session_identity()
         if not identity:
@@ -6601,12 +6699,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         user_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
         used = self.message_daily_used(user_id)
+        limit = self.message_limit_for_user(user_id)
         self.send_json(
             200,
             {
-                "limit": MESSAGE_DAILY_LIMIT,
+                "limit": limit,
                 "used": used,
-                "remaining": max(0, MESSAGE_DAILY_LIMIT - used),
+                "remaining": max(0, limit - used),
             },
         )
 
@@ -6635,20 +6734,19 @@ class InventoryHandler(BaseHTTPRequestHandler):
             ):
                 authors[user["id"]] = user
         files = self.site_message_files_map([row["id"] for row in rows])
-        # 之前没配高德 Key 时留下的留言，配上 Key 后自动补一次属地（最多 3 条/次）
-        if AMAP_WEB_KEY:
-            for row in [
-                item
-                for item in rows
-                if item.get("show_region") and not item.get("ip_region") and item.get("ip")
-            ][:3]:
-                region = lookup_ip_region(row.get("ip"))
-                if region:
-                    execute(
-                        "UPDATE site_messages SET ip_region = ? WHERE id = ?",
-                        (region, row["id"]),
-                    )
-                    row["ip_region"] = region
+        # 之前没解析出属地的留言，打开页面时自动补一次（最多 3 条/次）
+        for row in [
+            item
+            for item in rows
+            if item.get("show_region") and not item.get("ip_region") and item.get("ip")
+        ][:3]:
+            region = lookup_ip_region(row.get("ip"))
+            if region:
+                execute(
+                    "UPDATE site_messages SET ip_region = ? WHERE id = ?",
+                    (region, row["id"]),
+                )
+                row["ip_region"] = region
         for row in rows:
             row["files"] = files.get(row["id"], [])
             row["can_delete"] = can_delete
@@ -6738,11 +6836,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         user_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
         daily_used = self.message_daily_used(user_id)
-        if daily_used >= MESSAGE_DAILY_LIMIT:
+        daily_limit = self.message_limit_for_user(user_id)
+        if daily_used >= daily_limit:
             api_error(
                 self,
                 429,
-                f"今天的留言额度已用完（每天最多 {MESSAGE_DAILY_LIMIT} 条），明天 0 点恢复。",
+                f"今天的留言额度已用完（每天最多 {daily_limit} 条），明天 0 点恢复。",
             )
             return
         author = (
@@ -6855,9 +6954,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "id": row_id,
                 "files": len(saved),
                 "pending_review": bool(saved) and not auto_approve,
-                "daily_limit": MESSAGE_DAILY_LIMIT,
+                "daily_limit": daily_limit,
                 "daily_used": daily_used + 1,
-                "daily_remaining": max(0, MESSAGE_DAILY_LIMIT - daily_used - 1),
+                "daily_remaining": max(0, daily_limit - daily_used - 1),
             },
         )
 
@@ -6898,19 +6997,18 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )
         can_manage = self.is_admin()
         files = self.moment_files_map([row["id"] for row in rows])
-        if AMAP_WEB_KEY:
-            for row in [
-                item
-                for item in rows
-                if item.get("show_region") and not item.get("ip_region") and item.get("ip")
-            ][:3]:
-                region = lookup_ip_region(row.get("ip"))
-                if region:
-                    execute(
-                        "UPDATE moments SET ip_region = ? WHERE id = ?",
-                        (region, row["id"]),
-                    )
-                    row["ip_region"] = region
+        for row in [
+            item
+            for item in rows
+            if item.get("show_region") and not item.get("ip_region") and item.get("ip")
+        ][:3]:
+            region = lookup_ip_region(row.get("ip"))
+            if region:
+                execute(
+                    "UPDATE moments SET ip_region = ? WHERE id = ?",
+                    (region, row["id"]),
+                )
+                row["ip_region"] = region
         for row in rows:
             row["files"] = files.get(row["id"], [])
             row["pinned"] = bool(row["pinned"])
@@ -8498,7 +8596,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             """SELECT f.id, f.message_id, f.file_name, f.file_size, f.mime_type,
                       f.status, f.uploaded_by, f.created_at, f.reviewed_at, f.reviewed_by,
                       m.nickname AS message_nickname, m.content AS message_content,
-                      m.created_at AS message_created_at
+                      m.created_at AS message_created_at, m.user_id AS message_user_id
                FROM site_message_files f
                LEFT JOIN site_messages m ON m.id = f.message_id
                WHERE f.status = ?
@@ -8506,10 +8604,33 @@ class InventoryHandler(BaseHTTPRequestHandler):
                LIMIT 200""",
             (status_filter,),
         )
+        author_ids = sorted(
+            {
+                row["message_user_id"]
+                for row in rows
+                if row.get("message_user_id") not in (None, 0)
+            }
+        )
+        authors = {}
+        if author_ids:
+            placeholders = ",".join("?" for _ in author_ids)
+            for user in query(
+                f"SELECT id, username, nickname FROM users WHERE id IN ({placeholders})",
+                tuple(author_ids),
+            ):
+                authors[user["id"]] = user
         for row in rows:
             extension = os.path.splitext(row.get("file_name") or "")[1].lower()
             row["is_image"] = extension in MESSAGE_IMAGE_EXTENSIONS
             row["url"] = f"/api/site/message-files/{row['id']}"
+            row["message_author"] = self.message_display_name(
+                {
+                    "user_id": row.get("message_user_id"),
+                    "nickname": row.get("message_nickname"),
+                },
+                authors,
+                True,
+            )
         pending = query_one(
             "SELECT COUNT(*) AS n FROM site_message_files WHERE status = 'pending'"
         )["n"]

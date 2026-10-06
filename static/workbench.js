@@ -15,6 +15,7 @@
     isOwner: false,
     isAdmin: false,
     reviewFiles: [],
+    defaultMessageLimit: 9,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -624,6 +625,13 @@
     if (panel) panel.textContent = String(value);
   }
 
+  function updateMessageLimitHint(panel, userId, value) {
+    const hint = panel.querySelector(`[data-msg-limit-hint="${userId}"]`);
+    if (!hint) return;
+    const limit = Math.max(0, Math.min(999, Math.trunc(Number(value) || 0)));
+    hint.textContent = `每天最多 ${limit} 条（含回复），默认 ${state.defaultMessageLimit || 9} 条/天`;
+  }
+
   async function loadAccounts() {
     const panel = $("accountPanel");
     panel.innerHTML = '<div class="wb-empty">正在加载…</div>';
@@ -631,6 +639,7 @@
       const data = await api("/api/admin/users");
       state.adminUsers = data.users || [];
       setPendingBadge(data.pending || 0);
+      state.defaultMessageLimit = Number(data.default_message_limit) || 9;
       if (!state.permissionGroups.length) {
         const catalog = await api("/api/admin/permissions");
         state.permissionGroups = catalog.groups || [];
@@ -727,6 +736,12 @@
       state.adminUsers
         .map((user) => {
           const permissions = new Set(user.permissions || []);
+          const defaultLimit = state.defaultMessageLimit || 9;
+          const hasCustomLimit =
+            user.message_daily_limit !== null && user.message_daily_limit !== undefined;
+          const limitValue = hasCustomLimit
+            ? Math.max(0, Math.min(999, Number(user.message_daily_limit) || 0))
+            : defaultLimit;
           const statusLabel = ACCOUNT_STATUS_LABELS[user.status] || user.status;
           const actions = [];
           if (user.status === "approved") {
@@ -766,6 +781,22 @@
           <details class="wb-user-perms">
             <summary>权限设置（已授予 ${permissions.size} 项）</summary>
             <div class="wb-perm-groups">${permHtml}</div>
+            <div class="wb-msg-limit" data-msg-limit-row="${user.id}">
+              <div class="wb-msg-limit-main">
+                <div class="wb-msg-limit-title">
+                  <strong>留言次数</strong>
+                  <span class="wb-chip">${hasCustomLimit ? "自定义" : "默认"}</span>
+                </div>
+                <div class="wb-msg-limit-hint" data-msg-limit-hint="${user.id}">每天最多 ${limitValue} 条（含回复），默认 ${defaultLimit} 条/天</div>
+              </div>
+              <div class="wb-msg-limit-control">
+                <button class="wb-btn wb-step-btn" type="button" data-msg-limit-step="-1" data-user-id="${user.id}" aria-label="减少留言次数"><i data-lucide="minus"></i></button>
+                <input type="number" min="0" max="999" step="1" value="${limitValue}" data-msg-limit-input="${user.id}" aria-label="每天留言次数">
+                <button class="wb-btn wb-step-btn" type="button" data-msg-limit-step="1" data-user-id="${user.id}" aria-label="增加留言次数"><i data-lucide="plus"></i></button>
+                <button class="wb-btn wb-btn-primary" type="button" data-msg-limit-save="${user.id}"><i data-lucide="check"></i><span>保存</span></button>
+                <button class="wb-btn" type="button" data-msg-limit-reset="${user.id}"${hasCustomLimit ? "" : " hidden"}><span>恢复默认</span></button>
+              </div>
+            </div>
           </details>
           <div class="wb-user-reset" data-reset-row="${user.id}" hidden>
             <input type="password" minlength="8" maxlength="128" placeholder="新的登录密码（至少 8 位）" data-reset-input="${user.id}">
@@ -1040,6 +1071,55 @@
         }
         return;
       }
+      const limitStep = event.target.closest("[data-msg-limit-step]");
+      if (limitStep) {
+        const id = limitStep.dataset.userId;
+        const input = panel.querySelector(`[data-msg-limit-input="${id}"]`);
+        if (!input) return;
+        const delta = Number(limitStep.dataset.msgLimitStep) || 0;
+        const current = Math.max(0, Math.min(999, Math.trunc(Number(input.value) || 0)));
+        const next = Math.max(0, Math.min(999, current + delta));
+        input.value = String(next);
+        updateMessageLimitHint(panel, id, next);
+        return;
+      }
+      const limitSave = event.target.closest("[data-msg-limit-save]");
+      if (limitSave) {
+        const id = limitSave.dataset.msgLimitSave;
+        const input = panel.querySelector(`[data-msg-limit-input="${id}"]`);
+        const raw = input ? input.value.trim() : "";
+        const value = Number(raw);
+        if (!raw || !Number.isInteger(value) || value < 0 || value > 999) {
+          toast("留言次数需为 0-999 的整数");
+          return;
+        }
+        try {
+          await api(`/api/admin/users/${id}/message-limit`, {
+            method: "POST",
+            body: JSON.stringify({ limit: value }),
+          });
+          toast("留言次数已更新");
+          await loadAccounts();
+        } catch (err) {
+          toast(err.message);
+        }
+        return;
+      }
+      const limitReset = event.target.closest("[data-msg-limit-reset]");
+      if (limitReset) {
+        const id = limitReset.dataset.msgLimitReset;
+        try {
+          await api(`/api/admin/users/${id}/message-limit`, {
+            method: "POST",
+            body: JSON.stringify({ limit: null }),
+          });
+          toast("已恢复默认留言次数");
+          await loadAccounts();
+        } catch (err) {
+          toast(err.message);
+        }
+        return;
+      }
       const deleteBtn = event.target.closest("[data-user-delete]");
       if (deleteBtn) {
         const label = deleteBtn.querySelector("span");
@@ -1184,6 +1264,11 @@
         return;
       }
     });
+    panel.addEventListener("input", (event) => {
+      const input = event.target.closest("[data-msg-limit-input]");
+      if (!input) return;
+      updateMessageLimitHint(panel, input.dataset.msgLimitInput, input.value);
+    });
     panel.addEventListener("change", async (event) => {
       const channelSelect = event.target.closest("#notifyChannel");
       if (channelSelect && state.notifySettings) {
@@ -1262,7 +1347,7 @@
               <span class="wb-chip wb-chip-pending">待审核</span>
             </div>
             <div class="wb-user-meta">
-              ${escapeHtml(file.message_nickname || "匿名")} · ${formatTime(file.created_at)} · ${formatBytes(file.file_size)}
+              ${escapeHtml(file.message_author || file.message_nickname || "匿名")} · ${formatTime(file.created_at)} · ${formatBytes(file.file_size)}
             </div>
             ${excerpt ? `<p class="wb-review-text">${escapeHtml(excerpt)}</p>` : ""}
           </div>
