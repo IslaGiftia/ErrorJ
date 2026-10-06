@@ -159,12 +159,37 @@
 }
 
 .dock-hud-label {
-  color: var(--muted);
+  color: var(--primary);
+  font-weight: 400;
 }
 
 .dock-hud-value {
   color: var(--primary);
   font-weight: 700;
+}
+
+.dock-hud-value[data-level="ok"] {
+  color: var(--ok);
+}
+
+.dock-hud-value[data-level="warn"] {
+  color: var(--warn);
+}
+
+.dock-hud-value[data-level="bad"] {
+  color: #d64545;
+}
+
+.dock-hud-value[data-level="deep"] {
+  color: #2e6b4f;
+}
+
+[data-theme="dark"] .dock-hud-value[data-level="bad"] {
+  color: #f87171;
+}
+
+[data-theme="dark"] .dock-hud-value[data-level="deep"] {
+  color: #4e9b74;
 }
 
 /* 大屏（2K / 4K）按比例放大，并向上、向内收一些 */

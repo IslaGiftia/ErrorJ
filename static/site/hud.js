@@ -1,6 +1,7 @@
 /*
- * 首页地图入口上方的信息面板：只显示 ping 和 fps，单行、全透明，
- * 以地图圆盘的圆心为准水平居中。
+ * 首页地图入口上方的信息面板：单行、全透明，以地图圆盘圆心为准水平居中。
+ * PING：<100ms 绿、<300ms 黄、更高红；
+ * FPS：<=30 红、<=60 绿、更高墨绿。
  */
 (function () {
   var hud = document.getElementById("dockHud");
@@ -8,8 +9,14 @@
   var pingEl = document.getElementById("hudPing");
   var fpsEl = document.getElementById("hudFps");
 
-  function setValue(node, text) {
-    if (node) node.textContent = text;
+  function setValue(node, text, level) {
+    if (!node) return;
+    node.textContent = text;
+    if (level) {
+      node.setAttribute("data-level", level);
+    } else {
+      node.removeAttribute("data-level");
+    }
   }
 
   // ---- ping：每 10 秒测一次 /api/health 往返 ----
@@ -23,10 +30,11 @@
         });
       })
       .then(function () {
-        setValue(pingEl, Math.round(performance.now() - started) + "ms");
+        var ms = Math.round(performance.now() - started);
+        setValue(pingEl, ms + "ms", ms < 100 ? "ok" : ms < 300 ? "warn" : "bad");
       })
       .catch(function () {
-        setValue(pingEl, "--");
+        setValue(pingEl, "--", "bad");
       });
   }
 
@@ -39,7 +47,8 @@
   function tick(now) {
     frames += 1;
     if (now - lastFrame >= 1000) {
-      setValue(fpsEl, String(Math.round((frames * 1000) / (now - lastFrame))));
+      var fps = Math.round((frames * 1000) / (now - lastFrame));
+      setValue(fpsEl, String(fps), fps <= 30 ? "bad" : fps <= 60 ? "ok" : "deep");
       frames = 0;
       lastFrame = now;
     }
