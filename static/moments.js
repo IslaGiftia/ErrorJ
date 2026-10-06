@@ -5,6 +5,7 @@
   var MAX_IMAGE_BYTES = 5 * 1024 * 1024;
   var MAX_TOTAL_BYTES = 15 * 1024 * 1024;
   var IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
+  var REGION_KEY = "errorShowRegion";
 
   var pendingImages = [];
   var toastTimer = null;
@@ -41,6 +42,20 @@
         return data;
       });
     });
+  }
+
+  function regionPreference() {
+    try {
+      return localStorage.getItem(REGION_KEY) !== "0";
+    } catch (err) {
+      return true;
+    }
+  }
+
+  function rememberRegionPreference(value) {
+    try {
+      localStorage.setItem(REGION_KEY, value ? "1" : "0");
+    } catch (err) {}
   }
 
   function refreshIcons() {
@@ -191,9 +206,11 @@
           content: content,
           tags: $("momentTags").value.trim(),
           images: images,
+          show_region: $("momentShowRegion").checked,
         }),
       });
     }).then(function () {
+      rememberRegionPreference($("momentShowRegion").checked);
       $("momentContent").value = "";
       $("momentTags").value = "";
       pendingImages = [];
@@ -239,6 +256,9 @@
     head.appendChild(el("span", "mo-nick", "Error酱"));
     if (moment.pinned) head.appendChild(el("span", "mo-pin-badge", "置顶"));
     head.appendChild(el("span", "mo-time", formatTime(moment.created_at)));
+    if (moment.region) {
+      head.appendChild(el("span", "mo-region", "IP 属地：" + moment.region));
+    }
     body.appendChild(head);
 
     if (moment.content) body.appendChild(el("p", "mo-text", moment.content));
@@ -358,6 +378,7 @@
   }
 
   renderPending();
+  $("momentShowRegion").checked = regionPreference();
   refreshIcons();
   api("/api/auth/status").then(function (status) {
     var canManage = Boolean(status.admin);

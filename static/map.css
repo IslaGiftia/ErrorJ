@@ -1068,6 +1068,73 @@ body {
   font-size: 11.5px;
 }
 
+.mp-poi-search {
+  display: flex;
+  gap: 8px;
+}
+
+.mp-poi-search input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 11px;
+  border: 1px solid var(--mp-border);
+  border-radius: 8px;
+  background: var(--mp-surface-2);
+  color: var(--mp-text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.mp-poi-search input:focus {
+  border-color: var(--mp-accent);
+  background: var(--mp-surface);
+}
+
+.mp-poi-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 220px;
+  margin: 8px 0 0;
+  padding: 4px;
+  border: 1px solid var(--mp-border);
+  border-radius: 8px;
+  background: var(--mp-surface-2);
+  list-style: none;
+  overflow-y: auto;
+}
+
+.mp-poi-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mp-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mp-poi-item:hover {
+  background: var(--mp-hover);
+}
+
+.mp-poi-item strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mp-poi-item span {
+  color: var(--mp-muted);
+  font-size: 11.5px;
+}
+
 .mp-seg {
   display: inline-flex;
   padding: 3px;

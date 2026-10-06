@@ -7,6 +7,7 @@
   var IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
   var FILE_EXTENSIONS = IMAGE_EXTENSIONS.concat([".pdf", ".txt", ".md"]);
   var NICKNAME_KEY = "errorMessageNickname";
+  var REGION_KEY = "errorShowRegion";
 
   var pendingFiles = [];
   var toastTimer = null;
@@ -75,6 +76,20 @@
     if (window.lucide && typeof window.lucide.createIcons === "function") {
       window.lucide.createIcons();
     }
+  }
+
+  function regionPreference() {
+    try {
+      return localStorage.getItem(REGION_KEY) !== "0";
+    } catch (err) {
+      return true;
+    }
+  }
+
+  function rememberRegionPreference(value) {
+    try {
+      localStorage.setItem(REGION_KEY, value ? "1" : "0");
+    } catch (err) {}
   }
 
   // ---- 外观 ----
@@ -245,10 +260,12 @@
           nickname: nicknameValue("msgNickname"),
           content: content,
           files: files,
+          show_region: $("msgShowRegion").checked,
         }),
       });
     }).then(function (result) {
       rememberNickname(nicknameValue("msgNickname"));
+      rememberRegionPreference($("msgShowRegion").checked);
       $("msgContent").value = "";
       pendingFiles = [];
       renderPending();
@@ -339,6 +356,12 @@
     textArea.placeholder = "回复一下…";
     textField.appendChild(textArea);
 
+    var regionLabel = el("label", "mg-region-toggle");
+    var regionInput = document.createElement("input");
+    regionInput.type = "checkbox";
+    regionInput.checked = regionPreference();
+    regionLabel.append(regionInput, el("span", "", "公开 IP 属地（仅到省份）"));
+
     var row = el("div", "mg-compose-row");
     var cancelBtn = el("button", "mg-btn mg-btn-ghost", "取消");
     cancelBtn.type = "button";
@@ -346,7 +369,7 @@
     sendBtn.type = "submit";
     row.append(cancelBtn, sendBtn);
 
-    form.append(nickField, textField, row);
+    form.append(nickField, textField, regionLabel, row);
 
     cancelBtn.addEventListener("click", function () {
       textArea.value = "";
@@ -368,9 +391,11 @@
           nickname: nickInput.value.trim() || "匿名",
           content: content,
           parent_id: rootId,
+          show_region: regionInput.checked,
         }),
       }).then(function () {
         rememberNickname(nickInput.value.trim() || "匿名");
+        rememberRegionPreference(regionInput.checked);
         $("msgNickname").value = nickInput.value.trim() || "匿名";
         toast("回复已发布");
         return loadMessages();
@@ -389,6 +414,9 @@
     var head = el("div", "mg-item-head");
     head.appendChild(el("span", "mg-nick", message.nickname || "匿名"));
     head.appendChild(el("span", "mg-time", formatTime(message.created_at)));
+    if (message.region) {
+      head.appendChild(el("span", "mg-region", "IP 属地：" + message.region));
+    }
     item.appendChild(head);
     if (message.content) {
       item.appendChild(el("p", "mg-text", message.content));
@@ -419,6 +447,9 @@
       var replyHead = el("div", "mg-item-head");
       replyHead.appendChild(el("span", "mg-nick", reply.nickname || "匿名"));
       replyHead.appendChild(el("span", "mg-time", formatTime(reply.created_at)));
+      if (reply.region) {
+        replyHead.appendChild(el("span", "mg-region", "IP 属地：" + reply.region));
+      }
       row.appendChild(replyHead);
       if (reply.content) {
         row.appendChild(el("p", "mg-reply-text", reply.content));
@@ -489,6 +520,7 @@
   }
 
   renderPending();
+  $("msgShowRegion").checked = regionPreference();
   refreshIcons();
   api("/api/auth/status").then(function (status) {
     canPost = Boolean(status.authenticated);

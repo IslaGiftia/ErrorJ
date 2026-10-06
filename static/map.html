@@ -95,6 +95,17 @@
         </button>
       </header>
       <form id="mapPlaceForm">
+        <div class="mp-field mp-poi-field">
+          <label for="placePoiSearch">从高德地图搜索</label>
+          <div class="mp-poi-search">
+            <input id="placePoiSearch" type="search" autocomplete="off" placeholder="输入地点名称，选中后自动填名称和坐标">
+            <button class="mp-btn" id="placePoiSearchBtn" type="button">
+              <i data-lucide="search"></i><span>搜索</span>
+            </button>
+          </div>
+          <ul class="mp-poi-list" id="placePoiResults" hidden></ul>
+          <p class="mp-field-hint" id="placePoiHint" hidden></p>
+        </div>
         <div class="mp-field">
           <label for="placeName">名称 *</label>
           <input id="placeName" type="text" maxlength="120" required>

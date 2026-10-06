@@ -120,7 +120,8 @@
     status: "",
     rating: 0,
     photoFiles: [],
-    photoUrls: []
+    photoUrls: [],
+    poiResults: []
   };
 
   var VIEW_KEY = "errorMapView";
@@ -1043,6 +1044,104 @@
     }
   }
 
+  function clearPoiSearch() {
+    state.poiResults = [];
+    var input = $("placePoiSearch");
+    if (input) input.value = "";
+    var list = $("placePoiResults");
+    if (list) {
+      list.innerHTML = "";
+      list.hidden = true;
+    }
+    var hint = $("placePoiHint");
+    if (hint) {
+      hint.textContent = "";
+      hint.hidden = true;
+    }
+  }
+
+  function showPoiMessage(text) {
+    var hint = $("placePoiHint");
+    if (!hint) return;
+    hint.textContent = text;
+    hint.hidden = false;
+  }
+
+  function renderPoiResults(data) {
+    var list = $("placePoiResults");
+    if (!list) return;
+    var pois = (data && data.pois) || [];
+    state.poiResults = pois;
+    list.innerHTML = "";
+    if (!pois.length) {
+      list.hidden = true;
+      showPoiMessage("没有搜到匹配的地点，换个关键词试试。");
+      return;
+    }
+    pois.forEach(function (poi, index) {
+      var item = document.createElement("li");
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "mp-poi-item";
+      button.setAttribute("data-poi-index", String(index));
+      var title = document.createElement("strong");
+      title.textContent = poi.name || "未命名地点";
+      var meta = document.createElement("span");
+      meta.textContent =
+        [poi.address, poi.type].filter(Boolean).join(" · ") || "高德地图";
+      button.appendChild(title);
+      button.appendChild(meta);
+      item.appendChild(button);
+      list.appendChild(item);
+    });
+    list.hidden = false;
+  }
+
+  function searchPoi() {
+    var input = $("placePoiSearch");
+    if (!input) return;
+    var keywords = input.value.trim();
+    if (!keywords) {
+      showPoiMessage("请输入要搜索的地点名称。");
+      return;
+    }
+    var button = $("placePoiSearchBtn");
+    if (button) button.disabled = true;
+    showPoiMessage("正在搜索高德地图…");
+    var list = $("placePoiResults");
+    if (list) {
+      list.hidden = true;
+      list.innerHTML = "";
+    }
+    api("/api/map/poi-search?keywords=" + encodeURIComponent(keywords))
+      .then(function (data) {
+        var hint = $("placePoiHint");
+        if (hint) hint.hidden = true;
+        renderPoiResults(data);
+      })
+      .catch(function (err) {
+        showPoiMessage(err.message);
+      })
+      .then(function () {
+        if (button) button.disabled = false;
+      });
+  }
+
+  function applyPoi(index) {
+    var poi = state.poiResults[index];
+    if (!poi) return;
+    var wgs = Geo.fromGcj(poi.lat, poi.lng);
+    $("placeName").value = poi.name || "";
+    if (poi.address) $("placeAddress").value = poi.address;
+    $("placeLat").value = wgs[0].toFixed(6);
+    $("placeLng").value = wgs[1].toFixed(6);
+    var list = $("placePoiResults");
+    if (list) list.hidden = true;
+    showPoiMessage(
+      "已选择：" + (poi.name || "地点") + "，可以继续补充分类和备注。"
+    );
+  }
+
   function openPlaceModal(place, coords) {
     state.photoFiles.forEach(function (_file, index) {
       if (state.photoUrls[index]) URL.revokeObjectURL(state.photoUrls[index]);
@@ -1070,6 +1169,7 @@
     var photoInput = $("placePhotoInput");
     if (photoInput) photoInput.value = "";
     showFormError("");
+    clearPoiSearch();
     openModal("mapPlaceModal");
     setTimeout(function () {
       $("placeName").focus();
@@ -1960,6 +2060,28 @@
 
   var placeForm = $("mapPlaceForm");
   if (placeForm) placeForm.addEventListener("submit", submitPlace);
+
+  var poiBtn = $("placePoiSearchBtn");
+  if (poiBtn) poiBtn.addEventListener("click", searchPoi);
+
+  var poiInput = $("placePoiSearch");
+  if (poiInput) {
+    poiInput.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        searchPoi();
+      }
+    });
+  }
+
+  var poiList = $("placePoiResults");
+  if (poiList) {
+    poiList.addEventListener("click", function (event) {
+      var button = event.target.closest("[data-poi-index]");
+      if (!button) return;
+      applyPoi(Number(button.getAttribute("data-poi-index")));
+    });
+  }
 
   var placeDelete = $("mapPlaceDelete");
   if (placeDelete) {

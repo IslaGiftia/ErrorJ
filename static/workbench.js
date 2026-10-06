@@ -553,7 +553,14 @@
       if (accountsNav) accountsNav.hidden = !state.isAdmin;
       const reviewNav = document.querySelector('[data-view="review"]');
       if (reviewNav) reviewNav.hidden = !state.isAdmin;
+      if (state.isAdmin) {
+        setPendingBadge(status.pending_users || 0);
+        setReviewBadge(status.pending_attachments || 0);
+      }
     } catch (err) {}
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && state.isAdmin) refreshNavBadges();
+    });
     try {
       state.projects = await api("/api/projects");
       syncProjectSelects();
@@ -595,6 +602,15 @@
       }
     }
     return key;
+  }
+
+  async function refreshNavBadges() {
+    try {
+      const status = await api("/api/auth/status");
+      if (!(status.admin || status.owner)) return;
+      setPendingBadge(status.pending_users || 0);
+      setReviewBadge(status.pending_attachments || 0);
+    } catch (err) {}
   }
 
   function setPendingBadge(count) {

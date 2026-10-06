@@ -1,33 +1,107 @@
+/*
+ * 首页左下角的圆形小地图入口。
+ * 规则：显示最近浏览的区域（/map 页面拖动、缩放后回到首页会跟随），
+ * 底图固定为浅色高德矢量、暗色 Esri 深色。
+ */
 (function () {
   var dock = document.getElementById("mapDock");
   var holder = document.getElementById("mapDockMini");
   var countEl = document.getElementById("mapDockCount");
   if (!dock || !holder || typeof L === "undefined") return;
 
-  var savedView = null;
-  try {
-    var raw = localStorage.getItem("errorMapView");
-    if (raw) {
-      var parsed = JSON.parse(raw);
-      if (typeof parsed.lat === "number" && typeof parsed.lng === "number") savedView = parsed;
-    }
-  } catch (err) {}
+  // ---------- WGS84 -> GCJ02（高德底图下校正标记位置） ----------
+  var Geo = (function () {
+    var PI = Math.PI;
+    var A = 6378245.0;
+    var EE = 0.00669342162296594323;
 
-  function isDark() {
+    function outOfChina(lat, lng) {
+      return lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271;
+    }
+
+    function transformLat(x, y) {
+      var ret =
+        -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+      ret += ((20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0) / 3.0;
+      ret += ((20.0 * Math.sin(y * PI) + 40.0 * Math.sin((y / 3.0) * PI)) * 2.0) / 3.0;
+      ret += ((160.0 * Math.sin((y / 12.0) * PI) + 320 * Math.sin((y * PI) / 30.0)) * 2.0) / 3.0;
+      return ret;
+    }
+
+    function transformLng(x, y) {
+      var ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+      ret += ((20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0) / 3.0;
+      ret += ((20.0 * Math.sin(x * PI) + 40.0 * Math.sin((x / 3.0) * PI)) * 2.0) / 3.0;
+      ret += ((150.0 * Math.sin((x / 12.0) * PI) + 300.0 * Math.sin((x / 30.0) * PI)) * 2.0) / 3.0;
+      return ret;
+    }
+
+    function wgs84ToGcj02(lat, lng) {
+      if (outOfChina(lat, lng)) return [lat, lng];
+      var dLat = transformLat(lng - 105.0, lat - 35.0);
+      var dLng = transformLng(lng - 105.0, lat - 35.0);
+      var radLat = (lat / 180.0) * PI;
+      var magic = Math.sin(radLat);
+      magic = 1 - EE * magic * magic;
+      var sqrtMagic = Math.sqrt(magic);
+      dLat = (dLat * 180.0) / (((A * (1 - EE)) / (magic * sqrtMagic)) * PI);
+      dLng = (dLng * 180.0) / ((A / sqrtMagic) * Math.cos(radLat) * PI);
+      return [lat + dLat, lng + dLng];
+    }
+
+    return { toGcj: wgs84ToGcj02 };
+  })();
+
+  function amapUrl(style) {
+    return (
+      "https://web" +
+      (style === 6 ? "st" : "rd") +
+      "0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=" +
+      style +
+      "&x={x}&y={y}&z={z}"
+    );
+  }
+
+  var BASES = {
+    amap: {
+      id: "amap",
+      url: amapUrl(8),
+      options: { subdomains: "1234", minZoom: 3, maxZoom: 19, maxNativeZoom: 18 },
+      gcj: true
+    },
+    esriDark: {
+      id: "esriDark",
+      url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+      options: { minZoom: 3, maxZoom: 16 },
+      gcj: false
+    }
+  };
+
+  var VIEW_KEY = "errorMapView";
+  var MAX_DOTS = 800;
+
+  function isDarkTheme() {
     return document.documentElement.getAttribute("data-theme") === "dark";
   }
 
-  var LIGHT_TILES = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
-  var DARK_TILES =
-    "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}";
-
-  function tileUrl() {
-    return isDark() ? DARK_TILES : LIGHT_TILES;
+  function themeBase() {
+    return isDarkTheme() ? BASES.esriDark : BASES.amap;
   }
 
-  function tileLayer() {
-    return L.tileLayer(tileUrl(), { maxZoom: 19, maxNativeZoom: 16, attribution: "" });
+  function readSavedView() {
+    try {
+      var raw = localStorage.getItem(VIEW_KEY);
+      if (!raw) return null;
+      var view = JSON.parse(raw);
+      if (typeof view.lat === "number" && typeof view.lng === "number") return view;
+    } catch (err) {}
+    return null;
   }
+
+  var savedView = readSavedView();
+  var savedZoom = savedView
+    ? Math.max(8, Math.min(13, (Number(savedView.zoom) || 12) - 2))
+    : 9;
 
   var mini = L.map(holder, {
     zoomControl: false,
@@ -39,19 +113,67 @@
     boxZoom: false,
     keyboard: false,
     tap: false,
+    minZoom: 3,
     zoomSnap: 0.25,
     fadeAnimation: false
   });
-  var tiles = tileLayer().addTo(mini);
+
+  var currentBase = themeBase();
+  var tiles = createTiles(currentBase);
+  var dots = L.layerGroup().addTo(mini);
+  var places = [];
+  var colorById = {};
+
   mini.setView(
     savedView ? [savedView.lat, savedView.lng] : [34.3416, 108.9398],
-    savedView ? Math.max(8, Math.min(13, (Number(savedView.zoom) || 12) - 2)) : 9
+    savedZoom
   );
 
-  var observer = new MutationObserver(function () {
-    tiles.setUrl(tileUrl());
+  function createTiles(base) {
+    var options = Object.assign({ attribution: "" }, base.options);
+    return L.tileLayer(base.url, options).addTo(mini);
+  }
+
+  function displayLatLng(lat, lng) {
+    return currentBase.gcj ? Geo.toGcj(lat, lng) : [lat, lng];
+  }
+
+  function renderDots() {
+    dots.clearLayers();
+    places.slice(0, MAX_DOTS).forEach(function (place) {
+      L.circleMarker(displayLatLng(place.lat, place.lng), {
+        radius: 3.2,
+        color: "#ffffff",
+        weight: 1,
+        fillColor: colorById[place.category_id] || "#7b68ee",
+        fillOpacity: 1,
+        interactive: false
+      }).addTo(dots);
+    });
+  }
+
+  function fitAll() {
+    var bounds = L.latLngBounds(
+      places.slice(0, MAX_DOTS).map(function (place) {
+        return displayLatLng(place.lat, place.lng);
+      })
+    );
+    mini.fitBounds(bounds, { padding: [10, 10], maxZoom: 11 });
+  }
+
+  function applyThemeBase() {
+    var base = themeBase();
+    if (base.id === currentBase.id) return;
+    currentBase = base;
+    mini.removeLayer(tiles);
+    tiles = createTiles(base);
+    renderDots();
+  }
+
+  new MutationObserver(applyThemeBase).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-theme"]
   });
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   fetch("/api/map", { cache: "no-store" })
     .then(function (response) {
@@ -63,21 +185,13 @@
       return response.json();
     })
     .then(function (data) {
-      var places = data.places || [];
-      var colorById = {};
+      places = data.places || [];
+      colorById = {};
       (data.categories || []).forEach(function (cat) {
         colorById[cat.id] = cat.color || "#7b68ee";
       });
-      places.slice(0, 800).forEach(function (place) {
-        L.circleMarker([place.lat, place.lng], {
-          radius: 3.2,
-          color: "#ffffff",
-          weight: 1,
-          fillColor: colorById[place.category_id] || "#7b68ee",
-          fillOpacity: 1,
-          interactive: false
-        }).addTo(mini);
-      });
+      renderDots();
+      if (!savedView && places.length) fitAll();
       if (countEl) {
         if (places.length) {
           countEl.textContent = places.length + " 个标记";
@@ -85,14 +199,6 @@
         } else {
           countEl.hidden = true;
         }
-      }
-      if (!savedView && places.length) {
-        var bounds = L.latLngBounds(
-          places.slice(0, 800).map(function (place) {
-            return [place.lat, place.lng];
-          })
-        );
-        mini.fitBounds(bounds, { padding: [10, 10], maxZoom: 11 });
       }
       mini.invalidateSize();
     })

@@ -147,6 +147,27 @@ body {
   font-size: 13px;
 }
 
+.mg-region-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 10px 0 2px;
+  color: var(--mg-muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.mg-region-toggle input {
+  margin: 2px 0 0;
+  accent-color: var(--mg-accent);
+}
+
+.mg-region {
+  color: var(--mg-muted);
+  font-size: 12px;
+}
+
 .mg-field {
   display: flex;
   flex-direction: column;

@@ -56,6 +56,11 @@ MAP_PUBLIC = os.environ.get("INVENTORY_MAP_PUBLIC", "1").strip().lower() not in 
     "off",
     "no",
 )
+AMAP_WEB_KEY = os.environ.get("INVENTORY_AMAP_KEY", "").strip()
+AMAP_POI_CACHE_TTL = 600
+AMAP_POI_CACHE_LIMIT = 200
+AMAP_POI_CACHE = {}
+AMAP_POI_CACHE_LOCK = threading.Lock()
 XLSX_NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 BOM_REPORT_DIR = DATA_DIR / "bom_reports"
 BOM_WATCH_STATE_PATH = DATA_DIR / "bom_watch_state.json"
@@ -577,6 +582,9 @@ def init_db():
                 nickname TEXT NOT NULL,
                 content TEXT NOT NULL,
                 parent_id INTEGER REFERENCES site_messages(id) ON DELETE CASCADE,
+                ip TEXT,
+                ip_region TEXT,
+                show_region INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL
             );
 
@@ -599,6 +607,9 @@ def init_db():
                 content TEXT NOT NULL,
                 tags TEXT,
                 pinned INTEGER NOT NULL DEFAULT 0,
+                ip TEXT,
+                ip_region TEXT,
+                show_region INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL
             );
 
@@ -1025,6 +1036,32 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             ("reviewed_at", "ALTER TABLE site_message_files ADD COLUMN reviewed_at TEXT"),
         ):
             if column not in message_file_columns:
+                conn.execute(ddl)
+        message_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(site_messages)").fetchall()
+        }
+        for column, ddl in (
+            ("ip", "ALTER TABLE site_messages ADD COLUMN ip TEXT"),
+            ("ip_region", "ALTER TABLE site_messages ADD COLUMN ip_region TEXT"),
+            (
+                "show_region",
+                "ALTER TABLE site_messages ADD COLUMN show_region INTEGER NOT NULL DEFAULT 1",
+            ),
+        ):
+            if column not in message_columns:
+                conn.execute(ddl)
+        moment_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(moments)").fetchall()
+        }
+        for column, ddl in (
+            ("ip", "ALTER TABLE moments ADD COLUMN ip TEXT"),
+            ("ip_region", "ALTER TABLE moments ADD COLUMN ip_region TEXT"),
+            (
+                "show_region",
+                "ALTER TABLE moments ADD COLUMN show_region INTEGER NOT NULL DEFAULT 1",
+            ),
+        ):
+            if column not in moment_columns:
                 conn.execute(ddl)
         migrated = conn.execute(
             "SELECT value FROM app_meta WHERE key = 'map_categories_v2'"
@@ -4015,6 +4052,97 @@ def mask_sensitive(text):
     return "".join(chars), len(hits)
 
 
+# ---------- IP 属地（只公开到省级） ----------
+
+IP_REGION_CACHE = {}
+IP_REGION_CACHE_TTL = 7 * 86400
+IP_REGION_CACHE_FAIL_TTL = 600
+IP_REGION_CACHE_LIMIT = 2000
+IP_REGION_CACHE_LOCK = threading.Lock()
+REGION_SUFFIXES = (
+    "维吾尔自治区",
+    "壮族自治区",
+    "回族自治区",
+    "特别行政区",
+    "自治区",
+    "省",
+    "市",
+)
+
+
+def is_private_ip(address):
+    """内网 / 回环 / 非法地址返回 True，这些地址不做属地解析。"""
+    text = str(address or "").strip()
+    if not text or text == "unknown":
+        return True
+    if ":" in text:
+        lowered = text.lower()
+        if lowered == "::1":
+            return True
+        return lowered.startswith(("fc", "fd", "fe80", "::ffff:127."))
+    parts = text.split(".")
+    if len(parts) != 4:
+        return True
+    try:
+        octets = [int(part) for part in parts]
+    except ValueError:
+        return True
+    if any(octet < 0 or octet > 255 for octet in octets):
+        return True
+    if octets[0] in (0, 10, 127):
+        return True
+    if octets[0] == 192 and octets[1] == 168:
+        return True
+    if octets[0] == 172 and 16 <= octets[1] <= 31:
+        return True
+    if octets[0] == 169 and octets[1] == 254:
+        return True
+    return False
+
+
+def normalize_region(name):
+    text = str(name or "").strip()
+    if not text or text in ("[]", "未知", "局域网"):
+        return ""
+    for suffix in REGION_SUFFIXES:
+        if text.endswith(suffix) and len(text) > len(suffix):
+            text = text[: -len(suffix)]
+            break
+    return text[:20]
+
+
+def lookup_ip_region(address):
+    """把公网 IP 解析到省级属地（如「广东」）；失败或未配置高德 Key 时返回空串。"""
+    text = str(address or "").strip()
+    if is_private_ip(text) or not AMAP_WEB_KEY:
+        return ""
+    now = time.time()
+    with IP_REGION_CACHE_LOCK:
+        cached = IP_REGION_CACHE.get(text)
+        if cached:
+            ttl = IP_REGION_CACHE_TTL if cached[1] else IP_REGION_CACHE_FAIL_TTL
+            if now - cached[0] < ttl:
+                return cached[1]
+    region = ""
+    try:
+        request = Request(
+            "https://restapi.amap.com/v3/ip?"
+            + urlencode({"key": AMAP_WEB_KEY, "ip": text}),
+            headers={"User-Agent": "ErrorJiang/1.0"},
+        )
+        with urlopen(request, timeout=3) as response:
+            payload = json.loads(response.read().decode("utf-8", "replace") or "{}")
+        if str(payload.get("status")) == "1":
+            region = normalize_region(payload.get("province"))
+    except (URLError, socket.timeout, OSError, json.JSONDecodeError):
+        region = ""
+    with IP_REGION_CACHE_LOCK:
+        if len(IP_REGION_CACHE) >= IP_REGION_CACHE_LIMIT:
+            IP_REGION_CACHE.clear()
+        IP_REGION_CACHE[text] = (now, region)
+    return region
+
+
 # ---------- 昵称与权限 ----------
 
 def valid_nickname(value, exclude_user_id=None):
@@ -5371,6 +5499,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_moments(query)
             elif path == "/api/recommendations":
                 self.api_recommendations(query)
+            elif path == "/api/map/poi-search":
+                self.api_map_poi_search(query)
             elif path == "/api/map":
                 self.api_map()
             elif path == "/api/admin/users":
@@ -6390,7 +6520,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def api_site_messages(self, params):
         rows = query(
-            """SELECT id, nickname, content, parent_id, created_at
+            """SELECT id, nickname, content, parent_id, ip_region, show_region, created_at
                FROM site_messages
                ORDER BY COALESCE(parent_id, id) DESC, id ASC"""
         )
@@ -6399,6 +6529,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
         for row in rows:
             row["files"] = files.get(row["id"], [])
             row["can_delete"] = can_delete
+            row["region"] = (
+                normalize_region(row.get("ip_region")) if row.get("show_region") else ""
+            )
+            row.pop("ip_region", None)
+            row.pop("show_region", None)
         roots = [row for row in rows if not row.get("parent_id")]
         replies = [row for row in rows if row.get("parent_id")]
         for root in roots:
@@ -6486,6 +6621,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 api_error(self, 400, "要回复的留言不存在。")
                 return
         created_at = now_text()
+        client_ip = self.client_ip()
+        show_region = 0 if payload.get("show_region") is False else 1
+        ip_region = lookup_ip_region(client_ip) if show_region else ""
         saved = []
         try:
             for name, raw in prepared:
@@ -6506,8 +6644,18 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
         def write(conn):
             cursor = conn.execute(
-                "INSERT INTO site_messages (nickname, content, parent_id, created_at) VALUES (?, ?, ?, ?)",
-                (nickname, content, parent_id or None, created_at),
+                """INSERT INTO site_messages
+                       (nickname, content, parent_id, ip, ip_region, show_region, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    nickname,
+                    content,
+                    parent_id or None,
+                    client_ip,
+                    ip_region,
+                    show_region,
+                    created_at,
+                ),
             )
             message_id = cursor.lastrowid
             for name, relative, size in saved:
@@ -6586,7 +6734,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def api_moments(self, params):
         rows = query(
-            """SELECT id, content, tags, pinned, created_at
+            """SELECT id, content, tags, pinned, ip_region, show_region, created_at
                FROM moments
                ORDER BY pinned DESC, created_at DESC, id DESC"""
         )
@@ -6596,6 +6744,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
             row["files"] = files.get(row["id"], [])
             row["pinned"] = bool(row["pinned"])
             row["can_manage"] = can_manage
+            row["region"] = (
+                normalize_region(row.get("ip_region")) if row.get("show_region") else ""
+            )
+            row.pop("ip_region", None)
+            row.pop("show_region", None)
         self.send_json(200, rows)
 
     def moment_payload(self, payload, current=None):
@@ -6653,6 +6806,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 400, "写点什么，或者配张图吧。")
             return
         created_at = now_text()
+        client_ip = self.client_ip()
+        show_region = 0 if payload.get("show_region") is False else 1
+        ip_region = lookup_ip_region(client_ip) if show_region else ""
         saved = []
         try:
             for name, raw in prepared:
@@ -6668,8 +6824,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
         def write(conn):
             cursor = conn.execute(
-                "INSERT INTO moments (content, tags, pinned, created_at) VALUES (?, ?, 0, ?)",
-                (content, tags, created_at),
+                """INSERT INTO moments
+                       (content, tags, pinned, ip, ip_region, show_region, created_at)
+                   VALUES (?, ?, 0, ?, ?, ?, ?)""",
+                (content, tags, client_ip, ip_region, show_region, created_at),
             )
             moment_id = cursor.lastrowid
             for name, relative, size in saved:
@@ -7299,6 +7457,93 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "map_public": MAP_PUBLIC,
             },
         )
+
+    def amap_poi_search(self, keywords, city=""):
+        """调用高德 Web 服务 POI 搜索；带内存缓存，避免重复消耗月配额。"""
+        params = {
+            "key": AMAP_WEB_KEY,
+            "keywords": keywords,
+            "offset": 20,
+            "page": 1,
+            "extensions": "base",
+        }
+        if city:
+            params["city"] = city
+            params["citylimit"] = "true"
+        cache_key = json.dumps(params, sort_keys=True, ensure_ascii=False)
+        now = time.time()
+        with AMAP_POI_CACHE_LOCK:
+            cached = AMAP_POI_CACHE.get(cache_key)
+            if cached and now - cached[0] < AMAP_POI_CACHE_TTL:
+                return cached[1]
+        url = "https://restapi.amap.com/v3/place/text?" + urlencode(params)
+        request = Request(url, headers={"User-Agent": "ErrorJiang/1.0"})
+        try:
+            with urlopen(request, timeout=8) as response:
+                payload = json.loads(response.read().decode("utf-8", "replace") or "{}")
+        except (URLError, socket.timeout, OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"高德接口请求失败：{exc}") from exc
+        if str(payload.get("status")) != "1":
+            info = str(payload.get("info") or "未知错误")
+            infocode = str(payload.get("infocode") or "")
+            raise ValueError(f"高德接口返回错误：{info}（{infocode}）")
+        pois = []
+        for item in payload.get("pois") or []:
+            location = str(item.get("location") or "")
+            lng_text, _, lat_text = location.partition(",")
+            try:
+                lng_value = float(lng_text)
+                lat_value = float(lat_text)
+            except ValueError:
+                continue
+            telephone = item.get("tel")
+            if isinstance(telephone, list):
+                telephone = " / ".join(str(value) for value in telephone if value)
+            pois.append(
+                {
+                    "id": item.get("id") or "",
+                    "name": item.get("name") or "",
+                    "type": item.get("type") or "",
+                    "typecode": item.get("typecode") or "",
+                    "address": item.get("address") or "",
+                    "tel": telephone or "",
+                    "lng": lng_value,
+                    "lat": lat_value,
+                }
+            )
+        result = {
+            "count": int(payload.get("count") or 0),
+            "pois": pois,
+            "coord": "gcj02",
+        }
+        with AMAP_POI_CACHE_LOCK:
+            if len(AMAP_POI_CACHE) >= AMAP_POI_CACHE_LIMIT:
+                AMAP_POI_CACHE.clear()
+            AMAP_POI_CACHE[cache_key] = (now, result)
+        return result
+
+    def api_map_poi_search(self, params):
+        """按关键字搜索高德 POI，供「添加标记」弹窗直接选用。"""
+        if not self.can("map:write"):
+            api_error(self, 403, "当前账号没有添加标记的权限。")
+            return
+        if not AMAP_WEB_KEY:
+            api_error(self, 503, "还没有配置高德 Key，请联系管理员在服务器设置 INVENTORY_AMAP_KEY。")
+            return
+        keywords = str((params.get("keywords") or [""])[0] or "").strip()[:80]
+        city = str((params.get("city") or [""])[0] or "").strip()[:40]
+        if not keywords:
+            api_error(self, 400, "请输入要搜索的地点名称。")
+            return
+        if not rate_allow("amap_search", self.client_ip(), 60, 60):
+            api_error(self, 429, "搜索太频繁，请稍后再试。")
+            return
+        try:
+            data = self.amap_poi_search(keywords, city)
+        except ValueError as exc:
+            api_error(self, 502, str(exc))
+            return
+        self.send_json(200, data)
 
     def map_category_payload(self, payload, current=None, category_id=None):
         current = current or {}
