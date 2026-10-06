@@ -5551,7 +5551,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             elif path == "/api/map/poi-search":
                 self.api_map_poi_search(query)
             elif path == "/api/map":
-                self.api_map()
+                self.api_map(query)
             elif path == "/api/admin/users":
                 self.api_admin_users(query)
             elif path == "/api/admin/permissions":
@@ -7623,7 +7623,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return True
         return row.get("created_by") == user_id
 
-    def api_map(self):
+    def api_map(self, params=None):
+        params = params or {}
+        dock_mode = str((params.get("dock") or [""])[0] or "") == "1"
         identity = self.session_identity()
         is_admin = self.is_admin()
         user_id = self.map_identity_user_id()
@@ -7670,10 +7672,26 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     or (user_id is not None and row.get("created_by") == user_id)
                 )
             )
+        categories = self.map_category_rows()
+        if dock_mode:
+            # 首页/悬浮圆盘只需要坐标和分类颜色，去掉备注、照片等大字段
+            places = [
+                {
+                    "id": row["id"],
+                    "lat": row["lat"],
+                    "lng": row["lng"],
+                    "category_id": row["category_id"],
+                    "created_at": row["created_at"],
+                }
+                for row in places
+            ]
+            categories = [
+                {"id": cat["id"], "color": cat.get("color")} for cat in categories
+            ]
         self.send_json(
             200,
             {
-                "categories": self.map_category_rows(),
+                "categories": categories,
                 "places": places,
                 "can_manage": is_admin,
                 "can_add": self.can("map:write"),

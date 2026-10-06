@@ -19,7 +19,19 @@
 
 .map-dock.has-pending {
   border-radius: 50%;
-  animation: repoPendingPulse 2.4s ease-in-out infinite;
+  animation: dockPendingPulse 2.4s ease-in-out infinite;
+}
+
+@keyframes dockPendingPulse {
+  0%,
+  100% {
+    box-shadow: 0 10px 34px rgba(0, 0, 0, 0.12);
+  }
+  50% {
+    box-shadow:
+      0 0 0 5px color-mix(in srgb, var(--primary, #4f46e5) 22%, transparent),
+      0 0 26px color-mix(in srgb, var(--primary, #4f46e5) 55%, transparent);
+  }
 }
 
 .map-dock:focus-visible {
@@ -159,21 +171,21 @@
 }
 
 .dock-hud-label {
-  color: var(--primary);
+  color: var(--primary, #4f46e5);
   font-weight: 700;
 }
 
 .dock-hud-value {
-  color: var(--primary);
+  color: var(--primary, #4f46e5);
   font-weight: 700;
 }
 
 .dock-hud-value[data-level="ok"] {
-  color: var(--ok);
+  color: var(--ok, #4caf7d);
 }
 
 .dock-hud-value[data-level="warn"] {
-  color: var(--warn);
+  color: var(--warn, #f2b544);
 }
 
 .dock-hud-value[data-level="bad"] {
@@ -190,6 +202,15 @@
 
 [data-theme="dark"] .dock-hud-value[data-level="deep"] {
   color: #4e9b74;
+}
+
+[data-theme="dark"] .dock-hud-label,
+[data-theme="dark"] .dock-hud-value {
+  color: var(--accent, #818cf8);
+}
+
+[data-theme="dark"] .dock-hud-value[data-level="ok"] {
+  color: var(--ok, #4ade80);
 }
 
 /* 大屏（2K / 4K）按比例放大，并向上、向内收一些 */
@@ -265,4 +286,16 @@
   .map-dock.has-pending {
     animation: none;
   }
+}
+
+/* 悬浮地图入口的公开页面：底部留出空间，避免圆盘和面板遮挡内容 */
+.mg-app,
+.mo-app,
+.mu-app,
+.lobby {
+  padding-bottom: 200px;
+}
+
+.rec-main {
+  padding-bottom: 210px;
 }

@@ -22,6 +22,8 @@
   <script src="/static/site/theme.js"></script>
   <script src="/static/site/tabname.js"></script>
   <link rel="stylesheet" href="/static/fonts.css">
+  <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/static/site/minimap.css">
 </head>
 <body>
   <div class="rain-scene rain-scene--fixed" id="rainScene" aria-hidden="true">
@@ -216,5 +218,24 @@
   <script src="/static/vendor/lucide.min.js"></script>
   <script src="/static/site/rain.js"></script>
   <script src="/static/recommendations.js"></script>
+
+  <div class="dock-hud" id="dockHud" aria-hidden="true">
+    <span class="dock-hud-label">PING</span>
+    <span class="dock-hud-value" id="hudPing">--</span>
+    <span class="dock-hud-label">FPS</span>
+    <span class="dock-hud-value" id="hudFps">--</span>
+  </div>
+  <a class="map-dock" id="mapDock" href="/map" aria-label="打开 Error酱地图" title="Error酱地图">
+    <span class="map-dock-mini" id="mapDockMini" aria-hidden="true"></span>
+    <span class="map-dock-grid" aria-hidden="true"></span>
+    <span class="map-dock-cross" aria-hidden="true"></span>
+    <span class="map-dock-north" aria-hidden="true">N</span>
+    <span class="map-dock-ring" aria-hidden="true"></span>
+    <span class="map-dock-count" id="mapDockCount" hidden>地图</span>
+  </a>
+
+  <script src="/static/vendor/leaflet/leaflet.js"></script>
+  <script src="/static/site/minimap.js"></script>
+  <script src="/static/site/hud.js"></script>
 </body>
 </html>

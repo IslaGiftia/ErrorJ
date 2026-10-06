@@ -218,7 +218,7 @@
     attributeFilter: ["data-theme"]
   });
 
-  fetch("/api/map", { cache: "no-store" })
+  fetch("/api/map?dock=1", { cache: "no-store" })
     .then(function (response) {
       if (!response.ok) {
         var error = new Error("map api " + response.status);
