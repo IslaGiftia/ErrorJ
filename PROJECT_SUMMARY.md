@@ -8,7 +8,7 @@
 
 系统目前运行在本机 Windows 电脑上，采用 Python 标准库 + SQLite + 原生 HTML/CSS/JavaScript 实现，不需要 Docker，也不需要额外框架。服务监听 `0.0.0.0:8000`，手机连接同一个 WiFi 后可以通过电脑局域网 IP 访问。
 
-项目目录：`C:\lX.NeT`
+项目目录：`<项目目录>`
 
 主要访问地址：
 
@@ -352,7 +352,7 @@
 
 ### 5.1 备份
 
-- 备份脚本：`C:\lX.NeT\backup.ps1`。
+- 备份脚本：`<项目目录>\backup.ps1`。
 - 备份目录：`D:\InventoryBackups`。
 - 备份内容：整个项目目录，包含代码、静态文件、数据库、图片和上传文件。
 - 文件名：`inventory_backup_年月日_时分秒.zip`。
@@ -363,7 +363,7 @@
 
 - 任务名：`ComponentInventoryBackup`。
 - 执行时间：每天 12:00。
-- 命令：`powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\lX.NeT\backup.ps1"`。
+- 命令：`powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<项目目录>\backup.ps1"`。
 
 ### 5.3 开机自启
 

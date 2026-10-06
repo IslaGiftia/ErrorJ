@@ -16,7 +16,7 @@ function Write-Log {
 }
 
 function Get-PythonPath {
-    $bundled = "C:\Users\Administrator\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+    $bundled = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
     if (Test-Path -LiteralPath $bundled) {
         return $bundled
     }

@@ -643,7 +643,7 @@ curl -i http://127.0.0.1:8000/api/health
 本地数据目录：
 
 ```text
-C:\lX.NeT\data
+<项目目录>\data
 ```
 
 服务器当前使用的数据目录：
@@ -678,7 +678,7 @@ Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue
 ```powershell
 tar --exclude=data/auth.json --exclude=*.log `
   -czf C:\errorjiang-data.tar.gz `
-  -C C:\lX.NeT data
+-C <项目目录> data
 ```
 
 检查压缩包：

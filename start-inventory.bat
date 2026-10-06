@@ -1,6 +1,6 @@
 @echo off
 cd /d "%~dp0"
-set "RUNTIME_PY=C:\Users\Administrator\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+set "RUNTIME_PY=%USERPROFILE%\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
 set "PYTHON_EXE="
 if exist "%RUNTIME_PY%" (
   set "PYTHON_EXE=%RUNTIME_PY%"

@@ -68,7 +68,7 @@ HTTP/1.1 200 OK
 
 完成内容：
 
-- 将本地 `C:\lX.NeT` 初始化为 Git 仓库，默认分支为 `main`。
+- 将本地 `<项目目录>` 初始化为 Git 仓库，默认分支为 `main`。
 - 添加 `.gitignore`、`.dockerignore` 和 `.gitattributes`。
 - 排除运行数据、密码、证书、缓存、日志和备份。
 - 确认 Git 中只有 `data/.gitkeep`，没有提交真实数据库和上传文件。
@@ -248,7 +248,7 @@ warehouse_types: 1
 
 两个数据库文件哈希不同，但业务内容接近。当前网站固定使用 `/opt/errorjiang/data`。
 
-本地 `C:\lX.NeT\data` 比服务器当前数据库更大，尚未上传到服务器。
+本地 `<项目目录>\data` 比服务器当前数据库更大，尚未上传到服务器。
 
 ### 2.7 备份检查
 
@@ -482,7 +482,7 @@ crontab -l
 本地数据：
 
 ```text
-C:\lX.NeT\data
+<项目目录>\data
 ```
 
 目标：
