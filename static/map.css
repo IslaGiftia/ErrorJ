@@ -196,6 +196,39 @@ body {
   display: none;
 }
 
+.mp-owner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 10px;
+  border-bottom: 1px solid var(--mp-border);
+}
+
+.mp-owner label {
+  flex: none;
+  color: var(--mp-muted);
+  font-size: 12.5px;
+}
+
+.mp-owner select {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--mp-border);
+  border-radius: 8px;
+  background: var(--mp-surface-2);
+  color: var(--mp-text);
+  font: inherit;
+  font-size: 12.5px;
+  outline: none;
+}
+
+.mp-owner select:focus {
+  border-color: var(--mp-accent);
+  background: var(--mp-surface);
+}
+
 .mp-tag-chip {
   display: inline-flex;
   align-items: center;

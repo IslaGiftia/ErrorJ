@@ -298,6 +298,7 @@ NOTIFY_EVENTS = (
     {"key": "register", "label": "新的注册申请", "default": True},
     {"key": "attachment", "label": "新的待审核附件", "default": True},
     {"key": "message", "label": "新的留言", "default": False},
+    {"key": "place", "label": "新的标记点", "default": True},
 )
 NOTIFY_DEFAULT_EVENTS = tuple(
     item["key"] for item in NOTIFY_EVENTS if item.get("default")
@@ -4289,6 +4290,13 @@ def notify_settings():
             parsed = json.loads(raw_events)
             if isinstance(parsed, list):
                 events = [key for key in parsed if key in notify_event_keys()]
+                # 新版本加入的默认事件（如「新的标记点」）一次性补进已有配置
+                if app_meta_get("notify_events_migrated_v2", "") != "1":
+                    for item in NOTIFY_EVENTS:
+                        if item.get("default") and item["key"] not in events:
+                            events.append(item["key"])
+                    app_meta_set("notify_events", json.dumps(events, ensure_ascii=False))
+                    app_meta_set("notify_events_migrated_v2", "1")
         except json.JSONDecodeError:
             events = list(NOTIFY_DEFAULT_EVENTS)
     channel = app_meta_get("notify_channel", "wecom")
@@ -4310,7 +4318,7 @@ def notify_log_write(event, title, body, channel, status, detail=""):
     )
 
 
-def deliver_notification(channel, url, title, body, event):
+def deliver_notification(channel, url, title, body, event, link="/workbench"):
     """按渠道组装请求并发送，返回 (是否成功, 说明)。"""
     text = f"{title}\n{body}"
     try:
@@ -4338,7 +4346,7 @@ def deliver_notification(channel, url, title, body, event):
                     "title": title,
                     "body": body,
                     "event": event,
-                    "url": "/workbench",
+                    "url": link,
                     "time": now_text(),
                 },
                 ensure_ascii=False,
@@ -4361,7 +4369,7 @@ def deliver_notification(channel, url, title, body, event):
         return False, str(exc)[:200]
 
 
-def notify_async(event, title, body):
+def notify_async(event, title, body, link="/workbench"):
     """事件触发时异步推送，不阻塞请求。"""
     settings = notify_settings()
     if (
@@ -4373,7 +4381,7 @@ def notify_async(event, title, body):
     channel, url = settings["channel"], settings["url"]
 
     def worker():
-        ok, detail = deliver_notification(channel, url, title, body, event)
+        ok, detail = deliver_notification(channel, url, title, body, event, link)
         notify_log_write(event, title, body, channel, "ok" if ok else "fail", detail)
 
     threading.Thread(target=worker, daemon=True).start()
@@ -4586,6 +4594,19 @@ class InventoryHandler(BaseHTTPRequestHandler):
             if first:
                 return first
         return self.client_address[0] if self.client_address else "unknown"
+
+    def request_base_url(self):
+        """按当前请求拼出站点根地址，用于通知里的可点击链接。"""
+        host = (self.headers.get("Host") or "").strip()
+        if not host:
+            return ""
+        proto = (
+            "https"
+            if FORCE_SECURE_COOKIES
+            or (self.headers.get("X-Forwarded-Proto") or "").lower() == "https"
+            else "http"
+        )
+        return f"{proto}://{host}"
 
     def redirect(self, location, status=302):
         self.send_response(status)
@@ -6538,7 +6559,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def api_site_messages(self, params):
         rows = query(
-            """SELECT id, nickname, content, parent_id, user_id, ip_region, show_region, created_at
+            """SELECT id, nickname, content, parent_id, user_id, ip, ip_region,
+                      show_region, created_at
                FROM site_messages
                ORDER BY COALESCE(parent_id, id) DESC, id ASC"""
         )
@@ -6560,6 +6582,20 @@ class InventoryHandler(BaseHTTPRequestHandler):
             ):
                 authors[user["id"]] = user
         files = self.site_message_files_map([row["id"] for row in rows])
+        # 之前没配高德 Key 时留下的留言，配上 Key 后自动补一次属地（最多 3 条/次）
+        if AMAP_WEB_KEY:
+            for row in [
+                item
+                for item in rows
+                if item.get("show_region") and not item.get("ip_region") and item.get("ip")
+            ][:3]:
+                region = lookup_ip_region(row.get("ip"))
+                if region:
+                    execute(
+                        "UPDATE site_messages SET ip_region = ? WHERE id = ?",
+                        (region, row["id"]),
+                    )
+                    row["ip_region"] = region
         for row in rows:
             row["files"] = files.get(row["id"], [])
             row["can_delete"] = can_delete
@@ -6577,6 +6613,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             row["region"] = (
                 normalize_region(row.get("ip_region")) if row.get("show_region") else ""
             )
+            row.pop("ip", None)
             row.pop("user_id", None)
             row.pop("ip_region", None)
             row.pop("show_region", None)
@@ -6791,12 +6828,25 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def api_moments(self, params):
         rows = query(
-            """SELECT id, content, tags, pinned, ip_region, show_region, created_at
+            """SELECT id, content, tags, pinned, ip, ip_region, show_region, created_at
                FROM moments
                ORDER BY pinned DESC, created_at DESC, id DESC"""
         )
         can_manage = self.is_admin()
         files = self.moment_files_map([row["id"] for row in rows])
+        if AMAP_WEB_KEY:
+            for row in [
+                item
+                for item in rows
+                if item.get("show_region") and not item.get("ip_region") and item.get("ip")
+            ][:3]:
+                region = lookup_ip_region(row.get("ip"))
+                if region:
+                    execute(
+                        "UPDATE moments SET ip_region = ? WHERE id = ?",
+                        (region, row["id"]),
+                    )
+                    row["ip_region"] = region
         for row in rows:
             row["files"] = files.get(row["id"], [])
             row["pinned"] = bool(row["pinned"])
@@ -6805,6 +6855,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             row["region"] = (
                 normalize_region(row.get("ip_region")) if row.get("show_region") else ""
             )
+            row.pop("ip", None)
             row.pop("ip_region", None)
             row.pop("show_region", None)
         self.send_json(200, rows)
@@ -7470,6 +7521,28 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return 0
         return identity.get("user_id")
 
+    def map_creator_name(self, user_id):
+        if user_id in (None, 0):
+            return "管理员"
+        row = query_one("SELECT nickname, username FROM users WHERE id = ?", (user_id,))
+        if not row:
+            return "某位用户"
+        return str(row.get("nickname") or row.get("username") or "某位用户")[:32]
+
+    def map_created_by_label(self, creator_id, creators, viewer_signed_in):
+        """地图上的「添加者」展示名：游客看不到普通账号的用户名。"""
+        if creator_id in (None, 0):
+            return "管理员"
+        user = creators.get(creator_id)
+        if not user:
+            return "未知用户"
+        nickname = str(user.get("nickname") or "").strip()
+        if nickname:
+            return nickname[:16]
+        if viewer_signed_in:
+            return str(user.get("username") or "普通用户")[:32]
+        return "普通用户"
+
     def map_admin(self):
         identity = self.session_identity()
         return bool(identity and identity.get("kind") == "owner")
@@ -7492,8 +7565,23 @@ class InventoryHandler(BaseHTTPRequestHandler):
         user_id = self.map_identity_user_id()
         places = self.map_place_rows()
         photos = self.map_photos_map([row["id"] for row in places])
+        creator_ids = sorted(
+            {row["created_by"] for row in places if row.get("created_by") not in (None, 0)}
+        )
+        creators = {}
+        if creator_ids:
+            placeholders = ",".join("?" for _ in creator_ids)
+            for user in query(
+                f"SELECT id, username, nickname FROM users WHERE id IN ({placeholders})",
+                tuple(creator_ids),
+            ):
+                creators[user["id"]] = user
+        viewer_signed_in = identity is not None
         for row in places:
             row["photos"] = photos.get(row["id"], [])
+            row["created_by_name"] = self.map_created_by_label(
+                row.get("created_by"), creators, viewer_signed_in
+            )
             row["can_edit"] = bool(
                 identity
                 and (
@@ -7760,6 +7848,19 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     tags, lat, lng, status, rating, created_by, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (*values, user_id, stamp, stamp),
+        )
+        name = values[1] or "未命名地点"
+        address = values[3] or ""
+        author = self.map_creator_name(user_id)
+        link = self.request_base_url() + f"/map?place={row_id}"
+        detail = f"{author} 新增了标记点「{name}」"
+        if address:
+            detail += f"（{address}）"
+        notify_async(
+            "place",
+            "Error酱：有新的标记点",
+            f"{detail}\n查看位置：{link}",
+            link,
         )
         self.send_json(201, {"id": row_id})
 

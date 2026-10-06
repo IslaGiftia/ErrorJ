@@ -112,6 +112,7 @@
     activeSubs: new Set(),
     activeTags: new Set(),
     keyword: "",
+    ownerFilter: "",
     markers: {},
     gcj: false,
     placing: false,
@@ -469,6 +470,9 @@
   function visiblePlaces() {
     var keyword = state.keyword.trim().toLowerCase();
     return state.places.filter(function (place) {
+      if (state.ownerFilter !== "" && String(place.created_by) !== state.ownerFilter) {
+        return false;
+      }
       if (state.activeSubs.size) {
         if (!state.activeSubs.has(place.category_id)) return false;
       } else if (state.activeTop.size) {
@@ -664,6 +668,47 @@
         );
       })
       .join("");
+  }
+
+  function renderOwnerFilter() {
+    var select = $("mapOwnerFilter");
+    if (!select) return;
+    var groups = {};
+    state.places.forEach(function (place) {
+      var key = String(place.created_by == null ? "" : place.created_by);
+      if (!key) return;
+      if (!groups[key]) {
+        groups[key] = {
+          key: key,
+          name: place.created_by_name || "未知用户",
+          count: 0
+        };
+      }
+      groups[key].count += 1;
+    });
+    var list = Object.keys(groups)
+      .map(function (key) {
+        return groups[key];
+      })
+      .sort(function (a, b) {
+        return String(a.name).localeCompare(String(b.name), "zh-CN");
+      });
+    var html = '<option value="">全部添加者</option>';
+    list.forEach(function (item) {
+      html +=
+        '<option value="' +
+        esc(item.key) +
+        '">' +
+        esc(item.name) +
+        "（" +
+        item.count +
+        "）</option>";
+    });
+    select.innerHTML = html;
+    if (state.ownerFilter && !groups[state.ownerFilter]) {
+      state.ownerFilter = "";
+    }
+    select.value = state.ownerFilter;
   }
 
   function popupHtml(place) {
@@ -935,6 +980,7 @@
       state.activeTags.forEach(function (tag) {
         if (!availableTags[tag]) state.activeTags.delete(tag);
       });
+      renderOwnerFilter();
       renderAll();
       if (fitIfEmpty && !savedView && state.places.length) fitAll();
     });
@@ -1863,6 +1909,14 @@
     });
   }
 
+  var ownerSelect = $("mapOwnerFilter");
+  if (ownerSelect) {
+    ownerSelect.addEventListener("change", function () {
+      state.ownerFilter = ownerSelect.value;
+      renderAll();
+    });
+  }
+
   var statusBox = $("placeStatus");
   if (statusBox) {
     statusBox.addEventListener("click", function (event) {
@@ -2177,7 +2231,20 @@
 
   if (window.lucide && lucide.createIcons) lucide.createIcons();
 
-  loadData(true).catch(function (err) {
-    toast(err.message || "地图数据加载失败");
-  });
+  loadData(true)
+    .then(function () {
+      var placeId = Number(
+        new URLSearchParams(window.location.search).get("place") || 0
+      );
+      if (!placeId) return;
+      var place = placeById(placeId);
+      if (place) {
+        focusPlace(place);
+      } else {
+        toast("要定位的标记不存在或已删除");
+      }
+    })
+    .catch(function (err) {
+      toast(err.message || "地图数据加载失败");
+    });
 })();
