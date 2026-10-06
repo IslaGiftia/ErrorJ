@@ -10,6 +10,7 @@
 
   var pendingFiles = [];
   var toastTimer = null;
+  var canPost = false;
 
   function $(id) {
     return document.getElementById(id);
@@ -397,20 +398,22 @@
       item.appendChild(buildFiles(files));
     }
 
-    var actions = el("div", "mg-item-actions");
-    var replyBtn = el("button", "mg-link-btn", "回复");
-    replyBtn.type = "button";
-    actions.append(replyBtn);
-    var deleteBtn = null;
-    if (message.can_delete) {
-      deleteBtn = el("button", "mg-link-btn is-danger", "删除");
-      deleteBtn.type = "button";
-      actions.append(deleteBtn);
-    }
-    item.appendChild(actions);
-
     var repliesBox = el("div", "mg-replies");
-    var replyForm = buildReplyForm(message.id);
+    var replyForm = null;
+    if (canPost) {
+      var actions = el("div", "mg-item-actions");
+      var replyBtn = el("button", "mg-link-btn", "回复");
+      replyBtn.type = "button";
+      actions.append(replyBtn);
+      var deleteBtn = null;
+      if (message.can_delete) {
+        deleteBtn = el("button", "mg-link-btn is-danger", "删除");
+        deleteBtn.type = "button";
+        actions.append(deleteBtn);
+      }
+      item.appendChild(actions);
+      replyForm = buildReplyForm(message.id);
+    }
     (message.replies || []).forEach(function (reply) {
       var row = el("div", "mg-reply");
       var replyHead = el("div", "mg-item-head");
@@ -427,13 +430,18 @@
       repliesBox.appendChild(row);
     });
 
-    replyBtn.addEventListener("click", function () {
-      replyForm.hidden = !replyForm.hidden;
-      if (!replyForm.hidden) {
-        var area = replyForm.querySelector("textarea");
-        if (area) area.focus();
+    if (replyForm) {
+      var toggleReply = item.querySelector(".mg-link-btn");
+      if (toggleReply) {
+        toggleReply.addEventListener("click", function () {
+          replyForm.hidden = !replyForm.hidden;
+          if (!replyForm.hidden) {
+            var area = replyForm.querySelector("textarea");
+            if (area) area.focus();
+          }
+        });
       }
-    });
+    }
 
     if (deleteBtn) {
       deleteBtn.addEventListener("click", function () {
@@ -449,7 +457,9 @@
     }
 
     item.appendChild(repliesBox);
-    item.appendChild(replyForm);
+    if (replyForm) {
+      item.appendChild(replyForm);
+    }
     return item;
   }
 
@@ -463,7 +473,9 @@
       });
       $("messageCount").textContent = rows.length ? "共 " + total + " 条" : "";
       if (!rows.length) {
-        list.appendChild(el("div", "mg-empty", "还没有留言，来说点什么吧。"));
+        list.appendChild(
+          el("div", "mg-empty", canPost ? "还没有留言，来说点什么吧。" : "还没有留言。")
+        );
         return;
       }
       rows.forEach(function (row) {
@@ -478,5 +490,15 @@
 
   renderPending();
   refreshIcons();
-  loadMessages();
+  api("/api/auth/status").then(function (status) {
+    canPost = Boolean(status.authenticated);
+    $("messageForm").hidden = !canPost;
+    $("messageLoginHint").hidden = canPost;
+    return loadMessages();
+  }).catch(function () {
+    canPost = false;
+    $("messageForm").hidden = true;
+    $("messageLoginHint").hidden = false;
+    return loadMessages();
+  });
 })();

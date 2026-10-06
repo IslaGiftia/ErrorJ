@@ -360,8 +360,9 @@
   renderPending();
   refreshIcons();
   api("/api/auth/status").then(function (status) {
-    $("momentForm").hidden = !status.authenticated;
-    $("momentLoginHint").hidden = status.authenticated;
+    var canManage = Boolean(status.admin);
+    $("momentForm").hidden = !canManage;
+    $("momentLoginHint").hidden = canManage;
     return loadMoments();
   }).catch(function () {
     $("momentForm").hidden = true;

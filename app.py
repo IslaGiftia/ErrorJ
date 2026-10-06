@@ -110,7 +110,6 @@ PUBLIC_POST_APIS = {
     "/api/login",
     "/api/register",
     "/api/logout",
-    "/api/site/messages",
 }
 PUBLIC_DATA_PREFIXES = (
     "moment_images/",
@@ -191,8 +190,6 @@ PERMISSION_GROUPS = (
         "key": "site",
         "label": "站点内容",
         "items": (
-            {"key": "moments:write", "label": "发布、编辑 Error酱动态"},
-            {"key": "recommendations:write", "label": "管理 Error酱推荐"},
             {"key": "music:write", "label": "上传、编辑歌单"},
             {"key": "links:write", "label": "管理宝藏网站链接"},
             {"key": "photos:write", "label": "管理照片墙"},
@@ -4063,6 +4060,21 @@ def required_permission(path, method):
     """把请求映射到权限点；返回 None 表示仍按"仅管理员"处理。"""
     if path == "/api/account/nickname":
         return ""
+    if path == "/api/site/messages" or path.startswith("/api/site/messages/"):
+        # 留言板：游客只能浏览；登录账号可以发表留言，删除仍仅管理员。
+        if method == "POST":
+            return ""
+        return None
+    if path == "/api/moments" or path.startswith("/api/moments/"):
+        # 动态：游客和普通账号只能浏览，发布/编辑/置顶/删除仅管理员。
+        if method in ("POST", "PATCH", "DELETE"):
+            return None
+        return ""
+    if path == "/api/recommendations" or path.startswith("/api/recommendations/"):
+        # 推荐：游客和普通账号只能浏览，管理仅管理员。
+        if method in ("POST", "PATCH", "DELETE"):
+            return None
+        return ""
     if path.startswith("/api/admin"):
         return None
     if path.startswith("/api/map/export"):
@@ -6575,7 +6587,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                FROM moments
                ORDER BY pinned DESC, created_at DESC, id DESC"""
         )
-        can_manage = self.can("moments:write")
+        can_manage = self.is_admin()
         files = self.moment_files_map([row["id"] for row in rows])
         for row in rows:
             row["files"] = files.get(row["id"], [])
@@ -6763,7 +6775,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             200,
             {
                 "items": self.recommendation_rows(params),
-                "can_manage": self.can("recommendations:write"),
+                "can_manage": self.is_admin(),
             },
         )
 

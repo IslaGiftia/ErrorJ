@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN" data-theme="light">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -11,6 +11,10 @@
   <style>
     :root {
       color-scheme: light;
+    }
+
+    [data-theme="dark"] {
+      color-scheme: dark;
     }
 
     body {
@@ -28,6 +32,10 @@
       font-size: 14px;
     }
 
+    [data-theme="dark"] body {
+      color: #f4f4f5;
+    }
+
     .register-card {
       position: relative;
       z-index: 1;
@@ -42,6 +50,12 @@
       text-align: center;
     }
 
+    [data-theme="dark"] .register-card {
+      border-color: rgba(161, 161, 170, 0.28);
+      background: rgba(38, 38, 38, 0.86);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+    }
+
     .register-card h1 {
       margin: 0 0 6px;
       font-size: 22px;
@@ -51,6 +65,10 @@
       margin: 0 0 20px;
       color: #697386;
       font-size: 13px;
+    }
+
+    [data-theme="dark"] .register-card > p {
+      color: #a1a1aa;
     }
 
     .register-field {
@@ -66,6 +84,22 @@
       font-size: 13px;
     }
 
+    [data-theme="dark"] .register-field span {
+      color: #a1a1aa;
+    }
+
+    .register-field small {
+      display: block;
+      margin-top: 6px;
+      color: #8a93a5;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    [data-theme="dark"] .register-field small {
+      color: #71717a;
+    }
+
     .register-field input {
       box-sizing: border-box;
       width: 100%;
@@ -78,9 +112,24 @@
       font: inherit;
     }
 
+    [data-theme="dark"] .register-field input {
+      border-color: rgba(161, 161, 170, 0.32);
+      background: rgba(161, 161, 170, 0.12);
+    }
+
+    .register-field input::placeholder {
+      color: currentColor;
+      opacity: 0.45;
+    }
+
     .register-field input:focus {
       outline: 2px solid #7b68ee;
       outline-offset: -1px;
+    }
+
+    [data-theme="dark"] .register-field input:focus,
+    [data-theme="dark"] .register-submit:focus {
+      outline-color: #a78bfa;
     }
 
     .register-submit {
@@ -93,6 +142,19 @@
       font: inherit;
       font-weight: 700;
       cursor: pointer;
+    }
+
+    [data-theme="dark"] .register-submit {
+      background: #a78bfa;
+      color: #1f1633;
+    }
+
+    .register-submit:hover {
+      background: #6956e5;
+    }
+
+    [data-theme="dark"] .register-submit:hover {
+      background: #b8a3ff;
     }
 
     .register-submit:disabled {
@@ -110,9 +172,19 @@
       text-align: left;
     }
 
+    [data-theme="dark"] .register-message {
+      background: rgba(167, 139, 250, 0.16);
+      color: #c4b5fd;
+    }
+
     .register-message.is-error {
       background: rgba(214, 69, 69, 0.12);
       color: #d64545;
+    }
+
+    [data-theme="dark"] .register-message.is-error {
+      background: rgba(248, 113, 113, 0.16);
+      color: #f87171;
     }
 
     .register-back {
@@ -124,6 +196,18 @@
       text-decoration: none;
     }
   </style>
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark =
+          pref === "dark" ||
+          (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
   <link rel="stylesheet" href="/static/fonts.css">
 </head>
 <body>

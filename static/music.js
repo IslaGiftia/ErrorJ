@@ -162,9 +162,11 @@
     var fallback = $("playerCoverFallback");
     if (!track) {
       $("playerTitle").textContent = "还没有选择歌曲";
-      $("playerMeta").textContent = state.canManage
-        ? "上传后点击歌单里的歌曲开始播放"
-        : "歌单还是空的";
+      $("playerMeta").textContent = state.tracks.length
+        ? "点击歌单里的歌曲开始播放"
+        : state.canManage
+          ? "上传后点击歌单里的歌曲开始播放"
+          : "歌单还是空的";
       coverImg.hidden = true;
       coverImg.removeAttribute("src");
       fallback.hidden = false;
