@@ -1,7 +1,7 @@
 /*
  * 首页左下角的圆形小地图入口。
  * 规则：有地图权限时显示最近浏览的区域（/map 页面拖动、缩放后回到首页会跟随），
- * 底图固定为浅色高德矢量、暗色 Esri 深色；游客只显示网格占位。
+ * 底图固定为浅色高德矢量、暗色 Esri 深色；游客显示浅色静态底图和网格。
  */
 (function () {
   var dock = document.getElementById("mapDock");
@@ -254,54 +254,64 @@
     attributeFilter: ["data-theme"]
   });
 
-  fetch("/api/map?dock=1", { cache: "no-store" })
-    .then(function (response) {
-      if (!response.ok) {
-        var error = new Error("map api " + response.status);
-        error.status = response.status;
-        throw error;
-      }
-      return response.json();
-    })
-    .then(function (data) {
-      dockBlocked = 0;
-      dock.classList.remove("is-guest");
-      places = data.places || [];
-      serverSignedIn = Boolean(data.signed_in);
-      serverUnseenId = Number(data.newest_unseen_id) || 0;
-      serverUnseenCount = Number(data.unseen_count) || 0;
-      colorById = {};
-      (data.categories || []).forEach(function (cat) {
-        colorById[cat.id] = cat.color || "#7b68ee";
-      });
-      currentBase = themeBase();
-      createTiles(currentBase);
-      renderDots();
-      if (!savedView && places.length) fitAll();
-      updateDockPending();
-      if (countEl) {
-        if (places.length) {
-          countEl.textContent = places.length + " 个标记";
-          countEl.hidden = false;
-        } else {
-          countEl.hidden = true;
+  var mapRequestSerial = 0;
+
+  function loadMapData() {
+    var requestId = ++mapRequestSerial;
+    fetch("/api/map?dock=1", { cache: "no-store" })
+      .then(function (response) {
+        if (!response.ok) {
+          var error = new Error("map api " + response.status);
+          error.status = response.status;
+          throw error;
         }
-      }
-      mini.invalidateSize();
-    })
-    .catch(function (err) {
-      dock.classList.add("is-guest");
-      if (tiles) {
-        mini.removeLayer(tiles);
-        tiles = null;
-      }
-      dots.clearLayers();
-      if (err && (err.status === 401 || err.status === 403)) {
-        // 入口和 HUD 保留；点击入口时给出注册 / 权限提示
-        dockBlocked = err.status;
-        dock.classList.remove("has-pending");
-        dock.href = "/map";
-      }
-      if (countEl) countEl.hidden = true;
-    });
+        return response.json();
+      })
+      .then(function (data) {
+        if (requestId !== mapRequestSerial) return;
+        dockBlocked = 0;
+        dock.classList.remove("is-guest");
+        places = data.places || [];
+        serverSignedIn = Boolean(data.signed_in);
+        serverUnseenId = Number(data.newest_unseen_id) || 0;
+        serverUnseenCount = Number(data.unseen_count) || 0;
+        colorById = {};
+        (data.categories || []).forEach(function (cat) {
+          colorById[cat.id] = cat.color || "#7b68ee";
+        });
+        currentBase = themeBase();
+        createTiles(currentBase);
+        renderDots();
+        if (!savedView && places.length) fitAll();
+        updateDockPending();
+        if (countEl) {
+          if (places.length) {
+            countEl.textContent = places.length + " 个标记";
+            countEl.hidden = false;
+          } else {
+            countEl.hidden = true;
+          }
+        }
+        mini.invalidateSize();
+      })
+      .catch(function (err) {
+        if (requestId !== mapRequestSerial) return;
+        dock.classList.add("is-guest");
+        if (tiles) {
+          mini.removeLayer(tiles);
+          tiles = null;
+        }
+        dots.clearLayers();
+        if (err && (err.status === 401 || err.status === 403)) {
+          // 入口和 HUD 保留；点击入口时给出注册 / 权限提示
+          dockBlocked = err.status;
+          dock.classList.remove("has-pending");
+          dock.href = "/map";
+        }
+        if (countEl) countEl.hidden = true;
+      });
+  }
+
+  window.addEventListener("errorauthchange", loadMapData);
+  loadMapData();
 })();

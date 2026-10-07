@@ -217,6 +217,11 @@
     if (authState.authenticated) {
       loadPrivateLandingData();
     }
+    window.dispatchEvent(
+      new CustomEvent("errorauthchange", {
+        detail: { authenticated: authState.authenticated, role: authState.role },
+      })
+    );
   }
 
   function openAuthModal() {

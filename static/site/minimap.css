@@ -40,6 +40,7 @@
 }
 
 .map-dock-mini,
+.map-dock-tint,
 .map-dock-grid,
 .map-dock-ring {
   position: absolute;
@@ -55,7 +56,24 @@
 }
 
 .map-dock.is-guest .map-dock-mini {
-  background: #30353d;
+  background-color: #eef1f5;
+  background-image: url("/static/site/map-dock-guest-light.jpg");
+  background-position: center;
+  background-size: cover;
+}
+
+[data-theme="dark"] .map-dock.is-guest .map-dock-mini {
+  filter: brightness(0.52) saturate(0.52) contrast(1.06);
+}
+
+.map-dock-tint {
+  pointer-events: none;
+  opacity: 0;
+  background: rgba(18, 25, 35, 0.18);
+}
+
+[data-theme="dark"] .map-dock.is-guest .map-dock-tint {
+  opacity: 1;
 }
 
 .map-dock-mini .leaflet-container,
@@ -79,26 +97,32 @@
 }
 
 .map-dock.is-guest .map-dock-grid {
+  --map-grid-major: rgba(70, 82, 99, 0.72);
+  --map-grid-minor: rgba(70, 82, 99, 0.30);
   opacity: 1;
-  background-color: #30353d;
   background-image:
     linear-gradient(
       to right,
       transparent calc(50% - 0.5px),
-      rgba(255, 255, 255, 0.68) calc(50% - 0.5px),
-      rgba(255, 255, 255, 0.68) calc(50% + 0.5px),
+      var(--map-grid-major) calc(50% - 0.5px),
+      var(--map-grid-major) calc(50% + 0.5px),
       transparent calc(50% + 0.5px)
     ),
     linear-gradient(
       to bottom,
       transparent calc(50% - 0.5px),
-      rgba(255, 255, 255, 0.68) calc(50% - 0.5px),
-      rgba(255, 255, 255, 0.68) calc(50% + 0.5px),
+      var(--map-grid-major) calc(50% - 0.5px),
+      var(--map-grid-major) calc(50% + 0.5px),
       transparent calc(50% + 0.5px)
     ),
-    linear-gradient(to right, rgba(255, 255, 255, 0.22) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.22) 1px, transparent 1px);
+    linear-gradient(to right, var(--map-grid-minor) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--map-grid-minor) 1px, transparent 1px);
   background-size: 100% 100%, 100% 100%, 20% 20%, 20% 20%;
+}
+
+[data-theme="dark"] .map-dock.is-guest .map-dock-grid {
+  --map-grid-major: rgba(255, 255, 255, 0.72);
+  --map-grid-minor: rgba(255, 255, 255, 0.24);
 }
 
 .map-dock-ring {
