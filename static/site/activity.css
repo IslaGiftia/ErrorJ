@@ -1,0 +1,92 @@
+/* 首页左下角近 7 天公开动态，只在首页桌面端显示。 */
+.activity-feed {
+  position: fixed;
+  left: 20px;
+  bottom: calc(22px + env(safe-area-inset-bottom, 0px));
+  z-index: 68;
+  width: min(380px, 28vw);
+  height: 88px;
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+.activity-feed-track {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.activity-feed-item {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.activity-feed-time,
+.activity-feed-user {
+  flex: 0 0 auto;
+  color: var(--primary-strong);
+  font-weight: 700;
+}
+
+.activity-feed-text {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  opacity: 0.82;
+  text-overflow: ellipsis;
+}
+
+.activity-feed-item.is-alert .activity-feed-text {
+  color: var(--warn);
+  animation: activityFeedAlert 1.2s ease-in-out infinite;
+}
+
+@keyframes activityFeedAlert {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (min-width: 1600px) {
+  .activity-feed {
+    left: 28px;
+    bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+    width: min(420px, 28vw);
+    height: 100px;
+    font-size: 13px;
+  }
+}
+
+@media (min-width: 2100px) {
+  .activity-feed {
+    left: 40px;
+    bottom: calc(44px + env(safe-area-inset-bottom, 0px));
+    width: min(480px, 28vw);
+    height: 120px;
+    font-size: 15px;
+  }
+}
+
+@media (min-width: 3000px) {
+  .activity-feed {
+    left: 52px;
+    bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+    width: 520px;
+    height: 140px;
+    font-size: 17px;
+  }
+}
+
+@media (max-width: 900px) {
+  .activity-feed {
+    display: none !important;
+  }
+}

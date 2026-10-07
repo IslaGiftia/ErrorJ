@@ -632,7 +632,7 @@ img {
     box-shadow 0.2s ease;
 }
 
-/* 2 个字撑满 3 个字的宽度，和「留言板」两端对齐（不支持两端对齐的浏览器居中显示） */
+/* 2 个字撑满 3 个字的宽度，和「留言」两端对齐（不支持两端对齐的浏览器居中显示） */
 .landing-module-text {
   display: block;
   width: 3em;
@@ -790,11 +790,22 @@ img {
   font-size: 14px;
 }
 
-.landing-font-credit {
+.landing-credit-block {
   margin: 18px 0 0;
+}
+
+.landing-font-credit {
+  margin: 0;
   color: var(--ink-3, var(--muted));
   font-size: 12px;
   opacity: 0.75;
+}
+
+.landing-record {
+  margin: 6px 0 0;
+  color: var(--ink-3, var(--muted));
+  font-size: 11px;
+  opacity: 0.58;
 }
 
 .workbench-coming {
@@ -1216,6 +1227,7 @@ body[data-page] .under-construction {
 
 /* Three compact entries keep the original landing card design. */
 .landing-three {
+  --dock-bottom: calc(22px + env(safe-area-inset-bottom, 0px));
   padding: 30px 20px;
 }
 
@@ -1332,13 +1344,13 @@ body[data-page] .under-construction {
   .landing-three {
     align-items: flex-start;
     padding-top: 64px;
-    padding-bottom: 48px;
+    padding-bottom: var(--dock-bottom);
   }
 
   .landing-three .landing-inner {
     display: flex;
     flex-direction: column;
-    min-height: calc(100vh - 112px);
+    min-height: calc(100vh - 64px - var(--dock-bottom));
   }
 
   .landing-three .landing-title {
@@ -1355,6 +1367,10 @@ body[data-page] .under-construction {
   }
 
   .landing-three .landing-footer {
+    margin-top: 40px;
+  }
+
+  .landing-three .landing-credit-block {
     margin-top: 40px;
   }
 
@@ -1401,6 +1417,10 @@ body[data-page] .under-construction {
 
 /* 大屏自适应：2K 及以上放大落地页内容，并让整块内容垂直居中，减少大片空白。 */
 @media (min-width: 1600px) {
+  .landing-three {
+    --dock-bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+  }
+
   .landing-three .landing-inner {
     max-width: 1560px;
   }
@@ -1448,9 +1468,6 @@ body[data-page] .under-construction {
     padding-top: 56px;
   }
 
-  .landing-three .landing-font-credit {
-    margin-bottom: auto;
-  }
 }
 
 @media (hover: hover) and (min-width: 1600px) {
@@ -1460,6 +1477,10 @@ body[data-page] .under-construction {
 }
 
 @media (min-width: 2100px) {
+  .landing-three {
+    --dock-bottom: calc(44px + env(safe-area-inset-bottom, 0px));
+  }
+
   .landing-three .landing-inner {
     max-width: 1880px;
   }
@@ -1512,6 +1533,10 @@ body[data-page] .under-construction {
 }
 
 @media (min-width: 3000px) {
+  .landing-three {
+    --dock-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  }
+
   .landing-three .landing-inner {
     max-width: 2200px;
   }

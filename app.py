@@ -123,6 +123,7 @@ GUEST_DATA_RULES = (
 ALWAYS_PUBLIC_PAGES = {"/", "/index.html", "/login", "/register", "/favicon.ico"}
 ALWAYS_PUBLIC_APIS = {
     "/api/health",
+    "/api/site/activity",
     "/api/auth/status",
     "/api/login",
     "/api/register",
@@ -260,7 +261,7 @@ ROLE_MEMBER = "member"
 ROLE_ADMIN = "admin"
 ROLE_LABELS = {"guest": "游客", "member": "普通账户", "admin": "管理员"}
 GUEST_PAGE_PERMISSIONS = (
-    {"key": "guest:page:messages", "label": "留言板"},
+    {"key": "guest:page:messages", "label": "留言"},
     {"key": "guest:page:moments", "label": "Error酱动态"},
     {"key": "guest:page:recommendations", "label": "Error酱推荐"},
     {"key": "guest:page:music", "label": "歌单"},
@@ -403,6 +404,18 @@ PAGE_VIEW_PATHS = {
     "/games/2048",
     "/games/minesweeper",
     "/games/memory",
+}
+PUBLIC_ACTIVITY_LABELS = {
+    "message_create": "发表了留言",
+    "message_reply": "回复了留言",
+    "moment_create": "发布了动态",
+    "moment_update": "更新了动态",
+    "book_upload": "上架了一本电子书",
+    "music_upload": "上传了一首歌",
+    "map_place_create": "新增了一个足迹",
+    "map_place_update": "更新了一个足迹",
+    "recommendation_create": "新增了一条推荐",
+    "recommendation_update": "更新了一条推荐",
 }
 MESSAGE_FILE_MAX_BYTES = 5 * 1024 * 1024
 MESSAGE_FILE_TOTAL_MAX_BYTES = 15 * 1024 * 1024
@@ -4899,7 +4912,7 @@ def required_permission(path, method):
     if path in SITE_MEMBER_PAGES or path == "/games" or path.startswith(SITE_MEMBER_PAGE_PREFIXES):
         return ""
     if path == "/api/site/messages" or path.startswith("/api/site/messages/"):
-        # 留言板：游客只能浏览；登录账号可以发表留言，删除仍仅管理员。
+        # 留言：游客只能浏览；登录账号可以发表留言，删除仍仅管理员。
         if method == "DELETE":
             return None
         if method == "POST":
@@ -7262,6 +7275,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_messages_unread()
             elif path == "/api/site/messages/quota":
                 self.api_site_message_quota()
+            elif path == "/api/site/activity":
+                self.api_site_activity()
             elif re.fullmatch(r"/api/site/message-files/\d+", path):
                 self.api_site_message_file(path)
             elif path == "/api/moments":
@@ -9122,6 +9137,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             tuple(values) + (stamp, stamp),
         )
+        self.log_activity(
+            "recommendation_create",
+            f"新增推荐：{values[2]}",
+            target_type="recommendation",
+            target_id=recommendation_id,
+        )
         self.send_json(200, {"id": recommendation_id})
 
     def remove_recommendation_cover_if_unused(self, relative):
@@ -9138,6 +9159,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 404, "推荐内容不存在。")
             return
         if self.command == "DELETE":
+            self.log_activity(
+                "recommendation_delete",
+                f"删除推荐：{current.get('title') or recommendation_id}",
+                target_type="recommendation",
+                target_id=recommendation_id,
+            )
             execute("DELETE FROM recommendations WHERE id = ?", (recommendation_id,))
             self.remove_recommendation_cover_if_unused(current.get("cover_path"))
             self.send_json(200, {"ok": True})
@@ -9160,6 +9187,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                    pinned = ?, sort_order = ?, updated_at = ?
                WHERE id = ?""",
             tuple(values) + (now_text(), recommendation_id),
+        )
+        self.log_activity(
+            "recommendation_update",
+            f"更新推荐：{values[2]}",
+            target_type="recommendation",
+            target_id=recommendation_id,
         )
         old_cover = current.get("cover_path")
         if old_cover and old_cover != values[6]:
@@ -10808,6 +10841,90 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 api_error(self, 403, "登录后才可以查看这个附件。")
                 return
         self.send_data_file(row["file_path"])
+
+    # ---------- 首页公开动态 ----------
+    def api_site_activity(self):
+        identity = self.session_identity()
+        viewer_signed_in = identity is not None
+        is_admin = self.is_admin()
+        cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+        actions = tuple(PUBLIC_ACTIVITY_LABELS)
+        placeholders = ",".join("?" for _ in actions)
+        rows = query(
+            f"""SELECT a.id, a.action, a.actor_kind, a.user_id, a.created_at,
+                       u.username AS member_username
+                FROM activity_log a
+                LEFT JOIN users u ON u.id = a.user_id
+                WHERE a.created_at >= ? AND a.action IN ({placeholders})
+                ORDER BY a.id DESC
+                LIMIT 200""",
+            (cutoff, *actions),
+        )
+        items = []
+        for row in rows:
+            kind = str(row.get("actor_kind") or "guest")
+            user_id = int(row.get("user_id") or 0)
+            if kind not in ("owner", "admin", "member") or (kind == "member" and user_id <= 0):
+                continue
+            if kind in ("owner", "admin"):
+                actor = "管理员"
+            elif viewer_signed_in:
+                actor = str(row.get("member_username") or "普通用户")[:32]
+            else:
+                actor = "普通用户"
+            items.append(
+                {
+                    "id": f"activity-{row['id']}",
+                    "created_at": row["created_at"],
+                    "actor": actor,
+                    "text": PUBLIC_ACTIVITY_LABELS[row["action"]],
+                    "alert": False,
+                }
+            )
+
+        if is_admin:
+            admin_user_id = (
+                0 if identity.get("kind") == "owner" else int(identity.get("user_id") or 0)
+            )
+            last_seen = message_last_seen(admin_user_id)
+            newest_message = query_one(
+                "SELECT created_at FROM site_messages WHERE id > ? ORDER BY id DESC LIMIT 1",
+                (last_seen,),
+            )
+            if newest_message:
+                unread = query_one(
+                    "SELECT COUNT(*) AS n FROM site_messages WHERE id > ?",
+                    (last_seen,),
+                )["n"]
+                items.insert(
+                    0,
+                    {
+                        "id": "message-alert",
+                        "created_at": newest_message["created_at"],
+                        "actor": "管理员",
+                        "text": f"有 {int(unread)} 条新留言待查看",
+                        "alert": True,
+                    },
+                )
+            pending_files = query_one(
+                "SELECT COUNT(*) AS n FROM site_message_files WHERE status = 'pending'"
+            )["n"]
+            if pending_files:
+                newest_file = query_one(
+                    """SELECT created_at FROM site_message_files
+                       WHERE status = 'pending' ORDER BY id DESC LIMIT 1"""
+                )
+                items.insert(
+                    0,
+                    {
+                        "id": "attachment-alert",
+                        "created_at": (newest_file or {}).get("created_at") or now_text(),
+                        "actor": "管理员",
+                        "text": f"有 {int(pending_files)} 个附件待审核",
+                        "alert": True,
+                    },
+                )
+        self.send_json(200, {"items": items[:60], "admin": is_admin})
 
     # ---------- 内容审核（管理员） ----------
     def api_admin_review(self, params):

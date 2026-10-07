@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="/static/site/rain.css">
 <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="/static/site/minimap.css">
+<link rel="stylesheet" href="/static/site/activity.css">
   <script>
     (function () {
       try {
@@ -54,8 +55,12 @@
     <span class="map-dock-cross" aria-hidden="true"></span>
     <span class="map-dock-north" aria-hidden="true">N</span>
     <span class="map-dock-ring" aria-hidden="true"></span>
-    <span class="map-dock-count" id="mapDockCount" hidden>地图</span>
+    <span class="map-dock-count" id="mapDockCount" hidden>足迹</span>
   </a>
+
+  <aside class="activity-feed" id="activityFeed" aria-label="近7天公开动态" hidden>
+    <div class="activity-feed-track" id="activityFeedTrack"></div>
+  </aside>
 
   <main class="landing landing-three rain-scene" id="rainScene">
     <div class="rain-layer" id="rainLayer" aria-hidden="true"></div>
@@ -96,7 +101,7 @@
 
       <div class="landing-module-actions" aria-label="工作台功能入口">
         <a class="landing-module-btn" href="/messages" id="messagesEntry" data-guest-page="guest:page:messages">
-          <span class="landing-module-text">留言板</span>
+          <span class="landing-module-text">留言</span>
           <em class="landing-module-badge" id="messagesPending" hidden></em>
         </a>
         <a class="landing-module-btn" href="/games" data-guest-page="guest:page:games"><span class="landing-module-text">游戏</span></a>
@@ -112,7 +117,10 @@
       </nav>
 
       <p class="landing-footer"><strong>时光流转，愿你与珍爱之人，能够再次重逢。</strong></p>
-      <p class="landing-font-credit">网页字体为 vivo Sans </p>
+      <div class="landing-credit-block">
+        <p class="landing-font-credit">网页字体为 vivo Sans</p>
+        <p class="landing-record">秦ICP备2333-1 备案中</p>
+      </div>
     </div>
     <div class="rain-floor" id="rainFloor" aria-hidden="true"></div>
   </main>
@@ -162,6 +170,7 @@
 <script src="/static/vendor/leaflet/leaflet.js"></script>
 <script src="/static/site/minimap.js"></script>
 <script src="/static/site/hud.js"></script>
+<script src="/static/site/activity.js"></script>
 <script src="/static/site/rain.js"></script>
 <script src="/static/site/site.js"></script>
 </body>
