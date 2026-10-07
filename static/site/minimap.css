@@ -54,6 +54,10 @@
   background: #c9d2cf;
 }
 
+.map-dock.is-guest .map-dock-mini {
+  background: #30353d;
+}
+
 .map-dock-mini .leaflet-container,
 .map-dock-mini .leaflet-pane,
 .map-dock-mini .leaflet-tile {
@@ -72,6 +76,29 @@
     linear-gradient(to bottom, rgba(255, 255, 255, 0.75) 1px, transparent 1px);
   background-size: 25% 25%, 25% 25%;
   background-position: center;
+}
+
+.map-dock.is-guest .map-dock-grid {
+  opacity: 1;
+  background-color: #30353d;
+  background-image:
+    linear-gradient(
+      to right,
+      transparent calc(50% - 0.5px),
+      rgba(255, 255, 255, 0.68) calc(50% - 0.5px),
+      rgba(255, 255, 255, 0.68) calc(50% + 0.5px),
+      transparent calc(50% + 0.5px)
+    ),
+    linear-gradient(
+      to bottom,
+      transparent calc(50% - 0.5px),
+      rgba(255, 255, 255, 0.68) calc(50% - 0.5px),
+      rgba(255, 255, 255, 0.68) calc(50% + 0.5px),
+      transparent calc(50% + 0.5px)
+    ),
+    linear-gradient(to right, rgba(255, 255, 255, 0.22) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.22) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 20% 20%, 20% 20%;
 }
 
 .map-dock-ring {
@@ -196,14 +223,6 @@
   color: #2e6b4f;
 }
 
-[data-theme="dark"] .dock-hud-value[data-level="bad"] {
-  color: #f87171;
-}
-
-[data-theme="dark"] .dock-hud-value[data-level="deep"] {
-  color: #4e9b74;
-}
-
 [data-theme="dark"] .dock-hud-label,
 [data-theme="dark"] .dock-hud-value {
   color: var(--accent, #818cf8);
@@ -211,6 +230,18 @@
 
 [data-theme="dark"] .dock-hud-value[data-level="ok"] {
   color: var(--ok, #4ade80);
+}
+
+[data-theme="dark"] .dock-hud-value[data-level="warn"] {
+  color: #fbbf24;
+}
+
+[data-theme="dark"] .dock-hud-value[data-level="bad"] {
+  color: #f87171;
+}
+
+[data-theme="dark"] .dock-hud-value[data-level="deep"] {
+  color: #4e9b74;
 }
 
 /* 大屏（2K / 4K）按比例放大，并向上、向内收一些 */

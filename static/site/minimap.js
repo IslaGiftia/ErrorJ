@@ -1,13 +1,16 @@
 /*
  * 首页左下角的圆形小地图入口。
- * 规则：显示最近浏览的区域（/map 页面拖动、缩放后回到首页会跟随），
- * 底图固定为浅色高德矢量、暗色 Esri 深色。
+ * 规则：有地图权限时显示最近浏览的区域（/map 页面拖动、缩放后回到首页会跟随），
+ * 底图固定为浅色高德矢量、暗色 Esri 深色；游客只显示网格占位。
  */
 (function () {
   var dock = document.getElementById("mapDock");
   var holder = document.getElementById("mapDockMini");
   var countEl = document.getElementById("mapDockCount");
   if (!dock || !holder || typeof L === "undefined") return;
+
+  // 默认使用网格占位，只有地图接口确认有权限后才加载真实底图。
+  dock.classList.add("is-guest");
 
   // 游客 / 无地图权限的账号：入口保留，但点击时提示，不进入地图页
   var dockBlocked = 0;
@@ -151,7 +154,7 @@
   });
 
   var currentBase = themeBase();
-  var tiles = createTiles(currentBase);
+  var tiles = null;
   var dots = L.layerGroup().addTo(mini);
   var places = [];
   var colorById = {};
@@ -165,8 +168,10 @@
   );
 
   function createTiles(base) {
+    if (tiles) mini.removeLayer(tiles);
     var options = Object.assign({ attribution: "" }, base.options);
-    return L.tileLayer(base.url, options).addTo(mini);
+    tiles = L.tileLayer(base.url, options).addTo(mini);
+    return tiles;
   }
 
   function displayLatLng(lat, lng) {
@@ -200,8 +205,8 @@
     var base = themeBase();
     if (base.id === currentBase.id) return;
     currentBase = base;
-    mini.removeLayer(tiles);
-    tiles = createTiles(base);
+    if (!tiles) return;
+    createTiles(base);
     renderDots();
   }
 
@@ -260,6 +265,7 @@
     })
     .then(function (data) {
       dockBlocked = 0;
+      dock.classList.remove("is-guest");
       places = data.places || [];
       serverSignedIn = Boolean(data.signed_in);
       serverUnseenId = Number(data.newest_unseen_id) || 0;
@@ -268,6 +274,8 @@
       (data.categories || []).forEach(function (cat) {
         colorById[cat.id] = cat.color || "#7b68ee";
       });
+      currentBase = themeBase();
+      createTiles(currentBase);
       renderDots();
       if (!savedView && places.length) fitAll();
       updateDockPending();
@@ -282,6 +290,12 @@
       mini.invalidateSize();
     })
     .catch(function (err) {
+      dock.classList.add("is-guest");
+      if (tiles) {
+        mini.removeLayer(tiles);
+        tiles = null;
+      }
+      dots.clearLayers();
       if (err && (err.status === 401 || err.status === 403)) {
         // 入口和 HUD 保留；点击入口时给出注册 / 权限提示
         dockBlocked = err.status;
