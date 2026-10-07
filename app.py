@@ -1415,6 +1415,12 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
                 "INSERT INTO app_meta (key, value) VALUES ('books_permissions_v1', ?)",
                 (now_text(),),
             )
+            conn.execute(
+                """INSERT OR IGNORE INTO role_permissions
+                       (role, permission, granted_by, granted_at)
+                   VALUES (?, ?, ?, ?)""",
+                (ROLE_GUEST, "guest:page:books", "系统初始化", now_text()),
+            )
         seed_data(conn)
         conn.commit()
     finally:
