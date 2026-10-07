@@ -1,9 +1,8 @@
 (function () {
   var panel = document.getElementById("activityPanel");
-  var alertsBox = document.getElementById("activityAlerts");
   var feed = document.getElementById("activityFeed");
   var track = document.getElementById("activityFeedTrack");
-  if (!panel || !alertsBox || !feed || !track) return;
+  if (!panel || !feed || !track) return;
 
   var lastPayloadKey = "";
 
@@ -32,6 +31,35 @@
     return row;
   }
 
+  function buildSequence(alerts, logs) {
+    if (!alerts.length) return logs.slice(0, 9);
+    var sequence = [];
+    var alertIndex = 0;
+    var logIndex = 0;
+    while (sequence.length < 9 && (logIndex < logs.length || alerts.length)) {
+      if (sequence.length === 0 || sequence.length % 3 === 0) {
+        sequence.push(alerts[alertIndex % alerts.length]);
+        alertIndex += 1;
+      } else if (logIndex < logs.length) {
+        sequence.push(logs[logIndex]);
+        logIndex += 1;
+      } else {
+        sequence.push(alerts[alertIndex % alerts.length]);
+        alertIndex += 1;
+      }
+    }
+    return sequence;
+  }
+
+  function buildCycle(sequence) {
+    var cycle = document.createElement("div");
+    cycle.className = "activity-feed-cycle";
+    sequence.forEach(function (item) {
+      cycle.appendChild(buildItem(item));
+    });
+    return cycle;
+  }
+
   function render(items) {
     var alerts = [];
     var logs = [];
@@ -39,19 +67,22 @@
       if (item.alert) alerts.push(item);
       else if (logs.length < 9) logs.push(item);
     });
-
-    alertsBox.textContent = "";
-    alerts.forEach(function (item) {
-      alertsBox.appendChild(buildItem(item));
-    });
-    alertsBox.hidden = alerts.length === 0;
+    var sequence = buildSequence(alerts, logs);
+    if (!sequence.length) {
+      panel.hidden = true;
+      return;
+    }
 
     track.textContent = "";
-    logs.forEach(function (item) {
-      track.appendChild(buildItem(item));
-    });
-    feed.hidden = logs.length === 0;
-    panel.hidden = alerts.length === 0 && logs.length === 0;
+    track.appendChild(buildCycle(sequence));
+    track.appendChild(buildCycle(sequence));
+    var rolling = sequence.length >= 4;
+    track.classList.toggle("is-rolling", rolling);
+    track.style.setProperty(
+      "--activity-duration",
+      Math.max(18, sequence.length * 3.4).toFixed(1) + "s"
+    );
+    panel.hidden = false;
   }
 
   function load() {
