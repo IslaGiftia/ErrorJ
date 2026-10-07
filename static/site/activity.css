@@ -10,7 +10,7 @@
 }
 
 .activity-feed {
-  height: calc(7.5em + 16px);
+  height: calc(13.5em + 32px);
   overflow: hidden;
   -webkit-mask-image: linear-gradient(
     to bottom,
