@@ -20,8 +20,6 @@
   <script src="/static/site/theme.js"></script>
   <script src="/static/site/tabname.js"></script>
   <link rel="stylesheet" href="/static/fonts.css">
-  <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
-  <link rel="stylesheet" href="/static/site/minimap.css">
   <link rel="stylesheet" href="/static/site/progress.css">
   <link rel="stylesheet" href="/static/music.css">
 </head>
@@ -118,7 +116,7 @@
       <label class="mu-file-field">
         <input id="uploadFiles" type="file" accept="audio/*,.mp3,.wav,.flac,.m4a,.aac,.ogg,.opus" multiple>
         <span><i data-lucide="music"></i><strong id="uploadFileLabel">选择音频文件</strong></span>
-        <small>支持 mp3 / wav / flac / m4a / aac / ogg / opus，单个不超过 60MB；会尝试读取文件里的歌名、歌手、专辑和内嵌封面。</small>
+        <small>支持 mp3 / wav / flac / m4a / aac / ogg / opus，单个不超过 60MB；会尝试读取文件里的歌名、歌手、专辑和内嵌封面，没有标签时按文件名猜（例如「茶汤-郁可唯」）。</small>
       </label>
       <div class="mu-field-row" id="uploadMetaFields">
         <label class="mu-field"><span>歌名（可留空）</span><input id="uploadTitleInput" maxlength="80" placeholder="自动读取标签"></label>
@@ -165,24 +163,5 @@
   <script src="/static/vendor/lucide.min.js"></script>
   <script src="/static/site/progress.js"></script>
   <script src="/static/music.js"></script>
-
-  <div class="dock-hud" id="dockHud" aria-hidden="true">
-    <span class="dock-hud-label">PING</span>
-    <span class="dock-hud-value" id="hudPing">--</span>
-    <span class="dock-hud-label">FPS</span>
-    <span class="dock-hud-value" id="hudFps">--</span>
-  </div>
-  <a class="map-dock" id="mapDock" href="/map" aria-label="打开 Error酱地图" title="Error酱地图">
-    <span class="map-dock-mini" id="mapDockMini" aria-hidden="true"></span>
-    <span class="map-dock-grid" aria-hidden="true"></span>
-    <span class="map-dock-cross" aria-hidden="true"></span>
-    <span class="map-dock-north" aria-hidden="true">N</span>
-    <span class="map-dock-ring" aria-hidden="true"></span>
-    <span class="map-dock-count" id="mapDockCount" hidden>地图</span>
-  </a>
-
-  <script src="/static/vendor/leaflet/leaflet.js"></script>
-  <script src="/static/site/minimap.js"></script>
-  <script src="/static/site/hud.js"></script>
 </body>
 </html>

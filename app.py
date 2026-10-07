@@ -11,6 +11,7 @@ import io
 import json
 import mimetypes
 import os
+import posixpath
 import queue
 import re
 import secrets
@@ -71,6 +72,8 @@ NOTE_IMAGE_DIR = DATA_DIR / "note_images"
 RECOMMEND_IMAGE_DIR = DATA_DIR / "recommend_images"
 MAP_IMAGE_DIR = DATA_DIR / "map_images"
 MUSIC_COVER_DIR = DATA_DIR / "music_covers"
+BOOK_DIR = DATA_DIR / "book_files"
+BOOK_COVER_DIR = DATA_DIR / "book_covers"
 WORKBENCH_DIR = DATA_DIR / "workbench"
 NOTE_CONTENT_MAX_CHARS = 2_000_000
 NOTE_IMAGE_MAX_BYTES = 20 * 1024 * 1024
@@ -97,6 +100,7 @@ GUEST_PAGE_RULES = {
     "/moments": "guest:page:moments",
     "/recommendations": "guest:page:recommendations",
     "/music": "guest:page:music",
+    "/books": "guest:page:books",
     "/references": "guest:page:references",
 }
 GUEST_PAGE_PREFIX_RULES = (("/games/", "guest:page:games"),)
@@ -105,11 +109,13 @@ GUEST_API_RULES = {
     "/api/moments": "guest:page:moments",
     "/api/recommendations": "guest:page:recommendations",
     "/api/site/music": "guest:page:music",
+    "/api/books": "guest:page:books",
 }
 GUEST_DATA_RULES = (
     ("moment_images/", "guest:page:moments"),
     ("site_music_files/", "guest:page:music"),
     ("music_covers/", "guest:page:music"),
+    ("book_covers/", "guest:page:books"),
     ("recommend_images/", "guest:page:recommendations"),
 )
 # 永远公开的基础页：首页、登录、注册、静态资源和登录相关接口
@@ -122,13 +128,21 @@ ALWAYS_PUBLIC_APIS = {
     "/api/logout",
 }
 # 登录账号（普通账户）可以访问的公开站点模块，不受游客开关影响
-SITE_MEMBER_PAGES = {"/messages", "/moments", "/recommendations", "/music", "/references"}
+SITE_MEMBER_PAGES = {
+    "/messages",
+    "/moments",
+    "/recommendations",
+    "/music",
+    "/books",
+    "/references",
+}
 SITE_MEMBER_PAGE_PREFIXES = ("/games/",)
 SITE_MEMBER_APIS = {
     "/api/site/messages",
     "/api/moments",
     "/api/recommendations",
     "/api/site/music",
+    "/api/books",
     "/api/site/photos",
     "/api/site/links",
 }
@@ -137,6 +151,7 @@ SITE_MEMBER_DATA_PREFIXES = (
     "site_photos/",
     "site_music_files/",
     "music_covers/",
+    "book_covers/",
     "recommend_images/",
 )
 USERNAME_RE = re.compile(r"^[\w.-]{3,32}$", re.UNICODE)
@@ -207,6 +222,9 @@ PERMISSION_GROUPS = (
         "label": "站点内容",
         "items": (
             {"key": "music:write", "label": "上传、编辑歌单"},
+            {"key": "books:read", "label": "阅读书架电子书"},
+            {"key": "books:write", "label": "上传、编辑、删除书架电子书"},
+            {"key": "books:download", "label": "下载电子书原文件"},
             {"key": "links:write", "label": "管理宝藏网站链接"},
             {"key": "photos:write", "label": "管理照片墙"},
             {"key": "messages:attach_auto", "label": "留言附件免审核（可信用户）"},
@@ -229,7 +247,7 @@ PERMISSION_LABELS = {
     for group in PERMISSION_GROUPS
     for item in group["items"]
 }
-DEFAULT_MEMBER_PERMISSIONS = ("map:write",)
+DEFAULT_MEMBER_PERMISSIONS = ("map:write", "books:read")
 GRANTABLE_PERMISSIONS = tuple(
     item["key"]
     for group in PERMISSION_GROUPS
@@ -245,6 +263,7 @@ GUEST_PAGE_PERMISSIONS = (
     {"key": "guest:page:moments", "label": "Error酱动态"},
     {"key": "guest:page:recommendations", "label": "Error酱推荐"},
     {"key": "guest:page:music", "label": "歌单"},
+    {"key": "guest:page:books", "label": "书架"},
     {"key": "guest:page:games", "label": "游戏大厅"},
     {"key": "guest:page:references", "label": "参考项目"},
 )
@@ -395,6 +414,20 @@ MAP_PHOTO_MAX_COUNT = 9
 MUSIC_MAX_BYTES = 60 * 1024 * 1024
 MUSIC_COVER_MAX_BYTES = 5 * 1024 * 1024
 MUSIC_EXTENSIONS = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".oga", ".opus"}
+BOOK_MAX_BYTES = 60 * 1024 * 1024
+BOOK_COVER_MAX_BYTES = 5 * 1024 * 1024
+BOOK_EXTENSIONS = {
+    ".epub",
+    ".mobi",
+    ".azw",
+    ".azw3",
+    ".fb2",
+    ".cbz",
+    ".pdf",
+    ".txt",
+    ".md",
+    ".markdown",
+}
 MOMENT_IMAGE_TOTAL_MAX_BYTES = 15 * 1024 * 1024
 MOMENT_IMAGE_MAX_COUNT = 9
 MESSAGE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
@@ -544,6 +577,8 @@ def init_db():
     NOTE_IMAGE_DIR.mkdir(exist_ok=True)
     MAP_IMAGE_DIR.mkdir(exist_ok=True)
     MUSIC_COVER_DIR.mkdir(exist_ok=True)
+    BOOK_DIR.mkdir(exist_ok=True)
+    BOOK_COVER_DIR.mkdir(exist_ok=True)
     WORKBENCH_DIR.mkdir(exist_ok=True)
     conn = get_conn()
     try:
@@ -1035,7 +1070,57 @@ def init_db():
             );
 
             CREATE INDEX IF NOT EXISTS idx_parts_category ON parts(category_id);
+            CREATE TABLE IF NOT EXISTS books (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                author TEXT,
+                tags TEXT,
+                description TEXT,
+                format TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                cover_path TEXT,
+                file_size INTEGER,
+                mime_type TEXT,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS book_progress (
+                user_id INTEGER NOT NULL,
+                book_id INTEGER NOT NULL,
+                location TEXT,
+                percent REAL NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, book_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS book_bookmarks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                book_id INTEGER NOT NULL,
+                location TEXT NOT NULL,
+                label TEXT,
+                percent REAL NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS book_annotations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                book_id INTEGER NOT NULL,
+                location TEXT NOT NULL,
+                text TEXT,
+                note TEXT,
+                color TEXT,
+                percent REAL NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_parts_lcsc ON parts(lcsc_code);
+            CREATE INDEX IF NOT EXISTS idx_book_progress_user ON book_progress(user_id);
+            CREATE INDEX IF NOT EXISTS idx_book_bookmarks_book ON book_bookmarks(book_id, user_id);
+            CREATE INDEX IF NOT EXISTS idx_book_annotations_book ON book_annotations(book_id, user_id);
             CREATE INDEX IF NOT EXISTS idx_batches_part ON batches(part_id);
             CREATE INDEX IF NOT EXISTS idx_batches_location ON batches(location_id);
             CREATE INDEX IF NOT EXISTS idx_movements_part ON movements(part_id);
@@ -1315,6 +1400,20 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             conn.execute(
                 "INSERT INTO app_meta (key, value) VALUES ('role_permissions_v1', ?)",
                 (stamp,),
+            )
+        books_role = conn.execute(
+            "SELECT value FROM app_meta WHERE key = 'books_permissions_v1'"
+        ).fetchone()
+        if not books_role:
+            conn.execute(
+                """INSERT OR IGNORE INTO role_permissions
+                       (role, permission, granted_by, granted_at)
+                   VALUES (?, ?, ?, ?)""",
+                (ROLE_MEMBER, "books:read", "系统初始化", now_text()),
+            )
+            conn.execute(
+                "INSERT INTO app_meta (key, value) VALUES ('books_permissions_v1', ?)",
+                (now_text(),),
             )
         seed_data(conn)
         conn.commit()
@@ -4090,6 +4189,278 @@ def parse_audio_metadata(raw, filename):
     return info
 
 
+CJK_RANGES = ((0x3400, 0x4DBF), (0x4E00, 0x9FFF), (0xF900, 0xFAFF))
+
+
+def _has_cjk(text):
+    return any(
+        any(start <= ord(char) <= end for start, end in CJK_RANGES)
+        for char in str(text or "")
+    )
+
+
+def guess_title_and_artist(stem):
+    """文件里没有标签时，从文件名猜标题和作者（歌名/歌手、书名/作者通用）。
+
+    - 「作者 - 标题」这种带空格的写法按标准解析；
+    - 中文常见的「标题-作者」只在两边都含中文时才拆，避免误伤英文文件名。
+    """
+    text = str(stem or "").strip()
+    if not text:
+        return "", ""
+    for separator in (" - ", " – ", " — "):
+        if separator in text:
+            left, _, right = text.rpartition(separator)
+            left, right = left.strip(), right.strip()
+            if left and right:
+                return right[:120], left[:120]
+    if "-" in text:
+        left, _, right = text.rpartition("-")
+        left, right = left.strip(), right.strip()
+        if left and right and _has_cjk(left) and _has_cjk(right) and len(right) <= 16:
+            return left[:120], right[:120]
+    return text[:120], ""
+
+
+def parse_epub_metadata(raw):
+    """从 EPUB（zip 容器）里读标题、作者、简介和封面。"""
+    info = {"title": "", "author": "", "description": "", "cover": None}
+    ns_container = {"c": "urn:oasis:names:tc:opendocument:xmlns:container"}
+    ns_opf = {"o": "http://www.idpf.org/2007/opf"}
+    ns_dc = {"d": "http://purl.org/dc/elements/1.1/"}
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            names = set(archive.namelist())
+            if "META-INF/container.xml" not in names:
+                return info
+            container = ET.fromstring(archive.read("META-INF/container.xml"))
+            rootfile = container.find(".//c:rootfile", ns_container)
+            if rootfile is None:
+                return info
+            opf_path = (rootfile.get("full-path") or "").strip()
+            if opf_path not in names:
+                lowered = {name.lower(): name for name in names}
+                opf_path = lowered.get(opf_path.lower(), "")
+            if not opf_path:
+                return info
+            opf = ET.fromstring(archive.read(opf_path))
+            base = posixpath.dirname(opf_path)
+
+            def dc_text(tag):
+                node = opf.find(f".//d:{tag}", ns_dc)
+                return (node.text or "").strip() if node is not None else ""
+
+            info["title"] = dc_text("title")[:200]
+            info["author"] = "、".join(
+                (node.text or "").strip()
+                for node in opf.findall(".//d:creator", ns_dc)
+                if (node.text or "").strip()
+            )[:200]
+            info["description"] = dc_text("description")[:1000]
+
+            manifest = {}
+            for item in opf.findall(".//o:manifest/o:item", ns_opf):
+                item_id = item.get("id")
+                if item_id:
+                    manifest[item_id] = item
+            cover_item = None
+            for meta in opf.findall(".//o:metadata/o:meta", ns_opf):
+                if (meta.get("name") or "").lower() == "cover" and meta.get("content"):
+                    cover_item = manifest.get(meta.get("content"))
+                    if cover_item is not None:
+                        break
+            if cover_item is None:
+                for item in manifest.values():
+                    if "cover-image" in (item.get("properties") or ""):
+                        cover_item = item
+                        break
+            if cover_item is not None:
+                href = unquote(cover_item.get("href") or "")
+                path = posixpath.normpath(posixpath.join(base, href)) if base else href
+                if path in names:
+                    data = archive.read(path)
+                    if data and len(data) <= BOOK_COVER_MAX_BYTES:
+                        extension = _image_ext_from_magic(data) or os.path.splitext(path)[1].lower()
+                        info["cover"] = (data, extension or ".jpg")
+    except Exception:
+        return info
+    return info
+
+
+def parse_mobi_metadata(raw):
+    """尽力从 MOBI / AZW3 的 EXTH 记录里读标题、作者和封面。"""
+    info = {"title": "", "author": "", "description": "", "cover": None}
+    try:
+        if len(raw) < 132 or raw[60:68] != b"BOOKMOBI":
+            return info
+        record_count = int.from_bytes(raw[76:78], "big")
+        if record_count < 1:
+            return info
+        offsets = []
+        cursor = 78
+        for _ in range(record_count):
+            if cursor + 8 > len(raw):
+                return info
+            offsets.append(int.from_bytes(raw[cursor : cursor + 4], "big"))
+            cursor += 8
+
+        def record(index):
+            start = offsets[index]
+            end = offsets[index + 1] if index + 1 < len(offsets) else len(raw)
+            return raw[start:end]
+
+        header = record(0)
+        if header[16:20] != b"MOBI":
+            return info
+        header_len = int.from_bytes(header[20:24], "big")
+        mobi = header[16:]
+        first_image = int.from_bytes(mobi[0x5C:0x60], "big") if len(mobi) >= 0x60 else 0
+        exth_flags = int.from_bytes(mobi[0x70:0x74], "big") if len(mobi) >= 0x74 else 0
+        title = ""
+        author = ""
+        cover_offset = -1
+        if exth_flags & 0x40 and header_len:
+            start = 16 + header_len
+            if header[start : start + 4] == b"EXTH":
+                count = int.from_bytes(header[start + 8 : start + 12], "big")
+                pos = start + 12
+                for _ in range(min(count, 512)):
+                    if pos + 8 > len(header):
+                        break
+                    record_type = int.from_bytes(header[pos : pos + 4], "big")
+                    record_len = int.from_bytes(header[pos + 4 : pos + 8], "big")
+                    if record_len < 8:
+                        break
+                    data = header[pos + 8 : pos + record_len]
+                    pos += record_len
+                    if record_type == 100 and not author:
+                        author = data.decode("utf-8", "ignore").strip()
+                    elif record_type == 503 and not title:
+                        title = data.decode("utf-8", "ignore").strip()
+                    elif record_type in (201, 202) and len(data) >= 4 and cover_offset < 0:
+                        cover_offset = int.from_bytes(data[:4], "big")
+        if not title:
+            title = raw[:32].split(b"\x00")[0].decode("utf-8", "ignore").strip()
+        info["title"] = title[:200]
+        info["author"] = author[:200]
+        if cover_offset >= 0 and first_image:
+            index = first_image + cover_offset
+            if 0 <= index < len(offsets):
+                data = record(index)
+                extension = _image_ext_from_magic(data)
+                if extension and len(data) <= BOOK_COVER_MAX_BYTES:
+                    info["cover"] = (data, extension)
+    except Exception:
+        return info
+    return info
+
+
+def parse_pdf_metadata(raw):
+    """PDF 只做尽力而为的标题/作者解析（正文与封面交给前端 PDF.js）。"""
+    info = {"title": "", "author": "", "description": "", "cover": None}
+    if not raw.startswith(b"%PDF"):
+        return info
+    head = raw[: 512 * 1024]
+
+    def pdf_string(key):
+        pattern = re.compile(
+            rb"/" + key.encode("ascii") + rb"\s*(\(((?:\\.|[^()\\]){0,300})\)|<([0-9A-Fa-f\s]{4,600})>)"
+        )
+        match = pattern.search(head)
+        if not match:
+            return ""
+        if match.group(2) is not None:
+            data = _pdf_unescape(match.group(2))
+        else:
+            try:
+                data = bytes.fromhex(re.sub(rb"\s+", b"", match.group(3)).decode("ascii"))
+            except ValueError:
+                return ""
+        if data.startswith(b"\xfe\xff"):
+            return data[2:].decode("utf-16-be", "ignore").strip()
+        try:
+            return data.decode("utf-8").strip()
+        except UnicodeDecodeError:
+            return data.decode("latin-1", "ignore").strip()
+
+    info["title"] = pdf_string("Title")[:200]
+    info["author"] = pdf_string("Author")[:200]
+    return info
+
+
+def _pdf_unescape(data):
+    """还原 PDF 字面量字符串里的转义（包括 \\ddd 八进制）。"""
+    out = bytearray()
+    index = 0
+    simple = {
+        0x6E: 10,
+        0x72: 13,
+        0x74: 9,
+        0x62: 8,
+        0x66: 12,
+        0x28: 40,
+        0x29: 41,
+        0x5C: 92,
+    }
+    while index < len(data):
+        char = data[index]
+        if char != 0x5C or index + 1 >= len(data):
+            out.append(char)
+            index += 1
+            continue
+        nxt = data[index + 1]
+        if nxt in simple:
+            out.append(simple[nxt])
+            index += 2
+            continue
+        if 0x30 <= nxt <= 0x37:
+            digits = b""
+            cursor = index + 1
+            while cursor < len(data) and len(digits) < 3 and 0x30 <= data[cursor] <= 0x37:
+                digits += bytes([data[cursor]])
+                cursor += 1
+            out.append(int(digits, 8) & 0xFF)
+            index = cursor
+            continue
+        index += 2
+    return bytes(out)
+
+
+def parse_book_metadata(raw, filename):
+    """按扩展名解析电子书元数据（标题、作者、简介、封面）。"""
+    extension = os.path.splitext(filename or "")[1].lower()
+    info = {"title": "", "author": "", "description": "", "cover": None}
+    try:
+        if extension == ".epub":
+            info.update(parse_epub_metadata(raw))
+        elif extension in (".mobi", ".azw", ".azw3"):
+            info.update(parse_mobi_metadata(raw))
+        elif extension == ".pdf":
+            info.update(parse_pdf_metadata(raw))
+    except Exception:
+        return info
+    return info
+
+
+def guess_book_name(stem):
+    """文件名兜底：优先认《书名》/作者：某某，其次按「标题-作者」拆。"""
+    text = str(stem or "").strip()
+    title = ""
+    author = ""
+    match = re.search(r"[《【]([^》】]{1,80})[》】]", text)
+    if match:
+        title = match.group(1).strip()
+    match = re.search(r"作者[:：]\s*([^\s（(]{1,40})", text)
+    if match:
+        author = match.group(1).strip()
+    if not title:
+        guess_title, guess_author = guess_title_and_artist(text)
+        title = guess_title
+        if not author:
+            author = guess_author
+    return title[:200], author[:200]
+
+
 def api_error(handler, status, message):
     handler.send_json(status, {"error": message})
 
@@ -4518,6 +4889,20 @@ def required_permission(path, method):
         return "links:write" if method in ("POST", "PATCH", "DELETE") else ""
     if path == "/api/site/music" or path.startswith("/api/site/music/"):
         return "music:write" if method in ("POST", "PATCH", "DELETE") else ""
+    if path == "/api/books" or path.startswith("/api/books/"):
+        # 书架：游客和普通账号只能看；上传、编辑、删除仅管理员。
+        # 进度 / 书签 / 批注属于"个人的阅读数据"，登录账号都能写，处理器里再要求登录。
+        if re.fullmatch(r"/api/books/\d+/(progress|bookmarks|annotations)(/\d+)?", path):
+            return ""
+        if re.fullmatch(r"/api/books/\d+/download", path):
+            return "books:download"
+        if path == "/api/books/upload" or re.fullmatch(r"/api/books/\d+", path):
+            return "books:write"
+        if path == "/api/books" and method == "GET":
+            return ""
+        return None
+    if path == "/books/read":
+        return "books:read"
     if path.startswith("/api/admin"):
         return None
     if path.startswith("/api/map/export"):
@@ -4557,6 +4942,7 @@ MAP_VIEW_PERMISSIONS = (
 )
 # 私有模块数据目录：登录账号需要对应权限
 DATA_PERMISSION_RULES = (
+    ("book_files/", ("books:read", "books:write", "books:download")),
     ("note_images/", ("notes:view", "notes:write")),
     ("part_images/", ("inventory:view", "inventory:write")),
     ("workbench/", ("workbench:view", "workbench:write")),
@@ -6769,6 +7155,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.send_file("recommendations.html")
             elif path == "/music":
                 self.send_file("music.html")
+            elif path == "/books":
+                self.send_file("books.html")
+            elif path == "/books/read":
+                self.send_file("reader.html")
             elif path == "/games/gomoku":
                 self.send_file("games/caro/index.html")
             elif path == "/games":
@@ -6851,6 +7241,16 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_photos(query)
             elif path == "/api/site/music":
                 self.api_site_music(query)
+            elif path == "/api/books":
+                self.api_books(query)
+            elif re.fullmatch(r"/api/books/\d+/progress", path):
+                self.api_book_progress(int(path.split("/")[3]))
+            elif re.fullmatch(r"/api/books/\d+/bookmarks", path):
+                self.api_book_bookmarks(int(path.split("/")[3]))
+            elif re.fullmatch(r"/api/books/\d+/annotations", path):
+                self.api_book_annotations(int(path.split("/")[3]))
+            elif re.fullmatch(r"/api/books/\d+/download", path):
+                self.api_book_download(int(path.split("/")[3]))
             elif path == "/api/site/links":
                 self.api_site_links(query)
             elif path == "/api/prompts":
@@ -6977,6 +7377,14 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_music_create(payload)
             elif path == "/api/site/music/upload":
                 self.api_site_music_upload(payload)
+            elif path == "/api/books/upload":
+                self.api_book_upload(payload)
+            elif re.fullmatch(r"/api/books/\d+/progress", path):
+                self.api_book_progress(int(path.split("/")[3]))
+            elif re.fullmatch(r"/api/books/\d+/bookmarks", path):
+                self.api_book_bookmarks(int(path.split("/")[3]))
+            elif re.fullmatch(r"/api/books/\d+/annotations", path):
+                self.api_book_annotations(int(path.split("/")[3]))
             elif path == "/api/site/links":
                 self.api_site_link_create(payload)
             elif path == "/api/prompts":
@@ -7044,6 +7452,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_bookmark_item(path)
             elif re.fullmatch(r"/api/notes/\d+", path):
                 self.api_note_item(path)
+            elif re.fullmatch(r"/api/books/\d+", path):
+                self.api_book_item(path)
+            elif re.fullmatch(r"/api/books/\d+/annotations/\d+", path):
+                self.api_book_annotation_item(path)
             elif re.fullmatch(r"/api/moments/\d+", path):
                 self.api_moment_item(path)
             elif re.fullmatch(r"/api/map/categories/\d+", path):
@@ -7058,6 +7470,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_workbench_repair_item(path)
             elif re.fullmatch(r"/api/bookmark-folders/\d+", path):
                 self.api_bookmark_folder_item(path)
+            elif re.fullmatch(r"/api/books/\d+", path):
+                self.api_book_item(path)
+            elif re.fullmatch(r"/api/books/\d+/bookmarks/\d+", path):
+                self.api_book_bookmark_item(path)
+            elif re.fullmatch(r"/api/books/\d+/annotations/\d+", path):
+                self.api_book_annotation_item(path)
             elif re.fullmatch(r"/api/prompts/\d+", path):
                 self.api_prompt_item(path)
             elif re.fullmatch(r"/api/site/music/\d+", path):
@@ -8847,10 +9265,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 )
             except ValueError:
                 cover_path = None
-        if not title:
-            title = metadata.get("title") or os.path.splitext(file_name)[0]
-        if not artist:
-            artist = metadata.get("artist") or ""
+        if not title or not artist:
+            # 文件里没有标签时，退而求其次从文件名猜（例如「茶汤-郁可唯」）
+            guess_title, guess_artist = guess_title_and_artist(os.path.splitext(file_name)[0])
+            if not title:
+                title = metadata.get("title") or guess_title
+            if not artist:
+                artist = metadata.get("artist") or guess_artist
         if not album:
             album = metadata.get("album") or ""
         sort_order = query_one(
@@ -8873,6 +9294,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 sort_order,
                 now_text(),
             ),
+        )
+        self.log_activity(
+            "music_upload",
+            f"上传歌曲：{title or file_name}",
+            target_type="music",
+            target_id=row_id,
         )
         self.send_json(
             200,
@@ -8899,6 +9326,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
             if current.get("cover_path"):
                 remove_data_file(current["cover_path"])
             execute("DELETE FROM site_music WHERE id = ?", (item_id,))
+            self.log_activity(
+                "music_delete",
+                f"删除歌曲：{current.get('title') or item_id}",
+                target_type="music",
+                target_id=item_id,
+            )
             self.send_json(200, {"ok": True})
             return
         payload = get_payload(self)
@@ -8922,6 +9355,363 @@ class InventoryHandler(BaseHTTPRequestHandler):
             (title, artist or None, album or None, sort_order, item_id),
         )
         self.send_json(200, {"id": item_id})
+
+    # ---------- 书架 ----------
+
+    def book_user_id(self, identity=None):
+        """书架里个人的进度 / 书签 / 批注归属：站长记 0，其它登录账号记 user_id。"""
+        identity = identity if identity is not None else self.session_identity()
+        if not identity:
+            return None
+        if identity.get("kind") == "owner":
+            return 0
+        return identity.get("user_id")
+
+    def book_payload(self, row, user_id=None):
+        item = dict(row)
+        item["file_url"] = "/site-files/" + (item.get("file_path") or "")
+        item["cover_url"] = "/site-files/" + item["cover_path"] if item.get("cover_path") else ""
+        item["progress"] = None
+        if user_id is not None:
+            progress = query_one(
+                """SELECT location, percent, updated_at FROM book_progress
+                   WHERE user_id = ? AND book_id = ?""",
+                (user_id, item["id"]),
+            )
+            if progress:
+                item["progress"] = dict(progress)
+        return item
+
+    def api_books(self, params):
+        rows = query("SELECT * FROM books ORDER BY sort_order, id")
+        user_id = self.book_user_id()
+        self.send_json(200, [self.book_payload(row, user_id) for row in rows])
+
+    def api_book_upload(self, payload):
+        file_name = os.path.basename(str(payload.get("file_name") or "book.epub"))
+        extension = os.path.splitext(file_name)[1].lower()
+        if extension not in BOOK_EXTENSIONS:
+            api_error(self, 400, "支持 EPUB、MOBI、AZW3、FB2、CBZ、PDF、TXT 和 Markdown。")
+            return
+        try:
+            raw = base64.b64decode(str(payload.get("data_base64") or ""), validate=True)
+        except Exception:
+            api_error(self, 400, "电子书数据不是有效的 base64。")
+            return
+        if not raw:
+            api_error(self, 400, "电子书内容为空。")
+            return
+        if len(raw) > BOOK_MAX_BYTES:
+            limit_mb = BOOK_MAX_BYTES // (1024 * 1024)
+            api_error(self, 400, f"单个电子书不能超过 {limit_mb}MB。")
+            return
+        metadata = parse_book_metadata(raw, file_name)
+        guess_title, guess_author = guess_book_name(os.path.splitext(file_name)[0])
+        title = (
+            str(payload.get("title") or "").strip()[:200]
+            or metadata.get("title")
+            or guess_title
+        )
+        author = (
+            str(payload.get("author") or "").strip()[:200]
+            or metadata.get("author")
+            or guess_author
+        )
+        description = (
+            str(payload.get("description") or "").strip()[:1000]
+            or metadata.get("description")
+            or ""
+        )
+        tags = str(payload.get("tags") or "").strip()[:200]
+        try:
+            relative = self.save_data_file(raw, file_name, "book_files", max_bytes=BOOK_MAX_BYTES)
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        cover_path = None
+        cover = metadata.get("cover")
+        if cover:
+            try:
+                cover_path = self.save_data_file(
+                    cover[0],
+                    "cover" + (cover[1] or ".jpg"),
+                    "book_covers",
+                    max_bytes=BOOK_COVER_MAX_BYTES,
+                )
+            except ValueError:
+                cover_path = None
+        sort_order = query_one("SELECT COALESCE(MAX(sort_order), -1) + 1 AS value FROM books")["value"]
+        stamp = now_text()
+        row_id = execute(
+            """INSERT INTO books
+                   (title, author, tags, description, format, file_path, cover_path,
+                    file_size, mime_type, sort_order, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                title or "未命名电子书",
+                author or None,
+                tags or None,
+                description or None,
+                extension.lstrip("."),
+                relative,
+                cover_path,
+                len(raw),
+                mimetypes.guess_type(file_name)[0] or "application/octet-stream",
+                sort_order,
+                stamp,
+                stamp,
+            ),
+        )
+        row = query_one("SELECT * FROM books WHERE id = ?", (row_id,))
+        self.log_activity(
+            "book_upload",
+            f"上架电子书：{title or '未命名电子书'}",
+            target_type="book",
+            target_id=row_id,
+        )
+        self.send_json(200, self.book_payload(row, self.book_user_id()))
+
+    def api_book_download(self, book_id):
+        row = query_one(
+            "SELECT title, file_path, format FROM books WHERE id = ?", (book_id,)
+        )
+        if not row:
+            api_error(self, 404, "电子书不存在。")
+            return
+        path = DATA_DIR / (row.get("file_path") or "")
+        if not path.is_file():
+            api_error(self, 404, "文件不存在。")
+            return
+        name = f"{row.get('title') or 'book'}.{row.get('format') or 'bin'}"
+        self.log_activity(
+            "book_download", f"下载电子书：{row.get('title')}", target_type="book", target_id=book_id
+        )
+        body = path.read_bytes()
+        try:
+            self.send_response(200)
+            self.send_header(
+                "Content-Type", mimetypes.guess_type(name)[0] or "application/octet-stream"
+            )
+            self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + quote(name))
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
+
+    def api_book_item(self, path):
+        item_id = int(path.rstrip("/").rsplit("/", 1)[-1])
+        current = query_one("SELECT * FROM books WHERE id = ?", (item_id,))
+        if not current:
+            api_error(self, 404, "电子书不存在。")
+            return
+        if self.command == "DELETE":
+            self.log_activity(
+                "book_delete",
+                f"删除电子书：{current.get('title') or item_id}",
+                target_type="book",
+                target_id=item_id,
+            )
+            if current.get("file_path"):
+                remove_data_file(current["file_path"])
+            if current.get("cover_path"):
+                remove_data_file(current["cover_path"])
+            execute("DELETE FROM books WHERE id = ?", (item_id,))
+            execute("DELETE FROM book_progress WHERE book_id = ?", (item_id,))
+            execute("DELETE FROM book_bookmarks WHERE book_id = ?", (item_id,))
+            execute("DELETE FROM book_annotations WHERE book_id = ?", (item_id,))
+            self.send_json(200, {"ok": True})
+            return
+        payload = get_payload(self)
+        if payload is None:
+            return
+        title = str(payload.get("title", current.get("title", "")) or "").strip()[:200]
+        if not title:
+            api_error(self, 400, "书名不能为空。")
+            return
+        author = str(payload.get("author", current.get("author", "")) or "").strip()[:200]
+        tags = str(payload.get("tags", current.get("tags", "")) or "").strip()[:200]
+        description = str(
+            payload.get("description", current.get("description", "")) or ""
+        ).strip()[:1000]
+        try:
+            sort_order = int(payload.get("sort_order", current.get("sort_order", 0)) or 0)
+        except (TypeError, ValueError):
+            api_error(self, 400, "排序值必须是整数。")
+            return
+        execute(
+            """UPDATE books SET title = ?, author = ?, tags = ?, description = ?,
+                   sort_order = ?, updated_at = ? WHERE id = ?""",
+            (title, author or None, tags or None, description or None, sort_order, now_text(), item_id),
+        )
+        self.log_activity(
+            "book_update",
+            f"编辑电子书：{title}",
+            target_type="book",
+            target_id=item_id,
+        )
+        self.send_json(200, {"id": item_id})
+
+    def api_book_progress(self, book_id):
+        user_id = self.book_user_id()
+        if user_id is None:
+            api_error(self, 401, "登录后可以同步阅读进度。")
+            return
+        if not query_one("SELECT id FROM books WHERE id = ?", (book_id,)):
+            api_error(self, 404, "电子书不存在。")
+            return
+        if self.command == "GET":
+            row = query_one(
+                """SELECT location, percent, updated_at FROM book_progress
+                   WHERE user_id = ? AND book_id = ?""",
+                (user_id, book_id),
+            )
+            self.send_json(200, dict(row) if row else {"location": "", "percent": 0, "updated_at": ""})
+            return
+        payload = get_payload(self)
+        if payload is None:
+            return
+        location = str(payload.get("location") or "")[:2000]
+        try:
+            percent = float(payload.get("percent") or 0)
+        except (TypeError, ValueError):
+            percent = 0.0
+        percent = max(0.0, min(1.0, percent))
+        execute(
+            """INSERT INTO book_progress (user_id, book_id, location, percent, updated_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(user_id, book_id) DO UPDATE SET
+                   location = excluded.location,
+                   percent = excluded.percent,
+                   updated_at = excluded.updated_at""",
+            (user_id, book_id, location, percent, now_text()),
+        )
+        self.send_json(200, {"ok": True})
+
+    def api_book_bookmarks(self, book_id):
+        user_id = self.book_user_id()
+        if user_id is None:
+            api_error(self, 401, "登录后可以保存书签。")
+            return
+        if not query_one("SELECT id FROM books WHERE id = ?", (book_id,)):
+            api_error(self, 404, "电子书不存在。")
+            return
+        if self.command == "GET":
+            rows = query(
+                """SELECT id, location, label, percent, created_at FROM book_bookmarks
+                   WHERE user_id = ? AND book_id = ? ORDER BY percent, id""",
+                (user_id, book_id),
+            )
+            self.send_json(200, rows)
+            return
+        payload = get_payload(self)
+        if payload is None:
+            return
+        location = str(payload.get("location") or "")[:2000]
+        if not location:
+            api_error(self, 400, "书签位置为空。")
+            return
+        label = str(payload.get("label") or "").strip()[:200]
+        try:
+            percent = float(payload.get("percent") or 0)
+        except (TypeError, ValueError):
+            percent = 0.0
+        bookmark_id = execute(
+            """INSERT INTO book_bookmarks (user_id, book_id, location, label, percent, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (user_id, book_id, location, label or None, max(0.0, min(1.0, percent)), now_text()),
+        )
+        self.send_json(200, {"id": bookmark_id})
+
+    def api_book_bookmark_item(self, path):
+        parts = path.rstrip("/").split("/")
+        book_id = int(parts[3])
+        bookmark_id = int(parts[5])
+        user_id = self.book_user_id()
+        if user_id is None:
+            api_error(self, 401, "请先登录。")
+            return
+        execute(
+            "DELETE FROM book_bookmarks WHERE id = ? AND book_id = ? AND user_id = ?",
+            (bookmark_id, book_id, user_id),
+        )
+        self.send_json(200, {"ok": True})
+
+    def api_book_annotations(self, book_id):
+        user_id = self.book_user_id()
+        if user_id is None:
+            api_error(self, 401, "登录后可以保存划线批注。")
+            return
+        if not query_one("SELECT id FROM books WHERE id = ?", (book_id,)):
+            api_error(self, 404, "电子书不存在。")
+            return
+        if self.command == "GET":
+            rows = query(
+                """SELECT id, location, text, note, color, percent, created_at
+                   FROM book_annotations WHERE user_id = ? AND book_id = ?
+                   ORDER BY percent, id""",
+                (user_id, book_id),
+            )
+            self.send_json(200, rows)
+            return
+        payload = get_payload(self)
+        if payload is None:
+            return
+        location = str(payload.get("location") or "")[:2000]
+        if not location:
+            api_error(self, 400, "划线位置为空。")
+            return
+        color = str(payload.get("color") or "yellow")[:20]
+        text = str(payload.get("text") or "")[:500]
+        note = str(payload.get("note") or "")[:1000]
+        try:
+            percent = float(payload.get("percent") or 0)
+        except (TypeError, ValueError):
+            percent = 0.0
+        annotation_id = execute(
+            """INSERT INTO book_annotations
+                   (user_id, book_id, location, text, note, color, percent, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                user_id,
+                book_id,
+                location,
+                text or None,
+                note or None,
+                color,
+                max(0.0, min(1.0, percent)),
+                now_text(),
+            ),
+        )
+        self.send_json(200, {"id": annotation_id})
+
+    def api_book_annotation_item(self, path):
+        parts = path.rstrip("/").split("/")
+        book_id = int(parts[3])
+        annotation_id = int(parts[5])
+        user_id = self.book_user_id()
+        if user_id is None:
+            api_error(self, 401, "请先登录。")
+            return
+        if self.command == "PATCH":
+            payload = get_payload(self)
+            if payload is None:
+                return
+            note = str(payload.get("note") or "")[:1000]
+            color = str(payload.get("color") or "yellow")[:20]
+            execute(
+                """UPDATE book_annotations SET note = ?, color = ?
+                   WHERE id = ? AND book_id = ? AND user_id = ?""",
+                (note or None, color, annotation_id, book_id, user_id),
+            )
+            self.send_json(200, {"ok": True})
+            return
+        execute(
+            "DELETE FROM book_annotations WHERE id = ? AND book_id = ? AND user_id = ?",
+            (annotation_id, book_id, user_id),
+        )
+        self.send_json(200, {"ok": True})
 
     def api_site_links(self, params):
         rows = query("SELECT * FROM site_links ORDER BY category, sort_order, id")

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <title>阅读 · 书架</title>
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
+  <link rel="stylesheet" href="/static/fonts.css">
+  <link rel="stylesheet" href="/static/reader.css">
+</head>
+<body data-reader-theme="light">
+  <header class="rd-top">
+    <a class="rd-back" href="/books">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+      <span>书架</span>
+    </a>
+    <div class="rd-meta">
+      <strong id="rdTitle">加载中…</strong>
+      <span id="rdAuthor"></span>
+    </div>
+    <div class="rd-actions">
+      <button type="button" id="rdTocBtn" title="目录">目录</button>
+      <button type="button" id="rdSearchBtn" title="全文搜索">搜索</button>
+      <button type="button" id="rdBookmarkBtn" title="添加书签">书签</button>
+      <button type="button" id="rdNoteBtn" title="划线批注">批注</button>
+      <button type="button" id="rdFlowBtn" title="切换翻页 / 滚动">翻页</button>
+      <button type="button" id="rdSettingsBtn" title="阅读设置">Aa</button>
+    </div>
+  </header>
+
+  <main class="rd-stage">
+    <div class="rd-host" id="rdHost"></div>
+  </main>
+
+  <footer class="rd-foot">
+    <button type="button" id="rdPrev" aria-label="上一页">‹</button>
+    <input type="range" id="rdSlider" min="0" max="1" step="0.0001" value="0" aria-label="阅读进度">
+    <span id="rdPercent">0%</span>
+    <button type="button" id="rdNext" aria-label="下一页">›</button>
+  </footer>
+
+  <aside class="rd-panel" id="rdPanel" hidden>
+    <header class="rd-panel-head">
+      <strong id="rdPanelTitle">目录</strong>
+      <button type="button" id="rdPanelClose" aria-label="关闭">×</button>
+    </header>
+    <div class="rd-panel-body" id="rdPanelBody"></div>
+  </aside>
+
+  <div class="rd-settings" id="rdSettings" hidden>
+    <label><span>主题</span>
+      <select id="rdTheme">
+        <option value="light">浅色</option>
+        <option value="sepia">米黄</option>
+        <option value="dark">深色</option>
+      </select>
+    </label>
+    <label><span>字号</span>
+      <input type="range" id="rdFontSize" min="80" max="160" step="5" value="100">
+    </label>
+    <label><span>行距</span>
+      <input type="range" id="rdLineHeight" min="1.2" max="2.2" step="0.1" value="1.7">
+    </label>
+    <label><span>字体</span>
+      <select id="rdFontFamily">
+        <option value="">随书</option>
+        <option value="'vivo Sans SC', sans-serif">黑体</option>
+        <option value="'Songti SC', 'SimSun', serif">宋体</option>
+        <option value="'Kaiti SC', 'KaiTi', serif">楷体</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="rd-selection" id="rdSelection" hidden>
+    <button type="button" data-act="highlight">划线</button>
+    <button type="button" data-act="note">写批注</button>
+    <button type="button" data-act="cancel">取消</button>
+  </div>
+
+  <div class="rd-toast" id="rdToast" hidden></div>
+
+  <script src="/static/vendor/marked.min.js"></script>
+  <script src="/static/vendor/purify.min.js"></script>
+  <script type="module" src="/static/reader.js"></script>
+</body>
+</html>

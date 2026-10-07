@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <meta name="tab-name" content="ej-books">
+  <title>书架</title>
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
+  <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
+  <script src="/static/site/tabname.js"></script>
+  <link rel="stylesheet" href="/static/fonts.css">
+  <link rel="stylesheet" href="/static/site/progress.css">
+  <link rel="stylesheet" href="/static/books.css">
+</head>
+<body>
+  <header class="bk-top">
+    <div class="bk-top-inner">
+      <a class="bk-brand" href="/">
+        <i data-lucide="arrow-left"></i>
+        <strong>书架</strong>
+      </a>
+      <label class="bk-search">
+        <i data-lucide="search"></i>
+        <input id="bookSearch" type="search" placeholder="搜索书名、作者或标签" autocomplete="off">
+      </label>
+      <span class="bk-count" id="bookCount"></span>
+      <button class="bk-btn bk-btn-primary" id="bookUploadBtn" type="button" hidden>
+        <i data-lucide="upload"></i><span>上传电子书</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="bk-main">
+    <div class="bk-toolbar">
+      <div class="bk-chips" id="bookFormats"></div>
+      <label class="bk-sort">
+        <span>排序</span>
+        <select id="bookSort">
+          <option value="added">最近添加</option>
+          <option value="recent">最近阅读</option>
+          <option value="title">书名</option>
+        </select>
+      </label>
+    </div>
+    <div class="bk-grid" id="bookGrid"></div>
+  </main>
+
+  <div class="bk-modal" id="uploadModal" hidden>
+    <div class="bk-dialog" role="dialog" aria-modal="true" aria-labelledby="uploadTitle">
+      <header class="bk-dialog-head">
+        <h2 id="uploadTitle">上传电子书</h2>
+        <button class="bk-icon-btn" id="uploadClose" type="button" aria-label="关闭">
+          <i data-lucide="x"></i>
+        </button>
+      </header>
+      <label class="bk-file-field">
+        <input id="uploadFiles" type="file" accept=".epub,.mobi,.azw,.azw3,.fb2,.cbz,.pdf,.txt,.md,.markdown" multiple>
+        <span><i data-lucide="book-plus"></i><strong id="uploadFileLabel">选择电子书文件</strong></span>
+        <small>支持 EPUB / MOBI / AZW3 / FB2 / CBZ / PDF / TXT / Markdown，单个不超过 60MB；EPUB、MOBI 会自动读取书名、作者和封面。</small>
+      </label>
+      <div class="bk-field-row" id="uploadMetaFields">
+        <label class="bk-field"><span>书名（可留空）</span><input id="uploadTitleInput" maxlength="200" placeholder="自动读取"></label>
+        <label class="bk-field"><span>作者（可留空）</span><input id="uploadAuthorInput" maxlength="200"></label>
+      </div>
+      <div class="pg-rows" id="uploadRows" hidden></div>
+      <p class="bk-hint" id="uploadHint">多选时按每个文件自己的元数据入库，上面两个输入框只在单文件上传时生效。</p>
+      <div class="bk-dialog-actions">
+        <span class="bk-spacer"></span>
+        <button class="bk-btn" id="uploadCancel" type="button">取消</button>
+        <button class="bk-btn bk-btn-primary" id="uploadSubmit" type="button">开始上传</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="bk-modal" id="editModal" hidden>
+    <form class="bk-dialog" id="editForm">
+      <header class="bk-dialog-head">
+        <h2 id="editTitle">编辑电子书</h2>
+        <button class="bk-icon-btn" id="editClose" type="button" aria-label="关闭">
+          <i data-lucide="x"></i>
+        </button>
+      </header>
+      <label class="bk-field"><span>书名</span><input id="editTitleInput" maxlength="200" required></label>
+      <div class="bk-field-row">
+        <label class="bk-field"><span>作者</span><input id="editAuthorInput" maxlength="200"></label>
+        <label class="bk-field"><span>标签（逗号分隔）</span><input id="editTagsInput" maxlength="200"></label>
+      </div>
+      <label class="bk-field"><span>简介</span><textarea id="editDescInput" rows="3" maxlength="1000"></textarea></label>
+      <p class="bk-form-error" id="editError" hidden></p>
+      <div class="bk-dialog-actions">
+        <button class="bk-btn bk-btn-danger" id="editDelete" type="button">
+          <i data-lucide="trash-2"></i><span>删除</span>
+        </button>
+        <span class="bk-spacer"></span>
+        <button class="bk-btn" id="editCancel" type="button">取消</button>
+        <button class="bk-btn bk-btn-primary" type="submit">保存</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="bk-toast" id="bookToast" hidden></div>
+
+  <script src="/static/vendor/lucide.min.js"></script>
+  <script src="/static/site/progress.js"></script>
+  <script src="/static/books.js"></script>
+</body>
+</html>

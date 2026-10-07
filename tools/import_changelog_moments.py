@@ -90,10 +90,12 @@ def main():
     conn.row_factory = sqlite3.Row
     try:
         like = f"%{tag}%"
+        # 每小时的改动单独一条：键用 "YYYY-MM-DD HH" 而不是整天
         existing = {
-            row["day"]: row["id"]
+            (row["day"] or "") + " " + (row["hour"] or ""): row["id"]
             for row in conn.execute(
-                """SELECT id, substr(created_at, 1, 10) AS day
+                """SELECT id, substr(created_at, 1, 10) AS day,
+                          substr(created_at, 12, 2) AS hour
                    FROM moments WHERE tags LIKE ?""",
                 (like,),
             )
@@ -123,23 +125,24 @@ def main():
                 continue
             content = build_content(entry, tag)
             stamp = f"{day} {normalize_time(entry.get('time'), args.time)}"
-            if day in existing:
+            key = day + " " + stamp[11:13]
+            if key in existing:
                 if not args.force:
-                    print(f"[跳过] {day} 已存在（id={existing[day]}）")
+                    print(f"[跳过] {key} 已存在（id={existing[key]}）")
                     skipped += 1
                     continue
                 if args.dry_run:
-                    print(f"[dry-run] 覆盖 {day}（id={existing[day]}）")
+                    print(f"[dry-run] 覆盖 {key}（id={existing[key]}）")
                     updated += 1
                     continue
                 conn.execute(
                     "UPDATE moments SET content = ?, tags = ?, created_at = ? WHERE id = ?",
-                    (content, tag, stamp, existing[day]),
+                    (content, tag, stamp, existing[key]),
                 )
                 updated += 1
                 continue
             if args.dry_run:
-                print(f"[dry-run] 新增 {day}：{entry.get('title') or ''}")
+                print(f"[dry-run] 新增 {key}：{entry.get('title') or ''}")
                 inserted += 1
                 continue
             conn.execute(

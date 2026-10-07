@@ -288,18 +288,6 @@
   }
 }
 
-/* 悬浮地图入口的公开页面：底部留出空间，避免圆盘和面板遮挡内容 */
-.mg-app,
-.mo-app,
-.mu-app,
-.lobby {
-  padding-bottom: 200px;
-}
-
-.rec-main {
-  padding-bottom: 210px;
-}
-
 .dock-map-toast {
   position: fixed;
   right: 20px;

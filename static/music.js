@@ -490,7 +490,7 @@
     $("uploadHint").textContent =
       files > 1
         ? "多选文件时按文件内的标签信息命名，重复歌名也没关系。"
-        : "歌名、歌手、专辑留空时会自动读取文件里的标签。";
+        : "歌名、歌手、专辑留空时会自动读取文件里的标签；没有标签时按文件名猜。";
     if (!uploadBusy.active && uploadBusy.rows) uploadBusy.rows.reset();
   }
 
