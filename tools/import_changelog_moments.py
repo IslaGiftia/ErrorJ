@@ -13,6 +13,7 @@
 
 import argparse
 import json
+import re
 import sqlite3
 import sys
 from datetime import datetime
@@ -27,6 +28,18 @@ DEFAULT_SEED = BASE_DIR / "config" / "changelog-seed.json"
 DEFAULT_TAG = "更新日志"
 DEFAULT_TIME = "20:00:00"
 MAX_CONTENT_CHARS = 2000
+
+
+def normalize_time(value, fallback):
+    """把 hh:mm 或 hh:mm:ss 规范化成 hh:mm:ss。"""
+    text = str(value or "").strip() or str(fallback or "").strip()
+    match = re.fullmatch(r"(\d{1,2}):(\d{2})(?::(\d{2}))?", text)
+    if not match:
+        raise ValueError(f"时间格式不正确：{text or '(空)'}")
+    hour = int(match.group(1))
+    if hour > 23 or int(match.group(2)) > 59 or int(match.group(3) or 0) > 59:
+        raise ValueError(f"时间超出范围：{text}")
+    return f"{hour:02d}:{match.group(2)}:{match.group(3) or '00'}"
 
 
 def build_content(entry, tag):
@@ -46,6 +59,7 @@ def parse_args():
     parser.add_argument("--db", default=str(DEFAULT_DB), help="inventory.db 路径")
     parser.add_argument("--seed", default=str(DEFAULT_SEED), help="更新日志 JSON 路径")
     parser.add_argument("--time", default=DEFAULT_TIME, help="每天写入的时间，默认 20:00:00")
+    parser.add_argument("--date", default="", help="只处理指定日期，格式 YYYY-MM-DD")
     parser.add_argument("--dry-run", action="store_true", help="只打印将执行的操作")
     parser.add_argument("--force", action="store_true", help="同一天已存在时覆盖内容")
     parser.add_argument("--delete", action="store_true", help="删除所有“更新日志”动态后退出")
@@ -66,8 +80,10 @@ def main():
     seed = json.loads(seed_path.read_text(encoding="utf-8"))
     tag = str(seed.get("tag") or DEFAULT_TAG)
     entries = seed.get("entries") or []
+    if args.date:
+        entries = [entry for entry in entries if str(entry.get("date") or "") == args.date]
     if not entries:
-        print("日志文件里没有 entries。", file=sys.stderr)
+        print("没有匹配的日志条目。", file=sys.stderr)
         return 1
 
     conn = sqlite3.connect(db_path)
@@ -106,7 +122,7 @@ def main():
                 skipped += 1
                 continue
             content = build_content(entry, tag)
-            stamp = f"{day} {args.time}"
+            stamp = f"{day} {normalize_time(entry.get('time'), args.time)}"
             if day in existing:
                 if not args.force:
                     print(f"[跳过] {day} 已存在（id={existing[day]}）")
