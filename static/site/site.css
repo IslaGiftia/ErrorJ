@@ -1424,11 +1424,12 @@ body[data-page] .under-construction {
   .landing-three {
     --dock-bottom: calc(32px + env(safe-area-inset-bottom, 0px));
     padding-top: 0;
+    padding-bottom: 0;
   }
 
   .landing-three .landing-inner {
     max-width: 1560px;
-    min-height: calc(100vh - var(--dock-bottom));
+    min-height: 100vh;
   }
 
   .landing-three .landing-main {
@@ -1480,6 +1481,24 @@ body[data-page] .under-construction {
   .landing-three .landing-main .landing-links {
     margin-top: 32px;
     padding-top: 0;
+  }
+
+  .landing-three .landing-footer {
+    position: fixed;
+    left: 50%;
+    bottom: calc(var(--dock-bottom) + 44px);
+    width: max-content;
+    margin: 0;
+    transform: translateX(-50%);
+  }
+
+  .landing-three .landing-credit-block {
+    position: fixed;
+    left: 50%;
+    bottom: var(--dock-bottom);
+    width: max-content;
+    margin: 0;
+    transform: translateX(-50%);
   }
 
 }
