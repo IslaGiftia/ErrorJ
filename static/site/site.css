@@ -446,6 +446,10 @@ img {
   text-align: center;
 }
 
+.landing-main {
+  width: 100%;
+}
+
 .landing-icon {
   width: 96px;
   height: 96px;
@@ -1419,12 +1423,20 @@ body[data-page] .under-construction {
 @media (min-width: 1600px) {
   .landing-three {
     --dock-bottom: calc(32px + env(safe-area-inset-bottom, 0px));
-    padding-top: 44px;
+    padding-top: 0;
   }
 
   .landing-three .landing-inner {
     max-width: 1560px;
-    min-height: calc(100vh - 44px - var(--dock-bottom));
+    min-height: calc(100vh - var(--dock-bottom));
+  }
+
+  .landing-three .landing-main {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    justify-content: center;
+    width: 100%;
   }
 
   .landing-three .landing-title {
@@ -1465,9 +1477,9 @@ body[data-page] .under-construction {
     font-size: 15px;
   }
 
-  .landing-three .landing-links {
-    margin-top: auto;
-    padding-top: 40px;
+  .landing-three .landing-main .landing-links {
+    margin-top: 32px;
+    padding-top: 0;
   }
 
 }

@@ -67,56 +67,58 @@
   <main class="landing landing-three rain-scene" id="rainScene">
     <div class="rain-layer" id="rainLayer" aria-hidden="true"></div>
     <div class="landing-inner">
-      <h1 class="landing-title"><span id="landingTitleText">使用Error酱工作和学习</span></h1>
-      <p class="landing-desc" id="landingDesc">Error酱是一个学习平台，她由Codex和DeepSeek完成，参考了很多优秀项目。当然，Error酱也是开源的</p>
+      <div class="landing-main">
+        <h1 class="landing-title"><span id="landingTitleText">使用Error酱工作和学习</span></h1>
+        <p class="landing-desc" id="landingDesc">Error酱是一个学习平台，她由Codex和DeepSeek完成，参考了很多优秀项目。当然，Error酱也是开源的</p>
 
-      <div class="repo-grid">
-        <a class="repo-entry" href="/inventory" target="ej-inventory" data-private-module="inventory">
-          <span class="repo-entry-label">
-            <span class="repo-entry-text">📦<span id="repoCount">仓库</span></span>
-          </span>
-          <span class="repo-thumbs" id="repoThumbs"></span>
-        </a>
+        <div class="repo-grid">
+          <a class="repo-entry" href="/inventory" target="ej-inventory" data-private-module="inventory">
+            <span class="repo-entry-label">
+              <span class="repo-entry-text">📦<span id="repoCount">仓库</span></span>
+            </span>
+            <span class="repo-thumbs" id="repoThumbs"></span>
+          </a>
 
-        <a class="repo-entry" href="/bookmarks" target="ej-bookmarks" data-private-module="bookmarks">
-          <span class="repo-entry-label">
-            <span class="repo-entry-text">🔖<span id="bookmarkCount">书签</span></span>
-          </span>
-          <span class="repo-thumbs" id="bookmarkThumbs"></span>
-        </a>
+          <a class="repo-entry" href="/bookmarks" target="ej-bookmarks" data-private-module="bookmarks">
+            <span class="repo-entry-label">
+              <span class="repo-entry-text">🔖<span id="bookmarkCount">书签</span></span>
+            </span>
+            <span class="repo-thumbs" id="bookmarkThumbs"></span>
+          </a>
 
-        <a class="repo-entry" href="/notes" target="ej-notes" data-private-module="notes">
-          <span class="repo-entry-label">
-            <span class="repo-entry-text">📝<span id="noteCount">笔记</span></span>
-          </span>
-          <span class="repo-thumbs" id="notesThumbs"></span>
-        </a>
+          <a class="repo-entry" href="/notes" target="ej-notes" data-private-module="notes">
+            <span class="repo-entry-label">
+              <span class="repo-entry-text">📝<span id="noteCount">笔记</span></span>
+            </span>
+            <span class="repo-thumbs" id="notesThumbs"></span>
+          </a>
 
-        <a class="repo-entry" href="/workbench" target="ej-workbench" data-private-module="workbench">
-          <span class="repo-pending" id="workbenchPending" hidden></span>
-          <span class="repo-entry-label">
-            <span class="repo-entry-text">🧰<span id="workbenchCount">工作台</span></span>
-          </span>
-          <span class="repo-thumbs" id="workbenchThumbs" aria-hidden="true"></span>
-        </a>
+          <a class="repo-entry" href="/workbench" target="ej-workbench" data-private-module="workbench">
+            <span class="repo-pending" id="workbenchPending" hidden></span>
+            <span class="repo-entry-label">
+              <span class="repo-entry-text">🧰<span id="workbenchCount">工作台</span></span>
+            </span>
+            <span class="repo-thumbs" id="workbenchThumbs" aria-hidden="true"></span>
+          </a>
+        </div>
+
+        <div class="landing-module-actions" aria-label="工作台功能入口">
+          <a class="landing-module-btn" href="/messages" id="messagesEntry" data-guest-page="guest:page:messages">
+            <span class="landing-module-text">留言</span>
+            <em class="landing-module-badge" id="messagesPending" hidden></em>
+          </a>
+          <a class="landing-module-btn" href="/games" data-guest-page="guest:page:games"><span class="landing-module-text">游戏</span></a>
+          <a class="landing-module-btn" href="/music" data-guest-page="guest:page:music"><span class="landing-module-text">歌单</span></a>
+          <a class="landing-module-btn" href="/books" data-guest-page="guest:page:books"><span class="landing-module-text">书架</span></a>
+          <a class="landing-module-btn" href="/moments" data-guest-page="guest:page:moments"><span class="landing-module-text">动态</span></a>
+          <a class="landing-module-btn" href="/recommendations" data-guest-page="guest:page:recommendations"><span class="landing-module-text">推荐</span></a>
+        </div>
+
+        <nav class="landing-links" aria-label="项目相关链接">
+          <a href="/references" data-guest-page="guest:page:references">参考项目</a>
+          <a href="https://github.com/IslaGiftia/ErrorJ" target="_blank" rel="noopener noreferrer">Error酱源码</a>
+        </nav>
       </div>
-
-      <div class="landing-module-actions" aria-label="工作台功能入口">
-        <a class="landing-module-btn" href="/messages" id="messagesEntry" data-guest-page="guest:page:messages">
-          <span class="landing-module-text">留言</span>
-          <em class="landing-module-badge" id="messagesPending" hidden></em>
-        </a>
-        <a class="landing-module-btn" href="/games" data-guest-page="guest:page:games"><span class="landing-module-text">游戏</span></a>
-        <a class="landing-module-btn" href="/music" data-guest-page="guest:page:music"><span class="landing-module-text">歌单</span></a>
-        <a class="landing-module-btn" href="/books" data-guest-page="guest:page:books"><span class="landing-module-text">书架</span></a>
-        <a class="landing-module-btn" href="/moments" data-guest-page="guest:page:moments"><span class="landing-module-text">动态</span></a>
-        <a class="landing-module-btn" href="/recommendations" data-guest-page="guest:page:recommendations"><span class="landing-module-text">推荐</span></a>
-      </div>
-
-      <nav class="landing-links" aria-label="项目相关链接">
-        <a href="/references" data-guest-page="guest:page:references">参考项目</a>
-        <a href="https://github.com/IslaGiftia/ErrorJ" target="_blank" rel="noopener noreferrer">Error酱源码</a>
-      </nav>
 
       <p class="landing-footer"><strong>时光流转，愿你与珍爱之人，能够再次重逢。</strong></p>
       <div class="landing-credit-block">

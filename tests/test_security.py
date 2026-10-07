@@ -57,6 +57,9 @@ class HomeActivityTests(unittest.TestCase):
     def test_activity_api_is_public(self):
         self.assertIn("/api/site/activity", app.ALWAYS_PUBLIC_APIS)
 
+    def test_game_activity_api_is_public(self):
+        self.assertIn("/api/site/game-play", app.ALWAYS_PUBLIC_APIS)
+
     def test_public_activity_uses_generic_content_labels(self):
         self.assertEqual(app.PUBLIC_ACTIVITY_LABELS["message_create"], "发表了留言")
         self.assertEqual(app.PUBLIC_ACTIVITY_LABELS["book_upload"], "上架了一本电子书")

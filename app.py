@@ -124,6 +124,7 @@ ALWAYS_PUBLIC_PAGES = {"/", "/index.html", "/login", "/register", "/favicon.ico"
 ALWAYS_PUBLIC_APIS = {
     "/api/health",
     "/api/site/activity",
+    "/api/site/game-play",
     "/api/auth/status",
     "/api/login",
     "/api/register",
@@ -408,12 +409,11 @@ PAGE_VIEW_PATHS = {
 PUBLIC_ACTIVITY_LABELS = {
     "message_create": "发表了留言",
     "message_reply": "回复了留言",
+    "game_play": "玩了一局游戏",
     "moment_create": "发布了动态",
     "moment_update": "更新了动态",
     "book_upload": "上架了一本电子书",
     "music_upload": "上传了一首歌",
-    "map_place_create": "新增了一个足迹",
-    "map_place_update": "更新了一个足迹",
     "recommendation_create": "新增了一条推荐",
     "recommendation_update": "更新了一条推荐",
 }
@@ -7403,6 +7403,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_create_wishlist(payload)
             elif path == "/api/site/messages":
                 self.api_site_message_create(payload)
+            elif path == "/api/site/game-play":
+                self.api_site_game_play(payload)
             elif path == "/api/site/messages/seen":
                 self.api_site_message_mark_seen()
             elif path == "/api/moments":
@@ -10851,7 +10853,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         actions = tuple(PUBLIC_ACTIVITY_LABELS)
         placeholders = ",".join("?" for _ in actions)
         rows = query(
-            f"""SELECT a.id, a.action, a.actor_kind, a.user_id, a.created_at,
+            f"""SELECT a.id, a.action, a.actor_kind, a.user_id, a.created_at, a.summary,
                        u.username AS member_username
                 FROM activity_log a
                 LEFT JOIN users u ON u.id = a.user_id
@@ -10877,7 +10879,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "id": f"activity-{row['id']}",
                     "created_at": row["created_at"],
                     "actor": actor,
-                    "text": PUBLIC_ACTIVITY_LABELS[row["action"]],
+                    "text": (
+                        str(row.get("summary") or PUBLIC_ACTIVITY_LABELS[row["action"]])[:80]
+                        if row["action"] == "game_play"
+                        else PUBLIC_ACTIVITY_LABELS[row["action"]]
+                    ),
                     "alert": False,
                 }
             )
@@ -10925,6 +10931,24 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     },
                 )
         self.send_json(200, {"items": items[:60], "admin": is_admin})
+
+    def api_site_game_play(self, payload):
+        game = str(payload.get("game") or "").strip()[:20]
+        if game not in ("五子棋", "2048", "扫雷", "记忆翻牌"):
+            api_error(self, 400, "未知游戏。")
+            return
+        if self.session_identity() is None:
+            self.send_json(200, {"ok": True, "recorded": False})
+            return
+        if not rate_allow("game_play", self.client_ip(), 10, 3600):
+            api_error(self, 429, "游戏记录太频繁，请稍后再试。")
+            return
+        self.log_activity(
+            "game_play",
+            f"玩了一局{game}",
+            target_type="game",
+        )
+        self.send_json(200, {"ok": True, "recorded": True})
 
     # ---------- 内容审核（管理员） ----------
     def api_admin_review(self, params):

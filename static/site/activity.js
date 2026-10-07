@@ -17,7 +17,7 @@
 
     var time = document.createElement("span");
     time.className = "activity-feed-time";
-    time.textContent = "⌜" + formatTime(item.created_at) + "⌟";
+    time.textContent = "「" + formatTime(item.created_at) + "」";
 
     var actor = document.createElement("span");
     actor.className = "activity-feed-user";
