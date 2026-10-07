@@ -856,6 +856,22 @@ def init_db():
                 PRIMARY KEY (role, permission)
             );
 
+            CREATE TABLE IF NOT EXISTS sessions (
+                sid TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                user_id INTEGER NOT NULL DEFAULT 0,
+                device TEXT NOT NULL DEFAULT 'desktop',
+                created_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                expires_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS message_views (
+                user_id INTEGER PRIMARY KEY,
+                last_seen_id INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS permission_audit (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 actor_kind TEXT NOT NULL DEFAULT 'owner',
@@ -1052,6 +1068,8 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             CREATE INDEX IF NOT EXISTS idx_access_log_path ON access_log(path);
             CREATE INDEX IF NOT EXISTS idx_access_log_ip ON access_log(ip);
             CREATE INDEX IF NOT EXISTS idx_access_log_user ON access_log(user_id);
+            CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(kind, user_id);
+            CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
             """
         )
         columns = [row[1] for row in conn.execute("PRAGMA table_info(parts)").fetchall()]
@@ -4719,6 +4737,7 @@ def cleanup_logs():
 def logs_maintenance_loop():
     while True:
         try:
+            purge_expired_sessions()
             removed = cleanup_logs()
             if removed:
                 print(
@@ -4918,11 +4937,93 @@ def load_auth_state():
     return AUTH_STATE
 
 
-def issue_session_token(days, identity):
+SESSION_DEVICE_DESKTOP = "desktop"
+SESSION_DEVICE_MOBILE = "mobile"
+
+
+def session_device_class(user_agent):
+    """按 User-Agent 粗分设备：平板算手机端，其它算电脑端。"""
+    label = describe_user_agent(user_agent)
+    if "手机" in label or "平板" in label:
+        return SESSION_DEVICE_MOBILE
+    return SESSION_DEVICE_DESKTOP
+
+
+def session_row(sid):
+    if not sid:
+        return None
+    return query_one("SELECT * FROM sessions WHERE sid = ?", (sid,))
+
+
+def delete_session(sid):
+    if sid:
+        execute("DELETE FROM sessions WHERE sid = ?", (sid,))
+
+
+def delete_user_sessions(kind, user_id):
+    execute("DELETE FROM sessions WHERE kind = ? AND user_id = ?", (kind, int(user_id or 0)))
+
+
+def delete_sessions_for_user(user_id):
+    execute("DELETE FROM sessions WHERE user_id = ?", (int(user_id or 0),))
+
+
+def clear_device_sessions(kind, user_id, device):
+    """同一账号同一设备类型只保留一个会话：新登录生效，旧会话被踢下线。"""
+    execute(
+        "DELETE FROM sessions WHERE kind = ? AND user_id = ? AND device = ?",
+        (kind, int(user_id or 0), device),
+    )
+
+
+def purge_expired_sessions():
+    execute("DELETE FROM sessions WHERE expires_at < ?", (int(time.time()),))
+
+
+def newest_message_id():
+    row = query_one("SELECT COALESCE(MAX(id), 0) AS n FROM site_messages")
+    return int((row or {}).get("n") or 0)
+
+
+def message_last_seen(user_id):
+    row = query_one(
+        "SELECT last_seen_id FROM message_views WHERE user_id = ?",
+        (int(user_id or 0),),
+    )
+    return int(row["last_seen_id"] or 0) if row else 0
+
+
+def mark_messages_seen(user_id):
+    user_id = int(user_id or 0)
+    seen = max(message_last_seen(user_id), newest_message_id())
+    execute(
+        """INSERT INTO message_views (user_id, last_seen_id, updated_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET
+               last_seen_id = excluded.last_seen_id,
+               updated_at = excluded.updated_at""",
+        (user_id, seen, now_text()),
+    )
+    return seen
+
+
+def issue_session_token(days, identity, device=SESSION_DEVICE_DESKTOP):
     expires = int(time.time()) + int(days) * 86400
     kind = str(identity.get("kind") or "owner")
+    if kind not in ("owner", "member"):
+        kind = "owner"
     user_id = int(identity.get("user_id") or 0)
-    payload = f"v1|{kind}|{user_id}|{expires}"
+    if device not in (SESSION_DEVICE_DESKTOP, SESSION_DEVICE_MOBILE):
+        device = SESSION_DEVICE_DESKTOP
+    sid = secrets.token_hex(16)
+    stamp = now_text()
+    execute(
+        """INSERT INTO sessions
+               (sid, kind, user_id, device, created_at, last_seen_at, expires_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (sid, kind, user_id, device, stamp, stamp, expires),
+    )
+    payload = f"v2|{kind}|{user_id}|{sid}|{expires}"
     signature = hmac.new(
         str(AUTH_STATE.get("secret") or "").encode("utf-8"),
         payload.encode("utf-8"),
@@ -4936,12 +5037,12 @@ def verify_session_token(token):
     if not token or "|" not in token or not secret:
         return None
     parts = token.split("|")
-    if len(parts) != 5:
+    if len(parts) != 6:
         return None
-    version, kind, user_id_text, expires_text, signature = parts
-    if version != "v1" or kind not in ("owner", "member"):
+    version, kind, user_id_text, sid, expires_text, signature = parts
+    if version != "v2" or kind not in ("owner", "member") or not sid:
         return None
-    payload = "|".join(parts[:4])
+    payload = "|".join(parts[:5])
     expected = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(signature, expected):
         return None
@@ -4956,7 +5057,7 @@ def verify_session_token(token):
         return None
     if kind == "member" and user_id <= 0:
         return None
-    return {"kind": kind, "user_id": user_id, "expires": expires}
+    return {"kind": kind, "user_id": user_id, "expires": expires, "sid": sid}
 
 
 def rate_allow(bucket, identifier, limit, window_seconds):
@@ -5077,6 +5178,14 @@ class InventoryHandler(BaseHTTPRequestHandler):
             }
         claims = verify_session_token(self.cookies().get(AUTH_COOKIE, ""))
         if not claims:
+            return None
+        session = session_row(claims.get("sid"))
+        if (
+            not session
+            or session.get("kind") != claims.get("kind")
+            or int(session.get("user_id") or 0) != int(claims.get("user_id") or 0)
+            or int(session.get("expires_at") or 0) <= time.time()
+        ):
             return None
         if claims["kind"] == "owner":
             return {
@@ -5450,7 +5559,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
             self.log_activity("login", "管理员登录成功", actor=identity)
         login_succeeded(identifier)
         days = AUTH_SESSION_DAYS_REMEMBER if payload.get("remember") else AUTH_SESSION_DAYS
-        token = issue_session_token(days, identity)
+        device = session_device_class(self.headers.get("User-Agent"))
+        # 同一账号同一设备类型只保留一个会话：新登录生效，旧设备被踢下线
+        clear_device_sessions(identity.get("kind") or "owner", identity.get("user_id") or 0, device)
+        token = issue_session_token(days, identity, device)
         self.send_json(
             200,
             {
@@ -5683,6 +5795,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
             "UPDATE users SET status = ?, approved_at = ?, updated_at = ? WHERE id = ?",
             (status, approved_at, stamp, user_id),
         )
+        if status in ("disabled", "rejected"):
+            # 停用 / 拒绝后立刻踢掉该账号的全部会话
+            delete_sessions_for_user(user_id)
         write_audit(
             self.session_identity(),
             f"user_{action}",
@@ -5860,6 +5975,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             "UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?",
             (hash_password(password), now_text(), user_id),
         )
+        delete_sessions_for_user(user_id)
         write_audit(self.session_identity(), "reset_password", "重置了登录密码", target)
         self.send_json(200, {"ok": True})
 
@@ -5877,6 +5993,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if target["id"] == (self.session_identity() or {}).get("user_id"):
             api_error(self, 400, "不能删除自己。")
             return
+        delete_sessions_for_user(user_id)
         execute("DELETE FROM users WHERE id = ?", (user_id,))
         write_audit(self.session_identity(), "delete_user", "删除了账号", target)
         self.send_json(200, {"ok": True})
@@ -6465,6 +6582,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
         self.send_json(200 if ok else 502, {"ok": ok, "detail": detail})
 
     def api_logout(self):
+        claims = verify_session_token(self.cookies().get(AUTH_COOKIE, ""))
+        if claims:
+            delete_session(claims.get("sid"))
         self.send_json(
             200,
             {"ok": True},
@@ -6593,6 +6713,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         if path == "/logout":
+            claims = verify_session_token(self.cookies().get(AUTH_COOKIE, ""))
+            if claims:
+                delete_session(claims.get("sid"))
             self.send_response(302)
             self.send_header("Location", "/login")
             self.send_header("Set-Cookie", self.session_cookie_value("", 0))
@@ -6664,6 +6787,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_wishlist()
             elif path == "/api/site/messages":
                 self.api_site_messages(query)
+            elif path == "/api/site/messages/unread":
+                self.api_site_messages_unread()
             elif path == "/api/site/messages/quota":
                 self.api_site_message_quota()
             elif re.fullmatch(r"/api/site/message-files/\d+", path):
@@ -6782,6 +6907,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_create_wishlist(payload)
             elif path == "/api/site/messages":
                 self.api_site_message_create(payload)
+            elif path == "/api/site/messages/seen":
+                self.api_site_message_mark_seen()
             elif path == "/api/moments":
                 self.api_moment_create(payload)
             elif path == "/api/map/categories":
@@ -7793,6 +7920,39 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "remaining": max(0, limit - used),
             },
         )
+
+    def api_site_messages_unread(self):
+        identity = self.session_identity()
+        if not identity or identity.get("kind") not in ("owner", "admin"):
+            self.send_json(
+                200,
+                {"admin": False, "unread": 0, "newest_id": 0, "last_seen_id": 0},
+            )
+            return
+        user_id = 0 if identity.get("kind") == "owner" else int(identity.get("user_id") or 0)
+        last_seen = message_last_seen(user_id)
+        newest = newest_message_id()
+        unread = query_one(
+            "SELECT COUNT(*) AS n FROM site_messages WHERE id > ?", (last_seen,)
+        )["n"]
+        self.send_json(
+            200,
+            {
+                "admin": True,
+                "unread": int(unread),
+                "newest_id": newest,
+                "last_seen_id": last_seen,
+            },
+        )
+
+    def api_site_message_mark_seen(self):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以更新留言已读状态。")
+            return
+        identity = self.session_identity() or {}
+        user_id = 0 if identity.get("kind") == "owner" else int(identity.get("user_id") or 0)
+        seen = mark_messages_seen(user_id)
+        self.send_json(200, {"ok": True, "last_seen_id": seen})
 
     def api_site_messages(self, params):
         rows = query(
@@ -9031,6 +9191,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not name:
             raise ValueError("分类名称不能为空。")
         glyph = str(payload.get("glyph", current.get("glyph", "·")) or "·").strip()[:2] or "·"
+        old_name = str(current.get("name") or "").strip()
+        # 自动图标（图标正好是旧名字首字）跟随改名更新，自定义图标保留
+        if old_name and name != old_name and glyph == old_name[:1]:
+            glyph = name[:1] or "·"
         color = str(payload.get("color", current.get("color", "#7b68ee")) or "#7b68ee").strip()
         if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
             raise ValueError("颜色需要是 #RRGGBB 格式。")

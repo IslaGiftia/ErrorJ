@@ -1387,6 +1387,8 @@
       (isChild ? " is-child" : "") +
       '" data-cat-row="' +
       cat.id +
+      '" data-cat-old-name="' +
+      esc(cat.name) +
       '">' +
       '<input class="mp-cat-glyph" type="text" maxlength="2" value="' +
       esc(cat.glyph || "·") +
@@ -2100,6 +2102,19 @@
       if (!row) return;
       if (event.target.closest("[data-cat-save]")) saveCategory(row);
       else if (event.target.closest("[data-cat-delete]")) deleteCategory(row);
+    });
+    catRows.addEventListener("input", function (event) {
+      // 改分类名时，如果图标还是旧名字首字（自动图标），实时跟随新名字
+      var nameInput = event.target.closest(".mp-cat-name");
+      if (!nameInput) return;
+      var row = nameInput.closest(".mp-cat-row");
+      var glyphInput = row && row.querySelector(".mp-cat-glyph");
+      if (!glyphInput) return;
+      var oldGlyph = (row.getAttribute("data-cat-old-name") || "").trim().slice(0, 1);
+      var nextGlyph = nameInput.value.trim().slice(0, 1);
+      if (oldGlyph && nextGlyph && glyphInput.value.trim() === oldGlyph) {
+        glyphInput.value = nextGlyph;
+      }
     });
   }
 

@@ -154,8 +154,6 @@
     }
   }
 
-  var MESSAGES_SEEN_KEY = "errorMessagesSeen";
-
   function applyMessagesBadge(count) {
     var entry = document.getElementById("messagesEntry");
     var badge = document.getElementById("messagesPending");
@@ -168,40 +166,17 @@
   }
 
   function loadMessagesBadge() {
-    var raw = null;
-    try {
-      raw = localStorage.getItem(MESSAGES_SEEN_KEY);
-    } catch (err) {}
-    fetch("/api/site/messages", { cache: "no-store" })
+    // 只有管理员显示留言呼吸提醒；已读状态记在服务端账号上
+    if (!authState.admin) {
+      applyMessagesBadge(0);
+      return;
+    }
+    fetch("/api/site/messages/unread", { cache: "no-store" })
       .then(function (response) {
-        return response.ok ? response.json() : [];
+        return response.ok ? response.json() : { unread: 0 };
       })
-      .then(function (rows) {
-        var newest = 0;
-        var ids = [];
-        (rows || []).forEach(function (row) {
-          var id = Number(row.id) || 0;
-          ids.push(id);
-          if (id > newest) newest = id;
-          (row.replies || []).forEach(function (reply) {
-            var replyId = Number(reply.id) || 0;
-            ids.push(replyId);
-            if (replyId > newest) newest = replyId;
-          });
-        });
-        if (raw === null || raw === "") {
-          // 第一次访问：以当前最新一条作为基线，之后的新留言才提醒
-          try {
-            localStorage.setItem(MESSAGES_SEEN_KEY, String(newest));
-          } catch (err) {}
-          applyMessagesBadge(0);
-          return;
-        }
-        var seen = Number(raw) || 0;
-        var count = ids.filter(function (id) {
-          return id > seen;
-        }).length;
-        applyMessagesBadge(count);
+      .then(function (data) {
+        applyMessagesBadge(Number(data && data.unread) || 0);
       })
       .catch(function () {
         applyMessagesBadge(0);
@@ -231,6 +206,7 @@
     authState.permissions = Array.isArray(status.permissions) ? status.permissions : [];
     authState.ready = true;
     setAuthUi();
+    loadMessagesBadge();
     if (authState.admin) {
       applyPendingBadge(
         (status.pending_users || 0) + (status.pending_attachments || 0)
@@ -586,8 +562,10 @@
     });
   }
 
-  loadMessagesBadge();
   setAuthUi();
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden && authState.admin) loadMessagesBadge();
+  });
   fetch("/api/auth/status", { cache: "no-store" })
     .then(function (response) { return response.json(); })
     .then(applyAuthStatus)

@@ -647,7 +647,8 @@ img {
 
 .landing-module-btn.has-pending {
   border-color: color-mix(in srgb, var(--primary) 60%, var(--line));
-  animation: repoPendingPulse 2.4s ease-in-out infinite;
+  --pending-base-shadow: 0 6px 18px color-mix(in srgb, var(--primary) 10%, transparent);
+  animation: repoPendingPulse 3.6s ease-in-out infinite;
 }
 
 .landing-module-badge {
@@ -1550,18 +1551,20 @@ body[data-page] .under-construction {
 /* 有待审核注册申请时，工作台入口呼吸高亮 */
 .repo-entry.has-pending {
   border-color: color-mix(in srgb, var(--primary) 60%, var(--line));
-  animation: repoPendingPulse 2.4s ease-in-out infinite;
+  --pending-base-shadow: 0 10px 34px rgba(0, 0, 0, 0.12);
+  animation: repoPendingPulse 3.6s ease-in-out infinite;
 }
 
 @keyframes repoPendingPulse {
   0%,
   100% {
-    box-shadow: 0 10px 34px rgba(0, 0, 0, 0.12);
+    box-shadow: var(--pending-base-shadow, 0 10px 34px rgba(0, 0, 0, 0.12));
   }
   50% {
     box-shadow:
-      0 0 0 5px color-mix(in srgb, var(--primary) 22%, transparent),
-      0 0 26px color-mix(in srgb, var(--primary) 55%, transparent);
+      var(--pending-base-shadow, 0 10px 34px rgba(0, 0, 0, 0.12)),
+      0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent),
+      0 0 18px color-mix(in srgb, var(--primary) 34%, transparent);
   }
 }
 

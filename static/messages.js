@@ -11,6 +11,7 @@
   var pendingFiles = [];
   var toastTimer = null;
   var canPost = false;
+  var isAdmin = false;
   var dailyRemaining = null;
   var dailyLimit = 0;
 
@@ -570,9 +571,12 @@
           newest = Math.max(newest, Number(reply.id) || 0);
         });
       });
-      try {
-        localStorage.setItem("errorMessagesSeen", String(newest));
-      } catch (err) {}
+      if (isAdmin) {
+        api("/api/site/messages/seen", {
+          method: "POST",
+          body: JSON.stringify({}),
+        }).catch(function () {});
+      }
       $("messageCount").textContent = rows.length ? "共 " + total + " 条" : "";
       if (!rows.length) {
         list.appendChild(
@@ -635,6 +639,7 @@
 
   api("/api/auth/status").then(function (status) {
     canPost = Boolean(status.authenticated);
+    isAdmin = Boolean(status.admin || status.owner);
     $("messageComposerPanel").hidden = !canPost;
     if (canPost) loadQuota();
     return loadMessages();
