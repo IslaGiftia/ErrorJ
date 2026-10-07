@@ -7,6 +7,7 @@ import hashlib
 from html import escape as html_escape
 from html.parser import HTMLParser
 import hmac
+import ipaddress
 import io
 import json
 import mimetypes
@@ -3803,6 +3804,24 @@ def detect_image_type(raw):
     return None
 
 
+def normalized_data_relative(relative):
+    """Return a canonical DATA_DIR-relative path, or "" if it escapes DATA_DIR."""
+    text = str(relative or "").replace("\\", "/")
+    if (
+        not text
+        or text.startswith("/")
+        or re.match(r"^[A-Za-z]:/", text)
+        or any(part == ".." for part in text.split("/"))
+    ):
+        return ""
+    try:
+        full = (DATA_DIR / text).resolve()
+        full.relative_to(DATA_DIR.resolve())
+        return full.relative_to(DATA_DIR.resolve()).as_posix()
+    except (OSError, ValueError):
+        return ""
+
+
 def remove_data_file(relative):
     if not relative:
         return False
@@ -4881,6 +4900,8 @@ def required_permission(path, method):
         return ""
     if path == "/api/site/messages" or path.startswith("/api/site/messages/"):
         # 留言板：游客只能浏览；登录账号可以发表留言，删除仍仅管理员。
+        if method == "DELETE":
+            return None
         if method == "POST":
             return ""
         return ""
@@ -5651,10 +5672,24 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def client_ip(self):
         if TRUST_PROXY:
+            real_ip = (self.headers.get("X-Real-IP") or "").strip()
+            if real_ip:
+                try:
+                    return str(ipaddress.ip_address(real_ip))
+                except ValueError:
+                    pass
             forwarded = self.headers.get("X-Forwarded-For") or ""
-            first = forwarded.split(",")[0].strip()
-            if first:
-                return first
+            # Nginx appends the real peer to $proxy_add_x_forwarded_for. The
+            # left-most value is client-controlled, so only trust the right-most
+            # address and only when it is a valid IP.
+            for candidate in reversed(forwarded.split(",")):
+                candidate = candidate.strip()
+                if not candidate:
+                    continue
+                try:
+                    return str(ipaddress.ip_address(candidate))
+                except ValueError:
+                    continue
         return self.client_address[0] if self.client_address else "unknown"
 
     def log_activity(
@@ -5762,6 +5797,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def data_file_allowed(self, relative, identity):
         """site-files 数据的访问控制。"""
+        relative = normalized_data_relative(relative)
+        if not relative or relative == ".":
+            return False
         for prefix, permissions in DATA_PERMISSION_RULES:
             if relative.startswith(prefix):
                 if identity is None:
@@ -5824,9 +5862,18 @@ class InventoryHandler(BaseHTTPRequestHandler):
             if not rate_allow("write", self.client_ip(), 120, 60):
                 api_error(self, 429, "操作过于频繁，请稍后再试。")
                 return False
+        identity = self.session_identity()
+        if path.startswith("/site-files/"):
+            relative = unquote(path[len("/site-files/") :])
+            if relative and self.data_file_allowed(relative, identity):
+                return True
+            if identity is None:
+                api_error(self, 401, "请先登录。")
+            else:
+                api_error(self, 403, "当前账号没有访问权限。")
+            return False
         if not AUTH_STATE.get("enabled"):
             return True
-        identity = self.session_identity()
         if identity and identity.get("kind") in ("owner", "admin"):
             return True
         if self.guest_request_allowed(path, method, identity):
@@ -8145,6 +8192,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
         self.send_json(200, {"image_path": relative})
 
     def send_data_file(self, relative, download_name=None):
+        relative = normalized_data_relative(relative)
+        if not relative or relative == ".":
+            api_error(self, 404, "文件不存在。")
+            return
         try:
             full = (DATA_DIR / relative).resolve()
             full.relative_to(DATA_DIR.resolve())
@@ -10711,6 +10762,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
         self.send_json(200, {"id": row_id})
 
     def api_site_message_delete(self, path):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以删除留言。")
+            return
         item_id = int(path.split("/")[4])
         rows = query(
             """SELECT file_path FROM site_message_files

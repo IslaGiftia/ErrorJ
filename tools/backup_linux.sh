@@ -13,6 +13,7 @@
 #       ossutil cp -rf "$BACKUP_DIR" oss://你的bucket/errorjiang/ --update
 #
 set -euo pipefail
+umask 077
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA_DIR="$APP_DIR/data"
@@ -27,7 +28,8 @@ if [ -z "$PYTHON" ]; then
   exit 1
 fi
 
-mkdir -p "$TARGET"
+mkdir -p "$BACKUP_DIR" "$TARGET"
+chmod 700 "$BACKUP_DIR" "$TARGET"
 
 echo "[1/2] 备份数据库（一致性快照）"
 "$PYTHON" - "$DATA_DIR/inventory.db" "$TARGET/inventory.db" <<'PY'
@@ -55,6 +57,8 @@ echo "[2/2] 打包上传文件（不含数据库和缓存）"
 if [ -d "$DATA_DIR" ]; then
   tar -czf "$TARGET/files.tar.gz" -C "$DATA_DIR" \
     --exclude="inventory.db*" \
+    --exclude="auth.json" \
+    --exclude="*.log" \
     --exclude="__pycache__" \
     .
   echo "  -> $TARGET/files.tar.gz"

@@ -20,7 +20,8 @@ Environment=INVENTORY_PORT=8000
 Environment=TZ=Asia/Shanghai
 Environment=INVENTORY_TRUST_PROXY=1
 Environment=INVENTORY_ACCESS_LOG=1
-EnvironmentFile=-/etc/errorjiang.env
+EnvironmentFile=/etc/errorjiang.env
+UMask=0077
 ExecStart=/usr/bin/python3 /opt/errorjiang/app.py
 Restart=always
 RestartSec=3
