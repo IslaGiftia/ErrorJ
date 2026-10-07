@@ -10,7 +10,7 @@
 }
 
 .activity-feed {
-  height: calc(13.5em + 32px);
+  height: calc(10.5em + 24px);
   overflow: hidden;
   -webkit-mask-image: linear-gradient(
     to bottom,
@@ -62,7 +62,11 @@
 .activity-feed-user {
   flex: 0 0 auto;
   color: var(--primary-strong);
-  font-weight: 700;
+  font-weight: 400;
+}
+
+.activity-feed-time {
+  opacity: 0.76;
 }
 
 .activity-feed-text {
@@ -73,9 +77,10 @@
   text-overflow: ellipsis;
 }
 
+.activity-feed-item.is-alert .activity-feed-time,
+.activity-feed-item.is-alert .activity-feed-user,
 .activity-feed-item.is-alert .activity-feed-text {
-  color: var(--warn);
-  animation: activityFeedAlert 0.85s ease-in-out infinite;
+  color: var(--ok);
 }
 
 @keyframes activityFeedRoll {
@@ -84,16 +89,6 @@
   }
   to {
     transform: translate3d(0, -50%, 0);
-  }
-}
-
-@keyframes activityFeedAlert {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.32;
   }
 }
 

@@ -223,12 +223,12 @@
 
 .dock-hud-label {
   color: var(--primary, #4f46e5);
-  font-weight: 700;
+  font-weight: 400;
 }
 
 .dock-hud-value {
   color: var(--primary, #4f46e5);
-  font-weight: 700;
+  font-weight: 400;
 }
 
 .dock-hud-value[data-level="ok"] {
@@ -330,6 +330,12 @@
 
   .landing {
     padding-bottom: 118px;
+  }
+}
+
+@media (max-width: 900px) {
+  .dock-hud {
+    display: none !important;
   }
 }
 

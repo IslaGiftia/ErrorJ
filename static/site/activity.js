@@ -17,7 +17,7 @@
 
     var time = document.createElement("span");
     time.className = "activity-feed-time";
-    time.textContent = formatTime(item.created_at);
+    time.textContent = "⌜" + formatTime(item.created_at) + "⌟";
 
     var actor = document.createElement("span");
     actor.className = "activity-feed-user";
@@ -32,11 +32,11 @@
   }
 
   function buildSequence(alerts, logs) {
-    if (!alerts.length) return logs.slice(0, 9);
+    if (!alerts.length) return logs.slice(0, 7);
     var sequence = [];
     var alertIndex = 0;
     var logIndex = 0;
-    while (sequence.length < 9 && (logIndex < logs.length || alerts.length)) {
+    while (sequence.length < 7 && (logIndex < logs.length || alerts.length)) {
       if (sequence.length === 0 || sequence.length % 3 === 0) {
         sequence.push(alerts[alertIndex % alerts.length]);
         alertIndex += 1;
@@ -65,7 +65,7 @@
     var logs = [];
     items.forEach(function (item) {
       if (item.alert) alerts.push(item);
-      else if (logs.length < 9) logs.push(item);
+      else if (logs.length < 7) logs.push(item);
     });
     var sequence = buildSequence(alerts, logs);
     if (!sequence.length) {

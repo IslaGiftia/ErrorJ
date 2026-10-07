@@ -1419,30 +1419,32 @@ body[data-page] .under-construction {
 @media (min-width: 1600px) {
   .landing-three {
     --dock-bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+    padding-top: 44px;
   }
 
   .landing-three .landing-inner {
     max-width: 1560px;
+    min-height: calc(100vh - 44px - var(--dock-bottom));
   }
 
   .landing-three .landing-title {
-    margin-top: auto;
+    margin-top: 0;
     font-size: 50px;
   }
 
   .landing-three .landing-desc {
-    margin-bottom: 48px;
+    margin-bottom: 36px;
     font-size: 20px;
   }
 
   .repo-grid {
     grid-template-columns: repeat(2, 560px);
-    gap: 40px;
+    gap: 32px;
   }
 
   .repo-grid .repo-entry {
     width: 560px;
-    padding: 26px 22px;
+    padding: 24px 22px;
     gap: 18px;
   }
 
@@ -1464,8 +1466,8 @@ body[data-page] .under-construction {
   }
 
   .landing-three .landing-links {
-    margin-top: 0;
-    padding-top: 56px;
+    margin-top: auto;
+    padding-top: 40px;
   }
 
 }
