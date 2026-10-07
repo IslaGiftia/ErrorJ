@@ -1438,21 +1438,23 @@ body[data-page] .under-construction {
     flex-direction: column;
     justify-content: center;
     width: 100%;
+    transform: translateY(-20px);
   }
 
   .landing-three .landing-title {
     margin-top: 0;
+    margin-bottom: 22px;
     font-size: 50px;
   }
 
   .landing-three .landing-desc {
-    margin-bottom: 36px;
+    margin-bottom: 46px;
     font-size: 20px;
   }
 
   .repo-grid {
     grid-template-columns: repeat(2, 560px);
-    gap: 32px;
+    gap: 38px;
   }
 
   .repo-grid .repo-entry {
@@ -1479,8 +1481,13 @@ body[data-page] .under-construction {
   }
 
   .landing-three .landing-main .landing-links {
-    margin-top: 32px;
+    margin-top: 42px;
     padding-top: 0;
+  }
+
+  .landing-module-actions {
+    gap: 14px;
+    margin-top: 40px;
   }
 
   .landing-three .landing-footer {

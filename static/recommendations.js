@@ -449,7 +449,7 @@
       $("recBookmarkPicker").hidden = false;
       window.setTimeout(function () { $("recBookmarkSearch").focus(); }, 0);
     }).catch(function (err) {
-      toast(err.message || "加载网页收藏失败");
+      toast(err.message || "加载书签失败");
     });
   }
 
@@ -513,7 +513,7 @@
         : null;
       openEditorForm(item);
     }).catch(function (err) {
-      toast(err.message || "加载网页收藏失败");
+      toast(err.message || "加载书签失败");
       state.selectedBookmark = null;
       openEditorForm(item);
     });

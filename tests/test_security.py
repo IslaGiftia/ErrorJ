@@ -68,6 +68,16 @@ class HomeActivityTests(unittest.TestCase):
         labels = {item["key"]: item["label"] for item in app.GUEST_PAGE_PERMISSIONS}
         self.assertEqual(labels["guest:page:messages"], "留言")
 
+    def test_module_permission_labels_match_home_entries(self):
+        labels = {item["key"]: item["label"] for item in app.GUEST_PAGE_PERMISSIONS}
+        self.assertEqual(labels["guest:page:moments"], "动态")
+        self.assertEqual(labels["guest:page:recommendations"], "推荐")
+        self.assertEqual(labels["guest:page:games"], "游戏")
+
+        groups = {group["key"]: group["label"] for group in app.PERMISSION_GROUPS}
+        self.assertEqual(groups["bookmarks"], "书签")
+        self.assertEqual(groups["notes"], "笔记")
+
 
 if __name__ == "__main__":
     unittest.main()

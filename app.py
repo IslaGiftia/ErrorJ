@@ -186,17 +186,17 @@ PERMISSION_GROUPS = (
     },
     {
         "key": "bookmarks",
-        "label": "网页收藏",
+        "label": "书签",
         "items": (
-            {"key": "bookmarks:view", "label": "查看网页收藏"},
+            {"key": "bookmarks:view", "label": "查看书签"},
             {"key": "bookmarks:write", "label": "增删改收藏、导入 Firefox、检查链接"},
         ),
     },
     {
         "key": "notes",
-        "label": "学习笔记",
+        "label": "笔记",
         "items": (
-            {"key": "notes:view", "label": "查看学习笔记"},
+            {"key": "notes:view", "label": "查看笔记"},
             {"key": "notes:write", "label": "新增、编辑、导入导出笔记"},
         ),
     },
@@ -263,11 +263,11 @@ ROLE_ADMIN = "admin"
 ROLE_LABELS = {"guest": "游客", "member": "普通账户", "admin": "管理员"}
 GUEST_PAGE_PERMISSIONS = (
     {"key": "guest:page:messages", "label": "留言"},
-    {"key": "guest:page:moments", "label": "Error酱动态"},
-    {"key": "guest:page:recommendations", "label": "Error酱推荐"},
+    {"key": "guest:page:moments", "label": "动态"},
+    {"key": "guest:page:recommendations", "label": "推荐"},
     {"key": "guest:page:music", "label": "歌单"},
     {"key": "guest:page:books", "label": "书架"},
-    {"key": "guest:page:games", "label": "游戏大厅"},
+    {"key": "guest:page:games", "label": "游戏"},
     {"key": "guest:page:references", "label": "参考项目"},
 )
 GUEST_PAGE_PERMISSION_KEYS = tuple(item["key"] for item in GUEST_PAGE_PERMISSIONS)
@@ -9030,15 +9030,15 @@ class InventoryHandler(BaseHTTPRequestHandler):
             try:
                 bookmark_id = int(bookmark_id_value)
             except (TypeError, ValueError):
-                raise ValueError("网页收藏关联不正确。")
+                raise ValueError("书签关联不正确。")
             if kind != "site":
-                raise ValueError("只有网站类型可以关联网页收藏。")
+                raise ValueError("只有网站类型可以关联书签。")
             bookmark = query_one(
                 "SELECT id, title, url, description, favicon_updated_at FROM bookmarks WHERE id = ?",
                 (bookmark_id,),
             )
             if not bookmark:
-                raise ValueError("关联的网页收藏不存在。")
+                raise ValueError("关联的书签不存在。")
         title_source = payload.get("title", current.get("title", ""))
         if bookmark and not str(title_source or "").strip():
             title_source = bookmark["title"]

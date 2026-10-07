@@ -77,10 +77,9 @@
   text-overflow: ellipsis;
 }
 
-.activity-feed-item.is-alert .activity-feed-time,
-.activity-feed-item.is-alert .activity-feed-user,
 .activity-feed-item.is-alert .activity-feed-text {
   color: var(--ok);
+  opacity: 1;
 }
 
 @keyframes activityFeedRoll {

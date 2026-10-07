@@ -374,7 +374,7 @@ function renderDashboard() {
   $("page-dashboard").innerHTML = `
     <div class="page-head">
       <div>
-        <h1>仪表盘</h1>
+        <h1>仓库</h1>
         <p class="page-sub">库存、出入库和待购入概览</p>
       </div>
     </div>
