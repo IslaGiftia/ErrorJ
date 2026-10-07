@@ -9,6 +9,37 @@
   var countEl = document.getElementById("mapDockCount");
   if (!dock || !holder || typeof L === "undefined") return;
 
+  // 游客 / 无地图权限的账号：入口保留，但点击时提示，不进入地图页
+  var dockBlocked = 0;
+  var dockToastTimer = null;
+
+  function showDockToast(message) {
+    var toast = document.getElementById("dockMapToast");
+    if (!toast) {
+      toast = document.createElement("div");
+      toast.id = "dockMapToast";
+      toast.className = "dock-map-toast";
+      toast.setAttribute("role", "status");
+      document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.classList.add("is-visible");
+    clearTimeout(dockToastTimer);
+    dockToastTimer = setTimeout(function () {
+      toast.classList.remove("is-visible");
+    }, 2600);
+  }
+
+  dock.addEventListener("click", function (event) {
+    if (!dockBlocked) return;
+    event.preventDefault();
+    showDockToast(
+      dockBlocked === 401
+        ? "请先注册账号并登录后再查看地图"
+        : "当前账号没有地图权限，请联系管理员"
+    );
+  });
+
   // ---------- WGS84 -> GCJ02（高德底图下校正标记位置） ----------
   var Geo = (function () {
     var PI = Math.PI;
@@ -228,6 +259,7 @@
       return response.json();
     })
     .then(function (data) {
+      dockBlocked = 0;
       places = data.places || [];
       serverSignedIn = Boolean(data.signed_in);
       serverUnseenId = Number(data.newest_unseen_id) || 0;
@@ -251,9 +283,10 @@
     })
     .catch(function (err) {
       if (err && (err.status === 401 || err.status === 403)) {
-        dock.hidden = true;
-        var hud = document.getElementById("dockHud");
-        if (hud) hud.hidden = true;
+        // 入口和 HUD 保留；点击入口时给出注册 / 权限提示
+        dockBlocked = err.status;
+        dock.classList.remove("has-pending");
+        dock.href = "/map";
       }
       if (countEl) countEl.hidden = true;
     });
