@@ -196,16 +196,42 @@
   });
 
   // ---------- 发布 ----------
+  // 带配图时按钮内显示进度，上传中再点一次按钮 = 取消（已选图片保留）。
+  var publishBusy = { active: false, canceled: false, abort: null, fill: null };
+
+  function publishFill() {
+    if (!publishBusy.fill) {
+      publishBusy.fill = ErrorProgress.button($("submitBtn"), {
+        onCancel: function () {
+          publishBusy.canceled = true;
+          if (publishBusy.abort) publishBusy.abort();
+        },
+      });
+    }
+    return publishBusy.fill;
+  }
+
   $("momentForm").addEventListener("submit", function (event) {
     event.preventDefault();
+    if (publishBusy.active) return;
     var content = $("momentContent").value.trim();
     if (!content && !pendingImages.length) {
       toast("写点什么，或者配张图吧。");
       return;
     }
     var button = $("submitBtn");
-    button.disabled = true;
     var queued = pendingImages.slice();
+    var withImages = queued.length > 0;
+    var fill = withImages ? publishFill() : null;
+    publishBusy.active = true;
+    publishBusy.canceled = false;
+    publishBusy.abort = null;
+    if (withImages) {
+      fill.busy("读取图片…");
+      button.title = "上传中，点击可取消";
+    } else {
+      button.disabled = true;
+    }
     Promise.all(
       queued.map(function (file) {
         return fileToBase64(file).then(function (data) {
@@ -213,16 +239,31 @@
         });
       })
     ).then(function (images) {
-      return api("/api/moments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: content,
-          tags: $("momentTags").value.trim(),
-          images: images,
-          show_region: $("momentShowRegion").checked,
-        }),
+      var payload = {
+        content: content,
+        tags: $("momentTags").value.trim(),
+        images: images,
+        show_region: $("momentShowRegion").checked,
+      };
+      if (!withImages) {
+        return api("/api/moments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
+      if (publishBusy.canceled) throw new Error("已取消发布");
+      var task = ErrorProgress.upload("/api/moments", {
+        payload: payload,
+        onProgress: function (ratio) {
+          fill.set(ratio, "取消发布 " + ErrorProgress.percentText(ratio));
+        },
+        onUploaded: function () {
+          fill.busy("发布中…");
+        },
       });
+      publishBusy.abort = task.abort;
+      return task.promise;
     }).then(function () {
       rememberRegionPreference($("momentShowRegion").checked);
       $("momentContent").value = "";
@@ -232,8 +273,16 @@
       toast("已发布");
       return loadMoments();
     }).catch(function (err) {
+      if (publishBusy.canceled || ErrorProgress.isAborted(err)) {
+        toast("已取消发布，图片还在，可以直接重试");
+        return;
+      }
       toast(err.message);
     }).then(function () {
+      publishBusy.active = false;
+      publishBusy.abort = null;
+      if (fill) fill.reset();
+      button.removeAttribute("title");
       button.disabled = false;
     });
   });

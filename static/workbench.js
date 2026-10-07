@@ -395,13 +395,29 @@
     };
   }
 
+  // 上传固件/资料：按钮内显示进度，上传中再点一次按钮 = 取消（文件保留在表单里）。
+  const assetBusy = { active: false, canceled: false, abort: null, fill: null };
+
+  function assetFill() {
+    if (!assetBusy.fill) {
+      assetBusy.fill = ErrorProgress.button($("assetSubmitBtn"), {
+        onCancel: () => {
+          assetBusy.canceled = true;
+          if (assetBusy.abort) assetBusy.abort();
+        },
+      });
+    }
+    return assetBusy.fill;
+  }
+
   async function submitAsset(event) {
     event.preventDefault();
+    if (assetBusy.active) return;
     const button = $("assetSubmitBtn");
-    button.disabled = true;
     try {
       const payload = assetFormPayload();
       if (state.editingAssetId) {
+        button.disabled = true;
         await api(`/api/workbench/assets/${state.editingAssetId}`, {
           method: "PATCH",
           body: JSON.stringify(payload),
@@ -410,20 +426,40 @@
       } else {
         const file = $("assetFile").files[0];
         if (!file) throw new Error("请选择文件");
+        if (file.size > 30 * 1024 * 1024) throw new Error("文件不能超过 30MB");
+        const fill = assetFill();
+        assetBusy.active = true;
+        assetBusy.canceled = false;
+        assetBusy.abort = null;
+        button.title = "上传中，点击可取消";
+        fill.busy("读取文件…");
         payload.file_name = file.name;
-        payload.data_base64 = await readFileBase64(file);
-        await api("/api/workbench/assets", {
-          method: "POST",
-          body: JSON.stringify(payload),
+        const dataBase64 = await readFileBase64(file);
+        if (assetBusy.canceled) throw new Error("已取消上传");
+        const task = ErrorProgress.upload("/api/workbench/assets", {
+          payload: Object.assign({}, payload, { data_base64: dataBase64 }),
+          onProgress: (ratio) =>
+            fill.set(ratio, `取消上传 ${ErrorProgress.percentText(ratio)}`),
+          onUploaded: () => fill.busy("保存中…"),
         });
+        assetBusy.abort = task.abort;
+        await task.promise;
         toast("文件已上传");
       }
       closeModal("assetModal");
       await Promise.all([loadSummary(), loadAssets()]);
     } catch (err) {
+      if (assetBusy.canceled || ErrorProgress.isAborted(err)) {
+        toast("已取消上传，文件还在，可以直接重试");
+        return;
+      }
       toast(err.message || "保存失败");
     } finally {
+      assetBusy.active = false;
+      assetBusy.abort = null;
       button.disabled = false;
+      button.removeAttribute("title");
+      if (assetBusy.fill) assetBusy.fill.reset();
     }
   }
 

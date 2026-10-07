@@ -806,7 +806,8 @@ nginx -T | grep -nE 'server_name|listen 80|listen 443|proxy_pass|client_max_body
 至少要确认下面配置存在：
 
 ```nginx
-client_max_body_size 40m;
+# 上传走 JSON + base64（体积约 1.37 倍），要和 app.py 的 MAX_REQUEST_BYTES 对齐
+client_max_body_size 84m;
 
 proxy_pass http://127.0.0.1:8000;
 proxy_set_header Host $host;
@@ -1048,7 +1049,7 @@ nginx -T | grep client_max_body_size
 应有：
 
 ```nginx
-client_max_body_size 40m;
+client_max_body_size 84m;
 ```
 
 修改后：

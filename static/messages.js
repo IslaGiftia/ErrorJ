@@ -256,16 +256,42 @@
     }
   });
 
+  // 带附件时按钮内显示进度，上传中再点一次按钮 = 取消（已选附件保留）。
+  var sendBusy = { active: false, canceled: false, abort: null, fill: null };
+
+  function sendFill() {
+    if (!sendBusy.fill) {
+      sendBusy.fill = ErrorProgress.button($("submitBtn"), {
+        onCancel: function () {
+          sendBusy.canceled = true;
+          if (sendBusy.abort) sendBusy.abort();
+        },
+      });
+    }
+    return sendBusy.fill;
+  }
+
   $("messageForm").addEventListener("submit", function (event) {
     event.preventDefault();
+    if (sendBusy.active) return;
     var content = $("msgContent").value.trim();
     if (!content && !pendingFiles.length) {
       toast("写点内容，或者加个附件吧。");
       return;
     }
     var button = $("submitBtn");
-    button.disabled = true;
     var queued = pendingFiles.slice();
+    var withFiles = queued.length > 0;
+    var fill = withFiles ? sendFill() : null;
+    sendBusy.active = true;
+    sendBusy.canceled = false;
+    sendBusy.abort = null;
+    if (withFiles) {
+      fill.busy("读取附件…");
+      button.title = "上传中，点击可取消";
+    } else {
+      button.disabled = true;
+    }
     Promise.all(
       queued.map(function (file) {
         return fileToBase64(file).then(function (data) {
@@ -273,15 +299,30 @@
         });
       })
     ).then(function (files) {
-      return api("/api/site/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: content,
-          files: files,
-          show_region: $("msgShowRegion").checked,
-        }),
+      var payload = {
+        content: content,
+        files: files,
+        show_region: $("msgShowRegion").checked,
+      };
+      if (!withFiles) {
+        return api("/api/site/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
+      if (sendBusy.canceled) throw new Error("已取消发送");
+      var task = ErrorProgress.upload("/api/site/messages", {
+        payload: payload,
+        onProgress: function (ratio) {
+          fill.set(ratio, "取消发送 " + ErrorProgress.percentText(ratio));
+        },
+        onUploaded: function () {
+          fill.busy("发布中…");
+        },
       });
+      sendBusy.abort = task.abort;
+      return task.promise;
     }).then(function (result) {
       rememberRegionPreference($("msgShowRegion").checked);
       $("msgContent").value = "";
@@ -297,8 +338,16 @@
       }
       return loadMessages();
     }).catch(function (err) {
+      if (sendBusy.canceled || ErrorProgress.isAborted(err)) {
+        toast("已取消发送，附件还在，可以直接重试");
+        return;
+      }
       toast(err.message);
     }).then(function () {
+      sendBusy.active = false;
+      sendBusy.abort = null;
+      if (fill) fill.reset();
+      button.removeAttribute("title");
       button.disabled = !isNaN(dailyRemaining) && dailyRemaining <= 0;
     });
   });

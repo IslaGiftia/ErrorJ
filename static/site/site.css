@@ -614,9 +614,9 @@ img {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 168px;
+  min-width: 104px;
   height: 44px;
-  padding: 0 18px;
+  padding: 0 14px;
   border: 1px solid color-mix(in srgb, var(--primary) 32%, var(--line));
   border-radius: 10px;
   background: color-mix(in srgb, var(--primary) 8%, var(--panel));
@@ -630,6 +630,21 @@ img {
     border-color 0.2s ease,
     background-color 0.2s ease,
     box-shadow 0.2s ease;
+}
+
+/* 2 个字撑满 3 个字的宽度，和「留言板」两端对齐（不支持两端对齐的浏览器居中显示） */
+.landing-module-text {
+  display: block;
+  width: 3em;
+  text-align: center;
+}
+
+@supports (text-align-last: justify) {
+  .landing-module-text {
+    text-align: justify;
+    text-align-last: justify;
+    text-justify: inter-ideograph;
+  }
 }
 
 .landing-module-btn:hover:not(:disabled) {
@@ -1423,7 +1438,7 @@ body[data-page] .under-construction {
   }
 
   .landing-module-btn {
-    min-width: 190px;
+    min-width: 118px;
     height: 48px;
     font-size: 15px;
   }
@@ -1481,7 +1496,7 @@ body[data-page] .under-construction {
   }
 
   .landing-module-btn {
-    min-width: 210px;
+    min-width: 132px;
     height: 52px;
   }
 
@@ -1533,7 +1548,7 @@ body[data-page] .under-construction {
   }
 
   .landing-module-btn {
-    min-width: 230px;
+    min-width: 144px;
     height: 56px;
   }
 

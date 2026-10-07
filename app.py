@@ -82,7 +82,9 @@ NOTE_IMPORT_FORMATS = {
 }
 WORKBENCH_FILE_MAX_BYTES = 30 * 1024 * 1024
 RECOMMEND_IMAGE_MAX_BYTES = 15 * 1024 * 1024
-MAX_REQUEST_BYTES = 40 * 1024 * 1024
+# 上传走 JSON + base64，体积约为原文件的 1.37 倍：60MB 的音乐大约 80MB 请求体，
+# 30MB 的固件大约 41MB，所以这里要留出足够余量（nginx 的 client_max_body_size 同步为 84m）。
+MAX_REQUEST_BYTES = 84 * 1024 * 1024
 AUTH_PATH = DATA_DIR / "auth.json"
 AUTH_COOKIE = "errorjiang_session"
 AUTH_SESSION_DAYS = 7
@@ -1240,6 +1242,24 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
                 )
             conn.execute(
                 "INSERT INTO app_meta (key, value) VALUES ('map_categories_v2', ?)",
+                (now_text(),),
+            )
+        # 一次性修复历史数据：早期「新增分类」会先建一个图标为占位「新」的分类，
+        # 改名时图标没跟着走，于是留下「酒店 + 新」这种不一致。名字首字已经变了、
+        # 图标还停在占位「新」的，按名字首字补齐；自定义过图标的分类不受影响。
+        glyph_fix = conn.execute(
+            "SELECT value FROM app_meta WHERE key = 'map_glyph_follow_fix_v1'"
+        ).fetchone()
+        if not glyph_fix:
+            conn.execute(
+                """UPDATE map_categories
+                      SET glyph = substr(trim(name), 1, 1)
+                    WHERE glyph = '新'
+                      AND trim(name) <> ''
+                      AND substr(trim(name), 1, 1) <> '新'"""
+            )
+            conn.execute(
+                "INSERT INTO app_meta (key, value) VALUES ('map_glyph_follow_fix_v1', ?)",
                 (now_text(),),
             )
         import_timestamp = now_text()
@@ -9192,8 +9212,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
             raise ValueError("分类名称不能为空。")
         glyph = str(payload.get("glyph", current.get("glyph", "·")) or "·").strip()[:2] or "·"
         old_name = str(current.get("name") or "").strip()
-        # 自动图标（图标正好是旧名字首字）跟随改名更新，自定义图标保留
-        if old_name and name != old_name and glyph == old_name[:1]:
+        # 自动图标（旧名字首字，或还没设置时的占位「·」）跟随改名更新，自定义图标保留
+        if old_name and name != old_name and glyph in (old_name[:1], "·"):
             glyph = name[:1] or "·"
         color = str(payload.get("color", current.get("color", "#7b68ee")) or "#7b68ee").strip()
         if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
@@ -9653,7 +9673,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
                         color = str(properties.get("category_color") or "").strip()
                         if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
                             color = "#7b68ee"
-                        glyph = str(properties.get("category_glyph") or "·").strip()[:2] or "·"
+                        # 导入文件里没带图标时，用分类名首字，别留一个没有意义的「·」
+                        glyph = (
+                            str(properties.get("category_glyph") or "").strip()[:2]
+                            or (top_name[:1] or "·")
+                        )
                         top = {
                             "id": execute(
                                 """INSERT INTO map_categories
@@ -9681,7 +9705,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                                 color = str(properties.get("category_color") or "").strip()
                                 if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
                                     color = "#7b68ee"
-                                glyph = str(properties.get("category_glyph") or "·").strip()[:2] or "·"
+                                glyph = (
+                                    str(properties.get("category_glyph") or "").strip()[:2]
+                                    or (child_name[:1] or "·")
+                                )
                                 child = {
                                     "id": execute(
                                         """INSERT INTO map_categories

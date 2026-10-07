@@ -1,0 +1,147 @@
+/*
+ * Error酱全站进度反馈样式（配合 /static/site/progress.js）
+ * 颜色统一用 currentColor 混合，自动适配各页面的浅色/暗色主题。
+ */
+
+/* ---------- 按钮 / 文字内部填充 ---------- */
+
+.pg-host {
+  position: relative;
+  overflow: hidden;
+}
+
+.pg-host > .pg-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 0;
+  width: var(--pg-fill, 0%);
+  background: color-mix(in srgb, currentColor 22%, transparent);
+  transition: width 0.18s linear;
+  pointer-events: none;
+}
+
+.pg-host > *:not(.pg-fill) {
+  position: relative;
+  z-index: 1;
+}
+
+.pg-host[data-pg-mode="busy"] > .pg-fill {
+  width: 100%;
+  background-image: repeating-linear-gradient(
+    115deg,
+    color-mix(in srgb, currentColor 26%, transparent) 0 10px,
+    color-mix(in srgb, currentColor 8%, transparent) 10px 20px
+  );
+  animation: pg-stripes 0.9s linear infinite;
+}
+
+.pg-host[aria-busy="true"] {
+  cursor: progress;
+}
+
+@keyframes pg-stripes {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 28px 0;
+  }
+}
+
+/* ---------- 逐文件进度列表 ---------- */
+
+.pg-rows {
+  --pg-accent: currentColor;
+  --pg-ok: #2f9e66;
+  --pg-danger: #d64545;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pg-rows[hidden] {
+  display: none;
+}
+
+.pg-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 10px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  border-radius: 8px;
+}
+
+.pg-row-name {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pg-row-meta {
+  color: color-mix(in srgb, currentColor 62%, transparent);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pg-row-bar {
+  display: block;
+  grid-column: 1 / -1;
+  height: 3px;
+  margin-top: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 13%, transparent);
+}
+
+.pg-row-bar > i {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--pg-accent);
+  transition: width 0.18s linear;
+}
+
+.pg-row[data-state="processing"] .pg-row-bar > i {
+  width: 100% !important;
+  background-image: repeating-linear-gradient(
+    115deg,
+    color-mix(in srgb, var(--pg-accent) 70%, transparent) 0 10px,
+    color-mix(in srgb, var(--pg-accent) 18%, transparent) 10px 20px
+  );
+  animation: pg-stripes 0.9s linear infinite;
+}
+
+.pg-row[data-state="done"] .pg-row-bar > i {
+  background: var(--pg-ok);
+}
+
+.pg-row[data-state="error"] .pg-row-bar > i {
+  background: var(--pg-danger);
+}
+
+.pg-row[data-state="error"] .pg-row-meta {
+  color: var(--pg-danger);
+}
+
+.pg-row[data-state="canceled"] {
+  opacity: 0.66;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pg-host > .pg-fill,
+  .pg-row-bar > i {
+    transition: none;
+  }
+
+  .pg-host[data-pg-mode="busy"] > .pg-fill,
+  .pg-row[data-state="processing"] .pg-row-bar > i {
+    animation: none;
+  }
+}

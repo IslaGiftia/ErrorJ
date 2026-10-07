@@ -1126,6 +1126,21 @@
     return { title: title.slice(0, 120), content };
   }
 
+  // Word / PDF 导入：按钮内显示上传进度，服务端解析阶段用流动条纹表示。
+  let importBusy = { active: false, canceled: false, abort: null, fill: null };
+
+  function documentImportFill() {
+    if (!importBusy.fill) {
+      importBusy.fill = ErrorProgress.button($("documentImportBtn"), {
+        onCancel: () => {
+          importBusy.canceled = true;
+          if (importBusy.abort) importBusy.abort();
+        },
+      });
+    }
+    return importBusy.fill;
+  }
+
   async function importDocumentFile(file) {
     if (!file) return;
     if (isDirty()) {
@@ -1147,15 +1162,31 @@
     state.uploading += 1;
     const extension = String(file.name || "").toLowerCase().match(/\.[^.]+$/)?.[0] || "文档";
     $("toolbarHint").textContent = `正在导入 ${extension.replace(".", "").toUpperCase()}…`;
+    let usedProgress = false;
     try {
       if (kind === "binary") {
-        const result = await api("/api/notes/import", {
-          method: "POST",
-          body: JSON.stringify({
-            file_name: file.name || "document",
-            data_base64: await readAsBase64(file),
-          }),
+        const formatLabel = extension.replace(".", "").toUpperCase() || "文档";
+        const fill = documentImportFill();
+        usedProgress = true;
+        importBusy.active = true;
+        importBusy.canceled = false;
+        importBusy.abort = null;
+        fill.busy("读取文档…");
+        const dataBase64 = await readAsBase64(file);
+        if (importBusy.canceled) throw new Error("已取消导入");
+        const task = ErrorProgress.upload("/api/notes/import", {
+          payload: { file_name: file.name || "document", data_base64: dataBase64 },
+          onProgress: (ratio) => {
+            fill.set(ratio, `上传 ${ErrorProgress.percentText(ratio)}`);
+            $("toolbarHint").textContent = `上传 ${formatLabel} ${ErrorProgress.percentText(ratio)}`;
+          },
+          onUploaded: () => {
+            fill.busy("解析文档中…");
+            $("toolbarHint").textContent = `解析 ${formatLabel} 中…`;
+          },
         });
+        importBusy.abort = task.abort;
+        const result = await task.promise;
         await loadNotes();
         if (result && result.id) {
           openNote(result.id, { mode: "read", force: true });
@@ -1189,12 +1220,21 @@
       }
       toast(`${kind === "html" ? "HTML" : kind === "markdown" ? "Markdown" : "TXT"} 已导入为笔记`);
     } catch (err) {
+      if (importBusy.canceled || ErrorProgress.isAborted(err)) {
+        toast("已取消导入，文件还在，可以直接重试");
+        return;
+      }
       toast(err.message || "文档导入失败");
     } finally {
       state.uploading -= 1;
       if (state.uploading <= 0) {
         state.uploading = 0;
         $("toolbarHint").textContent = "";
+      }
+      if (usedProgress) {
+        importBusy.active = false;
+        importBusy.abort = null;
+        importBusy.fill.reset();
       }
     }
   }

@@ -2105,6 +2105,7 @@
     });
     catRows.addEventListener("input", function (event) {
       // 改分类名时，如果图标还是旧名字首字（自动图标），实时跟随新名字
+      if (event.isComposing) return; // 输入法组字过程中不跟随，等上屏后再说
       var nameInput = event.target.closest(".mp-cat-name");
       if (!nameInput) return;
       var row = nameInput.closest(".mp-cat-row");
@@ -2112,7 +2113,8 @@
       if (!glyphInput) return;
       var oldGlyph = (row.getAttribute("data-cat-old-name") || "").trim().slice(0, 1);
       var nextGlyph = nameInput.value.trim().slice(0, 1);
-      if (oldGlyph && nextGlyph && glyphInput.value.trim() === oldGlyph) {
+      var currentGlyph = glyphInput.value.trim();
+      if (oldGlyph && nextGlyph && (currentGlyph === oldGlyph || !currentGlyph || currentGlyph === "·")) {
         glyphInput.value = nextGlyph;
       }
     });
