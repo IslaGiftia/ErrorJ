@@ -9,7 +9,7 @@
 更新日期：
 
 ```text
-2026-09-29
+2026-10-07
 ```
 
 公网访问：
@@ -41,7 +41,8 @@ http://<服务器公网IP>
 Web 服务：Nginx 1.28.3
 Python：3.14.4
 Git 仓库：git@github.com:IslaGiftia/ErrorJ.git
-当前提交：e3dd260
+当前提交：57ff940
+Nginx 上传上限：client_max_body_size 84m
 公网端口：80 已开放
 HTTPS：未配置，443 未开放
 自动备份：尚未确认安装
@@ -556,3 +557,86 @@ crontab -l
 ```
 
 不要记录密码、私钥、Token 或会话密钥。
+
+## 6. 2026-10-07 部署记录：上传进度、歌单改版与图标修复
+
+```text
+日期：2026-10-07 17:46 – 17:50（服务器本地时间）
+操作人：Codex（本地提交推送 + 服务器执行）
+操作目的：发布「全站上传进度、歌单页改版、地图分类图标修复、首页入口与标签页文字统一、
+          上传体积上限提升」，并更新线上 Error酱动态的更新日志。
+```
+
+操作前状态：
+
+- `/opt/errorjiang` 停在 `bceab0b`，`errorjiang.service` 与 `nginx` 都是 active，`/api/health` 返回 200。
+- Nginx `client_max_body_size 40m`，应用 `MAX_REQUEST_BYTES = 40MB`。
+
+执行的命令：
+
+```bash
+# 1) 本地提交并推送（本机 C:\lX.NeT）
+git commit -m "feat: upload progress, music player rework and UI polish"   # 57ff940
+git push origin main
+
+# 2) 服务器：先备份，再拉取代码
+bash /opt/errorjiang/tools/backup_linux.sh /data/errorjiang-backup        # 20261007-174616（46M）
+cd /opt/errorjiang && git pull --ff-only                                   # bceab0b..57ff940
+/usr/bin/python3 -m pip install --break-system-packages -r requirements.txt
+/usr/bin/python3 -m py_compile app.py
+
+# 3) Nginx 上传上限 40m -> 84m
+cp -a /etc/nginx/sites-available/errorjiang.conf \
+      /etc/nginx/sites-available/errorjiang.conf.bak-<时间戳>
+sed -i "s/client_max_body_size 40m;/client_max_body_size 84m;/" \
+      /etc/nginx/sites-available/errorjiang.conf
+nginx -t && systemctl reload nginx
+
+# 4) 重启并检查
+systemctl restart errorjiang && sleep 3
+curl -s http://127.0.0.1:8000/api/health
+
+# 5) 更新线上动态（更新日志）
+scp config/changelog-seed.json <服务器>:/opt/errorjiang/config/changelog-seed.json
+# 先用 sqlite3 备份数据库到 /data/errorjiang-backup/inventory-before-changelog-20261007-1748.db
+python3 tools/import_changelog_moments.py --seed config/changelog-seed.json \
+        --date 2026-10-07 --force --dry-run
+python3 tools/import_changelog_moments.py --seed config/changelog-seed.json \
+        --date 2026-10-07 --force
+```
+
+结果：
+
+- 服务 active，`http://127.0.0.1:8000/api/health` 和 `http://127.0.0.1/api/health` 都返回 200 `{"ok": true}`。
+- 标签页文字线上生效：`/messages` 留言板、`/games` 游戏、`/music` 歌单、`/moments` 动态、
+  `/recommendations` 推荐、`/map` 足迹（地图对游客仍按权限 302 到登录页）。
+- 地图分类图标的一次性修复已随启动执行：`app_meta` 里写入了 `map_glyph_follow_fix_v1`，
+  服务器上的「酒店 + 新」「网吧 + 新」都换成了名字首字，剩余不一致的占位图标为 0。
+- 线上动态 id=15 的 2026-10-07 更新日志覆盖为「工作台日志、上传进度与歌单改版」
+  （903 字，17:43:00），公开接口能读到标题和新增条目。
+
+遇到的问题：
+
+- 生成数据备份时用 heredoc 拼接时间戳，被外层引号吃掉，产生了一个名字里带空格的备份文件。
+
+处理方式：
+
+- 删除那个文件，改由 Python 内部用 `datetime` 生成时间戳，重新生成
+  `/data/errorjiang-backup/inventory-before-changelog-20261007-1748.db`。
+
+验证结果：
+
+```text
+systemctl is-active errorjiang   -> active
+curl /api/health（8000 / Nginx）  -> 200 {"ok": true}
+/messages /games /music /moments /recommendations -> 留言板 / 游戏 / 歌单 / 动态 / 推荐
+grep <title> static/map.html     -> 足迹
+map_categories 残留占位图标       -> 0
+moments id=15                    -> 2026-10-07 17:43:00，903 字
+```
+
+后续待办：
+
+- 在浏览器里实际走一遍大文件上传（音乐 60MB、工作台固件 30MB、笔记 Word/PDF），确认进度、取消和
+  服务器解析阶段的表现。
+- `/etc/nginx/sites-available/errorjiang.conf.bak-*` 保留几天后可清理。
