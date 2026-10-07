@@ -45,6 +45,12 @@
   var frames = 0;
   var lastFrame = performance.now();
   function tick(now) {
+    if (document.hidden) {
+      frames = 0;
+      lastFrame = now;
+      requestAnimationFrame(tick);
+      return;
+    }
     frames += 1;
     if (now - lastFrame >= 1000) {
       var fps = Math.round((frames * 1000) / (now - lastFrame));

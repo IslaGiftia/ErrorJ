@@ -95,7 +95,9 @@
       return beam;
     });
 
+    // 雨滴检测不需要每帧运行；5Hz 足够判断落点，也能避免频繁触发布局计算。
     window.setInterval(function () {
+      if (document.hidden) return;
       var sceneRect = scene.getBoundingClientRect();
       var floorRect = floor.getBoundingClientRect();
 
@@ -119,7 +121,7 @@
           explosion.remove();
         }, 3500);
       });
-    }, 50);
+    }, 200);
   }
 
   window.ErrorRain = { init: initRainScene };
