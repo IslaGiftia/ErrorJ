@@ -1,14 +1,11 @@
 (function () {
+  var panel = document.getElementById("activityPanel");
+  var alertsBox = document.getElementById("activityAlerts");
   var feed = document.getElementById("activityFeed");
   var track = document.getElementById("activityFeedTrack");
-  if (!feed || !track) return;
+  if (!panel || !alertsBox || !feed || !track) return;
 
-  var paused = false;
-  var lastStep = 0;
   var lastPayloadKey = "";
-  var scrollable = false;
-  var maxScroll = 0;
-  var rafId = 0;
 
   function formatTime(value) {
     var text = String(value || "");
@@ -36,25 +33,25 @@
   }
 
   function render(items) {
-    track.textContent = "";
-    if (!items.length) {
-      feed.hidden = true;
-      scrollable = false;
-      maxScroll = 0;
-      return;
-    }
+    var alerts = [];
+    var logs = [];
     items.forEach(function (item) {
+      if (item.alert) alerts.push(item);
+      else if (logs.length < 9) logs.push(item);
+    });
+
+    alertsBox.textContent = "";
+    alerts.forEach(function (item) {
+      alertsBox.appendChild(buildItem(item));
+    });
+    alertsBox.hidden = alerts.length === 0;
+
+    track.textContent = "";
+    logs.forEach(function (item) {
       track.appendChild(buildItem(item));
     });
-    feed.hidden = false;
-    feed.scrollTop = 0;
-    updateScrollable();
-    schedule();
-  }
-
-  function updateScrollable() {
-    maxScroll = Math.max(0, track.scrollHeight - feed.clientHeight);
-    scrollable = !feed.hidden && maxScroll > 0;
+    feed.hidden = logs.length === 0;
+    panel.hidden = alerts.length === 0 && logs.length === 0;
   }
 
   function load() {
@@ -73,42 +70,11 @@
       .catch(function () {});
   }
 
-  function step(now) {
-    rafId = 0;
-    if (!paused && scrollable) {
-      if (now - lastStep > 50) {
-        feed.scrollTop += 1;
-        if (feed.scrollTop >= maxScroll) {
-          feed.scrollTop = 0;
-        }
-        lastStep = now;
-      }
-    }
-    if (scrollable) schedule();
-  }
-
-  function schedule() {
-    if (!rafId && scrollable) {
-      rafId = requestAnimationFrame(step);
-    }
-  }
-
-  feed.addEventListener("mouseenter", function () {
-    paused = true;
-  });
-  feed.addEventListener("mouseleave", function () {
-    paused = false;
-  });
   document.addEventListener("visibilitychange", function () {
-    if (!document.hidden) {
-      load();
-      updateScrollable();
-      schedule();
-    }
+    if (!document.hidden) load();
   });
-  window.addEventListener("resize", updateScrollable);
   window.addEventListener("errorauthchange", load);
 
   load();
-  setInterval(load, 20000);
+  setInterval(load, 10000);
 })();

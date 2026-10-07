@@ -1,13 +1,38 @@
 /* 首页左下角近 7 天公开动态，只在首页桌面端显示。 */
-.activity-feed {
+.activity-panel {
   position: fixed;
   left: 20px;
   bottom: calc(22px + env(safe-area-inset-bottom, 0px));
   z-index: 68;
   width: min(380px, 28vw);
-  height: 88px;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.activity-alerts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.activity-feed {
+  height: calc(13.5em + 32px);
   overflow: hidden;
-  pointer-events: auto;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 14%,
+    #000 86%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 14%,
+    #000 86%,
+    transparent 100%
+  );
 }
 
 .activity-feed-track {
@@ -20,7 +45,7 @@
   display: flex;
   gap: 8px;
   min-width: 0;
-  font-size: 12px;
+  font-size: inherit;
   line-height: 1.5;
   white-space: nowrap;
 }
@@ -40,9 +65,9 @@
   text-overflow: ellipsis;
 }
 
-.activity-feed-item.is-alert .activity-feed-text {
+.activity-alerts .activity-feed-item.is-alert .activity-feed-text {
   color: var(--warn);
-  animation: activityFeedAlert 1.2s ease-in-out infinite;
+  animation: activityFeedAlert 0.85s ease-in-out infinite;
 }
 
 @keyframes activityFeedAlert {
@@ -51,42 +76,39 @@
     opacity: 1;
   }
   50% {
-    opacity: 0.35;
+    opacity: 0.32;
   }
 }
 
 @media (min-width: 1600px) {
-  .activity-feed {
+  .activity-panel {
     left: 28px;
     bottom: calc(32px + env(safe-area-inset-bottom, 0px));
     width: min(420px, 28vw);
-    height: 100px;
     font-size: 13px;
   }
 }
 
 @media (min-width: 2100px) {
-  .activity-feed {
+  .activity-panel {
     left: 40px;
     bottom: calc(44px + env(safe-area-inset-bottom, 0px));
     width: min(480px, 28vw);
-    height: 120px;
     font-size: 15px;
   }
 }
 
 @media (min-width: 3000px) {
-  .activity-feed {
+  .activity-panel {
     left: 52px;
     bottom: calc(56px + env(safe-area-inset-bottom, 0px));
     width: 520px;
-    height: 140px;
     font-size: 17px;
   }
 }
 
 @media (max-width: 900px) {
-  .activity-feed {
+  .activity-panel {
     display: none !important;
   }
 }
