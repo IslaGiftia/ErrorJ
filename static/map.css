@@ -1442,13 +1442,14 @@ body {
 
 @media (max-width: 860px) {
   .mp-sidebar {
-    top: auto;
+    /* 从右上角三个按钮下方开始，停在底部操作栏上方 */
+    top: calc(12px + var(--mp-tools-h, 130px) + 8px);
     left: 12px;
     right: 12px;
-    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px) + var(--mp-actions-h, 92px) + 8px);
     width: auto;
-    max-height: min(62vh, 520px);
-    transform: translateY(calc(100% + 24px));
+    max-height: none;
+    transform: translateY(calc(100% + var(--mp-actions-h, 92px) + 32px));
     transition: transform 0.22s ease;
   }
 
@@ -1456,13 +1457,18 @@ body {
     transform: translateY(0);
   }
 
-  .mp-sidebar-close {
-    display: inline-flex;
+  /* 搜索框、分类、标签等固定区域不参与压缩，只有结果列表滚动 */
+  .mp-sidebar > * {
+    flex: 0 0 auto;
   }
 
-  .mp-sidebar.is-open ~ .mp-actions {
-    opacity: 0;
-    pointer-events: none;
+  .mp-sidebar .mp-list {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .mp-sidebar-close {
+    display: inline-flex;
   }
 
   .mp-actions {
@@ -1473,6 +1479,83 @@ body {
     gap: 6px;
     padding: 8px;
     transition: opacity 0.18s ease;
+  }
+
+  /* 手机端整体收缩，保证右上角按钮以下能完整显示搜索区 */
+  .mp-sidebar-head {
+    padding: 8px 10px;
+    gap: 8px;
+  }
+
+  .mp-brand strong {
+    font-size: 13.5px;
+  }
+
+  .mp-count {
+    font-size: 11px;
+  }
+
+  .mp-search {
+    margin: 8px 10px 6px;
+  }
+
+  .mp-search input {
+    height: 32px;
+    padding: 0 26px 0 30px;
+    font-size: 12.5px;
+  }
+
+  .mp-search svg {
+    left: 9px;
+    width: 14px;
+    height: 14px;
+  }
+
+  .mp-cats {
+    padding: 4px 10px 8px;
+    gap: 4px;
+    max-height: 64px;
+  }
+
+  .mp-tags {
+    padding: 6px 10px;
+    gap: 4px;
+    max-height: 52px;
+  }
+
+  .mp-owner {
+    padding: 6px 10px 8px;
+  }
+
+  .mp-owner label {
+    font-size: 11.5px;
+  }
+
+  .mp-owner select {
+    height: 28px;
+    font-size: 12px;
+  }
+
+  .mp-list {
+    padding: 6px;
+  }
+
+  .mp-item {
+    padding: 7px 8px;
+    gap: 8px;
+  }
+
+  .mp-item-title {
+    font-size: 13px;
+  }
+
+  .mp-item-sub {
+    font-size: 11.5px;
+  }
+
+  .mp-actions .mp-btn {
+    height: 34px;
+    font-size: 12.5px;
   }
 
   .mp-tools {

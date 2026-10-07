@@ -2219,9 +2219,11 @@
   }
   function openSidebar() {
     if (sidebar) sidebar.classList.add("is-open");
+    updateToggleForViewport();
   }
   function closeSidebar() {
     if (sidebar) sidebar.classList.remove("is-open");
+    updateToggleForViewport();
   }
   function setActionsToggle(collapsed) {
     if (!actionsToggle) return;
@@ -2232,6 +2234,23 @@
     actionsToggle.setAttribute("aria-label", label);
     actionsToggle.setAttribute("title", label);
     if (window.lucide && lucide.createIcons) lucide.createIcons();
+  }
+  function updateToggleForViewport() {
+    if (!actionsToggle) return;
+    if (isNarrowMap()) {
+      // 手机端：清单收起时显示向上箭头（点击展开），展开后显示向下箭头（点击收起）
+      var open = Boolean(sidebar && sidebar.classList.contains("is-open"));
+      actionsToggle.innerHTML = open
+        ? '<i data-lucide="chevron-down"></i>'
+        : '<i data-lucide="chevron-up"></i>';
+      var label = open ? "收起标记清单" : "展开标记清单";
+      actionsToggle.setAttribute("aria-label", label);
+      actionsToggle.setAttribute("title", label);
+      if (window.lucide && lucide.createIcons) lucide.createIcons();
+      return;
+    }
+    var app = $("mapApp");
+    setActionsToggle(app ? app.classList.contains("is-sidebar-collapsed") : false);
   }
   function syncMapActions() {
     var app = $("mapApp");
@@ -2247,6 +2266,14 @@
       "--mp-actions-h",
       Math.round(actions.getBoundingClientRect().height) + "px"
     );
+    var tools = document.querySelector(".mp-tools");
+    if (tools) {
+      app.style.setProperty(
+        "--mp-tools-h",
+        Math.round(tools.getBoundingClientRect().height) + "px"
+      );
+    }
+    updateToggleForViewport();
   }
   if (actionsToggle) {
     actionsToggle.addEventListener("click", function () {
