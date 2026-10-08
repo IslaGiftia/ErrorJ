@@ -425,6 +425,8 @@ MAP_PHOTO_MAX_COUNT = 9
 MUSIC_MAX_BYTES = 60 * 1024 * 1024
 MUSIC_COVER_MAX_BYTES = 5 * 1024 * 1024
 MUSIC_EXTENSIONS = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".oga", ".opus"}
+MUSIC_DURATION_BACKFILLED = set()
+MUSIC_DURATION_BACKFILL_LOCK = threading.Lock()
 BOOK_MAX_BYTES = 60 * 1024 * 1024
 BOOK_COVER_MAX_BYTES = 5 * 1024 * 1024
 BOOK_EXTENSIONS = {
@@ -4310,6 +4312,40 @@ def parse_audio_metadata(raw, filename):
     return info
 
 
+def ensure_music_duration(row):
+    """返回本地歌曲时长；旧记录缺失时读取文件补一次。"""
+    try:
+        duration = float(row.get("duration") or 0)
+    except (TypeError, ValueError):
+        duration = 0
+    if duration > 0:
+        return duration
+    if row.get("source_type") != "file":
+        return None
+    item_id = int(row.get("id") or 0)
+    with MUSIC_DURATION_BACKFILL_LOCK:
+        if item_id in MUSIC_DURATION_BACKFILLED:
+            return None
+        MUSIC_DURATION_BACKFILLED.add(item_id)
+    source_id = row.get("source_id") or ""
+    path = DATA_DIR / source_id
+    try:
+        if not path.is_file() or path.stat().st_size > MUSIC_MAX_BYTES:
+            return None
+        raw = path.read_bytes()
+    except OSError:
+        return None
+    metadata = parse_audio_metadata(raw, os.path.basename(source_id))
+    try:
+        duration = float(metadata.get("duration") or 0)
+    except (TypeError, ValueError):
+        duration = 0
+    if duration > 0:
+        execute("UPDATE site_music SET duration = ? WHERE id = ?", (duration, item_id))
+        return duration
+    return None
+
+
 CJK_RANGES = ((0x3400, 0x4DBF), (0x4E00, 0x9FFF), (0xF900, 0xFAFF))
 
 
@@ -4808,6 +4844,16 @@ def normalize_region(name):
             text = text[: -len(suffix)]
             break
     return text[:20]
+
+
+def mask_username(value):
+    """游客视角只保留用户名最后一个字符。"""
+    text = str(value or "").strip()
+    if not text:
+        return "普通用户"
+    if len(text) == 1:
+        return text
+    return "*" * (len(text) - 1) + text[-1]
 
 
 def is_recent_place(created_at, hours=24):
@@ -7511,6 +7557,19 @@ class InventoryHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             api_error(self, 500, f"服务器错误：{exc}")
 
+    def do_HEAD(self):
+        parsed = urlsplit(self.path)
+        path = unquote(parsed.path)
+        if not self.guard_request(path, "GET"):
+            return
+        try:
+            if re.fullmatch(r"/api/site/music/\d+/stream", path):
+                self.api_site_music_stream(int(path.split("/")[4]), head_only=True)
+                return
+            self.send_error(404)
+        except Exception as exc:
+            api_error(self, 500, f"服务器错误：{exc}")
+
     def do_POST(self):
         parsed = urlsplit(self.path)
         path = unquote(parsed.path)
@@ -8359,7 +8418,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         self.send_json(200, {"image_path": relative})
 
-    def send_data_file(self, relative, download_name=None, allow_range=False):
+    def send_data_file(
+        self,
+        relative,
+        download_name=None,
+        allow_range=False,
+        head_only=False,
+    ):
         relative = normalized_data_relative(relative)
         if not relative or relative == ".":
             api_error(self, 404, "文件不存在。")
@@ -8406,9 +8471,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
             end = max(start, min(end, total_size - 1))
             length = max(0, end - start + 1)
             try:
-                with full.open("rb") as handle:
-                    handle.seek(start)
-                    body = handle.read(length)
+                body = b""
+                if not head_only:
+                    with full.open("rb") as handle:
+                        handle.seek(start)
+                        body = handle.read(length)
                 self.send_response(206)
                 self.send_header("Content-Type", content_type)
                 self.send_header("X-Content-Type-Options", "nosniff")
@@ -8422,15 +8489,35 @@ class InventoryHandler(BaseHTTPRequestHandler):
                         "Content-Disposition",
                         f"attachment; filename*=UTF-8''{encoded_name}",
                     )
-                self.send_header("Content-Length", str(len(body)))
+                self.send_header(
+                    "Content-Length",
+                    str(length if head_only else len(body)),
+                )
                 self.send_header("Cache-Control", cache_control)
                 self.send_header("ETag", etag)
                 self.end_headers()
-                self.wfile.write(body)
+                if not head_only:
+                    self.wfile.write(body)
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 pass
             except OSError:
                 api_error(self, 404, "文件不存在。")
+            return
+        if head_only:
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Accept-Ranges", "bytes")
+            if download_name:
+                encoded_name = quote(os.path.basename(download_name))
+                self.send_header(
+                    "Content-Disposition",
+                    f"attachment; filename*=UTF-8''{encoded_name}",
+                )
+            self.send_header("Content-Length", str(total_size))
+            self.send_header("Cache-Control", cache_control)
+            self.send_header("ETag", etag)
+            self.end_headers()
             return
         body = full.read_bytes()
         encoding = self.maybe_gzip(body, content_type)
@@ -8543,18 +8630,16 @@ class InventoryHandler(BaseHTTPRequestHandler):
         return grouped
 
     def message_display_name(self, row, authors, viewer_signed_in):
-        """留言展示名：优先账号昵称；游客看不到普通账号的用户名。"""
+        """留言展示名：游客只看到脱敏用户名。"""
         user_id = row.get("user_id")
         if user_id is None:
             return str(row.get("nickname") or "匿名")[:30]
         if user_id == 0:
             return "管理员"
         user = authors.get(user_id)
-        nickname = str((user or {}).get("nickname") or "").strip()
-        if nickname:
-            return nickname[:16]
-        if viewer_signed_in and user:
-            return str(user.get("username") or "普通用户")[:32]
+        username = str((user or {}).get("username") or "").strip()
+        if username:
+            return username[:32] if viewer_signed_in else mask_username(username)
         return str(row.get("nickname") or "").strip()[:16] or "普通用户"
 
     def message_daily_used(self, user_id):
@@ -9888,6 +9973,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
         is_admin = self.is_admin()
         for row in rows:
             if row.get("source_type") == "file":
+                duration = ensure_music_duration(row)
+                if duration:
+                    row["duration"] = duration
                 row["url"] = f"/api/site/music/{row['id']}/stream"
                 row["download_state"] = self.download_state(identity, "music", row["id"])
             else:
@@ -9900,7 +9988,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 row.pop("source_id", None)
         self.send_json(200, rows)
 
-    def api_site_music_stream(self, item_id):
+    def api_site_music_stream(self, item_id, head_only=False):
         row = query_one(
             """SELECT title, source_type, source_id
                FROM site_music WHERE id = ?""",
@@ -9910,7 +9998,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 404, "歌曲不存在或不是本地上传文件。")
             return
         source_id = row.get("source_id") or ""
-        self.send_data_file(source_id, allow_range=True)
+        self.send_data_file(source_id, allow_range=True, head_only=head_only)
 
     def api_site_music_download(self, item_id):
         resource = self.download_resource("music", item_id)
@@ -11537,7 +11625,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             elif viewer_signed_in:
                 actor = str(row.get("member_username") or "普通用户")[:32]
             else:
-                actor = "普通用户"
+                actor = mask_username(row.get("member_username"))
             items.append(
                 {
                     "id": f"activity-{row['id']}",

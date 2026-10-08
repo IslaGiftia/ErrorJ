@@ -904,14 +904,19 @@
     seek.value = String(Math.round(ratio * 1000));
     paintRange(seek, ratio);
   });
-  audio.addEventListener("loadedmetadata", function () {
+  function updateAudioDuration() {
+    if (!isFinite(audio.duration) || audio.duration <= 0) return;
     $("playerDuration").textContent = formatTime(audio.duration);
     var track = currentTrack();
     if (track && !track.duration) {
       track.duration = audio.duration;
       renderList();
     }
-  });
+  }
+
+  audio.addEventListener("loadedmetadata", updateAudioDuration);
+  audio.addEventListener("durationchange", updateAudioDuration);
+  audio.addEventListener("loadeddata", updateAudioDuration);
   audio.addEventListener("error", function () {
     if (audio.src) toast("这首歌无法播放，可能是格式不受支持或文件缺失");
   });

@@ -2,6 +2,7 @@ import base64
 import json
 import tempfile
 import unittest
+import wave
 from pathlib import Path
 from unittest.mock import patch
 
@@ -56,6 +57,25 @@ class ReferenceProjectTests(unittest.TestCase):
         rows = app.reference_seed_rows()
         self.assertGreater(len(rows), 5)
         self.assertTrue(any(row[1] == "https://github.com/IslaGiftia/ErrorJ" for row in rows))
+
+
+class UsernameMaskTests(unittest.TestCase):
+    def test_guest_username_mask_keeps_only_last_character(self):
+        self.assertEqual(app.mask_username("牛大能"), "**能")
+        self.assertEqual(app.mask_username("A"), "A")
+
+    def test_message_display_name_uses_full_username_for_signed_in_user(self):
+        handler = object.__new__(app.InventoryHandler)
+        row = {"user_id": 7, "nickname": "旧昵称"}
+        authors = {7: {"username": "牛大能", "nickname": "牛牛"}}
+        self.assertEqual(
+            handler.message_display_name(row, authors, False),
+            "**能",
+        )
+        self.assertEqual(
+            handler.message_display_name(row, authors, True),
+            "牛大能",
+        )
 
 
 class DownloadWorkflowTests(unittest.TestCase):
@@ -126,6 +146,39 @@ class DownloadWorkflowTests(unittest.TestCase):
                     {"action": "revoke"},
                 )
                 self.assertEqual(handler.download_state(member, "book", book_id), "revoked")
+
+
+class MusicDurationTests(unittest.TestCase):
+    def test_missing_duration_is_backfilled_from_local_audio(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with patch.object(app, "DB_PATH", root / "inventory.db"), patch.object(
+                app, "DATA_DIR", root
+            ):
+                app.init_db()
+                audio_dir = root / "site_music_files"
+                audio_dir.mkdir(parents=True, exist_ok=True)
+                audio_path = audio_dir / "tone.wav"
+                with wave.open(str(audio_path), "wb") as handle:
+                    handle.setnchannels(1)
+                    handle.setsampwidth(1)
+                    handle.setframerate(8000)
+                    handle.writeframes(b"\x80" * 8000)
+                stamp = app.now_text()
+                item_id = app.execute(
+                    """INSERT INTO site_music
+                           (title, source_type, source_id, sort_order, created_at)
+                       VALUES (?, 'file', ?, 0, ?)""",
+                    ("测试音频", "site_music_files/tone.wav", stamp),
+                )
+                app.MUSIC_DURATION_BACKFILLED.clear()
+                row = app.query_one("SELECT * FROM site_music WHERE id = ?", (item_id,))
+                duration = app.ensure_music_duration(row)
+                self.assertAlmostEqual(duration, 1.0, places=2)
+                stored = app.query_one(
+                    "SELECT duration FROM site_music WHERE id = ?", (item_id,)
+                )
+                self.assertAlmostEqual(stored["duration"], 1.0, places=2)
 
 
 class ClientIpTests(unittest.TestCase):

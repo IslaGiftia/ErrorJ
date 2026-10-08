@@ -371,18 +371,6 @@ body {
   gap: 2px;
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .mu-row-actions {
-    opacity: 0;
-    transition: opacity 0.15s ease;
-  }
-
-  .mu-row:hover .mu-row-actions,
-  .mu-row:focus-within .mu-row-actions {
-    opacity: 1;
-  }
-}
-
 .mu-row-actions .mu-icon-btn {
   width: 30px;
   height: 30px;
@@ -542,7 +530,7 @@ body {
   align-items: center;
 }
 
-.mu-volume-pop {
+  .mu-volume-pop {
   position: absolute;
   right: 0;
   bottom: calc(100% + 10px);
@@ -1042,8 +1030,7 @@ input[type="range"]:focus-visible {
     animation: none;
   }
 
-  .mu-volume-pop,
-  .mu-row-actions {
+.mu-volume-pop {
     transition: none;
   }
 }

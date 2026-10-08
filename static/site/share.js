@@ -226,8 +226,7 @@
     request: function (resourceType, resourceId, title, callback) {
       buildRequestModal();
       requestTitle.textContent = "申请下载";
-      requestText.textContent =
-        "向管理员申请下载「" + (title || "文件") + "」？批准后仅你的账号可以下载。";
+      requestText.textContent = "向管理员申请下载「" + (title || "文件") + "」？";
       requestSubmit.__payload = {
         resource_type: resourceType,
         resource_id: resourceId,
