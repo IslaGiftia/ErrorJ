@@ -4,7 +4,7 @@ import configparser
 import csv
 import gzip
 import hashlib
-from html import escape as html_escape
+from html import escape as html_escape, unescape as html_unescape
 from html.parser import HTMLParser
 import hmac
 import ipaddress
@@ -111,10 +111,10 @@ GUEST_API_RULES = {
     "/api/recommendations": "guest:page:recommendations",
     "/api/site/music": "guest:page:music",
     "/api/books": "guest:page:books",
+    "/api/references": "guest:page:references",
 }
 GUEST_DATA_RULES = (
     ("moment_images/", "guest:page:moments"),
-    ("site_music_files/", "guest:page:music"),
     ("music_covers/", "guest:page:music"),
     ("book_covers/", "guest:page:books"),
     ("recommend_images/", "guest:page:recommendations"),
@@ -148,11 +148,11 @@ SITE_MEMBER_APIS = {
     "/api/books",
     "/api/site/photos",
     "/api/site/links",
+    "/api/references",
 }
 SITE_MEMBER_DATA_PREFIXES = (
     "moment_images/",
     "site_photos/",
-    "site_music_files/",
     "music_covers/",
     "book_covers/",
     "recommend_images/",
@@ -201,16 +201,6 @@ PERMISSION_GROUPS = (
         ),
     },
     {
-        "key": "workbench",
-        "label": "工作台",
-        "items": (
-            {"key": "workbench:view", "label": "查看工作台资料与维修台账"},
-            {"key": "workbench:write", "label": "上传资料、维护维修台账"},
-            {"key": "prompts:view", "label": "查看 AI 提示词"},
-            {"key": "prompts:write", "label": "增删改 AI 提示词"},
-        ),
-    },
-    {
         "key": "map",
         "label": "地图",
         "items": (
@@ -227,7 +217,6 @@ PERMISSION_GROUPS = (
             {"key": "music:write", "label": "上传、编辑歌单"},
             {"key": "books:read", "label": "阅读书架电子书"},
             {"key": "books:write", "label": "上传、编辑、删除书架电子书"},
-            {"key": "books:download", "label": "下载电子书原文件"},
             {"key": "links:write", "label": "管理宝藏网站链接"},
             {"key": "photos:write", "label": "管理照片墙"},
             {"key": "messages:attach_auto", "label": "留言附件免审核（可信用户）"},
@@ -306,7 +295,6 @@ PAGE_PERMISSIONS = {
     "/inventory": ("inventory:view", "inventory:write"),
     "/bookmarks": ("bookmarks:view", "bookmarks:write"),
     "/notes": ("notes:view", "notes:write"),
-    "/workbench": ("workbench:view", "workbench:write", "prompts:view", "prompts:write"),
 }
 if MAP_PUBLIC:
     # 地图不再对游客开放；登录账号需要至少一个地图权限才能查看
@@ -360,6 +348,7 @@ NOTIFY_CHANNELS = (
 NOTIFY_EVENTS = (
     {"key": "register", "label": "新的注册申请", "default": True},
     {"key": "attachment", "label": "新的待审核附件", "default": True},
+    {"key": "download_request", "label": "新的下载申请", "default": True},
     {"key": "message", "label": "新的留言", "default": False},
     {"key": "place", "label": "新的标记点", "default": True},
     {"key": "security", "label": "安全提醒（登录失败 / 敏感词拦截）", "default": True},
@@ -417,6 +406,14 @@ PUBLIC_ACTIVITY_LABELS = {
     "recommendation_create": "新增了一条推荐",
     "recommendation_update": "更新了一条推荐",
 }
+REFERENCE_ITEM_RE = re.compile(
+    r'<article class="reference-item">\s*'
+    r'<a href="([^"]+)"[^>]*>(.*?)</a>\s*'
+    r'<p>(.*?)</p>\s*</article>',
+    re.DOTALL,
+)
+SHARE_RESOURCE_TYPES = {"book", "music", "workbench_asset"}
+DOWNLOAD_RESOURCE_TYPES = {"book", "music"}
 MESSAGE_FILE_MAX_BYTES = 5 * 1024 * 1024
 MESSAGE_FILE_TOTAL_MAX_BYTES = 15 * 1024 * 1024
 MESSAGE_FILE_MAX_COUNT = 3
@@ -583,6 +580,26 @@ def local_ips():
     except OSError:
         pass
     return ips
+
+
+def reference_seed_rows():
+    """从静态参考项目页提取首次迁移数据。"""
+    path = STATIC_DIR / "references.html"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    rows = []
+    for index, match in enumerate(REFERENCE_ITEM_RE.finditer(text)):
+        url = html_unescape(match.group(1).strip())
+        title = re.sub(r"<[^>]+>", "", match.group(2))
+        description = re.sub(r"<[^>]+>", "", match.group(3))
+        title = re.sub(r"\s+", " ", html_unescape(title)).strip()
+        description = re.sub(r"\s+", " ", html_unescape(description)).strip()
+        if not title or not url.startswith(("http://", "https://")):
+            continue
+        rows.append((title[:200], url[:1000], description[:2000], index))
+    return rows
 
 
 def init_db():
@@ -822,6 +839,42 @@ def init_db():
                 sort_order INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS reference_projects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                url TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS share_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token TEXT NOT NULL UNIQUE,
+                resource_type TEXT NOT NULL,
+                resource_id INTEGER NOT NULL,
+                created_by TEXT,
+                expires_at TEXT NOT NULL,
+                revoked_at TEXT,
+                download_count INTEGER NOT NULL DEFAULT 0,
+                last_download_at TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS download_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                resource_type TEXT NOT NULL,
+                resource_id INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                reviewed_by TEXT,
+                reviewed_at TEXT,
+                UNIQUE(user_id, resource_type, resource_id)
             );
 
             CREATE TABLE IF NOT EXISTS app_meta (
@@ -1158,6 +1211,11 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             CREATE INDEX IF NOT EXISTS idx_workbench_assets_repair ON workbench_assets(repair_id);
             CREATE INDEX IF NOT EXISTS idx_workbench_assets_category ON workbench_assets(category);
             CREATE INDEX IF NOT EXISTS idx_workbench_assets_created ON workbench_assets(created_at);
+            CREATE INDEX IF NOT EXISTS idx_reference_projects_order ON reference_projects(sort_order, id);
+            CREATE INDEX IF NOT EXISTS idx_share_links_token ON share_links(token);
+            CREATE INDEX IF NOT EXISTS idx_share_links_resource ON share_links(resource_type, resource_id);
+            CREATE INDEX IF NOT EXISTS idx_download_requests_user ON download_requests(user_id, resource_type, resource_id);
+            CREATE INDEX IF NOT EXISTS idx_download_requests_status ON download_requests(status, updated_at);
             CREATE INDEX IF NOT EXISTS idx_bookmark_folders_parent ON bookmark_folders(parent_id);
             CREATE INDEX IF NOT EXISTS idx_bookmarks_folder ON bookmarks(folder_id);
             CREATE INDEX IF NOT EXISTS idx_bookmarks_created ON bookmarks(created_at);
@@ -1443,6 +1501,23 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
                 "INSERT INTO app_meta (key, value) VALUES ('books_guest_page_v1', ?)",
                 (now_text(),),
             )
+        reference_seeded = conn.execute(
+            "SELECT value FROM app_meta WHERE key = 'reference_projects_seeded_v1'"
+        ).fetchone()
+        if not reference_seeded:
+            seed_rows = reference_seed_rows()
+            if seed_rows:
+                stamp = now_text()
+                conn.executemany(
+                    """INSERT INTO reference_projects
+                           (title, url, description, sort_order, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    [(*row, stamp, stamp) for row in seed_rows],
+                )
+                conn.execute(
+                    "INSERT INTO app_meta (key, value) VALUES ('reference_projects_seeded_v1', ?)",
+                    (stamp,),
+                )
         seed_data(conn)
         conn.commit()
     finally:
@@ -4923,9 +4998,21 @@ def user_has_permission(user_id, permission):
 
 def required_permission(path, method):
     """把请求映射到权限点；返回 None 表示仍按"仅管理员"处理。"""
+    if path == "/workbench" or path.startswith("/workbench/"):
+        return None
+    if path.startswith("/api/workbench") or path.startswith("/api/prompts"):
+        return None
+    if path.startswith("/api/admin/download-requests"):
+        return None
     if path == "/api/account/nickname":
         return ""
     if path == "/api/site/messages/quota" and method == "GET":
+        return ""
+    if path == "/api/references":
+        return "" if method == "GET" else None
+    if re.fullmatch(r"/api/references/\d+", path):
+        return None
+    if path == "/api/download-requests" and method == "POST":
         return ""
     if path == "/api/map/seen" and method == "POST":
         # 记录「已看到标记」是读状态，任何登录账号都可以
@@ -4957,6 +5044,8 @@ def required_permission(path, method):
         return "photos:write" if method in ("POST", "PATCH", "DELETE") else ""
     if path == "/api/site/links" or path.startswith("/api/site/links/"):
         return "links:write" if method in ("POST", "PATCH", "DELETE") else ""
+    if re.fullmatch(r"/api/site/music/\d+/(stream|download)", path):
+        return ""
     if path == "/api/site/music" or path.startswith("/api/site/music/"):
         return "music:write" if method in ("POST", "PATCH", "DELETE") else ""
     if path == "/api/books" or path.startswith("/api/books/"):
@@ -4964,8 +5053,10 @@ def required_permission(path, method):
         # 进度 / 书签 / 批注属于"个人的阅读数据"，登录账号都能写，处理器里再要求登录。
         if re.fullmatch(r"/api/books/\d+/(progress|bookmarks|annotations)(/\d+)?", path):
             return ""
+        if re.fullmatch(r"/api/books/\d+/content", path):
+            return "books:read"
         if re.fullmatch(r"/api/books/\d+/download", path):
-            return "books:download"
+            return ""
         if path == "/api/books/upload" or re.fullmatch(r"/api/books/\d+", path):
             return "books:write"
         if path == "/api/books" and method == "GET":
@@ -5012,10 +5103,8 @@ MAP_VIEW_PERMISSIONS = (
 )
 # 私有模块数据目录：登录账号需要对应权限
 DATA_PERMISSION_RULES = (
-    ("book_files/", ("books:read", "books:write", "books:download")),
     ("note_images/", ("notes:view", "notes:write")),
     ("part_images/", ("inventory:view", "inventory:write")),
-    ("workbench/", ("workbench:view", "workbench:write")),
     ("bom_reports/", ("inventory:view", "inventory:write")),
 )
 # 游客可见模块的接口 / 子路径前缀
@@ -5278,6 +5367,12 @@ def notify_settings():
                             events.append(item["key"])
                     app_meta_set("notify_events", json.dumps(events, ensure_ascii=False))
                     app_meta_set("notify_events_migrated_v3", "1")
+                if app_meta_get("notify_events_migrated_v4", "") != "1":
+                    for item in NOTIFY_EVENTS:
+                        if item.get("default") and item["key"] not in events:
+                            events.append(item["key"])
+                    app_meta_set("notify_events", json.dumps(events, ensure_ascii=False))
+                    app_meta_set("notify_events_migrated_v4", "1")
         except json.JSONDecodeError:
             events = list(NOTIFY_DEFAULT_EVENTS)
     channel = app_meta_get("notify_channel", "wecom")
@@ -5835,6 +5930,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
         relative = normalized_data_relative(relative)
         if not relative or relative == ".":
             return False
+        if relative.startswith("workbench/"):
+            return bool(
+                identity and identity.get("kind") in ("owner", "admin")
+            )
         for prefix, permissions in DATA_PERMISSION_RULES:
             if relative.startswith(prefix):
                 if identity is None:
@@ -5943,6 +6042,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         permissions = []
         pending_users = 0
         pending_attachments = 0
+        pending_download_requests = 0
         if identity and identity.get("kind") != "owner":
             permissions = sorted(user_permission_set(identity.get("user_id")))
         if identity and identity.get("kind") in ("owner", "admin"):
@@ -5951,6 +6051,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
             )["n"]
             pending_attachments = query_one(
                 "SELECT COUNT(*) AS n FROM site_message_files WHERE status = 'pending'"
+            )["n"]
+            pending_download_requests = query_one(
+                "SELECT COUNT(*) AS n FROM download_requests WHERE status = 'pending'"
             )["n"]
         self.send_json(
             200,
@@ -5967,6 +6070,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "map_allowed": self.map_view_allowed(identity) if identity else False,
                 "pending_users": pending_users,
                 "pending_attachments": pending_attachments,
+                "pending_download_requests": pending_download_requests,
             },
         )
 
@@ -7197,6 +7301,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
         parsed = urlsplit(self.path)
         path = unquote(parsed.path)
         query = parse_qs(parsed.query)
+        if path.startswith("/s/"):
+            self.serve_share_link(path[len("/s/") :].strip())
+            return
         if path == "/login":
             if not AUTH_STATE.get("enabled") or self.session_valid():
                 self.redirect(safe_next_path((query.get("next") or ["/"])[0]))
@@ -7331,6 +7438,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_admin_review(query)
             elif path == "/api/admin/notify":
                 self.api_admin_notify(query)
+            elif path == "/api/admin/download-requests":
+                self.api_admin_download_requests(query)
+            elif path == "/api/references":
+                self.api_reference_projects()
             elif path == "/api/map/export":
                 self.api_map_export()
             elif re.fullmatch(r"/api/recommendations/\d+/icon", path):
@@ -7339,6 +7450,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_photos(query)
             elif path == "/api/site/music":
                 self.api_site_music(query)
+            elif re.fullmatch(r"/api/site/music/\d+/stream", path):
+                self.api_site_music_stream(int(path.split("/")[4]))
+            elif re.fullmatch(r"/api/site/music/\d+/download", path):
+                self.api_site_music_download(int(path.split("/")[4]))
             elif path == "/api/books":
                 self.api_books(query)
             elif re.fullmatch(r"/api/books/\d+/progress", path):
@@ -7349,6 +7464,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_book_annotations(int(path.split("/")[3]))
             elif re.fullmatch(r"/api/books/\d+/download", path):
                 self.api_book_download(int(path.split("/")[3]))
+            elif re.fullmatch(r"/api/books/\d+/content", path):
+                self.api_book_content(int(path.split("/")[3]))
             elif path == "/api/site/links":
                 self.api_site_links(query)
             elif path == "/api/prompts":
@@ -7453,6 +7570,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_admin_notify_save(payload)
             elif path == "/api/admin/notify/test":
                 self.api_admin_notify_test(payload)
+            elif path == "/api/admin/share-links":
+                self.api_admin_share_link_create(payload)
+            elif re.fullmatch(r"/api/admin/download-requests/\d+", path):
+                self.api_admin_download_request_action(path, payload)
             elif path == "/api/admin/review/approve-all":
                 self.api_admin_review_all(payload)
             elif re.fullmatch(r"/api/admin/review/\d+", path):
@@ -7469,6 +7590,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_admin_user_password(path, payload)
             elif path == "/api/recommendations":
                 self.api_recommendation_create(payload)
+            elif path == "/api/references":
+                self.api_reference_create(payload)
+            elif path == "/api/download-requests":
+                self.api_download_request_create(payload)
             elif path == "/api/recommendations/images":
                 self.api_recommendation_image_upload(payload)
             elif path == "/api/site/photos":
@@ -7580,6 +7705,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_prompt_item(path)
             elif re.fullmatch(r"/api/site/music/\d+", path):
                 self.api_site_music_item(path)
+            elif re.fullmatch(r"/api/references/\d+", path):
+                self.api_reference_item(path)
             else:
                 api_error(self, 404, "接口不存在。")
         except Exception as exc:
@@ -7629,6 +7756,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_photo_delete(path)
             elif re.fullmatch(r"/api/site/music/\d+", path):
                 self.api_site_music_item(path)
+            elif re.fullmatch(r"/api/references/\d+", path):
+                self.api_reference_item(path)
             elif re.fullmatch(r"/api/site/links/\d+", path):
                 self.api_site_link_delete(path)
             elif re.fullmatch(r"/api/prompts/\d+", path):
@@ -8230,7 +8359,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         self.send_json(200, {"image_path": relative})
 
-    def send_data_file(self, relative, download_name=None):
+    def send_data_file(self, relative, download_name=None, allow_range=False):
         relative = normalized_data_relative(relative)
         if not relative or relative == ".":
             api_error(self, 404, "文件不存在。")
@@ -8261,7 +8390,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         total_size = stat_result.st_size
         range_header = (self.headers.get("Range") or "").strip()
-        if range_header.startswith("bytes=") and not download_name:
+        if range_header.startswith("bytes=") and (allow_range or not download_name):
             spec = range_header[len("bytes=") :].split(",")[0].strip()
             start_text, _, end_text = spec.partition("-")
             try:
@@ -8287,6 +8416,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.send_header(
                     "Content-Range", f"bytes {start}-{end}/{total_size}"
                 )
+                if download_name:
+                    encoded_name = quote(os.path.basename(download_name))
+                    self.send_header(
+                        "Content-Disposition",
+                        f"attachment; filename*=UTF-8''{encoded_name}",
+                    )
                 self.send_header("Content-Length", str(len(body)))
                 self.send_header("Cache-Control", cache_control)
                 self.send_header("ETag", etag)
@@ -8978,6 +9113,426 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )
         self.send_json(200, {"id": moment_id})
 
+    # ---------- 参考项目 ----------
+
+    def reference_payload(self, payload, current=None):
+        current = current or {}
+        title = str(payload.get("title", current.get("title", "")) or "").strip()[:200]
+        url = str(payload.get("url", current.get("url", "")) or "").strip()[:1000]
+        description = str(
+            payload.get("description", current.get("description", "")) or ""
+        ).strip()[:2000]
+        if not title:
+            raise ValueError("项目名称不能为空。")
+        parsed = urlsplit(url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError("项目链接必须是有效的 http:// 或 https:// 地址。")
+        try:
+            sort_order = int(payload.get("sort_order", current.get("sort_order", 0)) or 0)
+        except (TypeError, ValueError):
+            raise ValueError("排序值必须是整数。")
+        return title, url, description, sort_order
+
+    def api_reference_projects(self):
+        self.send_json(
+            200,
+            query(
+                """SELECT id, title, url, description, sort_order,
+                          created_at, updated_at
+                   FROM reference_projects
+                   ORDER BY sort_order, id"""
+            ),
+        )
+
+    def api_reference_create(self, payload):
+        try:
+            title, url, description, sort_order = self.reference_payload(payload)
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        stamp = now_text()
+        item_id = execute(
+            """INSERT INTO reference_projects
+                   (title, url, description, sort_order, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (title, url, description, sort_order, stamp, stamp),
+        )
+        self.log_activity(
+            "reference_create",
+            f"新增参考项目：{title}",
+            target_type="reference",
+            target_id=item_id,
+        )
+        self.send_json(200, {"id": item_id})
+
+    def api_reference_item(self, path):
+        item_id = int(path.rsplit("/", 1)[1])
+        current = query_one("SELECT * FROM reference_projects WHERE id = ?", (item_id,))
+        if not current:
+            api_error(self, 404, "参考项目不存在。")
+            return
+        if self.command == "DELETE":
+            execute("DELETE FROM reference_projects WHERE id = ?", (item_id,))
+            self.log_activity(
+                "reference_delete",
+                f"删除参考项目：{current.get('title') or item_id}",
+                target_type="reference",
+                target_id=item_id,
+            )
+            self.send_json(200, {"ok": True})
+            return
+        payload = get_payload(self)
+        if payload is None:
+            return
+        try:
+            title, url, description, sort_order = self.reference_payload(payload, current)
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        execute(
+            """UPDATE reference_projects
+               SET title = ?, url = ?, description = ?, sort_order = ?, updated_at = ?
+               WHERE id = ?""",
+            (title, url, description, sort_order, now_text(), item_id),
+        )
+        self.log_activity(
+            "reference_update",
+            f"编辑参考项目：{title}",
+            target_type="reference",
+            target_id=item_id,
+        )
+        self.send_json(200, {"id": item_id})
+
+    # ---------- 限时分享与下载申请 ----------
+
+    def share_resource(self, resource_type, resource_id):
+        if resource_type not in SHARE_RESOURCE_TYPES:
+            return None
+        if resource_type == "book":
+            row = query_one(
+                "SELECT title, format, file_path FROM books WHERE id = ?",
+                (resource_id,),
+            )
+            if not row:
+                return None
+            extension = "." + str(row.get("format") or "bin").lstrip(".")
+            return {
+                "title": row.get("title") or "电子书",
+                "file_path": row.get("file_path") or "",
+                "download_name": (row.get("title") or "book") + extension,
+            }
+        if resource_type == "music":
+            row = query_one(
+                """SELECT title, source_type, source_id
+                   FROM site_music WHERE id = ?""",
+                (resource_id,),
+            )
+            if not row or row.get("source_type") != "file":
+                return None
+            source_id = row.get("source_id") or ""
+            extension = os.path.splitext(source_id)[1] or ".mp3"
+            return {
+                "title": row.get("title") or "歌曲",
+                "file_path": source_id,
+                "download_name": (row.get("title") or "music") + extension,
+            }
+        row = query_one(
+            """SELECT title, original_name, file_path
+               FROM workbench_assets WHERE id = ?""",
+            (resource_id,),
+        )
+        if not row:
+            return None
+        return {
+            "title": row.get("title") or row.get("original_name") or "资料",
+            "file_path": row.get("file_path") or "",
+            "download_name": row.get("original_name") or "download.bin",
+        }
+
+    def download_resource(self, resource_type, resource_id):
+        if resource_type not in DOWNLOAD_RESOURCE_TYPES:
+            return None
+        if resource_type == "book":
+            row = query_one(
+                "SELECT title, format, file_path FROM books WHERE id = ?",
+                (resource_id,),
+            )
+            if not row:
+                return None
+            return {
+                "title": row.get("title") or "电子书",
+                "file_path": row.get("file_path") or "",
+                "download_name": (row.get("title") or "book")
+                + "."
+                + str(row.get("format") or "bin").lstrip("."),
+            }
+        row = query_one(
+            """SELECT title, source_type, source_id
+               FROM site_music WHERE id = ?""",
+            (resource_id,),
+        )
+        if not row or row.get("source_type") != "file":
+            return None
+        source_id = row.get("source_id") or ""
+        return {
+            "title": row.get("title") or "歌曲",
+            "file_path": source_id,
+            "download_name": (row.get("title") or "music")
+            + (os.path.splitext(source_id)[1] or ".mp3"),
+        }
+
+    def download_state(self, identity, resource_type, resource_id):
+        if identity and identity.get("kind") in ("owner", "admin"):
+            return "admin"
+        if not identity:
+            return "guest"
+        user_id = int(identity.get("user_id") or 0)
+        if user_id <= 0:
+            return "guest"
+        if not self.download_resource(resource_type, resource_id):
+            return "unavailable"
+        row = query_one(
+            """SELECT status FROM download_requests
+               WHERE user_id = ? AND resource_type = ? AND resource_id = ?""",
+            (user_id, resource_type, resource_id),
+        )
+        return (row or {}).get("status") or "none"
+
+    def api_download_request_create(self, payload):
+        identity = self.session_identity()
+        if not identity:
+            api_error(self, 401, "请先登录后申请下载。")
+            return
+        if identity.get("kind") in ("owner", "admin"):
+            self.send_json(200, {"ok": True, "status": "approved"})
+            return
+        resource_type = str(payload.get("resource_type") or "").strip()
+        try:
+            resource_id = int(payload.get("resource_id") or 0)
+        except (TypeError, ValueError):
+            resource_id = 0
+        resource = self.download_resource(resource_type, resource_id)
+        if not resource:
+            api_error(self, 400, "这个文件不支持下载申请。")
+            return
+        user_id = int(identity.get("user_id") or 0)
+        existing = query_one(
+            """SELECT id, status FROM download_requests
+               WHERE user_id = ? AND resource_type = ? AND resource_id = ?""",
+            (user_id, resource_type, resource_id),
+        )
+        if existing and existing.get("status") == "approved":
+            self.send_json(200, {"ok": True, "status": "approved"})
+            return
+        if existing and existing.get("status") == "pending":
+            self.send_json(200, {"ok": True, "status": "pending"})
+            return
+        stamp = now_text()
+        if existing:
+            execute(
+                """UPDATE download_requests
+                   SET status = 'pending', updated_at = ?, reviewed_by = NULL,
+                       reviewed_at = NULL
+                   WHERE id = ?""",
+                (stamp, existing["id"]),
+            )
+            request_id = existing["id"]
+        else:
+            request_id = execute(
+                """INSERT INTO download_requests
+                       (user_id, resource_type, resource_id, status,
+                        created_at, updated_at)
+                   VALUES (?, ?, ?, 'pending', ?, ?)""",
+                (user_id, resource_type, resource_id, stamp, stamp),
+            )
+        label = "电子书" if resource_type == "book" else "歌曲"
+        summary = f"申请下载{label}：{resource['title']}"
+        self.log_activity(
+            "download_request_create",
+            summary,
+            target_type=resource_type,
+            target_id=resource_id,
+        )
+        notify_async(
+            "download_request",
+            "Error酱：新的下载申请",
+            f"{identity.get('nickname') or identity.get('username') or '普通用户'} {summary}",
+            "/workbench?view=downloads",
+        )
+        self.send_json(200, {"ok": True, "id": request_id, "status": "pending"})
+
+    def api_admin_download_requests(self, params):
+        status_filter = str((params.get("status") or ["pending"])[0] or "pending")
+        if status_filter not in ("pending", "approved", "all"):
+            status_filter = "pending"
+        conditions = [] if status_filter == "all" else ["d.status = ?"]
+        values = [] if status_filter == "all" else [status_filter]
+        where = "WHERE " + " AND ".join(conditions) if conditions else ""
+        rows = query(
+            f"""SELECT d.*, u.username, u.nickname
+                FROM download_requests d
+                LEFT JOIN users u ON u.id = d.user_id
+                {where}
+                ORDER BY d.updated_at DESC, d.id DESC
+                LIMIT 500""",
+            tuple(values),
+        )
+        for row in rows:
+            resource = self.download_resource(row["resource_type"], row["resource_id"])
+            row["resource_title"] = resource["title"] if resource else "文件已删除"
+            row["resource_kind"] = "电子书" if row["resource_type"] == "book" else "歌曲"
+            row["user_name"] = (
+                row.get("nickname")
+                or row.get("username")
+                or f"用户 #{row.get('user_id')}"
+            )
+        pending = query_one(
+            "SELECT COUNT(*) AS n FROM download_requests WHERE status = 'pending'"
+        )["n"]
+        self.send_json(200, {"items": rows, "pending": pending})
+
+    def api_admin_download_request_action(self, path, payload):
+        request_id = int(path.rsplit("/", 1)[1])
+        row = query_one("SELECT * FROM download_requests WHERE id = ?", (request_id,))
+        if not row:
+            api_error(self, 404, "下载申请不存在。")
+            return
+        action = str(payload.get("action") or "").strip()
+        status_map = {"approve": "approved", "reject": "rejected", "revoke": "revoked"}
+        if action not in status_map:
+            api_error(self, 400, "未知操作。")
+            return
+        if action in ("approve", "reject") and row.get("status") != "pending":
+            api_error(self, 400, "只有待处理申请可以批准或拒绝。")
+            return
+        if action == "revoke" and row.get("status") != "approved":
+            api_error(self, 400, "只有已批准申请可以撤销。")
+            return
+        identity = self.session_identity()
+        reviewer = (identity or {}).get("nickname") or "管理员"
+        status = status_map[action]
+        execute(
+            """UPDATE download_requests
+               SET status = ?, updated_at = ?, reviewed_by = ?, reviewed_at = ?
+               WHERE id = ?""",
+            (status, now_text(), reviewer, now_text(), request_id),
+        )
+        resource = self.download_resource(row["resource_type"], row["resource_id"])
+        title = resource["title"] if resource else f"#{row['resource_id']}"
+        action_labels = {
+            "approve": "批准",
+            "reject": "拒绝",
+            "revoke": "撤销",
+        }
+        self.log_activity(
+            f"download_request_{action}",
+            f"{action_labels[action]}下载申请：{title}",
+            target_type=row["resource_type"],
+            target_id=row["resource_id"],
+        )
+        write_audit(
+            identity,
+            f"download_request_{action}",
+            f"{action_labels[action]}下载申请：{title}",
+            {"id": request_id, "user_id": row.get("user_id")},
+        )
+        self.send_json(200, {"ok": True, "status": status})
+
+    def api_admin_share_link_create(self, payload):
+        resource_type = str(payload.get("resource_type") or "").strip()
+        try:
+            resource_id = int(payload.get("resource_id") or 0)
+        except (TypeError, ValueError):
+            resource_id = 0
+        resource = self.share_resource(resource_type, resource_id)
+        if not resource:
+            api_error(self, 400, "这个文件不支持分享。")
+            return
+        expires_text = str(payload.get("expires_at") or "").strip()
+        now = datetime.now()
+        if expires_text:
+            try:
+                expires = datetime.fromisoformat(expires_text.replace("Z", "+00:00")).replace(
+                    tzinfo=None
+                )
+            except ValueError:
+                api_error(self, 400, "自定义过期时间格式不正确。")
+                return
+        else:
+            try:
+                hours = int(payload.get("expires_hours") or 24)
+            except (TypeError, ValueError):
+                hours = 24
+            hours = max(1, min(720, hours))
+            expires = now + timedelta(hours=hours)
+        if expires <= now + timedelta(minutes=1):
+            api_error(self, 400, "过期时间至少要比现在晚 1 分钟。")
+            return
+        if expires > now + timedelta(days=30):
+            api_error(self, 400, "分享链接最长有效期不能超过 30 天。")
+            return
+        token = secrets.token_urlsafe(24)
+        stamp = now_text()
+        link_id = execute(
+            """INSERT INTO share_links
+                   (token, resource_type, resource_id, created_by, expires_at,
+                    created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                token,
+                resource_type,
+                resource_id,
+                (self.session_identity() or {}).get("nickname") or "管理员",
+                expires.strftime("%Y-%m-%d %H:%M:%S"),
+                stamp,
+            ),
+        )
+        self.log_activity(
+            "share_create",
+            f"生成限时分享：{resource['title']}（至 {expires.strftime('%Y-%m-%d %H:%M')}）",
+            target_type=resource_type,
+            target_id=resource_id,
+        )
+        self.send_json(
+            200,
+            {
+                "id": link_id,
+                "url": self.request_base_url() + "/s/" + token,
+                "expires_at": expires.strftime("%Y-%m-%d %H:%M:%S"),
+            },
+        )
+
+    def serve_share_link(self, token):
+        row = query_one(
+            "SELECT * FROM share_links WHERE token = ?",
+            (token,),
+        )
+        now = now_text()
+        if not row or row.get("revoked_at") or str(row.get("expires_at") or "") <= now:
+            api_error(self, 410, "分享链接已过期或已失效。")
+            return
+        resource = self.share_resource(row["resource_type"], row["resource_id"])
+        if not resource:
+            api_error(self, 404, "分享的文件不存在。")
+            return
+        execute(
+            """UPDATE share_links
+               SET download_count = download_count + 1, last_download_at = ?
+               WHERE id = ?""",
+            (now, row["id"]),
+        )
+        self.log_activity(
+            "share_download",
+            f"通过分享链接下载：{resource['title']}",
+            target_type=row["resource_type"],
+            target_id=row["resource_id"],
+        )
+        self.send_data_file(
+            resource["file_path"],
+            resource["download_name"],
+            allow_range=True,
+        )
+
     def recommendation_rows(self, params=None):
         params = params or {}
         conditions = []
@@ -9329,15 +9884,60 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def api_site_music(self, params):
         rows = query("SELECT * FROM site_music ORDER BY sort_order, id")
+        identity = self.session_identity()
+        is_admin = self.is_admin()
         for row in rows:
             if row.get("source_type") == "file":
-                row["url"] = "/site-files/" + (row.get("source_id") or "")
+                row["url"] = f"/api/site/music/{row['id']}/stream"
+                row["download_state"] = self.download_state(identity, "music", row["id"])
             else:
                 row["url"] = row.get("source_id") or ""
+                row["download_state"] = "external"
             row["cover_url"] = (
                 "/site-files/" + row["cover_path"] if row.get("cover_path") else ""
             )
+            if not is_admin:
+                row.pop("source_id", None)
         self.send_json(200, rows)
+
+    def api_site_music_stream(self, item_id):
+        row = query_one(
+            """SELECT title, source_type, source_id
+               FROM site_music WHERE id = ?""",
+            (item_id,),
+        )
+        if not row or row.get("source_type") != "file":
+            api_error(self, 404, "歌曲不存在或不是本地上传文件。")
+            return
+        source_id = row.get("source_id") or ""
+        self.send_data_file(source_id, allow_range=True)
+
+    def api_site_music_download(self, item_id):
+        resource = self.download_resource("music", item_id)
+        if not resource:
+            api_error(self, 404, "歌曲不存在或不是本地上传文件。")
+            return
+        identity = self.session_identity()
+        state = self.download_state(identity, "music", item_id)
+        if state not in ("admin", "approved"):
+            if state == "guest":
+                api_error(self, 401, "请先登录后申请下载。")
+            elif state == "pending":
+                api_error(self, 403, "下载申请正在等待管理员审核。")
+            else:
+                api_error(self, 403, "请先提交下载申请。")
+            return
+        self.log_activity(
+            "music_download",
+            f"下载歌曲：{resource['title']}",
+            target_type="music",
+            target_id=item_id,
+        )
+        self.send_data_file(
+            resource["file_path"],
+            resource["download_name"],
+            allow_range=True,
+        )
 
     def api_site_music_create(self, payload):
         title = str(payload.get("title") or "").strip()[:80]
@@ -9455,6 +10055,15 @@ class InventoryHandler(BaseHTTPRequestHandler):
             if current.get("cover_path"):
                 remove_data_file(current["cover_path"])
             execute("DELETE FROM site_music WHERE id = ?", (item_id,))
+            execute(
+                "DELETE FROM download_requests WHERE resource_type = 'music' AND resource_id = ?",
+                (item_id,),
+            )
+            execute(
+                """UPDATE share_links SET revoked_at = ?
+                   WHERE resource_type = 'music' AND resource_id = ? AND revoked_at IS NULL""",
+                (now_text(), item_id),
+            )
             self.log_activity(
                 "music_delete",
                 f"删除歌曲：{current.get('title') or item_id}",
@@ -9498,7 +10107,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def book_payload(self, row, user_id=None):
         item = dict(row)
-        item["file_url"] = "/site-files/" + (item.get("file_path") or "")
+        item["file_url"] = f"/api/books/{item['id']}/content"
         item["cover_url"] = "/site-files/" + item["cover_path"] if item.get("cover_path") else ""
         item["progress"] = None
         if user_id is not None:
@@ -9514,7 +10123,16 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_books(self, params):
         rows = query("SELECT * FROM books ORDER BY sort_order, id")
         user_id = self.book_user_id()
-        self.send_json(200, [self.book_payload(row, user_id) for row in rows])
+        identity = self.session_identity()
+        is_admin = self.is_admin()
+        items = []
+        for row in rows:
+            item = self.book_payload(row, user_id)
+            item["download_state"] = self.download_state(identity, "book", row["id"])
+            if not is_admin:
+                item.pop("file_path", None)
+            items.append(item)
+        self.send_json(200, items)
 
     def api_book_upload(self, payload):
         file_name = os.path.basename(str(payload.get("file_name") or "book.epub"))
@@ -9601,33 +10219,41 @@ class InventoryHandler(BaseHTTPRequestHandler):
         self.send_json(200, self.book_payload(row, self.book_user_id()))
 
     def api_book_download(self, book_id):
+        resource = self.download_resource("book", book_id)
+        if not resource:
+            api_error(self, 404, "电子书不存在。")
+            return
+        identity = self.session_identity()
+        state = self.download_state(identity, "book", book_id)
+        if state not in ("admin", "approved"):
+            if state == "guest":
+                api_error(self, 401, "请先登录后申请下载。")
+            elif state == "pending":
+                api_error(self, 403, "下载申请正在等待管理员审核。")
+            else:
+                api_error(self, 403, "请先提交下载申请。")
+            return
+        self.log_activity(
+            "book_download",
+            f"下载电子书：{resource['title']}",
+            target_type="book",
+            target_id=book_id,
+        )
+        self.send_data_file(
+            resource["file_path"],
+            resource["download_name"],
+            allow_range=True,
+        )
+
+    def api_book_content(self, book_id):
         row = query_one(
-            "SELECT title, file_path, format FROM books WHERE id = ?", (book_id,)
+            "SELECT file_path FROM books WHERE id = ?",
+            (book_id,),
         )
         if not row:
             api_error(self, 404, "电子书不存在。")
             return
-        path = DATA_DIR / (row.get("file_path") or "")
-        if not path.is_file():
-            api_error(self, 404, "文件不存在。")
-            return
-        name = f"{row.get('title') or 'book'}.{row.get('format') or 'bin'}"
-        self.log_activity(
-            "book_download", f"下载电子书：{row.get('title')}", target_type="book", target_id=book_id
-        )
-        body = path.read_bytes()
-        try:
-            self.send_response(200)
-            self.send_header(
-                "Content-Type", mimetypes.guess_type(name)[0] or "application/octet-stream"
-            )
-            self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + quote(name))
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(body)
-        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
-            pass
+        self.send_data_file(row.get("file_path") or "", allow_range=True)
 
     def api_book_item(self, path):
         item_id = int(path.rstrip("/").rsplit("/", 1)[-1])
@@ -9650,6 +10276,15 @@ class InventoryHandler(BaseHTTPRequestHandler):
             execute("DELETE FROM book_progress WHERE book_id = ?", (item_id,))
             execute("DELETE FROM book_bookmarks WHERE book_id = ?", (item_id,))
             execute("DELETE FROM book_annotations WHERE book_id = ?", (item_id,))
+            execute(
+                "DELETE FROM download_requests WHERE resource_type = 'book' AND resource_id = ?",
+                (item_id,),
+            )
+            execute(
+                """UPDATE share_links SET revoked_at = ?
+                   WHERE resource_type = 'book' AND resource_id = ? AND revoked_at IS NULL""",
+                (now_text(), item_id),
+            )
             self.send_json(200, {"ok": True})
             return
         payload = get_payload(self)
@@ -10931,13 +11566,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "SELECT COUNT(*) AS n FROM site_messages WHERE id > ?",
                     (last_seen,),
                 )["n"]
-                items.insert(
-                    0,
+                items.append(
                     {
                         "id": "message-alert",
                         "created_at": newest_message["created_at"],
                         "actor": "管理员",
-                        "text": f"有 {int(unread)} 条新留言待查看",
+                        "text": f"有 {int(unread)} 条未读留言",
                         "alert": True,
                     },
                 )
@@ -10949,15 +11583,31 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     """SELECT created_at FROM site_message_files
                        WHERE status = 'pending' ORDER BY id DESC LIMIT 1"""
                 )
-                items.insert(
-                    0,
+                items.append(
                     {
                         "id": "attachment-alert",
                         "created_at": (newest_file or {}).get("created_at") or now_text(),
                         "actor": "管理员",
-                        "text": f"有 {int(pending_files)} 个附件待审核",
+                        "text": f"有 {int(pending_files)} 个待审核附件",
                         "alert": True,
                     },
+                )
+            pending_downloads = query_one(
+                "SELECT COUNT(*) AS n FROM download_requests WHERE status = 'pending'"
+            )["n"]
+            if pending_downloads:
+                newest_download = query_one(
+                    """SELECT updated_at AS created_at FROM download_requests
+                       WHERE status = 'pending' ORDER BY id DESC LIMIT 1"""
+                )
+                items.append(
+                    {
+                        "id": "download-request-alert",
+                        "created_at": (newest_download or {}).get("created_at") or now_text(),
+                        "actor": "管理员",
+                        "text": f"有 {int(pending_downloads)} 个下载申请",
+                        "alert": True,
+                    }
                 )
         self.send_json(200, {"items": items[:60], "admin": is_admin})
 
@@ -11749,6 +12399,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if self.command == "DELETE":
             remove_data_file(current["file_path"])
             execute("DELETE FROM workbench_assets WHERE id = ?", (asset_id,))
+            execute(
+                """UPDATE share_links SET revoked_at = ?
+                   WHERE resource_type = 'workbench_asset' AND resource_id = ?
+                     AND revoked_at IS NULL""",
+                (now_text(), asset_id),
+            )
             self.send_json(200, {"ok": True})
             return
         payload = get_payload(self)

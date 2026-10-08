@@ -325,6 +325,12 @@ body {
   color: var(--bk-text);
 }
 
+.bk-card-edit:disabled,
+.bk-card-edit.is-pending {
+  cursor: default;
+  opacity: 0.56;
+}
+
 .bk-card-edit svg {
   width: 15px;
   height: 15px;

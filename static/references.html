@@ -71,6 +71,123 @@ width: min(980px, 100%);
       margin-top: 30px;
     }
 
+    .reference-admin-bar {
+      display: flex;
+      justify-content: center;
+      margin: -16px 0 24px;
+    }
+
+    .reference-admin-bar[hidden] {
+      display: none;
+    }
+
+    .reference-admin-bar button,
+    .reference-item-actions button,
+    .reference-editor-actions button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 36px;
+      padding: 0 13px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--text);
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .reference-admin-bar button.primary,
+    .reference-editor-actions button.primary {
+      border-color: var(--primary);
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .reference-item {
+      position: relative;
+    }
+
+    .reference-item-actions {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      display: flex;
+      gap: 5px;
+    }
+
+    .reference-item-actions button {
+      width: 32px;
+      min-height: 32px;
+      padding: 0;
+    }
+
+    .reference-editor-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background: rgba(8, 10, 18, 0.55);
+      backdrop-filter: blur(8px);
+    }
+
+    .reference-editor-overlay[hidden] {
+      display: none;
+    }
+
+    .reference-editor {
+      width: min(520px, 100%);
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+      color: var(--text);
+      box-shadow: 0 20px 54px rgba(0, 0, 0, 0.3);
+    }
+
+    .reference-editor h2 {
+      margin: 0 0 16px;
+      font-size: 19px;
+    }
+
+    .reference-editor label {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    .reference-editor label span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .reference-editor input,
+    .reference-editor textarea {
+      width: 100%;
+      padding: 9px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--text);
+      font: inherit;
+    }
+
+    .reference-editor textarea {
+      min-height: 100px;
+      resize: vertical;
+    }
+
+    .reference-editor-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
     @media (max-width: 720px) {
       .reference-page {
         padding-top: 42px;
@@ -108,10 +225,14 @@ width: min(980px, 100%);
     <h1>Error酱参考与搬运来源</h1>
     <p>Error酱并不是从零原创，功能主要参考、搬运并组合以下开源项目。这里是截至 2026-10-08 的开发过程中实际参考、搬运或依赖的项目；只借鉴交互、未复制代码的会单独注明，各项目的代码与设计仍遵循其原始许可证。</p>
 
-    <div class="reference-list">
+    <div class="reference-admin-bar" id="referenceAdminBar" hidden>
+      <button class="primary" id="referenceAddBtn" type="button">新增参考项目</button>
+    </div>
+
+    <div class="reference-list" id="referenceList">
       <article class="reference-item">
         <a href="https://github.com/IslaGiftia/ErrorJ" target="_blank" rel="noopener noreferrer">Error酱 / ErrorJ（本站自身）</a>
-        <p>本站源码仓库，持续记录 Error酱 的开发、部署和功能更新。截至 2026-10-08 已包含：仓库、书签（Firefox 增量导入）、笔记（Word / PDF 导入、HTML 导出）、工作台（资料 / 固件 / 维修 / 提示词 / 账号权限 / 内容审核 / 日志）、地图、歌单、书架、照片墙、留言、动态、推荐、游戏大厅、注册登录与权限体系；最近补充首页近 7 天 9 条静态动态、提醒绿色呼吸效果、双击隐藏日志、游客地图网格预览、PING / FPS 状态面板、模块页标题与首页入口统一、2K / 125% 布局微调、工作台日志和登录失败 / 敏感词安全提醒。</p>
+        <p>本站源码仓库，持续记录 Error酱 的开发、部署和功能更新。截至 2026-10-08 已包含：仓库、书签（Firefox 增量导入）、笔记（Word / PDF 导入、HTML 导出）、工作台（资料 / 固件 / 维修 / 提示词 / 账号权限 / 内容审核 / 下载申请 / 日志）、地图、歌单、书架、照片墙、留言、动态、推荐、参考项目管理、游戏大厅、注册登录与权限体系；最近补充首页近 7 天 9 条静态动态、限时分享链接、逐账号下载审批、下载申请 Webhook、聚合管理员提醒、游客地图网格预览、PING / FPS 状态面板、2K / 125% 布局微调、工作台日志和登录失败 / 敏感词安全提醒。</p>
       </article>
 
       <article class="reference-item">
@@ -245,7 +366,23 @@ width: min(980px, 100%);
     </div>
   </main>
 
+  <div class="reference-editor-overlay" id="referenceEditorOverlay" hidden>
+    <form class="reference-editor" id="referenceEditorForm">
+      <h2 id="referenceEditorTitle">新增参考项目</h2>
+      <input id="referenceId" type="hidden">
+      <label><span>项目名称</span><input id="referenceTitle" maxlength="200" required></label>
+      <label><span>项目链接</span><input id="referenceUrl" type="url" maxlength="1000" placeholder="https://" required></label>
+      <label><span>说明</span><textarea id="referenceDescription" maxlength="2000"></textarea></label>
+      <label><span>排序值</span><input id="referenceSort" type="number" value="0"></label>
+      <div class="reference-editor-actions">
+        <button type="button" id="referenceCancelBtn">取消</button>
+        <button class="primary" type="submit" id="referenceSaveBtn">保存</button>
+      </div>
+    </form>
+  </div>
+
   <script src="/static/site/rain.js"></script>
+  <script src="/static/references.js"></script>
   <script>
     (function () {
       var preference = "auto";

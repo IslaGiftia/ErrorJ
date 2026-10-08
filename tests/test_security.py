@@ -1,6 +1,8 @@
 import base64
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import app
@@ -20,6 +22,110 @@ class MessageDeletePermissionTests(unittest.TestCase):
         api_error.assert_called_once_with(
             handler, 403, "只有管理员可以删除留言。"
         )
+
+    def test_workbench_is_admin_only(self):
+        self.assertIsNone(app.required_permission("/workbench", "GET"))
+        self.assertIsNone(app.required_permission("/api/workbench/assets", "GET"))
+        self.assertIsNone(app.required_permission("/api/prompts", "GET"))
+        handler = object.__new__(app.InventoryHandler)
+        self.assertFalse(
+            handler.data_file_allowed(
+                "workbench/firmware/test.bin",
+                {"kind": "member", "user_id": 1},
+            )
+        )
+        self.assertTrue(
+            handler.data_file_allowed(
+                "workbench/firmware/test.bin",
+                {"kind": "admin", "user_id": 1},
+            )
+        )
+
+    def test_download_request_is_available_to_members(self):
+        self.assertEqual(app.required_permission("/api/download-requests", "POST"), "")
+        self.assertEqual(app.required_permission("/api/site/music/1/download", "GET"), "")
+        self.assertEqual(app.required_permission("/api/books/1/download", "GET"), "")
+
+
+class ReferenceProjectTests(unittest.TestCase):
+    def test_reference_api_is_public_for_reads(self):
+        self.assertEqual(app.required_permission("/api/references", "GET"), "")
+        self.assertIsNone(app.required_permission("/api/references", "POST"))
+
+    def test_reference_seed_parser_finds_existing_projects(self):
+        rows = app.reference_seed_rows()
+        self.assertGreater(len(rows), 5)
+        self.assertTrue(any(row[1] == "https://github.com/IslaGiftia/ErrorJ" for row in rows))
+
+
+class DownloadWorkflowTests(unittest.TestCase):
+    def test_member_request_can_be_approved_and_revoked(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.object(app, "DB_PATH", Path(temp_dir) / "inventory.db"):
+                app.init_db()
+                stamp = app.now_text()
+                user_id = app.execute(
+                    """INSERT INTO users
+                           (username, nickname, password_hash, status, role,
+                            created_at, updated_at)
+                       VALUES (?, ?, ?, 'approved', 'member', ?, ?)""",
+                    ("member1", "普通用户", "hash", stamp, stamp),
+                )
+                book_id = app.execute(
+                    """INSERT INTO books
+                           (title, author, format, file_path, file_size, sort_order,
+                            created_at, updated_at)
+                       VALUES (?, ?, 'txt', ?, 1, 0, ?, ?)""",
+                    ("测试书", "作者", "book_files/test.txt", stamp, stamp),
+                )
+                member = {
+                    "kind": "member",
+                    "user_id": user_id,
+                    "username": "member1",
+                    "nickname": "普通用户",
+                }
+                handler = object.__new__(app.InventoryHandler)
+                handler.session_identity = lambda: member
+                handler.is_admin = lambda: False
+                responses = []
+                handler.send_json = lambda status, payload: responses.append((status, payload))
+                handler.log_activity = lambda *args, **kwargs: None
+
+                with patch.object(app, "notify_async", return_value=False):
+                    handler.api_download_request_create(
+                        {"resource_type": "book", "resource_id": book_id}
+                    )
+
+                row = app.query_one(
+                    """SELECT id, status FROM download_requests
+                       WHERE user_id = ? AND resource_type = 'book' AND resource_id = ?""",
+                    (user_id, book_id),
+                )
+                self.assertEqual(row["status"], "pending")
+                self.assertEqual(handler.download_state(member, "book", book_id), "pending")
+
+                admin_handler = object.__new__(app.InventoryHandler)
+                admin_handler.session_identity = lambda: {
+                    "kind": "owner",
+                    "user_id": 0,
+                    "nickname": "管理员",
+                }
+                admin_handler.is_admin = lambda: True
+                admin_handler.log_activity = lambda *args, **kwargs: None
+                admin_handler.send_json = lambda status, payload: responses.append(
+                    (status, payload)
+                )
+                admin_handler.api_admin_download_request_action(
+                    f"/api/admin/download-requests/{row['id']}",
+                    {"action": "approve"},
+                )
+                self.assertEqual(handler.download_state(member, "book", book_id), "approved")
+
+                admin_handler.api_admin_download_request_action(
+                    f"/api/admin/download-requests/{row['id']}",
+                    {"action": "revoke"},
+                )
+                self.assertEqual(handler.download_state(member, "book", book_id), "revoked")
 
 
 class ClientIpTests(unittest.TestCase):
@@ -65,6 +171,10 @@ class HomeActivityTests(unittest.TestCase):
     def test_public_activity_uses_generic_content_labels(self):
         self.assertEqual(app.PUBLIC_ACTIVITY_LABELS["message_create"], "发表了留言")
         self.assertEqual(app.PUBLIC_ACTIVITY_LABELS["book_upload"], "上架了一本电子书")
+
+    def test_download_request_notification_event_exists(self):
+        events = {item["key"]: item for item in app.NOTIFY_EVENTS}
+        self.assertTrue(events["download_request"]["default"])
 
     def test_messages_permission_label_is_renamed(self):
         labels = {item["key"]: item["label"] for item in app.GUEST_PAGE_PERMISSIONS}

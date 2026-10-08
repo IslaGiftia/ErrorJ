@@ -1,0 +1,160 @@
+.share-overlay,
+.download-request-overlay {
+  --share-accent: var(--bk-accent, var(--mu-accent, var(--wb-accent, #4f46e5)));
+  --share-panel: var(--bk-surface, var(--mu-surface, var(--wb-surface, #fff)));
+  --share-text: var(--bk-text, var(--mu-text, var(--wb-text, #172033)));
+  --share-muted: var(--bk-muted, var(--mu-muted, var(--wb-muted, #667085)));
+  --share-line: var(--bk-line, var(--mu-line, var(--wb-line, #d8dce6)));
+  --share-bg: var(--bk-bg, var(--mu-bg, var(--wb-bg, #f4f6fb)));
+}
+
+.share-overlay,
+.download-request-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 260;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(10, 12, 20, 0.52);
+  backdrop-filter: blur(8px);
+}
+
+.share-overlay[hidden],
+.download-request-overlay[hidden] {
+  display: none;
+}
+
+.share-dialog,
+.download-request-dialog {
+  width: min(440px, 100%);
+  padding: 20px;
+  border: 1px solid var(--share-line);
+  border-radius: 12px;
+  background: var(--share-panel);
+  color: var(--share-text);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+}
+
+.share-head,
+.download-request-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.share-head h2,
+.download-request-head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.share-close {
+  margin-left: auto;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--share-muted);
+  cursor: pointer;
+}
+
+.share-close:hover {
+  background: color-mix(in srgb, var(--share-text) 8%, transparent);
+  color: var(--share-text);
+}
+
+.share-field,
+.download-request-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.share-field span,
+.download-request-field span {
+  color: var(--share-muted);
+  font-size: 13px;
+}
+
+.share-field select,
+.share-field input,
+.download-request-field input {
+  width: 100%;
+  height: 40px;
+  padding: 0 11px;
+  border: 1px solid var(--share-line);
+  border-radius: 8px;
+  background: var(--share-bg);
+  color: var(--share-text);
+  font: inherit;
+}
+
+.share-actions,
+.download-request-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.share-btn,
+.download-request-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--share-line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--share-text);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.share-btn.primary,
+.download-request-btn.primary {
+  border-color: var(--share-accent);
+  background: var(--share-accent);
+  color: #fff;
+}
+
+.share-btn:disabled,
+.download-request-btn:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.share-result {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--share-line);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--share-accent) 6%, transparent);
+}
+
+.share-result[hidden] {
+  display: none;
+}
+
+.share-result p {
+  margin: 0 0 8px;
+  color: var(--share-muted);
+  font-size: 12px;
+}
+
+.share-result input {
+  font-size: 12px;
+}
+
+.download-request-dialog p {
+  margin: 0;
+  color: var(--share-muted);
+  line-height: 1.7;
+}

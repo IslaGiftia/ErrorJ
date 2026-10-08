@@ -156,11 +156,31 @@
             book.id +
             '" title="编辑"><i data-lucide="pencil"></i></button>'
           : "";
-        var download = state.canDownload
-          ? '<button class="bk-card-edit" type="button" data-book-download="' +
+        var download = "";
+        if (state.canManage) {
+          download =
+            '<button class="bk-card-edit" type="button" data-book-share="' +
             book.id +
-            '" title="下载原文件"><i data-lucide="download"></i></button>'
-          : "";
+            '" title="生成限时分享链接"><i data-lucide="share-2"></i></button>' +
+            '<button class="bk-card-edit" type="button" data-book-download="' +
+            book.id +
+            '" title="下载原文件"><i data-lucide="download"></i></button>';
+        } else if (state.authenticated) {
+          if (book.download_state === "approved") {
+            download =
+              '<button class="bk-card-edit" type="button" data-book-download="' +
+              book.id +
+              '" title="下载原文件"><i data-lucide="download"></i></button>';
+          } else if (book.download_state === "pending") {
+            download =
+              '<button class="bk-card-edit is-pending" type="button" disabled title="下载申请待审核"><i data-lucide="clock"></i></button>';
+          } else {
+            download =
+              '<button class="bk-card-edit" type="button" data-book-request="' +
+              book.id +
+              '" title="申请下载"><i data-lucide="download"></i></button>';
+          }
+        }
         return (
           '<article class="bk-card" data-book-open="' +
           book.id +
@@ -210,9 +230,7 @@
       .then(function (status) {
         state.authenticated = Boolean(status.authenticated);
         state.canManage = Boolean(status.owner);
-        state.canDownload = Boolean(
-          status.owner || (status.permissions || []).indexOf("books:download") >= 0
-        );
+        state.canDownload = state.canManage;
         $("bookUploadBtn").hidden = !state.canManage;
         var recentOption = document.querySelector('#bookSort option[value="recent"]');
         if (recentOption) {
@@ -488,6 +506,31 @@
     renderGrid();
   });
   $("bookGrid").addEventListener("click", function (event) {
+    var share = event.target.closest("[data-book-share]");
+    if (share) {
+      event.stopPropagation();
+      var shareBook = state.books.filter(function (book) {
+        return book.id === Number(share.getAttribute("data-book-share"));
+      })[0];
+      if (shareBook && window.ErrorShare) {
+        window.ErrorShare.open("book", shareBook.id, shareBook.title);
+      }
+      return;
+    }
+    var request = event.target.closest("[data-book-request]");
+    if (request) {
+      event.stopPropagation();
+      var requestBook = state.books.filter(function (book) {
+        return book.id === Number(request.getAttribute("data-book-request"));
+      })[0];
+      if (requestBook && window.ErrorDownload) {
+        window.ErrorDownload.request("book", requestBook.id, requestBook.title, function () {
+          requestBook.download_state = "pending";
+          renderGrid();
+        });
+      }
+      return;
+    }
     var download = event.target.closest("[data-book-download]");
     if (download) {
       event.stopPropagation();

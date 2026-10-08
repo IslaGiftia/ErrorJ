@@ -14,6 +14,7 @@
   var state = {
     tracks: [],
     canManage: false,
+    authenticated: false,
     currentId: null,
     shuffle: false,
     repeat: "off",
@@ -157,15 +158,42 @@
       .map(function (track) {
         var index = state.tracks.indexOf(track) + 1;
         var active = track.id === state.currentId;
-        var actions = state.canManage
-          ? '<span class="mu-row-actions">' +
+        var actionButtons = "";
+        if (state.canManage) {
+          if (track.source_type === "file") {
+            actionButtons +=
+              '<button class="mu-icon-btn" type="button" data-music-share="' +
+              track.id +
+              '" title="生成限时分享链接"><i data-lucide="share-2"></i></button>' +
+              '<button class="mu-icon-btn" type="button" data-music-download="' +
+              track.id +
+              '" title="下载歌曲"><i data-lucide="download"></i></button>';
+          }
+          actionButtons +=
             '<button class="mu-icon-btn" type="button" data-music-edit="' +
             track.id +
             '" title="编辑歌曲"><i data-lucide="pencil"></i></button>' +
             '<button class="mu-icon-btn" type="button" data-music-delete="' +
             track.id +
-            '" title="删除歌曲"><i data-lucide="trash-2"></i></button>' +
-            "</span>"
+            '" title="删除歌曲"><i data-lucide="trash-2"></i></button>';
+        } else if (state.authenticated && track.source_type === "file") {
+          if (track.download_state === "approved") {
+            actionButtons +=
+              '<button class="mu-icon-btn" type="button" data-music-download="' +
+              track.id +
+              '" title="下载歌曲"><i data-lucide="download"></i></button>';
+          } else if (track.download_state === "pending") {
+            actionButtons +=
+              '<button class="mu-icon-btn is-pending" type="button" disabled title="下载申请待审核"><i data-lucide="clock"></i></button>';
+          } else {
+            actionButtons +=
+              '<button class="mu-icon-btn" type="button" data-music-request="' +
+              track.id +
+              '" title="申请下载"><i data-lucide="download"></i></button>';
+          }
+        }
+        var actions = actionButtons
+          ? '<span class="mu-row-actions">' + actionButtons + "</span>"
           : "";
         return (
           '<li class="mu-row' +
@@ -763,11 +791,13 @@
     return api("/api/auth/status")
       .then(function (status) {
         state.canManage = Boolean(status.owner);
+        state.authenticated = Boolean(status.authenticated);
         $("musicUploadBtn").hidden = !state.canManage;
         renderList();
       })
       .catch(function () {
         state.canManage = false;
+        state.authenticated = false;
       });
   }
 
@@ -896,6 +926,34 @@
       event.stopPropagation();
       var delTrack = trackById(Number(del.getAttribute("data-music-delete")));
       if (delTrack) openEdit(delTrack);
+      return;
+    }
+    var share = event.target.closest("[data-music-share]");
+    if (share) {
+      event.stopPropagation();
+      var shareTrack = trackById(Number(share.getAttribute("data-music-share")));
+      if (shareTrack && window.ErrorShare) {
+        window.ErrorShare.open("music", shareTrack.id, shareTrack.title);
+      }
+      return;
+    }
+    var request = event.target.closest("[data-music-request]");
+    if (request) {
+      event.stopPropagation();
+      var requestTrack = trackById(Number(request.getAttribute("data-music-request")));
+      if (requestTrack && window.ErrorDownload) {
+        window.ErrorDownload.request("music", requestTrack.id, requestTrack.title, function () {
+          requestTrack.download_state = "pending";
+          renderList();
+        });
+      }
+      return;
+    }
+    var download = event.target.closest("[data-music-download]");
+    if (download) {
+      event.stopPropagation();
+      location.href =
+        "/api/site/music/" + download.getAttribute("data-music-download") + "/download";
       return;
     }
     var row = event.target.closest("[data-music-play]");

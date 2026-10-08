@@ -101,6 +101,7 @@
   function canViewModule(moduleName) {
     if (!authState.authenticated) return false;
     if (authState.owner || authState.admin) return true;
+    if (moduleName === "workbench") return false;
     return (
       authState.permissions.indexOf(moduleName + ":view") >= 0 ||
       authState.permissions.indexOf(moduleName + ":write") >= 0
@@ -209,7 +210,9 @@
     loadMessagesBadge();
     if (authState.admin) {
       applyPendingBadge(
-        (status.pending_users || 0) + (status.pending_attachments || 0)
+        (status.pending_users || 0) +
+          (status.pending_attachments || 0) +
+          (status.pending_download_requests || 0)
       );
     } else {
       applyPendingBadge(0);

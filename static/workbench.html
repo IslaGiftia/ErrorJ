@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/static/prompts.css">
   <link rel="stylesheet" href="/static/workbench.css">
   <link rel="stylesheet" href="/static/site/progress.css">
+  <link rel="stylesheet" href="/static/site/share.css">
   <meta name="tab-name" content="ej-workbench">
   <script src="/static/site/tabname.js"></script>
   <script>
@@ -39,6 +40,7 @@
         <button type="button" data-view="prompts"><i data-lucide="sparkles"></i><span>提示词</span></button>
         <button type="button" data-view="accounts"><i data-lucide="shield-check"></i><span>账号权限</span><em class="wb-nav-badge" id="accountsNavBadge" hidden></em></button>
         <button type="button" data-view="review"><i data-lucide="inbox"></i><span>内容审核</span><em class="wb-nav-badge" id="reviewNavBadge" hidden></em></button>
+        <button type="button" data-view="downloads"><i data-lucide="download"></i><span>下载申请</span><em class="wb-nav-badge" id="downloadsNavBadge" hidden></em></button>
         <button type="button" data-view="logs"><i data-lucide="scroll-text"></i><span>日志</span></button>
       </nav>
     </header>
@@ -195,6 +197,24 @@
           </div>
         </div>
         <div class="wb-account-panel" id="reviewPanel"></div>
+      </section>
+
+      <section class="wb-view" id="view-downloads" hidden>
+        <div class="wb-page-head">
+          <div>
+            <h1>下载申请</h1>
+            <p>电子书和本地上传歌曲的下载申请；批准后仅对申请账号永久生效，撤销后立即失效。</p>
+          </div>
+          <button class="wb-btn" id="downloadsRefreshBtn" type="button">
+            <i data-lucide="refresh-cw"></i><span>刷新</span>
+          </button>
+        </div>
+        <div class="wb-tabs" id="downloadRequestTabs">
+          <button class="active" type="button" data-download-status="pending">待处理</button>
+          <button type="button" data-download-status="approved">已批准</button>
+          <button type="button" data-download-status="all">全部</button>
+        </div>
+        <div class="wb-account-panel" id="downloadRequestPanel"></div>
       </section>
 
       <section class="wb-view" id="view-logs" hidden>
@@ -360,6 +380,7 @@
 
   <script src="/static/vendor/lucide.min.js"></script>
   <script src="/static/site/progress.js"></script>
+  <script src="/static/site/share.js"></script>
   <script src="/static/workbench.js"></script>
   <script src="/static/prompts.js"></script>
 </body>
