@@ -323,6 +323,49 @@ class MessageAttachmentTests(unittest.TestCase):
         self.assertIn("图片内容无法识别", error)
 
 
+class HomeActivityAlertTests(unittest.TestCase):
+    def test_pending_registration_is_reported_to_admin(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.object(app, "DB_PATH", Path(temp_dir) / "inventory.db"):
+                app.init_db()
+                stamp = app.now_text()
+                app.execute(
+                    """INSERT INTO users
+                           (username, nickname, password_hash, status, role,
+                            created_at, updated_at)
+                       VALUES (?, ?, ?, 'pending', 'member', ?, ?)""",
+                    ("newbie", "新用户", "hash", stamp, stamp),
+                )
+                handler = object.__new__(app.InventoryHandler)
+                handler.session_identity = lambda: {"kind": "owner", "user_id": 0}
+                handler.is_admin = lambda: True
+                responses = []
+                handler.send_json = lambda status, payload: responses.append(
+                    (status, payload)
+                )
+                handler.api_site_activity()
+                items = responses[0][1]["items"]
+                alerts = [item for item in items if item.get("alert")]
+                self.assertTrue(
+                    any("待审核注册申请" in str(item.get("text")) for item in alerts)
+                )
+
+    def test_guest_activity_has_no_admin_alerts(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.object(app, "DB_PATH", Path(temp_dir) / "inventory.db"):
+                app.init_db()
+                handler = object.__new__(app.InventoryHandler)
+                handler.session_identity = lambda: None
+                handler.is_admin = lambda: False
+                responses = []
+                handler.send_json = lambda status, payload: responses.append(
+                    (status, payload)
+                )
+                handler.api_site_activity()
+                items = responses[0][1]["items"]
+                self.assertFalse(any(item.get("alert") for item in items))
+
+
 class UploadLimitTests(unittest.TestCase):
     def test_defaults_cover_every_schema_key(self):
         defaults = app.upload_limit_defaults()

@@ -11997,6 +11997,23 @@ class InventoryHandler(BaseHTTPRequestHandler):
                         "alert": True,
                     },
                 )
+            pending_users = query_one(
+                "SELECT COUNT(*) AS n FROM users WHERE status = 'pending'"
+            )["n"]
+            if pending_users:
+                newest_user = query_one(
+                    """SELECT created_at FROM users
+                       WHERE status = 'pending' ORDER BY id DESC LIMIT 1"""
+                )
+                items.append(
+                    {
+                        "id": "pending-user-alert",
+                        "created_at": (newest_user or {}).get("created_at") or now_text(),
+                        "actor": "管理员",
+                        "text": f"有 {int(pending_users)} 个待审核注册申请",
+                        "alert": True,
+                    },
+                )
             pending_files = query_one(
                 "SELECT COUNT(*) AS n FROM site_message_files WHERE status = 'pending'"
             )["n"]
