@@ -6,53 +6,25 @@
   z-index: 68;
   width: min(380px, 28vw);
   font-size: 12px;
-  pointer-events: none;
+  pointer-events: auto;
+  user-select: none;
 }
 
 .activity-feed {
-  height: calc(10.5em + 24px);
-  overflow: hidden;
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    transparent 0,
-    #000 14%,
-    #000 86%,
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    to bottom,
-    transparent 0,
-    #000 14%,
-    #000 86%,
-    transparent 100%
-  );
+  height: auto;
+  overflow: visible;
 }
 
 .activity-feed-track {
   display: flex;
   flex-direction: column;
-  will-change: transform;
-}
-
-.activity-feed-track.is-rolling {
-  animation: activityFeedRoll var(--activity-duration, 30s) linear infinite;
-}
-
-.activity-feed:hover .activity-feed-track.is-rolling {
-  animation-play-state: paused;
-}
-
-.activity-feed-cycle {
-  display: flex;
-  flex-direction: column;
   gap: 4px;
-  padding-bottom: 4px;
 }
 
 .activity-feed-item {
   display: grid;
   grid-template-columns: max-content max-content minmax(0, 1fr);
-  column-gap: 6px;
+  column-gap: 0;
   align-items: baseline;
   justify-content: start;
   min-width: 0;
@@ -84,14 +56,16 @@
 .activity-feed-item.is-alert .activity-feed-text {
   color: var(--ok);
   opacity: 1;
+  animation: activityAlertPulse 3.6s ease-in-out infinite;
 }
 
-@keyframes activityFeedRoll {
-  from {
-    transform: translate3d(0, 0, 0);
+@keyframes activityAlertPulse {
+  0%,
+  100% {
+    opacity: 1;
   }
-  to {
-    transform: translate3d(0, -50%, 0);
+  50% {
+    opacity: 0.42;
   }
 }
 
@@ -123,7 +97,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .activity-feed-track.is-rolling {
+  .activity-feed-item.is-alert .activity-feed-text {
     animation: none;
   }
 }
