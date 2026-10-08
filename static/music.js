@@ -145,6 +145,14 @@
       }
     }
     box.classList.toggle("is-manager", state.canManage);
+    box.classList.toggle(
+      "has-actions",
+      state.canManage ||
+        (state.authenticated &&
+          tracks.some(function (track) {
+            return track.source_type === "file";
+          }))
+    );
     updateSearchClear();
 
     if (!tracks.length) {
