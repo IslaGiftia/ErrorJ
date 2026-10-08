@@ -4676,7 +4676,7 @@ def mask_sensitive(text):
     return "".join(chars), len(hits)
 
 
-# ---------- IP 属地（只公开到省级） ----------
+# ---------- IP 属地（国内到省级，国外到国家 / 地区） ----------
 
 IP_REGION_CACHE = {}
 IP_REGION_CACHE_TTL = 7 * 86400
@@ -4793,8 +4793,30 @@ def pconline_ip_region(text):
     return normalize_region(payload.get("pro") or payload.get("province") or "")
 
 
+def ipwhois_ip_region(text):
+    """海外 IP 兜底：返回中文国家 / 地区；中国 IP 尽量返回省级。"""
+    try:
+        request = Request(
+            "https://ipwho.is/"
+            + quote(text, safe="")
+            + "?"
+            + urlencode({"lang": "zh-CN"}),
+            headers={"User-Agent": "ErrorJiang/1.0"},
+        )
+        with urlopen(request, timeout=3) as response:
+            payload = json.loads(response.read().decode("utf-8", "replace") or "{}")
+    except (URLError, socket.timeout, OSError, json.JSONDecodeError):
+        return ""
+    if not isinstance(payload, dict) or payload.get("success") is not True:
+        return ""
+    country = normalize_region(payload.get("country"))
+    if country in ("中国", "中國"):
+        return normalize_region(payload.get("region")) or country
+    return country
+
+
 def lookup_ip_region(address):
-    """把公网 IP 解析到省级属地（如「广东」）；解析失败时返回空串。"""
+    """把公网 IP 解析到省级或国家 / 地区；解析失败时返回空串。"""
     text = str(address or "").strip()
     if is_private_ip(text):
         return ""
@@ -4805,7 +4827,7 @@ def lookup_ip_region(address):
             ttl = IP_REGION_CACHE_TTL if cached[1] else IP_REGION_CACHE_FAIL_TTL
             if now - cached[0] < ttl:
                 return cached[1]
-    region = amap_ip_region(text) or pconline_ip_region(text)
+    region = amap_ip_region(text) or pconline_ip_region(text) or ipwhois_ip_region(text)
     with IP_REGION_CACHE_LOCK:
         if len(IP_REGION_CACHE) >= IP_REGION_CACHE_LIMIT:
             IP_REGION_CACHE.clear()
@@ -8540,7 +8562,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         self.send_json(200, roots)
 
     def message_attachments(self, payload):
-        """校验并解出附件，返回 (准备写入的文件列表, 错误信息)。"""
+        """校验并解出附件，返回 (展示名、内容、MIME、存储名) 列表和错误信息。"""
         raw_files = payload.get("files") or []
         if not isinstance(raw_files, list):
             return None, "附件格式不正确。"
@@ -8565,12 +8587,16 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 return None, f"附件数据无效：{name}"
             if not raw:
                 return None, f"附件内容为空：{name}"
+            mime_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
+            stored_name = name
             if extension in MESSAGE_IMAGE_EXTENSIONS:
-                detected = _image_ext_from_magic(raw)
-                if not detected or detected not in (
-                    {extension, ".jpg"} if extension in (".jpg", ".jpeg") else {extension}
-                ):
-                    return None, f"图片内容与扩展名不符：{name}"
+                detected_mime = detect_image_type(raw)
+                if not detected_mime:
+                    return None, f"图片内容无法识别：{name}"
+                mime_type = detected_mime
+                stored_name = (
+                    os.path.splitext(name)[0] + NOTE_IMAGE_EXTENSIONS[detected_mime]
+                )
             elif extension == ".pdf":
                 if not raw.startswith(b"%PDF-"):
                     return None, f"不是有效的 PDF 文件：{name}"
@@ -8588,7 +8614,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             if total_bytes > MESSAGE_FILE_TOTAL_MAX_BYTES:
                 limit_mb = MESSAGE_FILE_TOTAL_MAX_BYTES // (1024 * 1024)
                 return None, f"附件总大小不能超过 {limit_mb}MB。"
-            prepared.append((name, raw))
+            prepared.append((name, raw, mime_type, stored_name))
         return prepared, ""
 
     def api_site_message_create(self, payload):
@@ -8647,13 +8673,16 @@ class InventoryHandler(BaseHTTPRequestHandler):
         ip_region = lookup_ip_region(client_ip) if show_region else ""
         saved = []
         try:
-            for name, raw in prepared:
+            for name, raw, _mime_type, stored_name in prepared:
                 relative = self.save_data_file(
-                    raw, name, "site_message_files", max_bytes=MESSAGE_FILE_MAX_BYTES
+                    raw,
+                    stored_name,
+                    "site_message_files",
+                    max_bytes=MESSAGE_FILE_MAX_BYTES,
                 )
-                saved.append((name, relative, len(raw)))
+                saved.append((name, relative, len(raw), _mime_type))
         except ValueError as exc:
-            for _name, relative, _size in saved:
+            for _name, relative, _size, _mime_type in saved:
                 remove_data_file(relative)
             api_error(self, 400, str(exc))
             return
@@ -8678,7 +8707,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 ),
             )
             message_id = cursor.lastrowid
-            for name, relative, size in saved:
+            for name, relative, size, mime_type in saved:
                 conn.execute(
                     """INSERT INTO site_message_files
                        (message_id, file_name, file_path, file_size, mime_type,
@@ -8689,7 +8718,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                         name,
                         relative,
                         size,
-                        mimetypes.guess_type(name)[0],
+                        mime_type,
                         "approved" if auto_approve else "pending",
                         uploader_id,
                         created_at,
@@ -8700,7 +8729,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         try:
             row_id = transaction(write)
         except Exception:
-            for _name, relative, _size in saved:
+            for _name, relative, _size, _mime_type in saved:
                 remove_data_file(relative)
             raise
         self.log_activity(

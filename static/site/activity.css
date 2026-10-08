@@ -50,11 +50,15 @@
 }
 
 .activity-feed-item {
-  display: flex;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: max-content max-content minmax(0, 1fr);
+  column-gap: 6px;
+  align-items: baseline;
+  justify-content: start;
   min-width: 0;
   font-size: inherit;
   line-height: 1.5;
+  text-align: left;
   white-space: nowrap;
 }
 

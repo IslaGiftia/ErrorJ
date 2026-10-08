@@ -5,6 +5,7 @@
   var LOCAL_PROGRESS_KEY = "errorBookProgress";
   var state = {
     books: [],
+    authenticated: false,
     canManage: false,
     canDownload: false,
     keyword: "",
@@ -146,7 +147,10 @@
     }
     grid.innerHTML = books
       .map(function (book) {
-        var percent = Math.round(progressOf(book) * 100);
+        var percent = state.authenticated ? Math.round(progressOf(book) * 100) : 0;
+        var size = state.authenticated
+          ? "<span>" + formatSize(book.file_size) + "</span>"
+          : "";
         var edit = state.canManage
           ? '<button class="bk-card-edit" type="button" data-book-edit="' +
             book.id +
@@ -181,9 +185,8 @@
           "</div>" +
           '<div class="bk-card-meta"><span>' +
           esc(book.author || "未知作者") +
-          "</span><span>" +
-          formatSize(book.file_size) +
           "</span>" +
+          size +
           download +
           edit +
           "</div>" +
@@ -205,14 +208,26 @@
   function loadAuth() {
     return api("/api/auth/status")
       .then(function (status) {
+        state.authenticated = Boolean(status.authenticated);
         state.canManage = Boolean(status.owner);
         state.canDownload = Boolean(
           status.owner || (status.permissions || []).indexOf("books:download") >= 0
         );
         $("bookUploadBtn").hidden = !state.canManage;
+        var recentOption = document.querySelector('#bookSort option[value="recent"]');
+        if (recentOption) {
+          recentOption.hidden = !state.authenticated;
+          recentOption.disabled = !state.authenticated;
+        }
+        if (!state.authenticated && state.sort === "recent") {
+          state.sort = "added";
+          $("bookSort").value = "added";
+        }
       })
       .catch(function () {
+        state.authenticated = false;
         state.canManage = false;
+        state.canDownload = false;
       });
   }
 

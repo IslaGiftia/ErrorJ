@@ -1,3 +1,5 @@
+import base64
+import json
 import unittest
 from unittest.mock import patch
 
@@ -77,6 +79,84 @@ class HomeActivityTests(unittest.TestCase):
         groups = {group["key"]: group["label"] for group in app.PERMISSION_GROUPS}
         self.assertEqual(groups["bookmarks"], "书签")
         self.assertEqual(groups["notes"], "笔记")
+
+
+class IpRegionTests(unittest.TestCase):
+    class FakeResponse:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return json.dumps(self.payload, ensure_ascii=False).encode("utf-8")
+
+    def test_overseas_ip_falls_back_to_country(self):
+        response = self.FakeResponse(
+            {
+                "success": True,
+                "country": "美国",
+                "region": "加利福尼亚州",
+            }
+        )
+        with patch.object(app, "urlopen", return_value=response):
+            self.assertEqual(app.ipwhois_ip_region("8.8.8.8"), "美国")
+
+    def test_china_ip_falls_back_to_province(self):
+        response = self.FakeResponse(
+            {
+                "success": True,
+                "country": "中国",
+                "region": "广东省",
+            }
+        )
+        with patch.object(app, "urlopen", return_value=response):
+            self.assertEqual(app.ipwhois_ip_region("1.2.3.4"), "广东")
+
+
+class MessageAttachmentTests(unittest.TestCase):
+    def setUp(self):
+        self.handler = object.__new__(app.InventoryHandler)
+
+    def test_jpeg_content_with_png_name_is_normalized(self):
+        raw = b"\xff\xd8\xff\xe0" + b"\x00" * 24
+        payload = {
+            "files": [
+                {
+                    "name": "camera.png",
+                    "data_base64": base64.b64encode(raw).decode("ascii"),
+                }
+            ]
+        }
+
+        prepared, error = self.handler.message_attachments(payload)
+
+        self.assertEqual(error, "")
+        self.assertEqual(len(prepared), 1)
+        display_name, content, mime_type, stored_name = prepared[0]
+        self.assertEqual(display_name, "camera.png")
+        self.assertEqual(content, raw)
+        self.assertEqual(mime_type, "image/jpeg")
+        self.assertEqual(stored_name, "camera.jpg")
+
+    def test_invalid_image_content_is_rejected(self):
+        payload = {
+            "files": [
+                {
+                    "name": "fake.png",
+                    "data_base64": base64.b64encode(b"not an image").decode("ascii"),
+                }
+            ]
+        }
+
+        prepared, error = self.handler.message_attachments(payload)
+
+        self.assertIsNone(prepared)
+        self.assertIn("图片内容无法识别", error)
 
 
 if __name__ == "__main__":

@@ -474,7 +474,10 @@
     var regionInput = document.createElement("input");
     regionInput.type = "checkbox";
     regionInput.checked = regionPreference();
-    regionLabel.append(regionInput, el("span", "", "公开 IP 属地（仅到省份）"));
+    regionLabel.append(
+      regionInput,
+      el("span", "", "公开 IP 属地（国内显示省份，国外显示国家 / 地区）")
+    );
 
     var row = el("div", "mg-compose-row");
     var cancelBtn = el("button", "mg-btn mg-btn-ghost", "取消");
