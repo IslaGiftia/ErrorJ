@@ -19,6 +19,11 @@
     reviewFiles: [],
     downloadRequests: [],
     downloadRequestStatus: "pending",
+    uploadLimitSchema: [],
+    uploadLimits: null,
+    uploadLimitDefaults: null,
+    uploadLimitHardMaxBytes: 60 * 1024 * 1024,
+    uploadLimitHardMaxCount: 100,
     defaultMessageLimit: 9,
     logTab: "activity",
     logPage: 1,
@@ -151,16 +156,18 @@
     if (view === "accounts") loadAccounts();
     if (view === "review") loadReview();
     if (view === "downloads") loadDownloadRequests();
+    if (view === "uploads") loadUploadLimits();
     if (view === "logs") loadLogs();
   }
 
   function initialView() {
-    const allowed = ["overview", "assets", "firmware", "repairs", "prompts", "accounts", "review", "downloads", "logs"];
+    const allowed = ["overview", "assets", "firmware", "repairs", "prompts", "accounts", "review", "downloads", "uploads", "logs"];
     const params = new URLSearchParams(location.search);
     const candidate = (params.get("view") || (location.hash || "").replace("#", "") || "overview").trim();
     if (candidate === "accounts" && !state.isAdmin) return "overview";
     if (candidate === "review" && !state.isAdmin) return "overview";
     if (candidate === "downloads" && !state.isAdmin) return "overview";
+    if (candidate === "uploads" && !state.isAdmin) return "overview";
     if (candidate === "logs" && !state.isAdmin) return "overview";
     return allowed.includes(candidate) ? candidate : "overview";
   }
@@ -431,7 +438,18 @@
       } else {
         const file = $("assetFile").files[0];
         if (!file) throw new Error("请选择文件");
-        if (file.size > 30 * 1024 * 1024) throw new Error("文件不能超过 30MB");
+        const uploadKey = "workbench_" + (payload.category || "other");
+        if (window.ErrorUploadLimits) {
+          await window.ErrorUploadLimits.ready();
+        }
+        const limit = window.ErrorUploadLimits
+          ? window.ErrorUploadLimits.get(uploadKey)
+          : null;
+        if (limit && limit.max_file_bytes && file.size > limit.max_file_bytes) {
+          throw new Error(
+            "文件不能超过 " + window.ErrorUploadLimits.label(limit.max_file_bytes)
+          );
+        }
         const fill = assetFill();
         assetBusy.active = true;
         assetBusy.canceled = false;
@@ -614,6 +632,7 @@
     bindReviewEvents();
     bindDownloadEvents();
     bindLogEvents();
+    bindUploadLimitEvents();
     try {
       const status = await api("/api/auth/status");
       state.isOwner = Boolean(status.owner);
@@ -624,6 +643,8 @@
       if (reviewNav) reviewNav.hidden = !state.isAdmin;
       const downloadsNav = document.querySelector('[data-view="downloads"]');
       if (downloadsNav) downloadsNav.hidden = !state.isAdmin;
+      const uploadsNav = document.querySelector('[data-view="uploads"]');
+      if (uploadsNav) uploadsNav.hidden = !state.isAdmin;
       const logsNav = document.querySelector('[data-view="logs"]');
       if (logsNav) logsNav.hidden = !state.isAdmin;
       if (state.isAdmin) {
@@ -1944,6 +1965,123 @@
   }
 
   // ---------- 内容审核 ----------
+  function uploadLimitMb(bytes) {
+    const value = Number(bytes || 0) / (1024 * 1024);
+    return Number.isInteger(value) ? String(value) : value.toFixed(1);
+  }
+
+  async function loadUploadLimits() {
+    const panel = $("uploadLimitsPanel");
+    if (!panel) return;
+    panel.innerHTML = '<div class="wb-empty">正在加载…</div>';
+    try {
+      const data = await api("/api/admin/upload-limits");
+      state.uploadLimitSchema = data.schema || [];
+      state.uploadLimits = data.limits || {};
+      state.uploadLimitDefaults = data.defaults || {};
+      state.uploadLimitHardMaxBytes =
+        Number(data.hard_max_bytes) || state.uploadLimitHardMaxBytes;
+      state.uploadLimitHardMaxCount =
+        Number(data.hard_max_count) || state.uploadLimitHardMaxCount;
+      panel.innerHTML = uploadLimitsHtml();
+      if (window.lucide) lucide.createIcons();
+    } catch (err) {
+      panel.innerHTML = `<div class="wb-empty">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function uploadLimitsHtml() {
+    return (
+      '<div class="wb-upload-limit-grid">' +
+      state.uploadLimitSchema
+        .map((item) => {
+          const limits = state.uploadLimits[item.key] || {};
+          const defaults = state.uploadLimitDefaults[item.key] || {};
+          return `
+            <section class="wb-panel wb-upload-limit-card" data-upload-limit-key="${escapeHtml(item.key)}">
+              <div class="wb-panel-head">
+                <h2>${escapeHtml(item.label)}</h2>
+                <button class="wb-link-btn" type="button" data-upload-limit-reset="${escapeHtml(item.key)}">恢复默认</button>
+              </div>
+              <div class="wb-panel-body">
+                <p class="wb-hint">${escapeHtml(item.description || "")}</p>
+                <div class="wb-form-grid">
+                  ${
+                    item.count
+                      ? `<label class="wb-field"><span>最大数量</span><input type="number" min="1" max="${state.uploadLimitHardMaxCount}" data-upload-field="count" value="${Number(limits.max_count || defaults.max_count || 1)}"></label>`
+                      : ""
+                  }
+                  <label class="wb-field"><span>单文件上限（MB）</span><input type="number" min="0.001" step="0.1" max="${uploadLimitMb(state.uploadLimitHardMaxBytes)}" data-upload-field="file" value="${uploadLimitMb(limits.max_file_bytes || defaults.max_file_bytes)}"></label>
+                  ${
+                    item.total
+                      ? `<label class="wb-field"><span>合计上限（MB）</span><input type="number" min="0.001" step="0.1" max="${uploadLimitMb(state.uploadLimitHardMaxBytes)}" data-upload-field="total" value="${uploadLimitMb(limits.max_total_bytes || defaults.max_total_bytes || limits.max_file_bytes)}"></label>`
+                      : ""
+                  }
+                </div>
+              </div>
+            </section>`;
+        })
+        .join("") +
+      "</div>"
+    );
+  }
+
+  function bindUploadLimitEvents() {
+    const panel = $("uploadLimitsPanel");
+    if (panel) {
+      panel.addEventListener("click", (event) => {
+        const reset = event.target.closest("[data-upload-limit-reset]");
+        if (!reset) return;
+        const key = reset.dataset.uploadLimitReset;
+        const card = panel.querySelector(`[data-upload-limit-key="${key}"]`);
+        const defaults = state.uploadLimitDefaults[key] || {};
+        if (!card) return;
+        const count = card.querySelector('[data-upload-field="count"]');
+        const file = card.querySelector('[data-upload-field="file"]');
+        const total = card.querySelector('[data-upload-field="total"]');
+        if (count) count.value = defaults.max_count || 1;
+        if (file) file.value = uploadLimitMb(defaults.max_file_bytes);
+        if (total) total.value = uploadLimitMb(defaults.max_total_bytes || defaults.max_file_bytes);
+      });
+    }
+    const save = $("uploadLimitsSaveBtn");
+    if (save) {
+      save.addEventListener("click", async () => {
+        if (!panel) return;
+        const limits = {};
+        state.uploadLimitSchema.forEach((item) => {
+          const card = panel.querySelector(`[data-upload-limit-key="${item.key}"]`);
+          if (!card) return;
+          const count = card.querySelector('[data-upload-field="count"]');
+          const file = card.querySelector('[data-upload-field="file"]');
+          const total = card.querySelector('[data-upload-field="total"]');
+          limits[item.key] = {
+            max_count: count ? Number(count.value) : 1,
+            max_file_bytes: Math.round(Number(file ? file.value : 0) * 1024 * 1024),
+          };
+          if (item.total) {
+            limits[item.key].max_total_bytes = Math.round(
+              Number(total ? total.value : 0) * 1024 * 1024
+            );
+          }
+        });
+        save.disabled = true;
+        try {
+          await api("/api/admin/upload-limits", {
+            method: "POST",
+            body: JSON.stringify({ limits }),
+          });
+          toast("上传限制已保存");
+          await loadUploadLimits();
+        } catch (err) {
+          toast(err.message);
+        } finally {
+          save.disabled = false;
+        }
+      });
+    }
+  }
+
   function setDownloadsBadge(count) {
     const value = Number(count) || 0;
     const nav = $("downloadsNavBadge");

@@ -15,6 +15,22 @@
   var dailyRemaining = null;
   var dailyLimit = 0;
 
+  function applyUploadLimits() {
+    if (!window.ErrorUploadLimits) return;
+    var limits = window.ErrorUploadLimits.get("message_file");
+    MAX_FILES = Number(limits.max_count) || MAX_FILES;
+    MAX_FILE_BYTES = Number(limits.max_file_bytes) || MAX_FILE_BYTES;
+    MAX_TOTAL_BYTES = Number(limits.max_total_bytes) || MAX_TOTAL_BYTES;
+    var hint = $("messageUploadHint");
+    if (hint) {
+      hint.textContent =
+        "文字、附件都行。单条最多 " + MAX_FILES + " 个附件，单个不超过 " +
+        window.ErrorUploadLimits.label(MAX_FILE_BYTES) +
+        "（合计 " + window.ErrorUploadLimits.label(MAX_TOTAL_BYTES) +
+        "）；支持图片、PDF、文本，附件需要审核通过后其他人才能看到。";
+    }
+  }
+
   function $(id) {
     return document.getElementById(id);
   }
@@ -174,11 +190,19 @@
         continue;
       }
       if (file.size > MAX_FILE_BYTES) {
-        toast("单个附件不能超过 5MB：" + file.name);
+        toast(
+          "单个附件不能超过 " +
+            (window.ErrorUploadLimits ? window.ErrorUploadLimits.label(MAX_FILE_BYTES) : "5MB") +
+            "：" + file.name
+        );
         continue;
       }
       if (totalPendingBytes() + file.size > MAX_TOTAL_BYTES) {
-        toast("附件总大小不能超过 15MB。");
+        toast(
+          "附件总大小不能超过 " +
+            (window.ErrorUploadLimits ? window.ErrorUploadLimits.label(MAX_TOTAL_BYTES) : "15MB") +
+            "。"
+        );
         break;
       }
       var duplicated = pendingFiles.some(function (item) {
@@ -649,6 +673,7 @@
   renderPending();
   $("msgShowRegion").checked = regionPreference();
   refreshIcons();
+  if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);
 
   var messageList = $("messageList");
   if (messageList) {

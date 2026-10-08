@@ -10,6 +10,25 @@
   var pendingImages = [];
   var toastTimer = null;
 
+  function imageLimitLabel() {
+    return window.ErrorUploadLimits
+      ? window.ErrorUploadLimits.label(MAX_IMAGE_BYTES)
+      : "5MB";
+  }
+
+  function imageHintText() {
+    return "最多 " + MAX_IMAGES + " 张，单张 " + imageLimitLabel();
+  }
+
+  function applyUploadLimits() {
+    if (!window.ErrorUploadLimits) return;
+    var limits = window.ErrorUploadLimits.get("moment_image");
+    MAX_IMAGES = Number(limits.max_count) || MAX_IMAGES;
+    MAX_IMAGE_BYTES = Number(limits.max_file_bytes) || MAX_IMAGE_BYTES;
+    MAX_TOTAL_BYTES = Number(limits.max_total_bytes) || MAX_TOTAL_BYTES;
+    renderPending();
+  }
+
   function $(id) {
     return document.getElementById(id);
   }
@@ -133,11 +152,17 @@
         continue;
       }
       if (file.size > MAX_IMAGE_BYTES) {
-        toast("单张图片不能超过 5MB：" + file.name);
+        toast("单张图片不能超过 " + imageLimitLabel() + "：" + file.name);
         continue;
       }
       if (totalPendingBytes() + file.size > MAX_TOTAL_BYTES) {
-        toast("图片总大小不能超过 15MB。");
+        toast(
+          "图片总大小不能超过 " +
+            (window.ErrorUploadLimits
+              ? window.ErrorUploadLimits.label(MAX_TOTAL_BYTES)
+              : "15MB") +
+            "。"
+        );
         break;
       }
       pendingImages.push(file);
@@ -171,7 +196,7 @@
     if (pendingImages.length) {
       hint.textContent = "已选 " + pendingImages.length + " 张，共 " + (totalPendingBytes() / 1024 / 1024).toFixed(1) + " MB";
     } else {
-      hint.textContent = "最多 9 张，单张 5MB";
+      hint.textContent = imageHintText();
     }
   }
 
@@ -519,6 +544,7 @@
   api("/api/auth/status").then(function (status) {
     var canManage = Boolean(status.admin);
     $("momentForm").hidden = !canManage;
+    if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);
     return loadMoments();
   }).catch(function () {
     $("momentForm").hidden = true;

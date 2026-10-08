@@ -68,7 +68,7 @@
       <label class="bk-file-field">
         <input id="uploadFiles" type="file" accept=".epub,.mobi,.azw,.azw3,.fb2,.cbz,.pdf,.txt,.md,.markdown" multiple>
         <span><i data-lucide="book-plus"></i><strong id="uploadFileLabel">选择电子书文件</strong></span>
-        <small>支持 EPUB / MOBI / AZW3 / FB2 / CBZ / PDF / TXT / Markdown，单个不超过 60MB；EPUB、MOBI 会自动读取书名、作者和封面。</small>
+        <small id="bookUploadHint">支持 EPUB / MOBI / AZW3 / FB2 / CBZ / PDF / TXT / Markdown，单个不超过 60MB；EPUB、MOBI 会自动读取书名、作者和封面。</small>
       </label>
       <div class="bk-field-row" id="uploadMetaFields">
         <label class="bk-field"><span>书名（可留空）</span><input id="uploadTitleInput" maxlength="200" placeholder="自动读取"></label>
@@ -115,6 +115,7 @@
   <script src="/static/vendor/lucide.min.js"></script>
   <script src="/static/site/progress.js"></script>
   <script src="/static/site/share.js"></script>
+  <script src="/static/site/upload-limits.js"></script>
   <script src="/static/books.js"></script>
 </body>
 </html>

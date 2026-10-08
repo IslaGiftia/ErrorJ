@@ -42,7 +42,7 @@
     <main class="mg-main">
       <section class="mg-panel" id="messageComposerPanel" hidden>
         <h1>留言</h1>
-        <p class="mg-hint">文字、附件都行。单条最多 3 个附件，单个不超过 5MB；支持图片、PDF、文本，附件需要审核通过后其他人才能看到。</p>
+        <p class="mg-hint" id="messageUploadHint">文字、附件都行。单条最多 3 个附件，单个不超过 5MB；支持图片、PDF、文本，附件需要审核通过后其他人才能看到。</p>
         <form id="messageForm">
           <div class="mg-field">
             <label for="msgContent">内容</label>
@@ -90,6 +90,7 @@
   <script src="/static/vendor/lucide.min.js"></script>
   <script src="/static/site/rain.js"></script>
   <script src="/static/site/progress.js"></script>
+  <script src="/static/site/upload-limits.js"></script>
   <script src="/static/messages.js"></script>
 
 </body>

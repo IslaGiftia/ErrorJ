@@ -2,6 +2,23 @@
   "use strict";
 
   var MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+
+  function coverLimitLabel() {
+    return window.ErrorUploadLimits
+      ? window.ErrorUploadLimits.label(MAX_IMAGE_BYTES)
+      : "15MB";
+  }
+
+  function applyUploadLimits() {
+    if (!window.ErrorUploadLimits) return;
+    var limits = window.ErrorUploadLimits.get("recommend_image");
+    MAX_IMAGE_BYTES = Number(limits.max_file_bytes) || MAX_IMAGE_BYTES;
+    var hint = $("recCoverHint");
+    if (hint) {
+      hint.textContent =
+        "网站建议 16:9，电影和动漫建议 2:3，最大 " + coverLimitLabel() + "。";
+    }
+  }
   var IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
   var kindLabels = {
     site: "网站",
@@ -532,7 +549,7 @@
   function uploadCover(file) {
     if (!file) return Promise.resolve(state.coverPath);
     if (file.size > MAX_IMAGE_BYTES) {
-      return Promise.reject(new Error("封面图片不能超过 15MB"));
+      return Promise.reject(new Error("封面图片不能超过 " + coverLimitLabel()));
     }
     if (IMAGE_EXTENSIONS.indexOf(extensionOf(file.name)) < 0 && file.type.indexOf("image/") !== 0) {
       return Promise.reject(new Error("封面只支持图片文件"));
@@ -636,7 +653,7 @@
     var file = event.target.files && event.target.files[0];
     if (!file) return;
     if (file.size > MAX_IMAGE_BYTES) {
-      toast("封面图片不能超过 15MB");
+      toast("封面图片不能超过 " + coverLimitLabel());
       event.target.value = "";
       return;
     }
@@ -667,5 +684,6 @@
   });
 
   state.lastColumnCount = columnCount();
+  if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);
   loadRecommendations();
 })();

@@ -7,6 +7,27 @@
   var VOLUME_KEY = "errorMusicVolume";
   var LAST_KEY = "errorMusicLast";
   var MAX_MUSIC_BYTES = 60 * 1024 * 1024;
+  var MAX_MUSIC_COUNT = 20;
+
+  function musicLimitLabel() {
+    return window.ErrorUploadLimits
+      ? window.ErrorUploadLimits.label(MAX_MUSIC_BYTES)
+      : "60MB";
+  }
+
+  function applyUploadLimits() {
+    if (!window.ErrorUploadLimits) return;
+    var limits = window.ErrorUploadLimits.get("music_file");
+    MAX_MUSIC_BYTES = Number(limits.max_file_bytes) || MAX_MUSIC_BYTES;
+    MAX_MUSIC_COUNT = Number(limits.max_count) || MAX_MUSIC_COUNT;
+    var hint = $("musicUploadHint");
+    if (hint) {
+      hint.textContent =
+        "支持 mp3 / wav / flac / m4a / aac / ogg / opus，单个不超过 " +
+        musicLimitLabel() +
+        "；会尝试读取文件里的歌名、歌手、专辑和内嵌封面，没有标签时按文件名猜（例如「茶汤-郁可唯」）。";
+    }
+  }
   var FINE_POINTER = window.matchMedia
     ? window.matchMedia("(hover: hover) and (pointer: fine)").matches
     : true;
@@ -568,11 +589,15 @@
       toast("先选择音频文件");
       return;
     }
+    if (files.length > MAX_MUSIC_COUNT) {
+      toast("一次最多选择 " + MAX_MUSIC_COUNT + " 个音频文件");
+      return;
+    }
     var oversize = files.filter(function (file) {
       return file.size > MAX_MUSIC_BYTES;
     });
     if (oversize.length) {
-      toast(oversize[0].name + " 超过 60MB，先压缩一下再上传");
+      toast(oversize[0].name + " 超过 " + musicLimitLabel() + "，先压缩一下再上传");
       return;
     }
     var single = files.length === 1;
@@ -1087,4 +1112,5 @@
         toast(err.message);
       });
     });
+  if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);
 })();

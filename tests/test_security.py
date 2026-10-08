@@ -323,5 +323,159 @@ class MessageAttachmentTests(unittest.TestCase):
         self.assertIn("图片内容无法识别", error)
 
 
+class UploadLimitTests(unittest.TestCase):
+    def test_defaults_cover_every_schema_key(self):
+        defaults = app.upload_limit_defaults()
+        self.assertEqual(
+            set(defaults),
+            {item["key"] for item in app.UPLOAD_LIMIT_SCHEMA},
+        )
+        self.assertEqual(
+            defaults["message_file"]["max_count"], app.MESSAGE_FILE_MAX_COUNT
+        )
+        self.assertEqual(
+            defaults["message_file"]["max_file_bytes"], app.MESSAGE_FILE_MAX_BYTES
+        )
+        self.assertEqual(
+            defaults["message_file"]["max_total_bytes"],
+            app.MESSAGE_FILE_TOTAL_MAX_BYTES,
+        )
+        self.assertEqual(
+            defaults["moment_image"]["max_total_bytes"],
+            app.MOMENT_IMAGE_TOTAL_MAX_BYTES,
+        )
+
+    def test_normalize_rejects_values_beyond_hard_limits(self):
+        with self.assertRaises(ValueError):
+            app.normalize_upload_limit_payload(
+                {
+                    "limits": {
+                        "message_file": {
+                            "max_file_bytes": app.UPLOAD_LIMIT_HARD_MAX_BYTES + 1
+                        }
+                    }
+                }
+            )
+        with self.assertRaises(ValueError):
+            app.normalize_upload_limit_payload(
+                {
+                    "limits": {
+                        "moment_image": {
+                            "max_count": app.UPLOAD_LIMIT_HARD_MAX_COUNT + 1
+                        }
+                    }
+                }
+            )
+
+    def test_normalize_rejects_total_smaller_than_single_file(self):
+        with self.assertRaises(ValueError):
+            app.normalize_upload_limit_payload(
+                {
+                    "limits": {
+                        "message_file": {
+                            "max_file_bytes": 5 * 1024 * 1024,
+                            "max_total_bytes": 1024,
+                        }
+                    }
+                }
+            )
+
+    def test_normalize_keeps_defaults_for_missing_keys(self):
+        normalized = app.normalize_upload_limit_payload(
+            {"limits": {"music_file": {"max_file_bytes": 12 * 1024 * 1024}}}
+        )
+        self.assertEqual(
+            normalized["music_file"]["max_file_bytes"], 12 * 1024 * 1024
+        )
+        self.assertEqual(
+            normalized["book_file"]["max_file_bytes"], app.BOOK_MAX_BYTES
+        )
+
+    def test_saved_limits_round_trip_and_clamp(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.object(app, "DB_PATH", Path(temp_dir) / "inventory.db"):
+                app.init_db()
+                app.app_meta_set(
+                    app.UPLOAD_LIMIT_META_KEY,
+                    json.dumps(
+                        {
+                            "message_file": {
+                                "max_count": 8,
+                                "max_file_bytes": 12 * 1024 * 1024,
+                                "max_total_bytes": 40 * 1024 * 1024,
+                            },
+                            "music_file": {
+                                "max_file_bytes": app.UPLOAD_LIMIT_HARD_MAX_BYTES
+                                + 5 * 1024 * 1024
+                            },
+                        }
+                    ),
+                )
+                limits = app.upload_limits()
+                self.assertEqual(limits["message_file"]["max_count"], 8)
+                self.assertEqual(
+                    limits["message_file"]["max_file_bytes"], 12 * 1024 * 1024
+                )
+                self.assertEqual(
+                    limits["message_file"]["max_total_bytes"], 40 * 1024 * 1024
+                )
+                self.assertEqual(
+                    limits["music_file"]["max_file_bytes"],
+                    app.UPLOAD_LIMIT_HARD_MAX_BYTES,
+                )
+                self.assertEqual(
+                    limits["book_file"]["max_file_bytes"], app.BOOK_MAX_BYTES
+                )
+
+    def test_message_attachment_count_follows_saved_limit(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.object(app, "DB_PATH", Path(temp_dir) / "inventory.db"):
+                app.init_db()
+                app.app_meta_set(
+                    app.UPLOAD_LIMIT_META_KEY,
+                    json.dumps(
+                        {
+                            "message_file": {
+                                "max_count": 1,
+                                "max_file_bytes": 1024,
+                                "max_total_bytes": 1024,
+                            }
+                        }
+                    ),
+                )
+                handler = object.__new__(app.InventoryHandler)
+                payload = {
+                    "files": [
+                        {
+                            "name": "a.txt",
+                            "data_base64": base64.b64encode(b"hi").decode("ascii"),
+                        },
+                        {
+                            "name": "b.txt",
+                            "data_base64": base64.b64encode(b"ho").decode("ascii"),
+                        },
+                    ]
+                }
+                prepared, error = handler.message_attachments(payload)
+                self.assertIsNone(prepared)
+                self.assertIn("1", error)
+
+    def test_upload_limits_endpoints_permissions(self):
+        self.assertIn("/api/site/upload-limits", app.ALWAYS_PUBLIC_APIS)
+        self.assertIsNone(
+            app.required_permission("/api/admin/upload-limits", "GET")
+        )
+        self.assertIsNone(
+            app.required_permission("/api/admin/upload-limits", "POST")
+        )
+
+    def test_upload_limit_labels_cover_small_sizes(self):
+        self.assertEqual(app.format_upload_limit_bytes(512 * 1024), "512KB")
+        self.assertEqual(app.format_upload_limit_bytes(2 * 1024 * 1024), "2MB")
+        self.assertEqual(
+            app.format_upload_limit_bytes(int(2.5 * 1024 * 1024)), "2.5MB"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

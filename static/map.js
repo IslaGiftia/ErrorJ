@@ -8,6 +8,28 @@
     return document.getElementById(id);
   }
 
+  var mapPhotoLimit = { max_count: 9, max_file_bytes: 8 * 1024 * 1024 };
+
+  function mapPhotoLabel() {
+    return window.ErrorUploadLimits
+      ? window.ErrorUploadLimits.label(mapPhotoLimit.max_file_bytes)
+      : "8MB";
+  }
+
+  function applyUploadLimits() {
+    if (!window.ErrorUploadLimits) return;
+    var limits = window.ErrorUploadLimits.get("map_photo");
+    mapPhotoLimit.max_count = Number(limits.max_count) || mapPhotoLimit.max_count;
+    mapPhotoLimit.max_file_bytes =
+      Number(limits.max_file_bytes) || mapPhotoLimit.max_file_bytes;
+    var hint = $("placePhotoHint");
+    if (hint) {
+      hint.textContent =
+        "最多 " + mapPhotoLimit.max_count + " 张，单张不超过 " +
+        mapPhotoLabel() + "，保存后上传。";
+    }
+  }
+
   function esc(value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (ch) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
@@ -1974,17 +1996,22 @@
     photoInput.addEventListener("change", function () {
       var place = state.editingId ? placeById(state.editingId) : null;
       var existing = place ? (place.photos || []).length : 0;
-      var room = Math.max(0, 9 - existing - state.photoFiles.length);
+      var room = Math.max(
+        0,
+        mapPhotoLimit.max_count - existing - state.photoFiles.length
+      );
       var files = Array.prototype.slice.call(photoInput.files || []);
       files.slice(0, room).forEach(function (file) {
-        if (file.size > 8 * 1024 * 1024) {
-          toast(file.name + " 超过 8MB，已跳过");
+        if (file.size > mapPhotoLimit.max_file_bytes) {
+          toast(file.name + " 超过 " + mapPhotoLabel() + "，已跳过");
           return;
         }
         state.photoFiles.push(file);
         state.photoUrls.push(URL.createObjectURL(file));
       });
-      if (files.length > room) toast("每个标记最多 9 张照片");
+      if (files.length > room) {
+        toast("每个标记最多 " + mapPhotoLimit.max_count + " 张照片");
+      }
       photoInput.value = "";
       renderPhotoEditor(place);
     });
@@ -2335,6 +2362,7 @@
   });
 
   if (window.lucide && lucide.createIcons) lucide.createIcons();
+  if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);
 
   loadData(true)
     .then(function () {

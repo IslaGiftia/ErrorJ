@@ -125,6 +125,7 @@ ALWAYS_PUBLIC_APIS = {
     "/api/health",
     "/api/site/activity",
     "/api/site/game-play",
+    "/api/site/upload-limits",
     "/api/auth/status",
     "/api/login",
     "/api/register",
@@ -444,6 +445,139 @@ BOOK_EXTENSIONS = {
 }
 MOMENT_IMAGE_TOTAL_MAX_BYTES = 15 * 1024 * 1024
 MOMENT_IMAGE_MAX_COUNT = 9
+UPLOAD_LIMIT_HARD_MAX_BYTES = 60 * 1024 * 1024
+UPLOAD_LIMIT_HARD_MAX_COUNT = 100
+UPLOAD_LIMIT_SCHEMA = (
+    {
+        "key": "message_file",
+        "label": "留言附件",
+        "description": "单条留言允许上传的附件数量、单个大小和合计大小。",
+        "count": True,
+        "total": True,
+        "max_count": MESSAGE_FILE_MAX_COUNT,
+        "max_file_bytes": MESSAGE_FILE_MAX_BYTES,
+        "max_total_bytes": MESSAGE_FILE_TOTAL_MAX_BYTES,
+    },
+    {
+        "key": "moment_image",
+        "label": "动态图片",
+        "description": "单条动态允许上传的图片数量、单张大小和合计大小。",
+        "count": True,
+        "total": True,
+        "max_count": MOMENT_IMAGE_MAX_COUNT,
+        "max_file_bytes": MOMENT_IMAGE_MAX_BYTES,
+        "max_total_bytes": MOMENT_IMAGE_TOTAL_MAX_BYTES,
+    },
+    {
+        "key": "music_file",
+        "label": "歌曲音频",
+        "description": "本地上传歌曲的单个文件大小和单次选择数量。",
+        "count": True,
+        "total": False,
+        "max_count": 20,
+        "max_file_bytes": MUSIC_MAX_BYTES,
+    },
+    {
+        "key": "book_file",
+        "label": "电子书",
+        "description": "电子书原文件的单个大小和单次选择数量。",
+        "count": True,
+        "total": False,
+        "max_count": 20,
+        "max_file_bytes": BOOK_MAX_BYTES,
+    },
+    {
+        "key": "site_photo",
+        "label": "照片墙图片",
+        "description": "照片墙上传图片的单个大小和单次数量。",
+        "count": True,
+        "total": False,
+        "max_count": 20,
+        "max_file_bytes": 15 * 1024 * 1024,
+    },
+    {
+        "key": "recommend_image",
+        "label": "推荐封面",
+        "description": "推荐模块封面上传大小。",
+        "count": False,
+        "total": False,
+        "max_file_bytes": RECOMMEND_IMAGE_MAX_BYTES,
+    },
+    {
+        "key": "map_photo",
+        "label": "足迹照片",
+        "description": "单个足迹最多照片数量和单张大小。",
+        "count": True,
+        "total": False,
+        "max_count": MAP_PHOTO_MAX_COUNT,
+        "max_file_bytes": MAP_PHOTO_MAX_BYTES,
+    },
+    {
+        "key": "note_image",
+        "label": "笔记图片",
+        "description": "笔记正文图片的单个大小和单次数量。",
+        "count": True,
+        "total": False,
+        "max_count": 20,
+        "max_file_bytes": NOTE_IMAGE_MAX_BYTES,
+    },
+    {
+        "key": "note_import",
+        "label": "笔记文档导入",
+        "description": "Word / PDF 导入文档的单个大小。",
+        "count": False,
+        "total": False,
+        "max_file_bytes": NOTE_IMPORT_MAX_BYTES,
+    },
+    {
+        "key": "workbench_source",
+        "label": "工作台源码 / 工程",
+        "description": "源码、工程包等资料的单文件大小。",
+        "count": False,
+        "total": False,
+        "max_file_bytes": WORKBENCH_FILE_MAX_BYTES,
+    },
+    {
+        "key": "workbench_firmware",
+        "label": "工作台固件",
+        "description": "HEX / BIN / ELF 等固件的单文件大小。",
+        "count": False,
+        "total": False,
+        "max_file_bytes": WORKBENCH_FILE_MAX_BYTES,
+    },
+    {
+        "key": "workbench_document",
+        "label": "工作台文档",
+        "description": "PDF、原理图、说明文档等的单文件大小。",
+        "count": False,
+        "total": False,
+        "max_file_bytes": WORKBENCH_FILE_MAX_BYTES,
+    },
+    {
+        "key": "workbench_image",
+        "label": "工作台图片",
+        "description": "工作台图片文件的单文件大小。",
+        "count": False,
+        "total": False,
+        "max_file_bytes": WORKBENCH_FILE_MAX_BYTES,
+    },
+    {
+        "key": "workbench_other",
+        "label": "工作台其他文件",
+        "description": "其他工作台文件的单文件大小。",
+        "count": False,
+        "total": False,
+        "max_file_bytes": WORKBENCH_FILE_MAX_BYTES,
+    },
+    {
+        "key": "part_image",
+        "label": "仓库元件图片",
+        "description": "电子元件图片的单文件大小。",
+        "count": False,
+        "total": False,
+        "max_file_bytes": 5 * 1024 * 1024,
+    },
+)
 MESSAGE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 MESSAGE_FILE_EXTENSIONS = MESSAGE_IMAGE_EXTENSIONS | {
     ".pdf",
@@ -3172,15 +3306,15 @@ def bom_watch_status():
 ALLOWED_IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
 
-def save_part_image(part_id, data_base64, file_name):
+def save_part_image(part_id, data_base64, file_name, max_bytes=5 * 1024 * 1024):
     try:
         data = base64.b64decode(data_base64)
     except Exception as exc:
         raise ValueError("图片内容无法解码。") from exc
     if not data:
         raise ValueError("图片内容为空。")
-    if len(data) > 5 * 1024 * 1024:
-        raise ValueError("图片不能超过 5MB。")
+    if len(data) > max_bytes:
+        raise ValueError(f"图片不能超过 {format_upload_limit_bytes(max_bytes)}。")
     ext = Path(file_name or "").suffix.lower()
     if ext not in ALLOWED_IMAGE_EXT:
         ext = ".png"
@@ -5374,6 +5508,133 @@ def app_meta_set(key, value):
     )
 
 
+UPLOAD_LIMIT_META_KEY = "upload_limits_v1"
+
+
+def upload_limit_defaults():
+    defaults = {}
+    for item in UPLOAD_LIMIT_SCHEMA:
+        limits = {
+            "max_count": int(item.get("max_count") or 1),
+            "max_file_bytes": int(item["max_file_bytes"]),
+        }
+        if item.get("total"):
+            limits["max_total_bytes"] = int(item.get("max_total_bytes") or 0)
+        defaults[item["key"]] = limits
+    return defaults
+
+
+def upload_limits():
+    limits = upload_limit_defaults()
+    raw = app_meta_get(UPLOAD_LIMIT_META_KEY, "")
+    if not raw:
+        return limits
+    try:
+        saved = json.loads(raw)
+    except json.JSONDecodeError:
+        return limits
+    if not isinstance(saved, dict):
+        return limits
+    for item in UPLOAD_LIMIT_SCHEMA:
+        key = item["key"]
+        current = limits[key]
+        value = saved.get(key)
+        if not isinstance(value, dict):
+            continue
+        try:
+            current["max_file_bytes"] = max(
+                1024,
+                min(
+                    UPLOAD_LIMIT_HARD_MAX_BYTES,
+                    int(value.get("max_file_bytes") or current["max_file_bytes"]),
+                ),
+            )
+            current["max_count"] = max(
+                1,
+                min(
+                    UPLOAD_LIMIT_HARD_MAX_COUNT,
+                    int(value.get("max_count") or current["max_count"]),
+                ),
+            )
+            if item.get("total"):
+                current["max_total_bytes"] = max(
+                    current["max_file_bytes"],
+                    min(
+                        UPLOAD_LIMIT_HARD_MAX_BYTES,
+                        int(
+                            value.get("max_total_bytes")
+                            or current.get("max_total_bytes")
+                            or current["max_file_bytes"]
+                        ),
+                    ),
+                )
+        except (TypeError, ValueError):
+            continue
+    return limits
+
+
+def upload_limit(key):
+    return upload_limits().get(key) or upload_limit_defaults()[key]
+
+
+def format_upload_limit_bytes(value):
+    """把字节上限转成便于提示的文案，兼容不足 1MB 的小限制。"""
+    size = max(0, int(value or 0))
+    if size < 1024 * 1024:
+        return f"{max(1, round(size / 1024))}KB"
+    megabytes = size / (1024 * 1024)
+    if abs(megabytes - round(megabytes)) < 0.05:
+        return f"{int(round(megabytes))}MB"
+    return f"{megabytes:.1f}MB"
+
+
+def normalize_upload_limit_payload(payload):
+    raw_limits = payload.get("limits") if isinstance(payload, dict) else None
+    if not isinstance(raw_limits, dict):
+        raise ValueError("上传限制格式不正确。")
+    normalized = {}
+    for item in UPLOAD_LIMIT_SCHEMA:
+        key = item["key"]
+        current = upload_limit_defaults()[key]
+        value = raw_limits.get(key)
+        if not isinstance(value, dict):
+            value = {}
+        try:
+            file_bytes = int(value.get("max_file_bytes") or current["max_file_bytes"])
+            count = int(value.get("max_count") or current["max_count"])
+        except (TypeError, ValueError):
+            raise ValueError(f"{item['label']}的大小或数量不是整数。")
+        if not 1024 <= file_bytes <= UPLOAD_LIMIT_HARD_MAX_BYTES:
+            raise ValueError(
+                f"{item['label']}单个文件必须在 1KB 到 "
+                f"{UPLOAD_LIMIT_HARD_MAX_BYTES // (1024 * 1024)}MB 之间。"
+            )
+        if not 1 <= count <= UPLOAD_LIMIT_HARD_MAX_COUNT:
+            raise ValueError(
+                f"{item['label']}数量必须在 1 到 {UPLOAD_LIMIT_HARD_MAX_COUNT} 之间。"
+            )
+        normalized[key] = {
+            "max_count": count,
+            "max_file_bytes": file_bytes,
+        }
+        if item.get("total"):
+            try:
+                total_bytes = int(
+                    value.get("max_total_bytes")
+                    or current.get("max_total_bytes")
+                    or file_bytes
+                )
+            except (TypeError, ValueError):
+                raise ValueError(f"{item['label']}合计大小不是整数。")
+            if not file_bytes <= total_bytes <= UPLOAD_LIMIT_HARD_MAX_BYTES:
+                raise ValueError(
+                    f"{item['label']}合计大小需不小于单个文件，且不超过 "
+                    f"{UPLOAD_LIMIT_HARD_MAX_BYTES // (1024 * 1024)}MB。"
+                )
+            normalized[key]["max_total_bytes"] = total_bytes
+    return normalized
+
+
 def mask_notify_url(url):
     """只显示域名和末尾几位，避免把带密钥的地址回显给前端。"""
     text = str(url or "")
@@ -6082,6 +6343,40 @@ class InventoryHandler(BaseHTTPRequestHandler):
             target = path if path.startswith("/") else "/"
             self.redirect(f"/login?next={quote(target)}")
         return False
+
+    def api_site_upload_limits(self):
+        self.send_json(200, {"limits": upload_limits()})
+
+    def api_admin_upload_limits(self):
+        self.send_json(
+            200,
+            {
+                "limits": upload_limits(),
+                "defaults": upload_limit_defaults(),
+                "schema": UPLOAD_LIMIT_SCHEMA,
+                "hard_max_bytes": UPLOAD_LIMIT_HARD_MAX_BYTES,
+                "hard_max_count": UPLOAD_LIMIT_HARD_MAX_COUNT,
+            },
+        )
+
+    def api_admin_upload_limits_save(self, payload):
+        try:
+            normalized = normalize_upload_limit_payload(payload)
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        app_meta_set(
+            UPLOAD_LIMIT_META_KEY,
+            json.dumps(normalized, ensure_ascii=False, separators=(",", ":")),
+        )
+        self.log_activity("upload_limits_update", "修改上传大小与数量限制")
+        write_audit(
+            self.session_identity(),
+            "upload_limits_update",
+            "修改上传大小与数量限制",
+            normalized,
+        )
+        self.send_json(200, {"ok": True, "limits": normalized})
 
     def api_auth_status(self):
         enabled = bool(AUTH_STATE.get("enabled"))
@@ -7429,6 +7724,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.send_json(200, {"ok": True})
             elif path == "/api/auth/status":
                 self.api_auth_status()
+            elif path == "/api/site/upload-limits":
+                self.api_site_upload_limits()
             elif path == "/api/dashboard":
                 self.api_dashboard()
             elif path == "/api/categories":
@@ -7485,6 +7782,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_admin_review(query)
             elif path == "/api/admin/notify":
                 self.api_admin_notify(query)
+            elif path == "/api/admin/upload-limits":
+                self.api_admin_upload_limits()
             elif path == "/api/admin/download-requests":
                 self.api_admin_download_requests(query)
             elif path == "/api/references":
@@ -7628,6 +7927,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_admin_sensitive_test(payload)
             elif path == "/api/admin/notify":
                 self.api_admin_notify_save(payload)
+            elif path == "/api/admin/upload-limits":
+                self.api_admin_upload_limits_save(payload)
             elif path == "/api/admin/notify/test":
                 self.api_admin_notify_test(payload)
             elif path == "/api/admin/share-links":
@@ -8413,6 +8714,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 part_id,
                 payload.get("data_base64") or "",
                 payload.get("file_name") or "",
+                upload_limit("part_image")["max_file_bytes"],
             )
         except ValueError as exc:
             api_error(self, 400, str(exc))
@@ -8550,7 +8852,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not raw:
             raise ValueError("没有文件数据。")
         if len(raw) > max_bytes:
-            raise ValueError(f"文件不能超过 {max_bytes // (1024 * 1024)}MB。")
+            raise ValueError(f"文件不能超过 {format_upload_limit_bytes(max_bytes)}。")
         name = os.path.basename(file_name or "file")
         name = re.sub(r"[^A-Za-z0-9._-]", "_", name)
         if not name:
@@ -8561,14 +8863,14 @@ class InventoryHandler(BaseHTTPRequestHandler):
         (DATA_DIR / relative).write_bytes(raw)
         return relative
 
-    def save_site_file(self, data_base64, file_name, folder):
+    def save_site_file(self, data_base64, file_name, folder, max_bytes=20 * 1024 * 1024):
         if not data_base64:
             raise ValueError("没有文件数据。")
         try:
             raw = base64.b64decode(data_base64, validate=True)
         except Exception:
             raise ValueError("文件数据不是有效的 base64。")
-        return self.save_data_file(raw, file_name, folder)
+        return self.save_data_file(raw, file_name, folder, max_bytes=max_bytes)
 
     def site_message_files_map(self, message_ids):
         """按留言 ID 分组返回附件，供列表接口一次性取回。"""
@@ -8784,11 +9086,15 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def message_attachments(self, payload):
         """校验并解出附件，返回 (展示名、内容、MIME、存储名) 列表和错误信息。"""
+        limits = upload_limit("message_file")
+        max_count = limits["max_count"]
+        max_file_bytes = limits["max_file_bytes"]
+        max_total_bytes = limits["max_total_bytes"]
         raw_files = payload.get("files") or []
         if not isinstance(raw_files, list):
             return None, "附件格式不正确。"
-        if len(raw_files) > MESSAGE_FILE_MAX_COUNT:
-            return None, f"每条留言最多上传 {MESSAGE_FILE_MAX_COUNT} 个附件。"
+        if len(raw_files) > max_count:
+            return None, f"每条留言最多上传 {max_count} 个附件。"
         prepared = []
         total_bytes = 0
         for item in raw_files:
@@ -8828,13 +9134,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     raw[:4096].decode("utf-8")
                 except UnicodeDecodeError:
                     return None, f"文本附件不是 UTF-8 编码：{name}"
-            if len(raw) > MESSAGE_FILE_MAX_BYTES:
-                limit_mb = MESSAGE_FILE_MAX_BYTES // (1024 * 1024)
-                return None, f"单个附件不能超过 {limit_mb}MB：{name}"
+            if len(raw) > max_file_bytes:
+                limit_text = format_upload_limit_bytes(max_file_bytes)
+                return None, f"单个附件不能超过 {limit_text}：{name}"
             total_bytes += len(raw)
-            if total_bytes > MESSAGE_FILE_TOTAL_MAX_BYTES:
-                limit_mb = MESSAGE_FILE_TOTAL_MAX_BYTES // (1024 * 1024)
-                return None, f"附件总大小不能超过 {limit_mb}MB。"
+            if total_bytes > max_total_bytes:
+                limit_text = format_upload_limit_bytes(max_total_bytes)
+                return None, f"附件总大小不能超过 {limit_text}。"
             prepared.append((name, raw, mime_type, stored_name))
         return prepared, ""
 
@@ -8893,13 +9199,14 @@ class InventoryHandler(BaseHTTPRequestHandler):
         show_region = 0 if payload.get("show_region") is False else 1
         ip_region = lookup_ip_region(client_ip) if show_region else ""
         saved = []
+        storage_limit = upload_limit("message_file")["max_file_bytes"]
         try:
             for name, raw, _mime_type, stored_name in prepared:
                 relative = self.save_data_file(
                     raw,
                     stored_name,
                     "site_message_files",
-                    max_bytes=MESSAGE_FILE_MAX_BYTES,
+                    max_bytes=storage_limit,
                 )
                 saved.append((name, relative, len(raw), _mime_type))
         except ValueError as exc:
@@ -9058,11 +9365,15 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def moment_images(self, payload):
         """校验并解出说说配图，返回 (文件列表, 错误信息)。"""
+        limits = upload_limit("moment_image")
+        max_count = limits["max_count"]
+        max_file_bytes = limits["max_file_bytes"]
+        max_total_bytes = limits["max_total_bytes"]
         raw_files = payload.get("images") or []
         if not isinstance(raw_files, list):
             return None, "图片格式不正确。"
-        if len(raw_files) > MOMENT_IMAGE_MAX_COUNT:
-            return None, f"一条说说最多 {MOMENT_IMAGE_MAX_COUNT} 张图片。"
+        if len(raw_files) > max_count:
+            return None, f"一条说说最多 {max_count} 张图片。"
         prepared = []
         total_bytes = 0
         for item in raw_files:
@@ -9078,13 +9389,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 return None, f"图片数据无效：{name}"
             if not raw:
                 return None, f"图片内容为空：{name}"
-            if len(raw) > MOMENT_IMAGE_MAX_BYTES:
-                limit_mb = MOMENT_IMAGE_MAX_BYTES // (1024 * 1024)
-                return None, f"单张图片不能超过 {limit_mb}MB：{name}"
+            if len(raw) > max_file_bytes:
+                limit_text = format_upload_limit_bytes(max_file_bytes)
+                return None, f"单张图片不能超过 {limit_text}：{name}"
             total_bytes += len(raw)
-            if total_bytes > MOMENT_IMAGE_TOTAL_MAX_BYTES:
-                limit_mb = MOMENT_IMAGE_TOTAL_MAX_BYTES // (1024 * 1024)
-                return None, f"图片总大小不能超过 {limit_mb}MB。"
+            if total_bytes > max_total_bytes:
+                limit_text = format_upload_limit_bytes(max_total_bytes)
+                return None, f"图片总大小不能超过 {limit_text}。"
             prepared.append((name, raw))
         return prepared, ""
 
@@ -9106,10 +9417,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
         show_region = 0 if payload.get("show_region") is False else 1
         ip_region = lookup_ip_region(client_ip) if show_region else ""
         saved = []
+        storage_limit = upload_limit("moment_image")["max_file_bytes"]
         try:
             for name, raw in prepared:
                 relative = self.save_data_file(
-                    raw, name, "moment_images", max_bytes=MOMENT_IMAGE_MAX_BYTES
+                    raw, name, "moment_images", max_bytes=storage_limit
                 )
                 saved.append((name, relative, len(raw)))
         except ValueError as exc:
@@ -9885,11 +10197,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not raw:
             api_error(self, 400, "图片内容为空。")
             return
-        if len(raw) > RECOMMEND_IMAGE_MAX_BYTES:
+        max_file_bytes = upload_limit("recommend_image")["max_file_bytes"]
+        if len(raw) > max_file_bytes:
             api_error(
                 self,
                 400,
-                f"封面图片不能超过 {RECOMMEND_IMAGE_MAX_BYTES // (1024 * 1024)}MB。",
+                f"封面图片不能超过 {format_upload_limit_bytes(max_file_bytes)}。",
             )
             return
         mime_type = detect_image_type(raw)
@@ -9903,7 +10216,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 raw,
                 stored_name,
                 "recommend_images",
-                RECOMMEND_IMAGE_MAX_BYTES,
+                max_file_bytes,
             )
         except ValueError as exc:
             api_error(self, 400, str(exc))
@@ -9958,6 +10271,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 payload.get("data_base64") or "",
                 payload.get("file_name") or "photo.jpg",
                 "site_photos",
+                upload_limit("site_photo")["max_file_bytes"],
             )
         except ValueError as exc:
             api_error(self, 400, str(exc))
@@ -10059,14 +10373,19 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not raw:
             api_error(self, 400, "音频内容为空。")
             return
-        if len(raw) > MUSIC_MAX_BYTES:
-            limit_mb = MUSIC_MAX_BYTES // (1024 * 1024)
-            api_error(self, 400, f"单个音频文件不能超过 {limit_mb}MB。")
+        max_file_bytes = upload_limit("music_file")["max_file_bytes"]
+        if len(raw) > max_file_bytes:
+            api_error(
+                self,
+                400,
+                "单个音频文件不能超过 "
+                f"{format_upload_limit_bytes(max_file_bytes)}。",
+            )
             return
         metadata = parse_audio_metadata(raw, file_name)
         try:
             relative = self.save_data_file(
-                raw, file_name, "site_music_files", max_bytes=MUSIC_MAX_BYTES
+                raw, file_name, "site_music_files", max_bytes=max_file_bytes
             )
         except ValueError as exc:
             api_error(self, 400, str(exc))
@@ -10237,9 +10556,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not raw:
             api_error(self, 400, "电子书内容为空。")
             return
-        if len(raw) > BOOK_MAX_BYTES:
-            limit_mb = BOOK_MAX_BYTES // (1024 * 1024)
-            api_error(self, 400, f"单个电子书不能超过 {limit_mb}MB。")
+        max_file_bytes = upload_limit("book_file")["max_file_bytes"]
+        if len(raw) > max_file_bytes:
+            api_error(
+                self,
+                400,
+                f"单个电子书不能超过 {format_upload_limit_bytes(max_file_bytes)}。",
+            )
             return
         metadata = parse_book_metadata(raw, file_name)
         guess_title, guess_author = guess_book_name(os.path.splitext(file_name)[0])
@@ -10260,7 +10583,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )
         tags = str(payload.get("tags") or "").strip()[:200]
         try:
-            relative = self.save_data_file(raw, file_name, "book_files", max_bytes=BOOK_MAX_BYTES)
+            relative = self.save_data_file(
+                raw, file_name, "book_files", max_bytes=max_file_bytes
+            )
         except ValueError as exc:
             api_error(self, 400, str(exc))
             return
@@ -11091,8 +11416,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
         count = query_one(
             "SELECT COUNT(*) AS n FROM map_place_photos WHERE place_id = ?", (place_id,)
         )["n"]
-        if count >= MAP_PHOTO_MAX_COUNT:
-            api_error(self, 400, f"每个标记最多 {MAP_PHOTO_MAX_COUNT} 张照片。")
+        limits = upload_limit("map_photo")
+        max_count = limits["max_count"]
+        max_file_bytes = limits["max_file_bytes"]
+        if count >= max_count:
+            api_error(self, 400, f"每个标记最多 {max_count} 张照片。")
             return
         name = os.path.basename(str(payload.get("name") or "photo.jpg")).strip() or "photo.jpg"
         extension = os.path.splitext(name)[1].lower()
@@ -11107,12 +11435,17 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not raw:
             api_error(self, 400, "图片内容为空。")
             return
-        if len(raw) > MAP_PHOTO_MAX_BYTES:
-            limit_mb = MAP_PHOTO_MAX_BYTES // (1024 * 1024)
-            api_error(self, 400, f"单张照片不能超过 {limit_mb}MB。")
+        if len(raw) > max_file_bytes:
+            api_error(
+                self,
+                400,
+                f"单张照片不能超过 {format_upload_limit_bytes(max_file_bytes)}。",
+            )
             return
         try:
-            relative = self.save_data_file(raw, name, "map_images", max_bytes=MAP_PHOTO_MAX_BYTES)
+            relative = self.save_data_file(
+                raw, name, "map_images", max_bytes=max_file_bytes
+            )
         except ValueError as exc:
             api_error(self, 400, str(exc))
             return
@@ -11923,7 +12256,16 @@ class InventoryHandler(BaseHTTPRequestHandler):
         base_name = os.path.splitext(os.path.basename(original_name or ""))[0]
         base_name = re.sub(r"[^A-Za-z0-9_-]+", "-", base_name).strip("-_") or f"image-{index:02d}"
         stored_name = f"{slug}-{index:02d}-{base_name[:60]}{extension}"
-        relative = self.save_data_file(raw, stored_name, "note_images", NOTE_IMAGE_MAX_BYTES)
+        try:
+            relative = self.save_data_file(
+                raw,
+                stored_name,
+                "note_images",
+                upload_limit("note_image")["max_file_bytes"],
+            )
+        except ValueError:
+            # 文档里内嵌的图片超过当前上限时跳过，不影响整篇导入。
+            return None
         try:
             image_id = execute(
                 """INSERT INTO note_images
@@ -11950,11 +12292,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not raw:
             api_error(self, 400, "文件内容为空。")
             return
-        if len(raw) > NOTE_IMPORT_MAX_BYTES:
+        max_file_bytes = upload_limit("note_import")["max_file_bytes"]
+        if len(raw) > max_file_bytes:
             api_error(
                 self,
                 400,
-                f"导入文档不能超过 {NOTE_IMPORT_MAX_BYTES // (1024 * 1024)}MB。",
+                "导入文档不能超过 "
+                f"{format_upload_limit_bytes(max_file_bytes)}。",
             )
             return
         extension = Path(original_name).suffix.lower()
@@ -12195,8 +12539,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not raw:
             api_error(self, 400, "图片内容为空。")
             return
-        if len(raw) > NOTE_IMAGE_MAX_BYTES:
-            api_error(self, 400, "图片不能超过 20MB。")
+        max_file_bytes = upload_limit("note_image")["max_file_bytes"]
+        if len(raw) > max_file_bytes:
+            api_error(
+                self,
+                400,
+                f"图片不能超过 {format_upload_limit_bytes(max_file_bytes)}。",
+            )
             return
         mime_type = detect_image_type(raw)
         if not mime_type:
@@ -12206,7 +12555,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         stored_name = f"{base_name}{NOTE_IMAGE_EXTENSIONS[mime_type]}"
         try:
             relative = self.save_data_file(
-                raw, stored_name, "note_images", NOTE_IMAGE_MAX_BYTES
+                raw, stored_name, "note_images", max_file_bytes
             )
         except ValueError as exc:
             api_error(self, 400, str(exc))
@@ -12401,9 +12750,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not raw:
             api_error(self, 400, "文件内容为空。")
             return
-        if len(raw) > WORKBENCH_FILE_MAX_BYTES:
-            api_error(self, 400, "工作台文件不能超过 30MB。")
-            return
         extension = Path(original_name).suffix.lower()
         if extension not in WORKBENCH_EXTENSIONS:
             api_error(self, 400, "不支持这种文件类型。")
@@ -12412,6 +12758,15 @@ class InventoryHandler(BaseHTTPRequestHandler):
             original_name,
             str(payload.get("category") or ""),
         )
+        max_file_bytes = upload_limit(f"workbench_{category}")["max_file_bytes"]
+        if len(raw) > max_file_bytes:
+            api_error(
+                self,
+                400,
+                "工作台文件不能超过 "
+                f"{format_upload_limit_bytes(max_file_bytes)}。",
+            )
+            return
         project_id = payload.get("project_id")
         project_id = int(project_id) if str(project_id or "").isdigit() else None
         if project_id and not query_one("SELECT id FROM projects WHERE id = ?", (project_id,)):
@@ -12433,7 +12788,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 raw,
                 original_name,
                 f"workbench/{category}",
-                WORKBENCH_FILE_MAX_BYTES,
+                max_file_bytes,
             )
         except ValueError as exc:
             api_error(self, 400, str(exc))

@@ -41,6 +41,7 @@
         <button type="button" data-view="accounts"><i data-lucide="shield-check"></i><span>账号权限</span><em class="wb-nav-badge" id="accountsNavBadge" hidden></em></button>
         <button type="button" data-view="review"><i data-lucide="inbox"></i><span>内容审核</span><em class="wb-nav-badge" id="reviewNavBadge" hidden></em></button>
         <button type="button" data-view="downloads"><i data-lucide="download"></i><span>下载申请</span><em class="wb-nav-badge" id="downloadsNavBadge" hidden></em></button>
+        <button type="button" data-view="uploads"><i data-lucide="sliders-horizontal"></i><span>上传限制</span></button>
         <button type="button" data-view="logs"><i data-lucide="scroll-text"></i><span>日志</span></button>
       </nav>
     </header>
@@ -217,6 +218,19 @@
         <div class="wb-account-panel" id="downloadRequestPanel"></div>
       </section>
 
+      <section class="wb-view" id="view-uploads" hidden>
+        <div class="wb-page-head">
+          <div>
+            <h1>上传限制</h1>
+            <p>统一控制留言、动态、歌曲、电子书、笔记、地图和工作台文件的大小与数量。</p>
+          </div>
+          <button class="wb-btn wb-btn-primary" id="uploadLimitsSaveBtn" type="button">
+            <i data-lucide="save"></i><span>保存设置</span>
+          </button>
+        </div>
+        <div class="wb-account-panel" id="uploadLimitsPanel"></div>
+      </section>
+
       <section class="wb-view" id="view-logs" hidden>
         <div class="wb-page-head">
           <div>
@@ -381,6 +395,7 @@
   <script src="/static/vendor/lucide.min.js"></script>
   <script src="/static/site/progress.js"></script>
   <script src="/static/site/share.js"></script>
+  <script src="/static/site/upload-limits.js"></script>
   <script src="/static/workbench.js"></script>
   <script src="/static/prompts.js"></script>
 </body>

@@ -169,7 +169,7 @@
           <label for="placePhotoInput">照片</label>
           <div class="mp-photo-list" id="placePhotos"></div>
           <input id="placePhotoInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp" multiple>
-          <p class="mp-field-hint">最多 9 张，单张不超过 8MB，保存后上传。</p>
+          <p class="mp-field-hint" id="placePhotoHint">最多 9 张，单张不超过 8MB，保存后上传。</p>
         </div>
         <div class="mp-field-row mp-coords">
           <div class="mp-field">
@@ -271,6 +271,7 @@
   <script src="/static/vendor/leaflet/leaflet.js"></script>
   <script src="/static/vendor/leaflet-markercluster/leaflet.markercluster.js"></script>
   <script src="/static/vendor/lucide.min.js"></script>
+  <script src="/static/site/upload-limits.js"></script>
   <script src="/static/map.js"></script>
 </body>
 </html>

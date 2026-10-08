@@ -117,7 +117,7 @@
       <label class="mu-file-field">
         <input id="uploadFiles" type="file" accept="audio/*,.mp3,.wav,.flac,.m4a,.aac,.ogg,.opus" multiple>
         <span><i data-lucide="music"></i><strong id="uploadFileLabel">选择音频文件</strong></span>
-        <small>支持 mp3 / wav / flac / m4a / aac / ogg / opus，单个不超过 60MB；会尝试读取文件里的歌名、歌手、专辑和内嵌封面，没有标签时按文件名猜（例如「茶汤-郁可唯」）。</small>
+        <small id="musicUploadHint">支持 mp3 / wav / flac / m4a / aac / ogg / opus，单个不超过 60MB；会尝试读取文件里的歌名、歌手、专辑和内嵌封面，没有标签时按文件名猜（例如「茶汤-郁可唯」）。</small>
       </label>
       <div class="mu-field-row" id="uploadMetaFields">
         <label class="mu-field"><span>歌名（可留空）</span><input id="uploadTitleInput" maxlength="80" placeholder="自动读取标签"></label>
@@ -164,6 +164,7 @@
   <script src="/static/vendor/lucide.min.js"></script>
   <script src="/static/site/progress.js"></script>
   <script src="/static/site/share.js"></script>
+  <script src="/static/site/upload-limits.js"></script>
   <script src="/static/music.js"></script>
 </body>
 </html>

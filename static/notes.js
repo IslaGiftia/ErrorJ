@@ -19,8 +19,26 @@
 
   const $ = (id) => document.getElementById(id);
   const MAX_UPLOAD_SIDE = 2000;
-  const MAX_DOCUMENT_IMPORT_BYTES = 20 * 1024 * 1024;
   const MAX_NOTE_CONTENT_CHARS = 2000000;
+
+  const noteLimits = {
+    importBytes: 20 * 1024 * 1024,
+    imageBytes: 20 * 1024 * 1024,
+    imageCount: 20,
+  };
+
+  function noteLimitLabel(bytes) {
+    return window.ErrorUploadLimits ? window.ErrorUploadLimits.label(bytes) : "20MB";
+  }
+
+  function applyUploadLimits() {
+    if (!window.ErrorUploadLimits) return;
+    const importLimit = window.ErrorUploadLimits.get("note_import");
+    const imageLimit = window.ErrorUploadLimits.get("note_image");
+    noteLimits.importBytes = Number(importLimit.max_file_bytes) || noteLimits.importBytes;
+    noteLimits.imageBytes = Number(imageLimit.max_file_bytes) || noteLimits.imageBytes;
+    noteLimits.imageCount = Number(imageLimit.max_count) || noteLimits.imageCount;
+  }
 
   let themePreference = "auto";
   try {
@@ -1033,13 +1051,22 @@
   }
 
   async function uploadImages(files) {
-    const images = Array.from(files || []).filter((file) => file.type.startsWith("image/"));
+    let images = Array.from(files || []).filter((file) => file.type.startsWith("image/"));
     if (!images.length) return;
+    if (images.length > noteLimits.imageCount) {
+      toast("一次最多上传 " + noteLimits.imageCount + " 张图片");
+      images = images.slice(0, noteLimits.imageCount);
+    }
     state.uploading += images.length;
     $("toolbarHint").textContent = "正在上传图片…";
     for (const file of images) {
       try {
         const prepared = await shrinkImage(file);
+        if (prepared.blob.size > noteLimits.imageBytes) {
+          throw new Error(
+            "图片不能超过 " + noteLimitLabel(noteLimits.imageBytes) + "：" + file.name
+          );
+        }
         const dataBase64 = await readAsBase64(prepared.blob);
         const result = await api("/api/notes/images", {
           method: "POST",
@@ -1155,8 +1182,8 @@
       toast("只支持 TXT、Markdown、HTML、Word 和 PDF 文档");
       return;
     }
-    if (file.size > MAX_DOCUMENT_IMPORT_BYTES) {
-      toast("导入文档不能超过 20MB");
+    if (file.size > noteLimits.importBytes) {
+      toast("导入文档不能超过 " + noteLimitLabel(noteLimits.importBytes));
       return;
     }
     state.uploading += 1;
@@ -1405,6 +1432,7 @@
     applyTheme(themePreference, false);
     if (window.lucide) lucide.createIcons();
     bindEvents();
+    if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);
     if (window.ResizeObserver) {
       const head = document.querySelector(".nt-doc-head");
       if (head) new ResizeObserver(syncHeadHeight).observe(head);

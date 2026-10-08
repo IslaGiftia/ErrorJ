@@ -2,7 +2,28 @@
   "use strict";
 
   var MAX_BOOK_BYTES = 60 * 1024 * 1024;
+  var MAX_BOOK_COUNT = 20;
   var LOCAL_PROGRESS_KEY = "errorBookProgress";
+
+  function bookLimitLabel() {
+    return window.ErrorUploadLimits
+      ? window.ErrorUploadLimits.label(MAX_BOOK_BYTES)
+      : "60MB";
+  }
+
+  function applyUploadLimits() {
+    if (!window.ErrorUploadLimits) return;
+    var limits = window.ErrorUploadLimits.get("book_file");
+    MAX_BOOK_BYTES = Number(limits.max_file_bytes) || MAX_BOOK_BYTES;
+    MAX_BOOK_COUNT = Number(limits.max_count) || MAX_BOOK_COUNT;
+    var hint = $("bookUploadHint");
+    if (hint) {
+      hint.textContent =
+        "支持 EPUB / MOBI / AZW3 / FB2 / CBZ / PDF / TXT / Markdown，单个不超过 " +
+        bookLimitLabel() +
+        "；EPUB、MOBI 会自动读取书名、作者和封面。";
+    }
+  }
   var state = {
     books: [],
     authenticated: false,
@@ -300,11 +321,15 @@
       toast("先选择电子书文件");
       return;
     }
+    if (files.length > MAX_BOOK_COUNT) {
+      toast("一次最多选择 " + MAX_BOOK_COUNT + " 个电子书文件");
+      return;
+    }
     var tooBig = files.filter(function (file) {
       return file.size > MAX_BOOK_BYTES;
     });
     if (tooBig.length) {
-      toast(tooBig[0].name + " 超过 60MB");
+      toast(tooBig[0].name + " 超过 " + bookLimitLabel());
       return;
     }
     var single = files.length === 1;
@@ -598,4 +623,5 @@
     .catch(function (err) {
       toast(err.message);
     });
+  if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);
 })();
