@@ -410,6 +410,12 @@
     }, 2600);
   }
 
+  function notifyDockRefresh() {
+    try {
+      localStorage.setItem("errorMapDockRefresh", String(Date.now()));
+    } catch (err) {}
+  }
+
   var hintEl = $("mapHint");
   function setHint(text) {
     if (!hintEl) return;
@@ -873,6 +879,7 @@
             .then(function () {
               place.lat = nextLat;
               place.lng = nextLng;
+              notifyDockRefresh();
               toast("位置已更新");
             })
             .catch(function (err) {
@@ -1354,6 +1361,7 @@
         var targetId = editing || data.id;
         return uploadPendingPhotos(targetId).then(function () {
           closeModal("mapPlaceModal");
+          notifyDockRefresh();
           toast(editing ? "标记已更新" : "标记已添加");
           return loadData(false).then(function () {
             var target = placeById(targetId);
@@ -1371,6 +1379,7 @@
     askConfirm("删除标记？", "「" + place.name + "」会从地图上移除，这个操作不能撤销。", "删除", function () {
       api("/api/map/places/" + place.id, { method: "DELETE" })
         .then(function () {
+          notifyDockRefresh();
           toast("已删除");
           return loadData(false);
         })

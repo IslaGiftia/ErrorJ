@@ -41,7 +41,6 @@
 
 .map-dock-mini,
 .map-dock-tint,
-.map-dock-grid,
 .map-dock-ring {
   position: absolute;
   inset: 0;
@@ -86,45 +85,6 @@
   display: none;
 }
 
-.map-dock-grid {
-  pointer-events: none;
-  opacity: 0.55;
-  background-image:
-    linear-gradient(to right, rgba(255, 255, 255, 0.75) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.75) 1px, transparent 1px);
-  background-size: 25% 25%, 25% 25%;
-  background-position: center;
-}
-
-.map-dock.is-guest .map-dock-grid {
-  --map-grid-major: rgba(70, 82, 99, 0.72);
-  --map-grid-minor: rgba(70, 82, 99, 0.30);
-  opacity: 1;
-  background-image:
-    linear-gradient(
-      to right,
-      transparent calc(50% - 0.5px),
-      var(--map-grid-major) calc(50% - 0.5px),
-      var(--map-grid-major) calc(50% + 0.5px),
-      transparent calc(50% + 0.5px)
-    ),
-    linear-gradient(
-      to bottom,
-      transparent calc(50% - 0.5px),
-      var(--map-grid-major) calc(50% - 0.5px),
-      var(--map-grid-major) calc(50% + 0.5px),
-      transparent calc(50% + 0.5px)
-    ),
-    linear-gradient(to right, var(--map-grid-minor) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--map-grid-minor) 1px, transparent 1px);
-  background-size: 100% 100%, 100% 100%, 20% 20%, 20% 20%;
-}
-
-[data-theme="dark"] .map-dock.is-guest .map-dock-grid {
-  --map-grid-major: rgba(255, 255, 255, 0.72);
-  --map-grid-minor: rgba(255, 255, 255, 0.24);
-}
-
 .map-dock-ring {
   pointer-events: none;
   box-shadow:
@@ -132,22 +92,6 @@
     inset 0 0 18px rgba(10, 14, 20, 0.35),
     0 8px 22px rgba(10, 14, 20, 0.35);
   border: 2px solid color-mix(in srgb, var(--primary, #7b68ee) 72%, #111);
-}
-
-.map-dock-north {
-  position: absolute;
-  top: 0.18em;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 0 0.36em;
-  border-radius: 999px;
-  background: rgba(12, 16, 22, 0.72);
-  color: #fff;
-  font-size: 0.78em;
-  font-weight: 800;
-  line-height: 1.5em;
-  letter-spacing: 0.04em;
-  pointer-events: none;
 }
 
 .map-dock-cross {

@@ -405,6 +405,7 @@ PUBLIC_ACTIVITY_LABELS = {
     "music_upload": "上传了一首歌",
     "recommendation_create": "新增了一条推荐",
     "recommendation_update": "更新了一条推荐",
+    "map_place_create": "新增了一个足迹",
 }
 REFERENCE_ITEM_RE = re.compile(
     r'<article class="reference-item">\s*'

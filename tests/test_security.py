@@ -224,6 +224,7 @@ class HomeActivityTests(unittest.TestCase):
     def test_public_activity_uses_generic_content_labels(self):
         self.assertEqual(app.PUBLIC_ACTIVITY_LABELS["message_create"], "发表了留言")
         self.assertEqual(app.PUBLIC_ACTIVITY_LABELS["book_upload"], "上架了一本电子书")
+        self.assertEqual(app.PUBLIC_ACTIVITY_LABELS["map_place_create"], "新增了一个足迹")
 
     def test_download_request_notification_event_exists(self):
         events = {item["key"]: item for item in app.NOTIFY_EVENTS}

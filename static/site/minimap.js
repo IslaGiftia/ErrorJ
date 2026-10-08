@@ -1,7 +1,7 @@
 /*
  * 首页左下角的圆形小地图入口。
  * 规则：有地图权限时显示最近浏览的区域（/map 页面拖动、缩放后回到首页会跟随），
- * 底图固定为浅色高德矢量、暗色 Esri 深色；游客显示浅色静态底图和网格。
+ * 底图固定为浅色高德矢量、暗色 Esri 深色；游客显示浅色静态底图。
  */
 (function () {
   var dock = document.getElementById("mapDock");
@@ -9,7 +9,7 @@
   var countEl = document.getElementById("mapDockCount");
   if (!dock || !holder || typeof L === "undefined") return;
 
-  // 默认使用网格占位，只有地图接口确认有权限后才加载真实底图。
+  // 默认使用静态底图占位，只有地图接口确认有权限后才加载真实底图。
   dock.classList.add("is-guest");
 
   // 游客 / 无地图权限的账号：入口保留，但点击时提示，不进入地图页
@@ -313,5 +313,12 @@
   }
 
   window.addEventListener("errorauthchange", loadMapData);
+  window.addEventListener("pageshow", loadMapData);
+  window.addEventListener("storage", function (event) {
+    if (event.key === "errorMapDockRefresh") loadMapData();
+  });
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) loadMapData();
+  });
   loadMapData();
 })();
