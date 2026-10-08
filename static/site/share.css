@@ -101,6 +101,103 @@
   margin-top: 16px;
 }
 
+/* ---------- 三选一分享入口 ---------- */
+.share-modes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 4px;
+  border: 1px solid var(--share-line);
+  border-radius: 9px;
+  background: var(--share-bg);
+}
+
+.share-modes[hidden] {
+  display: none;
+}
+
+.share-mode {
+  min-height: 34px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--share-muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.share-mode:hover {
+  color: var(--share-text);
+}
+
+.share-mode.active {
+  background: var(--share-panel);
+  color: var(--share-text);
+  box-shadow: 0 1px 3px rgba(15, 20, 35, 0.14);
+}
+
+.share-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.share-panel[hidden] {
+  display: none;
+}
+
+.share-panel textarea {
+  width: 100%;
+  min-height: 88px;
+  margin-bottom: 12px;
+  padding: 10px 11px;
+  border: 1px solid var(--share-line);
+  border-radius: 8px;
+  background: var(--share-bg);
+  color: var(--share-text);
+  font: inherit;
+  font-size: 13.5px;
+  resize: vertical;
+}
+
+.share-panel textarea:focus {
+  outline: none;
+  border-color: var(--share-accent);
+}
+
+.share-panel .share-btn {
+  align-self: flex-end;
+}
+
+.share-note {
+  margin: 0 0 12px;
+  color: var(--share-muted);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.share-feedback {
+  margin: 14px 0 0;
+  color: var(--share-muted);
+  font-size: 13px;
+}
+
+.share-feedback[hidden] {
+  display: none;
+}
+
+.share-feedback.is-error {
+  color: #d64545;
+}
+
+.share-feedback a {
+  color: var(--share-accent);
+  font-weight: 650;
+}
+
 .share-btn,
 .download-request-btn {
   display: inline-flex;

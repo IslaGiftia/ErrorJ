@@ -10,6 +10,7 @@
   var pendingImages = [];
   var toastTimer = null;
   var canInteract = false;
+  var shareAudio = null;
 
   function imageLimitLabel() {
     return window.ErrorUploadLimits
@@ -357,6 +358,88 @@
     return wrap;
   }
 
+  function buildShareCard(share) {
+    var info = el("div", "mo-share-info");
+    info.appendChild(el("span", "mo-share-label", share.label || "内容"));
+    info.appendChild(el("strong", "mo-share-title", share.title || ""));
+    if (share.subtitle) {
+      info.appendChild(el("span", "mo-share-subtitle", share.subtitle));
+    }
+    if (!share.available) {
+      var missing = el("div", "mo-share is-missing");
+      missing.appendChild(el("span", "mo-share-icon", "×"));
+      info.textContent = "";
+      info.appendChild(el("span", "mo-share-label", share.label || "内容"));
+      info.appendChild(el("strong", "mo-share-title", "内容已失效"));
+      missing.appendChild(info);
+      return missing;
+    }
+    if (share.type === "music") {
+      var card = el("div", "mo-share is-music");
+      var cover = el("button", "mo-share-cover");
+      cover.type = "button";
+      cover.setAttribute("aria-label", "播放");
+      if (share.cover_url) {
+        var image = document.createElement("img");
+        image.src = share.cover_url;
+        image.alt = share.title || "";
+        image.loading = "lazy";
+        cover.appendChild(image);
+      } else {
+        cover.appendChild(el("span", "mo-share-placeholder", "♪"));
+      }
+      var glyph = el("span", "mo-share-play", "▶");
+      cover.appendChild(glyph);
+      var audio = new Audio();
+      audio.preload = "none";
+      audio.src = share.url;
+      function sync(playing) {
+        glyph.textContent = playing ? "❚❚" : "▶";
+        cover.setAttribute("aria-label", playing ? "暂停" : "播放");
+        card.classList.toggle("is-playing", playing);
+      }
+      audio.addEventListener("play", function () {
+        sync(true);
+      });
+      audio.addEventListener("pause", function () {
+        sync(false);
+      });
+      audio.addEventListener("ended", function () {
+        sync(false);
+      });
+      cover.addEventListener("click", function () {
+        if (!audio.paused) {
+          audio.pause();
+          return;
+        }
+        if (shareAudio && shareAudio !== audio) {
+          shareAudio.pause();
+        }
+        shareAudio = audio;
+        audio.play().catch(function () {
+          toast("播放失败，稍后再试");
+        });
+      });
+      card.append(cover, info);
+      return card;
+    }
+    var linkCard = el("button", "mo-share is-link");
+    linkCard.type = "button";
+    linkCard.appendChild(
+      el("span", "mo-share-icon", share.type === "book" ? "📖" : "📝")
+    );
+    linkCard.appendChild(info);
+    linkCard.appendChild(el("span", "mo-share-open", "阅读"));
+    linkCard.addEventListener("click", function () {
+      if (!canInteract) {
+        toast("登录后可以阅读");
+        return;
+      }
+      window.open(share.url, "_blank", "noopener");
+    });
+    return linkCard;
+  }
+
   function buildMomentLike(moment) {
     var wrap = el("div", "mo-like");
     var btn = el("button", "mo-like-btn", "♥");
@@ -524,6 +607,10 @@
     var files = moment.files || [];
     if (files.length) {
       body.appendChild(buildImages(files, Boolean(moment.can_save)));
+    }
+
+    if (moment.share) {
+      body.appendChild(buildShareCard(moment.share));
     }
 
     if (moment.tags) {

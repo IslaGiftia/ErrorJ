@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>笔记 · Error酱</title>
+  <link rel="icon" href="/static/site/error-chan-favicon.png">
+  <link rel="stylesheet" href="/static/notes.css">
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
+  <script src="/static/site/tabname.js"></script>
+  <link rel="stylesheet" href="/static/fonts.css">
+</head>
+<body class="nt-read-body">
+  <div class="nt-read-app">
+    <nav class="nt-breadcrumb" aria-label="面包屑">
+      <a href="/">首页</a>
+      <span class="nt-breadcrumb-sep">/</span>
+      <a href="/notes">笔记</a>
+      <span class="nt-breadcrumb-sep">/</span>
+      <strong id="crumbTitle">加载中…</strong>
+    </nav>
+
+    <article class="nt-read-doc">
+      <header class="nt-read-head">
+        <h1 class="nt-title-text" id="readTitle">加载中…</h1>
+        <div class="nt-doc-meta" id="readMeta"></div>
+      </header>
+      <div class="nt-read-status" id="readStatus" hidden></div>
+      <article class="nt-markdown" id="readContent"></article>
+    </article>
+  </div>
+
+  <script src="/static/vendor/marked.min.js"></script>
+  <script src="/static/vendor/purify.min.js"></script>
+  <script src="/static/note-read.js"></script>
+</body>
+</html>

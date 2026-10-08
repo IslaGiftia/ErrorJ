@@ -323,6 +323,192 @@ class MessageAttachmentTests(unittest.TestCase):
         self.assertIn("图片内容无法识别", error)
 
 
+class ContentShareTests(unittest.TestCase):
+    def setUp(self):
+        self._temp = tempfile.TemporaryDirectory()
+        self._db_patch = patch.object(
+            app, "DB_PATH", Path(self._temp.name) / "inventory.db"
+        )
+        self._db_patch.start()
+        app.init_db()
+        stamp = app.now_text()
+        self.member_id = app.execute(
+            """INSERT INTO users
+                   (username, nickname, password_hash, status, role,
+                    created_at, updated_at)
+               VALUES (?, ?, ?, 'approved', 'member', ?, ?)""",
+            ("reader1", "读者", "hash", stamp, stamp),
+        )
+        self.note_id = app.execute(
+            """INSERT INTO learning_notes (title, content, created_at, updated_at)
+               VALUES (?, ?, ?, ?)""",
+            ("电源笔记", "# 标题\n\n正文内容", stamp, stamp),
+        )
+        self.book_id = app.execute(
+            """INSERT INTO books
+                   (title, author, format, file_path, sort_order, created_at, updated_at)
+               VALUES (?, ?, 'txt', ?, 0, ?, ?)""",
+            ("测试书", "作者", "book_files/test.txt", stamp, stamp),
+        )
+        self.music_id = app.execute(
+            """INSERT INTO site_music
+                   (title, artist, source_type, source_id, sort_order, created_at)
+               VALUES (?, ?, 'url', ?, 0, ?)""",
+            ("测试歌", "歌手", "https://example.com/a.mp3", stamp),
+        )
+
+    def tearDown(self):
+        self._db_patch.stop()
+        self._temp.cleanup()
+
+    def make_handler(self, user_id, kind="owner", username="owner"):
+        handler = object.__new__(app.InventoryHandler)
+        handler.session_identity = lambda: {
+            "kind": kind,
+            "user_id": user_id,
+            "username": username,
+            "nickname": username,
+        }
+        handler.is_admin = lambda: kind in ("owner", "admin")
+        handler.client_ip = lambda: "127.0.0.1"
+        responses = []
+        handler.send_json = lambda status, payload: responses.append(
+            (status, payload)
+        )
+        handler.log_activity = lambda *args, **kwargs: None
+        return handler, responses
+
+    def test_share_content_rejects_non_admin(self):
+        handler, responses = self.make_handler(
+            self.member_id, kind="member", username="reader1"
+        )
+        handler.api_admin_share_content(
+            {"target": "moment", "resource_type": "note", "resource_id": self.note_id}
+        )
+        self.assertIn("error", responses[-1][1])
+        self.assertEqual(
+            app.query_one("SELECT COUNT(*) AS n FROM moment_shares")["n"], 0
+        )
+
+    def test_share_note_to_moment_creates_card(self):
+        handler, responses = self.make_handler(0)
+        handler.api_admin_share_content(
+            {
+                "target": "moment",
+                "resource_type": "note",
+                "resource_id": self.note_id,
+                "content": "分享一篇笔记",
+            }
+        )
+        moment_id = responses[-1][1]["moment_id"]
+        self.assertTrue(moment_id > 0)
+        share_row = app.query_one(
+            "SELECT resource_type, resource_id FROM moment_shares WHERE moment_id = ?",
+            (moment_id,),
+        )
+        self.assertEqual(share_row["resource_type"], "note")
+        self.assertEqual(int(share_row["resource_id"]), self.note_id)
+
+        moments = query_handler_moments(
+            self.make_handler(self.member_id, kind="member", username="reader1")[0]
+        )
+        card = [item for item in moments if int(item["id"]) == moment_id][0]["share"]
+        self.assertTrue(card["available"])
+        self.assertEqual(card["title"], "电源笔记")
+        self.assertEqual(card["url"], f"/notes/read?id={self.note_id}")
+
+        notifications = app.query(
+            "SELECT user_id FROM user_notifications WHERE kind = 'moment_new'"
+        )
+        self.assertEqual([int(row["user_id"]) for row in notifications], [self.member_id])
+
+    def test_share_music_to_recommendation(self):
+        handler, responses = self.make_handler(0)
+        handler.api_admin_share_content(
+            {
+                "target": "recommendation",
+                "resource_type": "music",
+                "resource_id": self.music_id,
+            }
+        )
+        recommendation_id = responses[-1][1]["recommendation_id"]
+        row = app.query_one(
+            "SELECT kind, title, resource_type, resource_id FROM recommendations WHERE id = ?",
+            (recommendation_id,),
+        )
+        self.assertEqual(row["kind"], "resource")
+        self.assertEqual(row["resource_type"], "music")
+        self.assertEqual(int(row["resource_id"]), self.music_id)
+        self.assertEqual(row["title"], "测试歌")
+
+    def test_shared_note_requires_share(self):
+        member_handler, member_responses = self.make_handler(
+            self.member_id, kind="member", username="reader1"
+        )
+        try:
+            member_handler.api_shared_note(self.note_id)
+        except Exception as exc:  # pragma: no cover - api_error 不会抛异常
+            self.fail(f"不应该抛异常：{exc}")
+        self.assertIn("error", member_responses[-1][1])
+
+        admin_handler, admin_responses = self.make_handler(0)
+        admin_handler.api_admin_share_content(
+            {"target": "moment", "resource_type": "note", "resource_id": self.note_id}
+        )
+        member_handler.api_shared_note(self.note_id)
+        self.assertEqual(member_responses[-1][1]["title"], "电源笔记")
+
+    def test_shared_book_content_requires_share(self):
+        member_handler, member_responses = self.make_handler(
+            self.member_id, kind="member", username="reader1"
+        )
+        member_handler.api_shared_book(self.book_id)
+        self.assertIn("error", member_responses[-1][1])
+
+        admin_handler, _ = self.make_handler(0)
+        admin_handler.api_admin_share_content(
+            {
+                "target": "recommendation",
+                "resource_type": "book",
+                "resource_id": self.book_id,
+            }
+        )
+        member_handler.api_shared_book(self.book_id)
+        payload = member_responses[-1][1]
+        self.assertEqual(payload["title"], "测试书")
+        self.assertEqual(
+            payload["file_url"], f"/api/shared/books/{self.book_id}/content"
+        )
+
+    def test_deleted_resource_marks_card_missing(self):
+        handler, responses = self.make_handler(0)
+        handler.api_admin_share_content(
+            {
+                "target": "moment",
+                "resource_type": "note",
+                "resource_id": self.note_id,
+            }
+        )
+        moment_id = responses[-1][1]["moment_id"]
+        app.execute("DELETE FROM learning_notes WHERE id = ?", (self.note_id,))
+        moments = query_handler_moments(
+            self.make_handler(self.member_id, kind="member", username="reader1")[0]
+        )
+        card = [item for item in moments if int(item["id"]) == moment_id][0]["share"]
+        self.assertFalse(card["available"])
+
+
+def query_handler_moments(handler):
+    responses = []
+    original = handler.send_json
+    handler.send_json = lambda status, payload: responses.append((status, payload))
+    try:
+        handler.api_moments({})
+    finally:
+        handler.send_json = original
+    return responses[-1][1]
+
+
 class InteractionTests(unittest.TestCase):
     def setUp(self):
         self._temp = tempfile.TemporaryDirectory()

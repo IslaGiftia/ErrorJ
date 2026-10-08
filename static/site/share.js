@@ -10,12 +10,22 @@
 
   var shareOverlay = null;
   var shareTitle = null;
+  var shareModeRow = null;
+  var shareMomentPanel = null;
+  var shareMomentText = null;
+  var shareMomentSubmit = null;
+  var shareRecommendPanel = null;
+  var shareRecommendSubmit = null;
+  var shareLinkPanel = null;
   var shareExpiry = null;
   var shareCustom = null;
   var shareSubmit = null;
   var shareResult = null;
   var shareResultInput = null;
+  var shareFeedback = null;
   var currentResource = null;
+
+  var CONTENT_SHARE_TYPES = { note: true, book: true, music: true };
 
   function buildShareModal() {
     if (shareOverlay) return;
@@ -29,6 +39,45 @@
     close.setAttribute("aria-label", "关闭");
     head.append(shareTitle, close);
 
+    shareModeRow = el("div", "share-modes");
+    [
+      ["moment", "分享到动态"],
+      ["recommendation", "分享到推荐"],
+      ["link", "生成外部下载链接"],
+    ].forEach(function (item) {
+      var button = el("button", "share-mode", item[1]);
+      button.type = "button";
+      button.setAttribute("data-share-mode", item[0]);
+      button.addEventListener("click", function () {
+        setShareMode(item[0]);
+      });
+      shareModeRow.appendChild(button);
+    });
+
+    shareMomentPanel = el("div", "share-panel");
+    shareMomentText = document.createElement("textarea");
+    shareMomentText.maxLength = 2000;
+    shareMomentText.rows = 3;
+    shareMomentText.placeholder = "说点什么（可留空）";
+    shareMomentSubmit = el("button", "share-btn primary", "分享到动态");
+    shareMomentSubmit.type = "button";
+    shareMomentSubmit.addEventListener("click", function () {
+      submitContentShare("moment");
+    });
+    shareMomentPanel.append(shareMomentText, shareMomentSubmit);
+
+    shareRecommendPanel = el("div", "share-panel");
+    shareRecommendPanel.appendChild(
+      el("p", "share-note", "会以「站内资源」分类展示在推荐页。")
+    );
+    shareRecommendSubmit = el("button", "share-btn primary", "分享到推荐");
+    shareRecommendSubmit.type = "button";
+    shareRecommendSubmit.addEventListener("click", function () {
+      submitContentShare("recommendation");
+    });
+    shareRecommendPanel.appendChild(shareRecommendSubmit);
+
+    shareLinkPanel = el("div", "share-panel");
     var expiryField = el("label", "share-field");
     expiryField.appendChild(el("span", "", "有效期"));
     shareExpiry = document.createElement("select");
@@ -56,11 +105,9 @@
     customField.hidden = true;
 
     var actions = el("div", "share-actions");
-    var cancel = el("button", "share-btn", "取消");
-    cancel.type = "button";
     shareSubmit = el("button", "share-btn primary", "生成并复制");
     shareSubmit.type = "button";
-    actions.append(cancel, shareSubmit);
+    actions.append(shareSubmit);
 
     shareResult = el("div", "share-result");
     shareResult.hidden = true;
@@ -69,15 +116,23 @@
     shareResultInput.type = "text";
     shareResultInput.readOnly = true;
     shareResult.appendChild(shareResultInput);
+    shareLinkPanel.append(expiryField, customField, actions, shareResult);
 
-    dialog.append(head, expiryField, customField, actions, shareResult);
+    shareFeedback = el("p", "share-feedback", "");
+    shareFeedback.hidden = true;
+
+    dialog.append(
+      head,
+      shareModeRow,
+      shareMomentPanel,
+      shareRecommendPanel,
+      shareLinkPanel,
+      shareFeedback
+    );
     shareOverlay.appendChild(dialog);
     document.body.appendChild(shareOverlay);
 
     close.addEventListener("click", () => {
-      shareOverlay.hidden = true;
-    });
-    cancel.addEventListener("click", () => {
       shareOverlay.hidden = true;
     });
     shareOverlay.addEventListener("click", function (event) {
@@ -92,6 +147,75 @@
       }
     });
     shareSubmit.addEventListener("click", submitShare);
+  }
+
+  function setShareMode(mode) {
+    if (!shareModeRow) return;
+    shareModeRow.querySelectorAll("[data-share-mode]").forEach(function (button) {
+      button.classList.toggle(
+        "active",
+        button.getAttribute("data-share-mode") === mode
+      );
+    });
+    shareMomentPanel.hidden = mode !== "moment";
+    shareRecommendPanel.hidden = mode !== "recommendation";
+    shareLinkPanel.hidden = mode !== "link";
+    if (shareFeedback) {
+      shareFeedback.hidden = true;
+      shareFeedback.textContent = "";
+    }
+  }
+
+  function showShareFeedback(text, url, isError) {
+    shareFeedback.hidden = false;
+    shareFeedback.textContent = "";
+    shareFeedback.classList.toggle("is-error", Boolean(isError));
+    shareFeedback.appendChild(document.createTextNode(text));
+    if (url) {
+      var link = document.createElement("a");
+      link.href = url;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = "打开看看";
+      shareFeedback.appendChild(document.createTextNode(" "));
+      shareFeedback.appendChild(link);
+    }
+  }
+
+  async function submitContentShare(target) {
+    if (!currentResource) return;
+    var button = target === "moment" ? shareMomentSubmit : shareRecommendSubmit;
+    button.disabled = true;
+    var original = button.textContent;
+    button.textContent = "分享中…";
+    try {
+      var payload = {
+        target: target,
+        resource_type: currentResource.resourceType,
+        resource_id: currentResource.resourceId,
+      };
+      if (target === "moment") {
+        payload.content = shareMomentText.value.trim();
+      }
+      var response = await fetch("/api/admin/share-content", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      var data = await response.json().catch(function () {
+        return {};
+      });
+      if (!response.ok) throw new Error(data.error || "分享失败");
+      showShareFeedback(
+        target === "moment" ? "已分享到动态。" : "已分享到推荐页。",
+        data.url || ""
+      );
+    } catch (err) {
+      showShareFeedback(err.message || "分享失败", "", true);
+    } finally {
+      button.disabled = false;
+      button.textContent = original;
+    }
   }
 
   async function copyText(text) {
@@ -214,10 +338,14 @@
         resourceType: resourceType,
         resourceId: resourceId,
       };
-      shareTitle.textContent = "分享：" + (title || "文件");
+      shareTitle.textContent = "分享：" + (title || "内容");
+      var canShareToSite = Boolean(CONTENT_SHARE_TYPES[resourceType]);
+      shareModeRow.hidden = !canShareToSite;
+      shareMomentText.value = "";
       shareResult.hidden = true;
       shareResultInput.value = "";
       shareSubmit.textContent = "生成并复制";
+      setShareMode(canShareToSite ? "moment" : "link");
       shareOverlay.hidden = false;
     },
   };

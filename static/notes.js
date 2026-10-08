@@ -1088,6 +1088,28 @@
     }
   }
 
+  function bindShareButton() {
+    const button = $("shareBtn");
+    if (!button) return;
+    button.addEventListener("click", function () {
+      const note = state.notes.find(
+        (item) => Number(item.id) === Number(state.activeId)
+      );
+      if (!note) return;
+      if (window.ErrorShare) {
+        window.ErrorShare.open("note", note.id, note.title || "笔记");
+      }
+    });
+    fetch("/api/auth/status", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((status) => {
+        button.hidden = !(status.admin || status.owner);
+      })
+      .catch(() => {
+        button.hidden = true;
+      });
+  }
+
   function importDateText() {
     const date = new Date();
     const pad = (value) => String(value).padStart(2, "0");
@@ -1432,6 +1454,7 @@
     applyTheme(themePreference, false);
     if (window.lucide) lucide.createIcons();
     bindEvents();
+    bindShareButton();
     if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);
     if (window.ResizeObserver) {
       const head = document.querySelector(".nt-doc-head");

@@ -10,6 +10,7 @@
   <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
   <link rel="stylesheet" href="/static/notes.css">
   <link rel="stylesheet" href="/static/site/progress.css">
+  <link rel="stylesheet" href="/static/site/share.css">
   <script>
     (function () {
       try {
@@ -80,6 +81,7 @@
               <h1 class="nt-title-text" id="titleText"></h1>
               <input class="nt-title-input" id="titleInput" type="text" maxlength="120" placeholder="笔记标题" hidden>
               <div class="nt-doc-actions" id="readActions">
+                <button class="nt-btn" id="shareBtn" type="button" hidden><i data-lucide="share-2"></i><span>分享</span></button>
                 <button class="nt-btn" id="exportBtn" type="button"><i data-lucide="file-down"></i><span>导出 HTML</span></button>
                 <button class="nt-btn" id="editBtn" type="button"><i data-lucide="pencil"></i><span>编辑</span></button>
                 <button class="nt-btn nt-btn-danger" id="deleteBtn" type="button"><i data-lucide="trash-2"></i><span>删除</span></button>
@@ -158,6 +160,7 @@
   <script src="/static/vendor/marked.min.js"></script>
   <script src="/static/vendor/purify.min.js"></script>
   <script src="/static/site/progress.js"></script>
+  <script src="/static/site/share.js"></script>
   <script src="/static/site/upload-limits.js"></script>
   <script src="/static/notes.js"></script>
 </body>

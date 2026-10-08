@@ -25,6 +25,7 @@
     tool: "工具",
     movie: "电影",
     anime: "动漫",
+    resource: "站内资源",
   };
   var state = {
     items: [],
@@ -102,6 +103,7 @@
       if (state.tab === "web" && item.kind !== "site" && item.kind !== "tool") return false;
       if (state.tab === "movie" && item.kind !== "movie") return false;
       if (state.tab === "anime" && item.kind !== "anime") return false;
+      if (state.tab === "resource" && item.kind !== "resource") return false;
       if (!keyword) return true;
       return [
         item.title,
@@ -130,10 +132,12 @@
     }).length;
     var movies = state.items.filter(function (item) { return item.kind === "movie"; }).length;
     var anime = state.items.filter(function (item) { return item.kind === "anime"; }).length;
+    var resources = state.items.filter(function (item) { return item.kind === "resource"; }).length;
     $("recCount").textContent = state.items.length + " 项";
     $("recSiteStat").textContent = web;
     $("recMovieStat").textContent = movies;
     $("recAnimeStat").textContent = anime;
+    $("recResourceStat").textContent = resources;
   }
 
   function renderTabs() {
@@ -145,12 +149,21 @@
   function adminActions(item) {
     var wrap = el("div", "rec-card-actions");
     var pin = el("button", "", item.pinned ? "取消置顶" : "置顶");
-    var edit = el("button", "", "编辑");
     var remove = el("button", "danger", "删除");
     pin.type = "button";
-    edit.type = "button";
     remove.type = "button";
-    wrap.append(pin, edit, remove);
+    wrap.append(pin);
+    if (item.kind !== "resource") {
+      var edit = el("button", "", "编辑");
+      edit.type = "button";
+      wrap.append(edit);
+      edit.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        openEditor(item);
+      });
+    }
+    wrap.append(remove);
 
     pin.addEventListener("click", function (event) {
       event.preventDefault();
@@ -165,12 +178,6 @@
       }).then(function () {
         pin.disabled = false;
       });
-    });
-
-    edit.addEventListener("click", function (event) {
-      event.preventDefault();
-      event.stopPropagation();
-      openEditor(item);
     });
 
     remove.addEventListener("click", function (event) {
@@ -245,7 +252,22 @@
       body.appendChild(tagRow);
     }
     var links = el("div", "rec-link-row");
-    if (item.url) {
+    if (item.kind === "resource") {
+      var resource = item.resource || {};
+      if (resource.available && resource.page_url) {
+        var openResource = el(
+          "a",
+          "primary",
+          resource.type === "music" ? "去歌单" : "阅读"
+        );
+        openResource.href = resource.page_url;
+        openResource.target = "_blank";
+        openResource.rel = "noopener noreferrer";
+        links.appendChild(openResource);
+      } else {
+        links.appendChild(el("span", "rec-resource-missing", "内容已失效"));
+      }
+    } else if (item.url) {
       var open = el("a", isMedia(item) ? "" : "primary", isMedia(item) ? "查看详情" : "访问");
       open.href = item.url;
       open.target = "_blank";

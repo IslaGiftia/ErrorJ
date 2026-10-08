@@ -630,7 +630,9 @@ NOTE_IMAGE_EXTENSIONS = {
     "image/gif": ".gif",
     "image/bmp": ".bmp",
 }
-RECOMMEND_KINDS = {"site", "tool", "movie", "anime"}
+RECOMMEND_KINDS = {"site", "tool", "movie", "anime", "resource"}
+SHARE_CONTENT_TYPES = {"note", "book", "music"}
+SHARE_CONTENT_LABELS = {"note": "笔记", "book": "电子书", "music": "歌曲"}
 BOOKMARK_CHECK_LOCK = threading.Lock()
 BOOKMARK_FAVICON_SEMAPHORE = threading.BoundedSemaphore(4)
 BOOKMARK_FAVICON_LOCKS = {}
@@ -1132,6 +1134,14 @@ def init_db():
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS moment_shares (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                moment_id INTEGER NOT NULL UNIQUE REFERENCES moments(id) ON DELETE CASCADE,
+                resource_type TEXT NOT NULL,
+                resource_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS user_notifications (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
@@ -1150,6 +1160,8 @@ def init_db():
                 ON moment_comments (moment_id, id);
             CREATE INDEX IF NOT EXISTS idx_user_notifications_user
                 ON user_notifications (user_id, seen_at, id);
+            CREATE INDEX IF NOT EXISTS idx_moment_shares_resource
+                ON moment_shares (resource_type, resource_id);
 
             CREATE TABLE IF NOT EXISTS permission_audit (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1440,6 +1452,12 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
                 "ALTER TABLE recommendations ADD COLUMN bookmark_id INTEGER "
                 "REFERENCES bookmarks(id) ON DELETE SET NULL"
             )
+        for column in ("resource_type", "resource_id"):
+            if column not in recommendation_columns:
+                definition = "TEXT" if column == "resource_type" else "INTEGER"
+                conn.execute(
+                    f"ALTER TABLE recommendations ADD COLUMN {column} {definition}"
+                )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_recommendations_bookmark "
             "ON recommendations(bookmark_id)"
@@ -5295,6 +5313,14 @@ def required_permission(path, method):
         return None
     if path == "/books/read":
         return "books:read"
+    if path == "/books/shared":
+        # 站内分享的电子书：登录账号都能读，处理器里再校验是否真的被分享
+        return ""
+    if path == "/notes/read":
+        # 站内分享的笔记：登录账号都能读，处理器里再校验是否真的被分享
+        return ""
+    if re.fullmatch(r"/api/shared/(notes|books)/\d+(/content)?", path):
+        return ""
     if path.startswith("/api/admin"):
         return None
     if path.startswith("/api/map/export"):
@@ -6058,6 +6084,109 @@ def notification_alert_text(module, info):
     if kind == "message_reply":
         return "回复了你的留言" if count == 1 else f"有 {count} 条新回复（你的留言）"
     return "点赞了你的留言" if count == 1 else f"有 {count} 个新点赞（你的留言）"
+
+
+def shared_resource_info(resource_type, resource_id):
+    """分享卡片和站内推荐共用的资源信息；资源不存在时 available=False。"""
+    resource_type = str(resource_type or "")
+    resource_id = int(resource_id or 0)
+    info = {
+        "type": resource_type,
+        "id": resource_id,
+        "label": SHARE_CONTENT_LABELS.get(resource_type, "内容"),
+        "title": "",
+        "subtitle": "",
+        "cover_url": "",
+        "url": "",
+        "page_url": "",
+        "available": False,
+    }
+    if resource_id <= 0:
+        return info
+    if resource_type == "note":
+        row = query_one(
+            """SELECT id, title, created_at, updated_at
+               FROM learning_notes WHERE id = ?""",
+            (resource_id,),
+        )
+        if row:
+            info.update(
+                {
+                    "title": row.get("title") or "未命名笔记",
+                    "subtitle": "笔记",
+                    "url": f"/notes/read?id={resource_id}",
+                    "page_url": f"/notes/read?id={resource_id}",
+                    "available": True,
+                }
+            )
+    elif resource_type == "book":
+        row = query_one(
+            """SELECT id, title, author, format, cover_path
+               FROM books WHERE id = ?""",
+            (resource_id,),
+        )
+        if row:
+            info.update(
+                {
+                    "title": row.get("title") or "未命名电子书",
+                    "subtitle": str(row.get("author") or "").strip()
+                    or str(row.get("format") or "").upper(),
+                    "cover_url": (
+                        f"/site-files/{row['cover_path']}"
+                        if row.get("cover_path")
+                        else ""
+                    ),
+                    "url": f"/books/shared?id={resource_id}",
+                    "page_url": f"/books/shared?id={resource_id}",
+                    "available": True,
+                }
+            )
+    elif resource_type == "music":
+        row = query_one(
+            """SELECT id, title, artist, cover_path
+               FROM site_music WHERE id = ?""",
+            (resource_id,),
+        )
+        if row:
+            info.update(
+                {
+                    "title": row.get("title") or "未命名歌曲",
+                    "subtitle": str(row.get("artist") or "").strip(),
+                    "cover_url": (
+                        f"/site-files/{row['cover_path']}"
+                        if row.get("cover_path")
+                        else ""
+                    ),
+                    "url": f"/api/site/music/{resource_id}/stream",
+                    "page_url": "/music",
+                    "available": True,
+                }
+            )
+    return info
+
+
+def resource_is_shared(resource_type, resource_id):
+    """这个资源是否被分享到了动态或推荐页（决定登录账号能否阅读）。"""
+    resource_type = str(resource_type or "")
+    if resource_type not in SHARE_CONTENT_TYPES:
+        return False
+    resource_id = int(resource_id or 0)
+    if resource_id <= 0:
+        return False
+    if query_one(
+        """SELECT 1 AS ok FROM moment_shares
+           WHERE resource_type = ? AND resource_id = ? LIMIT 1""",
+        (resource_type, resource_id),
+    ):
+        return True
+    return bool(
+        query_one(
+            """SELECT 1 AS ok FROM recommendations
+               WHERE kind = 'resource' AND resource_type = ? AND resource_id = ?
+               LIMIT 1""",
+            (resource_type, resource_id),
+        )
+    )
 
 
 def issue_session_token(days, identity, device=SESSION_DEVICE_DESKTOP):
@@ -7860,6 +7989,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.send_file("bookmarks.html")
             elif path == "/notes":
                 self.send_file("notes.html")
+            elif path == "/notes/read":
+                self.send_file("note-read.html")
             elif path == "/messages":
                 self.send_file("messages.html")
             elif path == "/workbench":
@@ -7877,6 +8008,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
             elif path == "/books":
                 self.send_file("books.html")
             elif path == "/books/read":
+                self.send_file("reader.html")
+            elif path == "/books/shared":
                 self.send_file("reader.html")
             elif path == "/games/gomoku":
                 self.send_file("games/caro/index.html")
@@ -7996,6 +8129,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_notes(query)
             elif re.fullmatch(r"/api/notes/\d+/export\.html", path):
                 self.api_note_export(path)
+            elif re.fullmatch(r"/api/shared/notes/\d+", path):
+                self.api_shared_note(int(path.split("/")[4]))
+            elif re.fullmatch(r"/api/shared/books/\d+/content", path):
+                self.api_shared_book_content(int(path.split("/")[4]))
+            elif re.fullmatch(r"/api/shared/books/\d+", path):
+                self.api_shared_book(int(path.split("/")[4]))
             elif path == "/api/workbench/summary":
                 self.api_workbench_summary()
             elif path == "/api/workbench/assets":
@@ -8117,6 +8256,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_admin_notify_test(payload)
             elif path == "/api/admin/share-links":
                 self.api_admin_share_link_create(payload)
+            elif path == "/api/admin/share-content":
+                self.api_admin_share_content(payload)
             elif re.fullmatch(r"/api/admin/download-requests/\d+", path):
                 self.api_admin_download_request_action(path, payload)
             elif path == "/api/admin/review/approve-all":
@@ -9691,6 +9832,18 @@ class InventoryHandler(BaseHTTPRequestHandler):
         files = self.moment_files_map([row["id"] for row in rows])
         moment_ids = [int(row["id"]) for row in rows]
         comments = self.moment_comments_map(moment_ids, viewer_id, can_manage)
+        share_ids = {}
+        if moment_ids:
+            placeholders = ",".join("?" for _ in moment_ids)
+            for share in query(
+                f"""SELECT moment_id, resource_type, resource_id
+                    FROM moment_shares WHERE moment_id IN ({placeholders})""",
+                tuple(moment_ids),
+            ):
+                share_ids[int(share["moment_id"])] = (
+                    share["resource_type"],
+                    share["resource_id"],
+                )
         like_count_map = like_counts("moment", moment_ids)
         liked_set = liked_target_ids(viewer_id, "moment", moment_ids)
         for row in [
@@ -9708,6 +9861,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
         for row in rows:
             row["files"] = files.get(row["id"], [])
             row["comments"] = comments.get(row["id"], [])
+            share = share_ids.get(int(row["id"]))
+            row["share"] = (
+                shared_resource_info(share[0], share[1]) if share else None
+            )
             row["like_count"] = like_count_map.get(int(row["id"]), 0)
             row["liked"] = int(row["id"]) in liked_set
             row["pinned"] = bool(row["pinned"])
@@ -9911,15 +10068,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             ip=client_ip,
             ip_region=ip_region,
         )
-        for member_id in member_user_ids():
-            add_user_notification(
-                member_id,
-                "moment_new",
-                "moments",
-                row_id,
-                "管理员",
-                "更新了动态",
-            )
+        self.notify_members_new_moment(row_id)
         self.send_json(200, {"id": row_id, "images": len(saved)})
 
     def api_moment_item(self, path):
@@ -10299,6 +10448,153 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )
         self.send_json(200, {"ok": True, "status": status})
 
+    def notify_members_new_moment(self, moment_id):
+        """给所有已批准普通账号写一条新动态提醒。"""
+        for member_id in member_user_ids():
+            add_user_notification(
+                member_id,
+                "moment_new",
+                "moments",
+                moment_id,
+                "管理员",
+                "更新了动态",
+            )
+
+    def api_admin_share_content(self, payload):
+        """把笔记 / 电子书 / 歌曲分享到动态或推荐页。"""
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以分享内容。")
+            return
+        target = str((payload or {}).get("target") or "").strip()
+        resource_type = str((payload or {}).get("resource_type") or "").strip()
+        raw_id = (payload or {}).get("resource_id")
+        resource_id = int(raw_id) if str(raw_id or "").isdigit() else 0
+        if target not in ("moment", "recommendation"):
+            api_error(self, 400, "分享目标不正确。")
+            return
+        if resource_type not in SHARE_CONTENT_TYPES:
+            api_error(self, 400, "这种内容暂时不能分享到站内。")
+            return
+        info = shared_resource_info(resource_type, resource_id)
+        if not info.get("available"):
+            api_error(self, 404, "要分享的内容不存在。")
+            return
+        stamp = now_text()
+        if target == "moment":
+            content = str((payload or {}).get("content") or "").strip()
+            if len(content) > MOMENT_CONTENT_MAX_CHARS:
+                api_error(
+                    self, 400, f"说说内容不能超过 {MOMENT_CONTENT_MAX_CHARS} 字。"
+                )
+                return
+            moment_id = execute(
+                """INSERT INTO moments
+                       (content, tags, pinned, ip, ip_region, show_region, created_at)
+                   VALUES (?, NULL, 0, '', '', 0, ?)""",
+                (content, stamp),
+            )
+            execute(
+                """INSERT INTO moment_shares
+                       (moment_id, resource_type, resource_id, created_at)
+                   VALUES (?, ?, ?, ?)""",
+                (moment_id, resource_type, resource_id, stamp),
+            )
+            self.log_activity(
+                "moment_share",
+                f"分享{info['label']}到动态：{info['title']}",
+                target_type=resource_type,
+                target_id=resource_id,
+            )
+            self.notify_members_new_moment(moment_id)
+            self.send_json(
+                200, {"ok": True, "moment_id": moment_id, "url": "/moments"}
+            )
+            return
+        cover_path = (
+            info["cover_url"].replace("/site-files/", "", 1)
+            if info.get("cover_url")
+            else None
+        )
+        recommendation_id = execute(
+            """INSERT INTO recommendations
+                   (kind, title, subtitle, cover_path, resource_type, resource_id,
+                    sort_order, created_at, updated_at)
+               VALUES ('resource', ?, ?, ?, ?, ?, 0, ?, ?)""",
+            (
+                info["title"],
+                info.get("subtitle") or None,
+                cover_path,
+                resource_type,
+                resource_id,
+                stamp,
+                stamp,
+            ),
+        )
+        self.log_activity(
+            "recommendation_share",
+            f"分享{info['label']}到推荐：{info['title']}",
+            target_type=resource_type,
+            target_id=resource_id,
+        )
+        self.send_json(
+            200,
+            {
+                "ok": True,
+                "recommendation_id": recommendation_id,
+                "url": "/recommendations",
+            },
+        )
+
+    def api_shared_note(self, note_id):
+        identity = self.session_identity()
+        if not identity:
+            api_error(self, 401, "请先登录。")
+            return
+        if not self.is_admin() and not resource_is_shared("note", note_id):
+            api_error(self, 403, "这篇笔记没有在站内分享。")
+            return
+        row = query_one(
+            """SELECT id, title, content, tags, created_at, updated_at
+               FROM learning_notes WHERE id = ?""",
+            (note_id,),
+        )
+        if not row:
+            api_error(self, 404, "笔记不存在。")
+            return
+        self.send_json(200, row)
+
+    def api_shared_book(self, book_id):
+        identity = self.session_identity()
+        if not identity:
+            api_error(self, 401, "请先登录。")
+            return
+        if not self.is_admin() and not resource_is_shared("book", book_id):
+            api_error(self, 403, "这本电子书没有在站内分享。")
+            return
+        row = query_one("SELECT * FROM books WHERE id = ?", (book_id,))
+        if not row:
+            api_error(self, 404, "电子书不存在。")
+            return
+        item = self.book_payload(row, self.book_user_id())
+        item["file_url"] = f"/api/shared/books/{book_id}/content"
+        item.pop("file_path", None)
+        item["download_state"] = self.download_state(identity, "book", book_id)
+        self.send_json(200, item)
+
+    def api_shared_book_content(self, book_id):
+        identity = self.session_identity()
+        if not identity:
+            api_error(self, 401, "请先登录。")
+            return
+        if not self.is_admin() and not resource_is_shared("book", book_id):
+            api_error(self, 403, "这本电子书没有在站内分享。")
+            return
+        row = query_one("SELECT file_path FROM books WHERE id = ?", (book_id,))
+        if not row:
+            api_error(self, 404, "电子书不存在。")
+            return
+        self.send_data_file(row.get("file_path") or "", allow_range=True)
+
     def api_admin_share_link_create(self, payload):
         resource_type = str(payload.get("resource_type") or "").strip()
         try:
@@ -10417,6 +10713,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                        r.download_url, r.cover_path, r.icon_url, r.description,
                        r.category, r.tags, r.rating, r.release_year, r.status,
                        r.pinned, r.sort_order, r.created_at, r.updated_at,
+                       r.resource_type, r.resource_id,
                        b.title AS bookmark_title, b.url AS bookmark_url,
                        b.description AS bookmark_description,
                        b.favicon_updated_at AS bookmark_favicon_updated_at
@@ -10441,6 +10738,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
             row.pop("bookmark_description", None)
             row.pop("bookmark_favicon_updated_at", None)
             row["pinned"] = bool(row["pinned"])
+            if row.get("kind") == "resource":
+                row["resource"] = shared_resource_info(
+                    row.get("resource_type"), row.get("resource_id")
+                )
         return rows
 
     def api_recommendations(self, params):
@@ -10469,6 +10770,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
         kind = str(payload.get("kind", current.get("kind", "site")) or "site").strip().lower()
         if kind not in RECOMMEND_KINDS:
             raise ValueError("推荐类型不正确。")
+        if kind == "resource":
+            raise ValueError("站内资源卡片请用分享按钮生成。")
         bookmark_id_value = payload.get("bookmark_id", current.get("bookmark_id"))
         bookmark = None
         if bookmark_id_value not in (None, "", 0, "0"):

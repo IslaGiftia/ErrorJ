@@ -436,6 +436,131 @@ body {
 }
 
 /* ---------- 点赞与评论 ---------- */
+.mo-share {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--mo-border);
+  border-radius: 10px;
+  background: var(--mo-bg);
+  color: var(--mo-text);
+  font: inherit;
+  text-align: left;
+}
+
+button.mo-share {
+  cursor: pointer;
+}
+
+button.mo-share:hover {
+  border-color: var(--mo-accent);
+  background: var(--mo-accent-soft);
+}
+
+.mo-share.is-missing {
+  color: var(--mo-faint);
+  background: var(--mo-hover);
+}
+
+.mo-share-icon {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--mo-accent-soft);
+  color: var(--mo-accent);
+  font-size: 17px;
+}
+
+.mo-share.is-missing .mo-share-icon {
+  background: var(--mo-border);
+  color: var(--mo-muted);
+}
+
+.mo-share-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mo-share-label {
+  color: var(--mo-faint);
+  font-size: 12px;
+}
+
+.mo-share-title {
+  font-size: 14px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mo-share-subtitle {
+  color: var(--mo-muted);
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mo-share-open {
+  flex: 0 0 auto;
+  color: var(--mo-accent);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.mo-share-cover {
+  position: relative;
+  flex: 0 0 auto;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--mo-accent-soft);
+  color: var(--mo-accent);
+  cursor: pointer;
+}
+
+.mo-share-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mo-share-placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  font-size: 20px;
+}
+
+.mo-share-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(12, 14, 24, 0.42);
+  color: #fff;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.mo-share.is-playing .mo-share-cover {
+  box-shadow: 0 0 0 2px var(--mo-accent);
+}
+
 .mo-like {
   display: flex;
   align-items: center;

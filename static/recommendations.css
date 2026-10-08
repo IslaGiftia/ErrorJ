@@ -584,6 +584,17 @@ a {
   color: #fff;
 }
 
+.rec-resource-missing {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px dashed var(--rec-line);
+  border-radius: 7px;
+  color: var(--rec-muted);
+  font-size: 12px;
+}
+
 .rec-empty {
   padding: 70px 20px;
   color: var(--rec-muted);

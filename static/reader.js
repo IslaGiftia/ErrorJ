@@ -7,6 +7,7 @@ import { searchMatcher } from "/static/vendor/foliate/search.js";
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const bookId = Number(params.get("id") || 0);
+const sharedMode = location.pathname === "/books/shared" || params.get("shared") === "1";
 const SETTINGS_KEY = "errorReaderSettings";
 const LOCAL_PROGRESS_KEY = "errorBookProgress";
 const LOCAL_BOOKMARKS_KEY = "errorBookBookmarks";
@@ -714,13 +715,17 @@ function hideSelection() {
 }
 
 async function openBook() {
-  const books = await api("/api/books");
-  state.book = (Array.isArray(books) ? books : []).find((item) => Number(item.id) === bookId) || null;
+  if (sharedMode) {
+    state.book = await api(`/api/shared/books/${bookId}`);
+  } else {
+    const books = await api("/api/books");
+    state.book = (Array.isArray(books) ? books : []).find((item) => Number(item.id) === bookId) || null;
+  }
   if (!state.book) {
     toast("找不到这本电子书");
     return;
   }
-  document.title = state.book.title + " · 书架";
+  document.title = state.book.title + (sharedMode ? " · 分享阅读" : " · 书架");
   $("rdTitle").textContent = state.book.title || "未命名";
   $("rdAuthor").textContent = state.book.author || "";
 
