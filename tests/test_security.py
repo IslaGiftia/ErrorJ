@@ -323,6 +323,232 @@ class MessageAttachmentTests(unittest.TestCase):
         self.assertIn("图片内容无法识别", error)
 
 
+class InteractionTests(unittest.TestCase):
+    def setUp(self):
+        self._temp = tempfile.TemporaryDirectory()
+        self._db_patch = patch.object(
+            app, "DB_PATH", Path(self._temp.name) / "inventory.db"
+        )
+        self._db_patch.start()
+        app.init_db()
+        stamp = app.now_text()
+        self.author_id = app.execute(
+            """INSERT INTO users
+                   (username, nickname, password_hash, status, role,
+                    created_at, updated_at)
+               VALUES (?, ?, ?, 'approved', 'member', ?, ?)""",
+            ("author1", "作者甲", "hash", stamp, stamp),
+        )
+        self.other_id = app.execute(
+            """INSERT INTO users
+                   (username, nickname, password_hash, status, role,
+                    created_at, updated_at)
+               VALUES (?, ?, ?, 'approved', 'member', ?, ?)""",
+            ("other1", "作者乙", "hash", stamp, stamp),
+        )
+        self.message_id = app.execute(
+            """INSERT INTO site_messages
+                   (nickname, content, user_id, created_at)
+               VALUES (?, ?, ?, ?)""",
+            ("作者甲", "测试留言", self.author_id, stamp),
+        )
+
+    def tearDown(self):
+        self._db_patch.stop()
+        self._temp.cleanup()
+
+    def make_handler(self, user_id, kind="member", username="author1"):
+        handler = object.__new__(app.InventoryHandler)
+        handler.session_identity = lambda: {
+            "kind": kind,
+            "user_id": user_id,
+            "username": username,
+            "nickname": username,
+        }
+        handler.is_admin = lambda: kind in ("owner", "admin")
+        handler.client_ip = lambda: "127.0.0.1"
+        responses = []
+        handler.send_json = lambda status, payload: responses.append(
+            (status, payload)
+        )
+        handler.log_activity = lambda *args, **kwargs: None
+        return handler, responses
+
+    def test_like_toggle_counts_and_notifies_author(self):
+        handler, responses = self.make_handler(self.other_id, username="other1")
+        handler.api_site_like_toggle(
+            {"target_type": "message", "target_id": self.message_id}
+        )
+        self.assertEqual(responses[-1][1], {"liked": True, "count": 1})
+        notifications = app.query(
+            "SELECT kind, module FROM user_notifications WHERE user_id = ?",
+            (self.author_id,),
+        )
+        self.assertEqual(len(notifications), 1)
+        self.assertEqual(notifications[0]["kind"], "message_like")
+        self.assertEqual(notifications[0]["module"], "messages")
+
+        handler.api_site_like_toggle(
+            {"target_type": "message", "target_id": self.message_id}
+        )
+        self.assertEqual(responses[-1][1], {"liked": False, "count": 0})
+        self.assertEqual(
+            app.query_one(
+                "SELECT COUNT(*) AS n FROM content_likes WHERE target_id = ?",
+                (self.message_id,),
+            )["n"],
+            0,
+        )
+
+    def test_self_like_does_not_notify(self):
+        handler, responses = self.make_handler(self.author_id, username="author1")
+        handler.api_site_like_toggle(
+            {"target_type": "message", "target_id": self.message_id}
+        )
+        self.assertTrue(responses[-1][1]["liked"])
+        self.assertEqual(
+            app.query_one(
+                "SELECT COUNT(*) AS n FROM user_notifications WHERE user_id = ?",
+                (self.author_id,),
+            )["n"],
+            0,
+        )
+
+    def test_new_moment_notifies_members_only(self):
+        stamp = app.now_text()
+        app.execute(
+            """INSERT INTO users
+                   (username, nickname, password_hash, status, role,
+                    created_at, updated_at)
+               VALUES (?, ?, ?, 'pending', 'member', ?, ?)""",
+            ("pending1", "待审", "hash", stamp, stamp),
+        )
+        handler, responses = self.make_handler(0, kind="owner", username="owner")
+        handler.api_moment_create({"content": "今天的动态", "images": []})
+        moment_id = responses[-1][1]["id"]
+        app.execute(
+            """INSERT INTO activity_log
+                   (created_at, actor_kind, user_id, action, target_type,
+                    target_id, summary)
+               VALUES (?, 'owner', 0, 'moment_create', 'moment', ?, ?)""",
+            (app.now_text(), moment_id, "发布动态：今天的动态"),
+        )
+        rows = app.query(
+            """SELECT user_id, kind, module FROM user_notifications
+               WHERE kind = 'moment_new' ORDER BY user_id"""
+        )
+        self.assertEqual(
+            sorted(int(row["user_id"]) for row in rows),
+            sorted([self.author_id, self.other_id]),
+        )
+        self.assertTrue(all(row["module"] == "moments" for row in rows))
+
+        member_handler, member_responses = self.make_handler(
+            self.author_id, username="author1"
+        )
+        member_handler.api_site_activity()
+        items = member_responses[-1][1]["items"]
+        alerts = [item for item in items if item.get("alert")]
+        self.assertTrue(
+            any(
+                item.get("actor") == "管理员"
+                and item.get("text") == "更新了动态"
+                for item in alerts
+            )
+        )
+
+        owner_handler, owner_responses = self.make_handler(
+            0, kind="owner", username="owner"
+        )
+        owner_handler.api_site_activity()
+        owner_items = owner_responses[-1][1]["items"]
+        self.assertFalse(
+            any(
+                item.get("text") == "更新了动态"
+                for item in owner_items
+                if item.get("alert")
+            )
+        )
+        self.assertTrue(
+            any(
+                item.get("text") == "更新了一条动态" and not item.get("alert")
+                for item in owner_items
+            )
+        )
+
+        app.mark_notifications_seen(self.author_id, "moments")
+        member_handler.api_site_activity()
+        items = member_responses[-1][1]["items"]
+        self.assertFalse(
+            any(
+                item.get("text") == "更新了动态"
+                for item in items
+                if item.get("alert")
+            )
+        )
+        self.assertTrue(moment_id > 0)
+
+    def test_moment_comment_reply_notifies_parent_author(self):
+        stamp = app.now_text()
+        moment_id = app.execute(
+            """INSERT INTO moments (content, created_at)
+               VALUES (?, ?)""",
+            ("动态内容", stamp),
+        )
+        parent_id = app.execute(
+            """INSERT INTO moment_comments
+                   (moment_id, parent_id, user_id, actor, content, created_at)
+               VALUES (?, NULL, ?, ?, ?, ?)""",
+            (moment_id, self.author_id, "作者甲", "第一条评论", stamp),
+        )
+        handler, responses = self.make_handler(self.other_id, username="other1")
+        handler.api_moment_comment_create(
+            moment_id, {"content": "回复一下", "parent_id": parent_id}
+        )
+        self.assertTrue(responses[-1][1]["id"] > 0)
+        notifications = app.query(
+            """SELECT kind, module, target_id FROM user_notifications
+               WHERE user_id = ? AND kind = 'comment_reply'""",
+            (self.author_id,),
+        )
+        self.assertEqual(len(notifications), 1)
+        self.assertEqual(notifications[0]["module"], "moments")
+        self.assertEqual(int(notifications[0]["target_id"]), moment_id)
+
+    def test_reply_to_message_notifies_author(self):
+        handler, responses = self.make_handler(self.other_id, username="other1")
+        handler.api_site_message_create(
+            {
+                "content": "回复内容",
+                "parent_id": self.message_id,
+                "files": [],
+            }
+        )
+        reply_id = responses[-1][1]["id"]
+        self.assertTrue(reply_id > 0)
+        notifications = app.query(
+            """SELECT kind, module FROM user_notifications
+               WHERE user_id = ? AND kind = 'message_reply'""",
+            (self.author_id,),
+        )
+        self.assertEqual(len(notifications), 1)
+        self.assertEqual(notifications[0]["module"], "messages")
+
+    def test_member_message_badge_reports_unread_likes(self):
+        handler, responses = self.make_handler(self.other_id, username="other1")
+        handler.api_site_like_toggle(
+            {"target_type": "message", "target_id": self.message_id}
+        )
+        member_handler, member_responses = self.make_handler(
+            self.author_id, username="author1"
+        )
+        member_handler.api_site_messages_unread()
+        self.assertEqual(member_responses[-1][1]["unread"], 1)
+        app.mark_notifications_seen(self.author_id, "messages")
+        member_handler.api_site_messages_unread()
+        self.assertEqual(member_responses[-1][1]["unread"], 0)
+
+
 class HomeActivityAlertTests(unittest.TestCase):
     def test_pending_registration_is_reported_to_admin(self):
         with tempfile.TemporaryDirectory() as temp_dir:

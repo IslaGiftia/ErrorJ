@@ -435,6 +435,139 @@ body {
   margin-top: 8px;
 }
 
+/* ---------- 点赞与评论 ---------- */
+.mo-like {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.mo-like-btn {
+  padding: 2px 5px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mo-faint);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.mo-like-btn:hover {
+  background: var(--mo-hover);
+  color: var(--mo-accent);
+}
+
+.mo-like-btn.is-liked {
+  color: #e2557b;
+}
+
+.mo-like-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.mo-like-count {
+  color: var(--mo-muted);
+  font-size: 12.5px;
+}
+
+.mo-comments {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mo-comment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--mo-border);
+}
+
+.mo-comment {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mo-comment.is-reply {
+  margin-left: 14px;
+  padding-left: 10px;
+  border-left: 2px solid var(--mo-border);
+}
+
+.mo-comment-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mo-comment-actor {
+  color: var(--mo-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mo-comment-time {
+  color: var(--mo-faint);
+  font-size: 12px;
+}
+
+.mo-comment-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.mo-comment-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.mo-comment-actions:empty {
+  display: none;
+}
+
+.mo-comment-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.mo-comment-form textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 38px;
+  max-height: 140px;
+  padding: 8px 10px;
+  border: 1px solid var(--mo-border);
+  border-radius: 8px;
+  background: var(--mo-surface);
+  color: var(--mo-text);
+  font: inherit;
+  font-size: 13.5px;
+  resize: vertical;
+}
+
+.mo-comment-form textarea:focus {
+  outline: none;
+  border-color: var(--mo-accent);
+}
+
+.mo-comment-submit {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+}
+
 .mo-edit textarea {
   width: 100%;
   min-height: 84px;

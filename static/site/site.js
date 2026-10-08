@@ -167,8 +167,8 @@
   }
 
   function loadMessagesBadge() {
-    // 只有管理员显示留言呼吸提醒；已读状态记在服务端账号上
-    if (!authState.admin) {
+    // 管理员显示未读留言；普通账号显示自己留言的点赞 / 回复提醒
+    if (!authState.authenticated) {
       applyMessagesBadge(0);
       return;
     }
@@ -181,6 +181,35 @@
       })
       .catch(function () {
         applyMessagesBadge(0);
+      });
+  }
+
+  function applyMomentsBadge(count) {
+    var entry = document.getElementById("momentsEntry");
+    var badge = document.getElementById("momentsPending");
+    var value = Number(count) || 0;
+    if (entry) entry.classList.toggle("has-pending", value > 0);
+    if (badge) {
+      badge.hidden = value <= 0;
+      badge.textContent = value > 99 ? "99+" : String(value);
+    }
+  }
+
+  function loadMomentsBadge() {
+    // 只有普通账号会在管理员发新动态、回复评论时收到提醒
+    if (!authState.authenticated) {
+      applyMomentsBadge(0);
+      return;
+    }
+    fetch("/api/site/moments/unread", { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : { unread: 0 };
+      })
+      .then(function (data) {
+        applyMomentsBadge(Number(data && data.unread) || 0);
+      })
+      .catch(function () {
+        applyMomentsBadge(0);
       });
   }
 
@@ -208,6 +237,7 @@
     authState.ready = true;
     setAuthUi();
     loadMessagesBadge();
+    loadMomentsBadge();
     if (authState.admin) {
       applyPendingBadge(
         (status.pending_users || 0) +
@@ -572,7 +602,9 @@
 
   setAuthUi();
   document.addEventListener("visibilitychange", function () {
-    if (!document.hidden && authState.admin) loadMessagesBadge();
+    if (document.hidden || !authState.authenticated) return;
+    loadMessagesBadge();
+    loadMomentsBadge();
   });
   fetch("/api/auth/status", { cache: "no-store" })
     .then(function (response) { return response.json(); })

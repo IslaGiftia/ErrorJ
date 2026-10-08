@@ -9,6 +9,7 @@
 
   var pendingImages = [];
   var toastTimer = null;
+  var canInteract = false;
 
   function imageLimitLabel() {
     return window.ErrorUploadLimits
@@ -356,6 +357,144 @@
     return wrap;
   }
 
+  function buildMomentLike(moment) {
+    var wrap = el("div", "mo-like");
+    var btn = el("button", "mo-like-btn", "♥");
+    var count = el("span", "mo-like-count", String(moment.like_count || 0));
+    btn.type = "button";
+    function sync() {
+      btn.classList.toggle("is-liked", Boolean(moment.liked));
+      btn.title = moment.liked ? "取消点赞" : "点赞";
+      count.textContent = String(moment.like_count || 0);
+    }
+    sync();
+    btn.addEventListener("click", function () {
+      if (!canInteract) {
+        toast("登录后可以点赞");
+        return;
+      }
+      btn.disabled = true;
+      api("/api/site/likes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target_type: "moment", target_id: moment.id }),
+      }).then(function (data) {
+        moment.liked = Boolean(data && data.liked);
+        moment.like_count = Number(data && data.count) || 0;
+        sync();
+      }).catch(function (err) {
+        toast(err.message || "操作失败");
+      }).then(function () {
+        btn.disabled = false;
+      });
+    });
+    wrap.appendChild(btn);
+    wrap.appendChild(count);
+    return wrap;
+  }
+
+  function buildCommentForm(moment, parentId, placeholder) {
+    var form = el("form", "mo-comment-form");
+    var area = document.createElement("textarea");
+    area.maxLength = 500;
+    area.rows = 1;
+    area.placeholder = placeholder || "写评论…";
+    var submit = el("button", "mo-btn mo-btn-primary mo-comment-submit", "发送");
+    submit.type = "submit";
+    form.appendChild(area);
+    form.appendChild(submit);
+    if (parentId) form.hidden = true;
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      var text = area.value.trim();
+      if (!text) return;
+      submit.disabled = true;
+      api("/api/moments/" + moment.id + "/comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: text, parent_id: parentId || null }),
+      }).then(function () {
+        toast(parentId ? "回复已发布" : "评论已发布");
+        return loadMoments();
+      }).catch(function (err) {
+        toast(err.message || "发布失败");
+        submit.disabled = false;
+      });
+    });
+    return form;
+  }
+
+  function buildCommentNode(moment, comment, byParent) {
+    var row = el("div", "mo-comment" + (comment.parent_id ? " is-reply" : ""));
+    var head = el("div", "mo-comment-head");
+    head.appendChild(el("span", "mo-comment-actor", comment.actor || "匿名"));
+    head.appendChild(el("span", "mo-comment-time", formatTime(comment.created_at)));
+    row.appendChild(head);
+    row.appendChild(el("p", "mo-comment-text", comment.content));
+    var actions = el("div", "mo-comment-actions");
+    if (comment.can_delete) {
+      var deleteBtn = el("button", "mo-link-btn is-danger", "删除");
+      deleteBtn.type = "button";
+      deleteBtn.addEventListener("click", function () {
+        if (!window.confirm("删除这条评论？下面的回复也会一起删除。")) return;
+        api("/api/site/moment-comments/" + comment.id, { method: "DELETE" })
+          .then(function () {
+            toast("评论已删除");
+            return loadMoments();
+          })
+          .catch(function (err) {
+            toast(err.message || "删除失败");
+          });
+      });
+      actions.appendChild(deleteBtn);
+    }
+    row.appendChild(actions);
+    if (canInteract && !comment.parent_id) {
+      var replyBtn = el("button", "mo-link-btn", "回复");
+      replyBtn.type = "button";
+      actions.insertBefore(replyBtn, actions.firstChild);
+      var replyForm = buildCommentForm(
+        moment,
+        comment.id,
+        "回复 " + (comment.actor || "这条评论") + "…"
+      );
+      replyBtn.addEventListener("click", function () {
+        replyForm.hidden = !replyForm.hidden;
+        if (!replyForm.hidden) replyForm.querySelector("textarea").focus();
+      });
+      row.appendChild(replyForm);
+    }
+    (byParent[comment.id] || []).forEach(function (child) {
+      row.appendChild(buildCommentNode(moment, child, byParent));
+    });
+    return row;
+  }
+
+  function buildComments(moment) {
+    var comments = moment.comments || [];
+    var box = el("div", "mo-comments");
+    var byParent = {};
+    comments.forEach(function (comment) {
+      if (comment.parent_id) {
+        byParent[comment.parent_id] = byParent[comment.parent_id] || [];
+        byParent[comment.parent_id].push(comment);
+      }
+    });
+    if (comments.length) {
+      var list = el("div", "mo-comment-list");
+      comments
+        .filter(function (comment) { return !comment.parent_id; })
+        .forEach(function (comment) {
+          list.appendChild(buildCommentNode(moment, comment, byParent));
+        });
+      box.appendChild(list);
+    }
+    if (canInteract) {
+      box.appendChild(buildCommentForm(moment, null, "写评论…"));
+    }
+    return box;
+  }
+
   function buildMoment(moment) {
     var item = el("article", "mo-card mo-item " + (moment.can_save ? "can-save" : "no-save"));
     var avatar = document.createElement("img");
@@ -395,6 +534,9 @@
       });
       if (tagWrap.childNodes.length) body.appendChild(tagWrap);
     }
+
+    body.appendChild(buildMomentLike(moment));
+    body.appendChild(buildComments(moment));
 
     item.appendChild(body);
 
@@ -543,8 +685,16 @@
 
   api("/api/auth/status").then(function (status) {
     var canManage = Boolean(status.admin);
+    canInteract = Boolean(status.authenticated);
     $("momentForm").hidden = !canManage;
     if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);
+    if (canInteract && !canManage) {
+      api("/api/site/notifications/seen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ module: "moments" }),
+      }).catch(function () {});
+    }
     return loadMoments();
   }).catch(function () {
     $("momentForm").hidden = true;

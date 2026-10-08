@@ -400,7 +400,7 @@ PUBLIC_ACTIVITY_LABELS = {
     "message_create": "发表了留言",
     "message_reply": "回复了留言",
     "game_play": "玩了一局游戏",
-    "moment_create": "发布了动态",
+    "moment_create": "更新了一条动态",
     "moment_update": "更新了动态",
     "book_upload": "上架了一本电子书",
     "music_upload": "上传了一首歌",
@@ -421,6 +421,7 @@ MESSAGE_FILE_TOTAL_MAX_BYTES = 15 * 1024 * 1024
 MESSAGE_FILE_MAX_COUNT = 3
 MESSAGE_DAILY_LIMIT = 9
 MOMENT_CONTENT_MAX_CHARS = 2000
+MOMENT_COMMENT_MAX_CHARS = 500
 MOMENT_IMAGE_MAX_BYTES = 5 * 1024 * 1024
 MAP_PHOTO_MAX_BYTES = 8 * 1024 * 1024
 MAP_PHOTO_MAX_COUNT = 9
@@ -1112,6 +1113,43 @@ def init_db():
                 last_seen_id INTEGER NOT NULL DEFAULT 0,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS content_likes (
+                target_type TEXT NOT NULL,
+                target_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (target_type, target_id, user_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS moment_comments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                moment_id INTEGER NOT NULL REFERENCES moments(id) ON DELETE CASCADE,
+                parent_id INTEGER,
+                user_id INTEGER NOT NULL DEFAULT 0,
+                actor TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS user_notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                module TEXT NOT NULL,
+                target_id INTEGER,
+                actor TEXT,
+                text TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                seen_at TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_content_likes_target
+                ON content_likes (target_type, target_id);
+            CREATE INDEX IF NOT EXISTS idx_moment_comments_moment
+                ON moment_comments (moment_id, id);
+            CREATE INDEX IF NOT EXISTS idx_user_notifications_user
+                ON user_notifications (user_id, seen_at, id);
 
             CREATE TABLE IF NOT EXISTS permission_audit (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -5211,6 +5249,18 @@ def required_permission(path, method):
     if path.startswith("/api/site/message-files/"):
         # 附件接口：游客只能看图片，非图片附件在处理器里再拦一次
         return ""
+    if path == "/api/site/likes" and method == "POST":
+        # 点赞：登录账号可用，处理器里再校验身份
+        return ""
+    if path == "/api/site/notifications/seen" and method == "POST":
+        return ""
+    if path == "/api/site/moments/unread" and method == "GET":
+        return ""
+    if re.fullmatch(r"/api/moments/\d+/comments", path) and method == "POST":
+        # 动态评论：登录账号可用，发布动态本身仍仅管理员
+        return ""
+    if re.fullmatch(r"/api/site/moment-comments/\d+", path) and method == "DELETE":
+        return ""
     if path == "/api/moments" or path.startswith("/api/moments/"):
         # 动态：游客和普通账号只能浏览，发布/编辑/置顶/删除仅管理员。
         if method in ("POST", "PATCH", "DELETE"):
@@ -5884,6 +5934,130 @@ def mark_messages_seen(user_id):
         (user_id, seen, now_text()),
     )
     return seen
+
+
+LIKE_TARGET_TYPES = {"message", "moment"}
+NOTIFICATION_MODULES = {"messages", "moments"}
+
+
+def like_counts(target_type, target_ids):
+    ids = [int(value) for value in target_ids if int(value or 0) > 0]
+    if not ids:
+        return {}
+    placeholders = ",".join("?" for _ in ids)
+    rows = query(
+        f"""SELECT target_id, COUNT(*) AS n FROM content_likes
+            WHERE target_type = ? AND target_id IN ({placeholders})
+            GROUP BY target_id""",
+        (target_type, *ids),
+    )
+    return {int(row["target_id"]): int(row["n"]) for row in rows}
+
+
+def liked_target_ids(viewer_id, target_type, target_ids):
+    """viewer_id 为 None 表示未登录；0 表示站长本人。"""
+    if viewer_id is None:
+        return set()
+    user_id = int(viewer_id)
+    ids = [int(value) for value in target_ids if int(value or 0) > 0]
+    if not ids:
+        return set()
+    placeholders = ",".join("?" for _ in ids)
+    rows = query(
+        f"""SELECT target_id FROM content_likes
+            WHERE target_type = ? AND user_id = ? AND target_id IN ({placeholders})""",
+        (target_type, user_id, *ids),
+    )
+    return {int(row["target_id"]) for row in rows}
+
+
+def add_user_notification(user_id, kind, module, target_id, actor, text):
+    """给单个账号写一条站内提醒；user_id 为 0（站长）时不写。"""
+    user_id = int(user_id or 0)
+    if not user_id or module not in NOTIFICATION_MODULES:
+        return None
+    return execute(
+        """INSERT INTO user_notifications
+               (user_id, kind, module, target_id, actor, text, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (
+            user_id,
+            str(kind or "")[:40],
+            module,
+            int(target_id or 0),
+            str(actor or "")[:64],
+            str(text or "")[:200],
+            now_text(),
+        ),
+    )
+
+
+def member_user_ids():
+    """所有已批准、非管理员的普通账号。"""
+    rows = query(
+        """SELECT id FROM users
+           WHERE status = 'approved' AND role = 'member'
+             AND id NOT IN (
+                 SELECT user_id FROM user_permissions
+                 WHERE permission = ? AND mode = 'allow'
+             )""",
+        (ADMIN_PERMISSION,),
+    )
+    return [int(row["id"]) for row in rows]
+
+
+def unseen_notifications(user_id):
+    """按模块汇总该账号的未读提醒。"""
+    user_id = int(user_id or 0)
+    if not user_id:
+        return {}
+    rows = query(
+        """SELECT module, COUNT(*) AS n, MAX(created_at) AS last_at,
+                  MAX(id) AS last_id
+           FROM user_notifications
+           WHERE user_id = ? AND seen_at IS NULL
+           GROUP BY module""",
+        (user_id,),
+    )
+    result = {}
+    for row in rows:
+        latest = query_one(
+            "SELECT text, kind, actor FROM user_notifications WHERE id = ?",
+            (int(row["last_id"] or 0),),
+        )
+        result[str(row["module"])] = {
+            "count": int(row["n"] or 0),
+            "created_at": str(row["last_at"] or ""),
+            "text": str((latest or {}).get("text") or ""),
+            "kind": str((latest or {}).get("kind") or ""),
+            "actor": str((latest or {}).get("actor") or ""),
+        }
+    return result
+
+
+def mark_notifications_seen(user_id, module):
+    user_id = int(user_id or 0)
+    if not user_id or module not in NOTIFICATION_MODULES:
+        return 0
+    execute(
+        """UPDATE user_notifications SET seen_at = ?
+           WHERE user_id = ? AND module = ? AND seen_at IS NULL""",
+        (now_text(), user_id, module),
+    )
+    return 1
+
+
+def notification_alert_text(module, info):
+    """把未读提醒汇总成首页左下角的一行提示。"""
+    count = max(1, int((info or {}).get("count") or 0))
+    kind = str((info or {}).get("kind") or "")
+    if module == "moments":
+        if kind == "comment_reply":
+            return "有 1 条新回复（你的评论）" if count == 1 else f"有 {count} 条新回复（你的评论）"
+        return "更新了动态" if count == 1 else f"更新了 {count} 条动态"
+    if kind == "message_reply":
+        return "回复了你的留言" if count == 1 else f"有 {count} 条新回复（你的留言）"
+    return "点赞了你的留言" if count == 1 else f"有 {count} 个新点赞（你的留言）"
 
 
 def issue_session_token(days, identity, device=SESSION_DEVICE_DESKTOP):
@@ -7754,6 +7928,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_message_file(path)
             elif path == "/api/moments":
                 self.api_moments(query)
+            elif path == "/api/site/moments/unread":
+                self.api_site_moments_unread()
             elif path == "/api/recommendations":
                 self.api_recommendations(query)
             elif path == "/api/map/poi-search":
@@ -7905,8 +8081,16 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_game_play(payload)
             elif path == "/api/site/messages/seen":
                 self.api_site_message_mark_seen()
+            elif path == "/api/site/likes":
+                self.api_site_like_toggle(payload)
+            elif path == "/api/site/notifications/seen":
+                self.api_site_notifications_seen(payload)
             elif path == "/api/moments":
                 self.api_moment_create(payload)
+            elif re.fullmatch(r"/api/moments/\d+/comments", path):
+                self.api_moment_comment_create(
+                    int(path.split("/")[3]), payload
+                )
             elif path == "/api/map/categories":
                 self.api_map_category_create(payload)
             elif path == "/api/map/places":
@@ -8099,6 +8283,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_bookmark_folder_item(path)
             elif re.fullmatch(r"/api/site/messages/\d+", path):
                 self.api_site_message_delete(path)
+            elif re.fullmatch(r"/api/site/moment-comments/\d+", path):
+                self.api_moment_comment_delete(int(path.rsplit("/", 1)[1]))
             elif re.fullmatch(r"/api/moments/\d+", path):
                 self.api_moment_item(path)
             elif re.fullmatch(r"/api/map/categories/\d+", path):
@@ -8988,10 +9174,25 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def api_site_messages_unread(self):
         identity = self.session_identity()
-        if not identity or identity.get("kind") not in ("owner", "admin"):
+        if not identity:
             self.send_json(
                 200,
                 {"admin": False, "unread": 0, "newest_id": 0, "last_seen_id": 0},
+            )
+            return
+        if identity.get("kind") not in ("owner", "admin"):
+            # 普通账号：未读的点赞 / 回复提醒
+            info = unseen_notifications(
+                int(identity.get("user_id") or 0)
+            ).get("messages") or {}
+            self.send_json(
+                200,
+                {
+                    "admin": False,
+                    "unread": int(info.get("count") or 0),
+                    "newest_id": 0,
+                    "last_seen_id": 0,
+                },
             )
             return
         user_id = 0 if identity.get("kind") == "owner" else int(identity.get("user_id") or 0)
@@ -9019,6 +9220,110 @@ class InventoryHandler(BaseHTTPRequestHandler):
         seen = mark_messages_seen(user_id)
         self.send_json(200, {"ok": True, "last_seen_id": seen})
 
+    def notification_actor_name(self, identity):
+        """写入提醒时用的展示名：管理员统一显示管理员，普通账号用用户名。"""
+        identity = identity or {}
+        if identity.get("kind") in ("owner", "admin"):
+            return "管理员"
+        return str(
+            identity.get("username")
+            or identity.get("nickname")
+            or "普通用户"
+        )[:32]
+
+    def api_site_notifications_seen(self, payload):
+        identity = self.session_identity()
+        if not identity:
+            api_error(self, 401, "请先登录。")
+            return
+        module = str((payload or {}).get("module") or "").strip()
+        if module not in NOTIFICATION_MODULES:
+            api_error(self, 400, "提醒类型不正确。")
+            return
+        if identity.get("kind") in ("owner", "admin"):
+            self.send_json(200, {"ok": True, "cleared": 0})
+            return
+        mark_notifications_seen(int(identity.get("user_id") or 0), module)
+        self.send_json(200, {"ok": True, "cleared": 1})
+
+    def api_site_moments_unread(self):
+        identity = self.session_identity()
+        if not identity or identity.get("kind") in ("owner", "admin"):
+            self.send_json(200, {"unread": 0, "text": ""})
+            return
+        info = unseen_notifications(
+            int(identity.get("user_id") or 0)
+        ).get("moments") or {}
+        self.send_json(
+            200,
+            {
+                "unread": int(info.get("count") or 0),
+                "text": str(info.get("kind") or ""),
+            },
+        )
+
+    def api_site_like_toggle(self, payload):
+        identity = self.session_identity()
+        if not identity:
+            api_error(self, 401, "请先登录。")
+            return
+        if not rate_allow("like", self.client_ip(), 60, 60):
+            api_error(self, 429, "操作太频繁，请稍后再试。")
+            return
+        target_type = str((payload or {}).get("target_type") or "").strip()
+        raw_id = (payload or {}).get("target_id")
+        target_id = int(raw_id) if str(raw_id or "").isdigit() else 0
+        if target_type not in LIKE_TARGET_TYPES or target_id <= 0:
+            api_error(self, 400, "点赞对象不正确。")
+            return
+        if target_type == "message":
+            row = query_one(
+                "SELECT id, user_id FROM site_messages WHERE id = ?", (target_id,)
+            )
+        else:
+            row = query_one("SELECT id FROM moments WHERE id = ?", (target_id,))
+        if not row:
+            api_error(self, 404, "要点赞的内容不存在。")
+            return
+        user_id = 0 if identity.get("kind") == "owner" else int(identity.get("user_id") or 0)
+        existing = query_one(
+            """SELECT 1 AS ok FROM content_likes
+               WHERE target_type = ? AND target_id = ? AND user_id = ?""",
+            (target_type, target_id, user_id),
+        )
+        if existing:
+            execute(
+                """DELETE FROM content_likes
+                   WHERE target_type = ? AND target_id = ? AND user_id = ?""",
+                (target_type, target_id, user_id),
+            )
+            liked = False
+        else:
+            execute(
+                """INSERT OR IGNORE INTO content_likes
+                       (target_type, target_id, user_id, created_at)
+                   VALUES (?, ?, ?, ?)""",
+                (target_type, target_id, user_id, now_text()),
+            )
+            liked = True
+            if target_type == "message":
+                author_id = int(row.get("user_id") or 0)
+                if author_id and author_id != user_id:
+                    add_user_notification(
+                        author_id,
+                        "message_like",
+                        "messages",
+                        target_id,
+                        self.notification_actor_name(identity),
+                        "点赞了你的留言",
+                    )
+        count = query_one(
+            """SELECT COUNT(*) AS n FROM content_likes
+               WHERE target_type = ? AND target_id = ?""",
+            (target_type, target_id),
+        )["n"]
+        self.send_json(200, {"liked": liked, "count": int(count)})
+
     def api_site_messages(self, params):
         rows = query(
             """SELECT id, nickname, content, parent_id, user_id, ip, ip_region,
@@ -9044,6 +9349,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
             ):
                 authors[user["id"]] = user
         files = self.site_message_files_map([row["id"] for row in rows])
+        message_ids = [int(row["id"]) for row in rows]
+        like_count_map = like_counts("message", message_ids)
+        liked_set = liked_target_ids(viewer_id, "message", message_ids)
         # 之前没解析出属地的留言，打开页面时自动补一次（最多 3 条/次）
         for row in [
             item
@@ -9059,6 +9367,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 row["ip_region"] = region
         for row in rows:
             row["files"] = files.get(row["id"], [])
+            row["like_count"] = like_count_map.get(int(row["id"]), 0)
+            row["liked"] = int(row["id"]) in liked_set
             row["can_delete"] = can_delete
             row["nickname"] = self.message_display_name(
                 row, authors, viewer_signed_in
@@ -9190,7 +9500,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 400, "留言内容和附件不能同时为空。")
             return
         if parent_id:
-            parent = query_one("SELECT id FROM site_messages WHERE id = ?", (parent_id,))
+            parent = query_one(
+                "SELECT id, user_id AS author_id FROM site_messages WHERE id = ?",
+                (parent_id,),
+            )
             if not parent:
                 api_error(self, 400, "要回复的留言不存在。")
                 return
@@ -9269,6 +9582,17 @@ class InventoryHandler(BaseHTTPRequestHandler):
             ip=client_ip,
             ip_region=ip_region,
         )
+        if parent_id:
+            target_user = int((parent or {}).get("author_id") or 0)
+            if target_user and target_user != user_id:
+                add_user_notification(
+                    target_user,
+                    "message_reply",
+                    "messages",
+                    parent_id,
+                    self.notification_actor_name(identity),
+                    "回复了你的留言",
+                )
         if saved and not auto_approve:
             notify_async(
                 "attachment",
@@ -9321,6 +9645,36 @@ class InventoryHandler(BaseHTTPRequestHandler):
             )
         return grouped
 
+    def moment_comments_map(self, moment_ids, viewer_id, can_manage):
+        """按动态分组返回评论，并标出每一条能不能删。"""
+        if not moment_ids:
+            return {}
+        placeholders = ",".join("?" for _ in moment_ids)
+        rows = query(
+            f"""SELECT id, moment_id, parent_id, user_id, actor, content, created_at
+                FROM moment_comments
+                WHERE moment_id IN ({placeholders})
+                ORDER BY id""",
+            tuple(moment_ids),
+        )
+        grouped = {}
+        for row in rows:
+            can_delete = bool(
+                can_manage
+                or (viewer_id is not None and int(row.get("user_id") or 0) == int(viewer_id))
+            )
+            grouped.setdefault(row["moment_id"], []).append(
+                {
+                    "id": row["id"],
+                    "parent_id": row["parent_id"],
+                    "actor": row["actor"],
+                    "content": row["content"],
+                    "created_at": row["created_at"],
+                    "can_delete": can_delete,
+                }
+            )
+        return grouped
+
     def api_moments(self, params):
         rows = query(
             """SELECT id, content, tags, pinned, ip, ip_region, show_region, created_at
@@ -9328,7 +9682,17 @@ class InventoryHandler(BaseHTTPRequestHandler):
                ORDER BY pinned DESC, created_at DESC, id DESC"""
         )
         can_manage = self.is_admin()
+        identity = self.session_identity()
+        viewer_id = None
+        if identity:
+            viewer_id = 0 if identity.get("kind") == "owner" else int(
+                identity.get("user_id") or 0
+            )
         files = self.moment_files_map([row["id"] for row in rows])
+        moment_ids = [int(row["id"]) for row in rows]
+        comments = self.moment_comments_map(moment_ids, viewer_id, can_manage)
+        like_count_map = like_counts("moment", moment_ids)
+        liked_set = liked_target_ids(viewer_id, "moment", moment_ids)
         for row in [
             item
             for item in rows
@@ -9343,6 +9707,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 row["ip_region"] = region
         for row in rows:
             row["files"] = files.get(row["id"], [])
+            row["comments"] = comments.get(row["id"], [])
+            row["like_count"] = like_count_map.get(int(row["id"]), 0)
+            row["liked"] = int(row["id"]) in liked_set
             row["pinned"] = bool(row["pinned"])
             row["can_manage"] = can_manage
             row["can_save"] = can_manage
@@ -9353,6 +9720,89 @@ class InventoryHandler(BaseHTTPRequestHandler):
             row.pop("ip_region", None)
             row.pop("show_region", None)
         self.send_json(200, rows)
+
+    def api_moment_comment_create(self, moment_id, payload):
+        identity = self.session_identity()
+        if not identity:
+            api_error(self, 401, "请先登录。")
+            return
+        if not rate_allow("moment_comment", self.client_ip(), 10, 60):
+            api_error(self, 429, "评论太频繁，请稍后再试。")
+            return
+        content = str((payload or {}).get("content") or "").strip()
+        if not content:
+            api_error(self, 400, "评论内容不能为空。")
+            return
+        if len(content) > MOMENT_COMMENT_MAX_CHARS:
+            api_error(self, 400, f"评论不能超过 {MOMENT_COMMENT_MAX_CHARS} 字。")
+            return
+        actor = self.notification_actor_name(identity)
+        if sensitive_contains(content):
+            maybe_alert_sensitive("动态评论", content, actor)
+            api_error(self, 400, "评论内容包含不允许的词汇，请修改后再发。")
+            return
+        if not query_one("SELECT id FROM moments WHERE id = ?", (moment_id,)):
+            api_error(self, 404, "动态不存在。")
+            return
+        raw_parent = (payload or {}).get("parent_id")
+        parent_id = int(raw_parent) if str(raw_parent or "").isdigit() else None
+        parent = None
+        if parent_id:
+            parent = query_one(
+                """SELECT id, user_id FROM moment_comments
+                   WHERE id = ? AND moment_id = ?""",
+                (parent_id, moment_id),
+            )
+            if not parent:
+                api_error(self, 400, "要回复的评论不存在。")
+                return
+        user_id = 0 if identity.get("kind") == "owner" else int(identity.get("user_id") or 0)
+        comment_id = execute(
+            """INSERT INTO moment_comments
+                   (moment_id, parent_id, user_id, actor, content, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (moment_id, parent_id, user_id, actor, content, now_text()),
+        )
+        if parent:
+            target_user = int(parent.get("user_id") or 0)
+            if target_user and target_user != user_id:
+                add_user_notification(
+                    target_user,
+                    "comment_reply",
+                    "moments",
+                    moment_id,
+                    actor,
+                    "回复了你的评论",
+                )
+        self.log_activity(
+            "moment_comment",
+            f"评论了动态：{content[:40]}",
+            target_type="moment",
+            target_id=moment_id,
+        )
+        self.send_json(200, {"id": comment_id})
+
+    def api_moment_comment_delete(self, comment_id):
+        identity = self.session_identity()
+        if not identity:
+            api_error(self, 401, "请先登录。")
+            return
+        row = query_one(
+            "SELECT id, moment_id, user_id FROM moment_comments WHERE id = ?",
+            (comment_id,),
+        )
+        if not row:
+            api_error(self, 404, "评论不存在。")
+            return
+        user_id = 0 if identity.get("kind") == "owner" else int(identity.get("user_id") or 0)
+        if not self.is_admin() and int(row.get("user_id") or 0) != user_id:
+            api_error(self, 403, "只能删除自己的评论。")
+            return
+        execute(
+            "DELETE FROM moment_comments WHERE id = ? OR parent_id = ?",
+            (comment_id, comment_id),
+        )
+        self.send_json(200, {"ok": True})
 
     def moment_payload(self, payload, current=None):
         current = current or {}
@@ -9461,6 +9911,15 @@ class InventoryHandler(BaseHTTPRequestHandler):
             ip=client_ip,
             ip_region=ip_region,
         )
+        for member_id in member_user_ids():
+            add_user_notification(
+                member_id,
+                "moment_new",
+                "moments",
+                row_id,
+                "管理员",
+                "更新了动态",
+            )
         self.send_json(200, {"id": row_id, "images": len(saved)})
 
     def api_moment_item(self, path):
@@ -9472,6 +9931,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if self.command == "DELETE":
             rows = query("SELECT file_path FROM moment_files WHERE moment_id = ?", (moment_id,))
             execute("DELETE FROM moments WHERE id = ?", (moment_id,))
+            execute(
+                "DELETE FROM content_likes WHERE target_type = 'moment' AND target_id = ?",
+                (moment_id,),
+            )
             for row in rows:
                 remove_data_file(row.get("file_path"))
             self.log_activity(
@@ -11893,6 +12356,18 @@ class InventoryHandler(BaseHTTPRequestHandler):
                   OR message_id IN (SELECT id FROM site_messages WHERE parent_id = ?)""",
             (item_id, item_id),
         )
+        like_ids = [item_id] + [
+            int(row["id"])
+            for row in query(
+                "SELECT id FROM site_messages WHERE parent_id = ?", (item_id,)
+            )
+        ]
+        placeholders = ",".join("?" for _ in like_ids)
+        execute(
+            f"""DELETE FROM content_likes
+                WHERE target_type = 'message' AND target_id IN ({placeholders})""",
+            tuple(like_ids),
+        )
         execute("DELETE FROM site_messages WHERE id = ?", (item_id,))
         for row in rows:
             remove_data_file(row.get("file_path"))
@@ -12045,6 +12520,19 @@ class InventoryHandler(BaseHTTPRequestHandler):
                         "created_at": (newest_download or {}).get("created_at") or now_text(),
                         "actor": "管理员",
                         "text": f"有 {int(pending_downloads)} 个下载申请",
+                        "alert": True,
+                    }
+                )
+        elif identity:
+            # 普通账号：新动态、被点赞、被回复的提醒
+            user_id = int(identity.get("user_id") or 0)
+            for module, info in unseen_notifications(user_id).items():
+                items.append(
+                    {
+                        "id": f"notify-{module}",
+                        "created_at": info.get("created_at") or now_text(),
+                        "actor": info.get("actor") or "提醒",
+                        "text": notification_alert_text(module, info),
                         "alert": True,
                     }
                 )

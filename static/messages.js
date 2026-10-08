@@ -549,6 +549,45 @@
     return form;
   }
 
+  function buildLikeControl(targetType, target) {
+    var wrap = el("div", "mg-like");
+    var btn = el("button", "mg-like-btn", "♥");
+    var count = el("span", "mg-like-count", String(target.like_count || 0));
+    btn.type = "button";
+    function sync() {
+      btn.classList.toggle("is-liked", Boolean(target.liked));
+      btn.title = target.liked ? "取消点赞" : "点赞";
+      count.textContent = String(target.like_count || 0);
+    }
+    sync();
+    btn.addEventListener("click", function () {
+      if (!canPost) {
+        toast("登录后可以点赞");
+        return;
+      }
+      btn.disabled = true;
+      api("/api/site/likes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target_type: targetType,
+          target_id: target.id,
+        }),
+      }).then(function (data) {
+        target.liked = Boolean(data && data.liked);
+        target.like_count = Number(data && data.count) || 0;
+        sync();
+      }).catch(function (err) {
+        toast(err.message || "操作失败");
+      }).then(function () {
+        btn.disabled = false;
+      });
+    });
+    wrap.appendChild(btn);
+    wrap.appendChild(count);
+    return wrap;
+  }
+
   function buildMessage(message) {
     var item = el("article", "mg-item " + (message.can_save ? "can-save" : "no-save"));
     var head = el("div", "mg-item-head");
@@ -565,6 +604,7 @@
     if (files.length) {
       item.appendChild(buildFiles(files));
     }
+    item.appendChild(buildLikeControl("message", message));
 
     var repliesBox = el("div", "mg-replies");
     var replyForm = null;
@@ -598,6 +638,7 @@
       if (replyFiles.length) {
         row.appendChild(buildFiles(replyFiles));
       }
+      row.appendChild(buildLikeControl("message", reply));
       repliesBox.appendChild(row);
     });
 
@@ -651,6 +692,12 @@
         api("/api/site/messages/seen", {
           method: "POST",
           body: JSON.stringify({}),
+        }).catch(function () {});
+      } else if (canPost) {
+        api("/api/site/notifications/seen", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ module: "messages" }),
         }).catch(function () {});
       }
       $("messageCount").textContent = rows.length ? "共 " + total + " 条" : "";

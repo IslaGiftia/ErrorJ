@@ -554,6 +554,46 @@ button.mg-file {
   font-size: 13px;
 }
 
+/* ---------- 点赞 ---------- */
+.mg-like {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.mg-like-btn {
+  padding: 2px 5px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mg-faint);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.mg-like-btn:hover {
+  background: var(--mg-hover);
+  color: var(--mg-accent);
+}
+
+.mg-like-btn.is-liked {
+  color: #e2557b;
+}
+
+.mg-like-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.mg-like-count {
+  color: var(--mg-muted);
+  font-size: 12.5px;
+}
+
 .mg-reply-text {
   margin: 0;
   white-space: pre-wrap;
