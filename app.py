@@ -6202,6 +6202,10 @@ def mark_messages_seen(user_id):
 
 LIKE_TARGET_TYPES = {"message", "moment", "comment"}
 NOTIFICATION_MODULES = {"messages", "moments", "map"}
+NOTIFICATION_ACTIVITY_ACTIONS = {
+    "moment_new": {"moment_create"},
+    "message_reply": {"message_reply"},
+}
 
 
 def like_counts(target_type, target_ids):
@@ -6315,6 +6319,22 @@ def unseen_notification_targets(user_id, module):
         (user_id, module),
     )
     return sorted(int(row["target_id"]) for row in rows)
+
+
+def unseen_notification_rows(user_id):
+    """返回未读提醒的明细，供首页把公开动态和站内提醒合并展示。"""
+    if user_id is None:
+        return []
+    user_id = int(user_id)
+    if user_id < 0:
+        return []
+    return query(
+        """SELECT id, kind, module, target_id, actor, text, created_at
+           FROM user_notifications
+           WHERE user_id = ? AND seen_at IS NULL
+           ORDER BY id""",
+        (user_id,),
+    )
 
 
 def mark_notifications_seen(user_id, module, target_id=None):
@@ -10333,7 +10353,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     target_user,
                     "message_reply",
                     "messages",
-                    parent_id,
+                    row_id,
                     self.notification_actor_name(identity),
                     "回复了你" if (parent or {}).get("parent_id") else "回复了你的留言",
                 )
@@ -13625,6 +13645,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         placeholders = ",".join("?" for _ in actions)
         rows = query(
             f"""SELECT a.id, a.action, a.actor_kind, a.user_id, a.created_at, a.summary,
+                       a.target_type, a.target_id,
                        u.username AS member_username
                 FROM activity_log a
                 LEFT JOIN users u ON u.id = a.user_id
@@ -13663,8 +13684,53 @@ class InventoryHandler(BaseHTTPRequestHandler):
                         else PUBLIC_ACTIVITY_LABELS[row["action"]]
                     ),
                     "alert": False,
+                    "_action": str(row.get("action") or ""),
+                    "_target_type": row.get("target_type") or "",
+                    "_target_id": int(row.get("target_id") or 0),
                 }
             )
+
+        def grouped_unseen_notifications(account_id):
+            grouped = {}
+            for notification in unseen_notification_rows(account_id):
+                module = str(notification.get("module") or "")
+                grouped.setdefault(module, []).append(notification)
+            return grouped
+
+        def mark_activity_alerts(module_rows):
+            matched_ids = set()
+            for notification in module_rows:
+                target_id = int(notification.get("target_id") or 0)
+                actions = NOTIFICATION_ACTIVITY_ACTIONS.get(
+                    str(notification.get("kind") or "")
+                )
+                if target_id <= 0 or not actions:
+                    continue
+                for item in items:
+                    if (
+                        item.get("_target_id") == target_id
+                        and item.get("_action") in actions
+                    ):
+                        item["alert"] = True
+                        matched_ids.add(int(notification.get("id") or 0))
+                        break
+            return matched_ids
+
+        def notification_info(module_rows):
+            latest = module_rows[-1]
+            return {
+                "count": len(module_rows),
+                "kind": str(latest.get("kind") or ""),
+                "text": str(latest.get("text") or ""),
+                "actor": str(latest.get("actor") or ""),
+                "created_at": str(latest.get("created_at") or ""),
+            }
+
+        def strip_internal_fields():
+            for item in items:
+                item.pop("_action", None)
+                item.pop("_target_type", None)
+                item.pop("_target_id", None)
 
         if is_admin:
             admin_user_id = (
@@ -13675,7 +13741,29 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "SELECT created_at FROM site_messages WHERE id > ? ORDER BY id DESC LIMIT 1",
                 (last_seen,),
             )
-            if newest_message:
+            unread_message_items = [
+                item
+                for item in items
+                if item.get("_target_type") == "message"
+                and item.get("_target_id", 0) > last_seen
+            ]
+            if newest_message and unread_message_items:
+                unread = query_one(
+                    "SELECT COUNT(*) AS n FROM site_messages WHERE id > ?",
+                    (last_seen,),
+                )["n"]
+                newest_item = max(
+                    unread_message_items, key=lambda item: int(item.get("_target_id") or 0)
+                )
+                newest_item.update(
+                    {
+                        "created_at": newest_message["created_at"],
+                        "actor": "管理员",
+                        "text": f"有 {int(unread)} 条未读留言",
+                        "alert": True,
+                    }
+                )
+            elif newest_message:
                 unread = query_one(
                     "SELECT COUNT(*) AS n FROM site_messages WHERE id > ?",
                     (last_seen,),
@@ -13687,7 +13775,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                         "actor": "管理员",
                         "text": f"有 {int(unread)} 条未读留言",
                         "alert": True,
-                    },
+                    }
                 )
             pending_users = query_one(
                 "SELECT COUNT(*) AS n FROM users WHERE status = 'pending'"
@@ -13767,12 +13855,19 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     }
                 )
             # 站长自己收到的新动态评论、留言点赞 / 回复
-            for module, info in unseen_notifications(admin_user_id).items():
-                alert_actor = (
-                    "提醒"
-                    if module == "map"
-                    else (info.get("actor") or "提醒")
-                )
+            for module, module_rows in grouped_unseen_notifications(
+                admin_user_id
+            ).items():
+                matched_ids = mark_activity_alerts(module_rows)
+                remaining = [
+                    notification
+                    for notification in module_rows
+                    if int(notification.get("id") or 0) not in matched_ids
+                ]
+                if not remaining:
+                    continue
+                info = notification_info(remaining)
+                alert_actor = "提醒" if module == "map" else info.get("actor") or "提醒"
                 items.append(
                     {
                         "id": f"notify-{module}",
@@ -13785,7 +13880,16 @@ class InventoryHandler(BaseHTTPRequestHandler):
         elif identity:
             # 普通账号：新动态、被点赞、被回复的提醒
             user_id = int(identity.get("user_id") or 0)
-            for module, info in unseen_notifications(user_id).items():
+            for module, module_rows in grouped_unseen_notifications(user_id).items():
+                matched_ids = mark_activity_alerts(module_rows)
+                remaining = [
+                    notification
+                    for notification in module_rows
+                    if int(notification.get("id") or 0) not in matched_ids
+                ]
+                if not remaining:
+                    continue
+                info = notification_info(remaining)
                 items.append(
                     {
                         "id": f"notify-{module}",
@@ -13795,6 +13899,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                         "alert": True,
                     }
                 )
+        strip_internal_fields()
         self.send_json(200, {"items": items[:60], "admin": is_admin})
 
     def api_site_game_play(self, payload):

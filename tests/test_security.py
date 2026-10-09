@@ -636,14 +636,11 @@ class InteractionTests(unittest.TestCase):
         )
         member_handler.api_site_activity()
         items = member_responses[-1][1]["items"]
-        alerts = [item for item in items if item.get("alert")]
-        self.assertTrue(
-            any(
-                item.get("actor") == "管理员"
-                and item.get("text") == "更新了动态"
-                for item in alerts
-            )
-        )
+        expected = app.PUBLIC_ACTIVITY_LABELS["moment_create"]
+        matching = [item for item in items if item.get("text") == expected]
+        self.assertEqual(len(matching), 1)
+        self.assertTrue(matching[0]["alert"])
+        self.assertFalse(any(item.get("id") == "notify-moments" for item in items))
 
         owner_handler, owner_responses = self.make_handler(
             0, kind="owner", username="owner"
@@ -1200,6 +1197,119 @@ class InteractionTests(unittest.TestCase):
         ][0]
         self.assertTrue(other_row["commented_by_me"])
         self.assertTrue(other_row["comments"][0]["mine"])
+
+    def test_moment_notification_reuses_public_activity_row(self):
+        stamp = app.now_text()
+        moment_id = app.execute(
+            "INSERT INTO moments (content, created_at) VALUES (?, ?)",
+            ("通知去重测试", stamp),
+        )
+        app.write_activity(
+            {"kind": "owner", "user_id": 0, "username": "管理员"},
+            "moment_create",
+            "发布动态：通知去重测试",
+            target_type="moment",
+            target_id=moment_id,
+        )
+        app.add_user_notification(
+            self.author_id,
+            "moment_new",
+            "moments",
+            moment_id,
+            "管理员",
+            "更新了动态",
+        )
+        handler, responses = self.make_handler(self.author_id, username="author1")
+        handler.api_site_activity()
+        items = responses[-1][1]["items"]
+        matching = [item for item in items if item.get("text") == "更新了一条动态"]
+        self.assertEqual(len(matching), 1)
+        self.assertTrue(matching[0]["alert"])
+        self.assertEqual(
+            len([item for item in items if item.get("alert")]),
+            1,
+        )
+
+        app.mark_notifications_seen(self.author_id, "moments")
+        handler.api_site_activity()
+        items = responses[-1][1]["items"]
+        matching = [item for item in items if item.get("text") == "更新了一条动态"]
+        self.assertEqual(len(matching), 1)
+        self.assertFalse(matching[0]["alert"])
+        self.assertFalse(any(item.get("alert") for item in items))
+
+    def test_message_reply_notification_reuses_public_activity_row(self):
+        handler, responses = self.make_handler(self.other_id, username="other1")
+        handler.api_site_message_create(
+            {"content": "回复内容", "parent_id": self.message_id, "files": []}
+        )
+        reply_id = responses[-1][1]["id"]
+        app.write_activity(
+            {"kind": "member", "user_id": self.other_id, "username": "other1"},
+            "message_reply",
+            "回复留言：回复内容",
+            target_type="message",
+            target_id=reply_id,
+        )
+        notification = app.query_one(
+            """SELECT target_id FROM user_notifications
+               WHERE user_id = ? AND kind = 'message_reply'""",
+            (self.author_id,),
+        )
+        self.assertEqual(int(notification["target_id"]), int(reply_id))
+
+        member_handler, member_responses = self.make_handler(
+            self.author_id, username="author1"
+        )
+        member_handler.api_site_activity()
+        items = member_responses[-1][1]["items"]
+        matching = [
+            item
+            for item in items
+            if item.get("text") == app.PUBLIC_ACTIVITY_LABELS["message_reply"]
+        ]
+        self.assertEqual(len(matching), 1)
+        self.assertTrue(matching[0]["alert"])
+        self.assertFalse(any(item.get("id") == "notify-messages" for item in items))
+
+        app.mark_notifications_seen(self.author_id, "messages")
+        member_handler.api_site_activity()
+        items = member_responses[-1][1]["items"]
+        matching = [
+            item
+            for item in items
+            if item.get("text") == app.PUBLIC_ACTIVITY_LABELS["message_reply"]
+        ]
+        self.assertEqual(len(matching), 1)
+        self.assertFalse(matching[0]["alert"])
+
+    def test_message_like_does_not_mark_public_message_row(self):
+        app.write_activity(
+            {"kind": "member", "user_id": self.author_id, "username": "author1"},
+            "message_create",
+            "发布留言：测试留言",
+            target_type="message",
+            target_id=self.message_id,
+        )
+        handler, _ = self.make_handler(self.other_id, username="other1")
+        handler.api_site_like_toggle(
+            {"target_type": "message", "target_id": self.message_id}
+        )
+        member_handler, member_responses = self.make_handler(
+            self.author_id, username="author1"
+        )
+        member_handler.api_site_activity()
+        items = member_responses[-1][1]["items"]
+        public_rows = [
+            item
+            for item in items
+            if item.get("text") == app.PUBLIC_ACTIVITY_LABELS["message_create"]
+        ]
+        self.assertEqual(len(public_rows), 1)
+        self.assertFalse(public_rows[0]["alert"])
+        alerts = [item for item in items if item.get("id") == "notify-messages"]
+        self.assertEqual(len(alerts), 1)
+        self.assertTrue(alerts[0]["alert"])
 
     def test_deleted_message_clears_notification(self):
         handler, _ = self.make_handler(self.other_id, username="other1")
