@@ -1311,6 +1311,88 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(len(alerts), 1)
         self.assertTrue(alerts[0]["alert"])
 
+    def test_new_content_notifies_members_and_clears_summary(self):
+        handler, responses = self.make_handler(0, kind="owner", username="owner")
+        handler.api_site_music_upload(
+            {
+                "title": "测试歌曲",
+                "artist": "测试歌手",
+                "file_name": "test.mp3",
+                "data_base64": base64.b64encode(b"ID3" + b"\x00" * 64).decode(
+                    "ascii"
+                ),
+            }
+        )
+        music_id = responses[-1][1]["id"]
+        handler.api_book_upload(
+            {
+                "title": "测试书籍",
+                "author": "测试作者",
+                "file_name": "test.txt",
+                "data_base64": base64.b64encode(b"test book content").decode(
+                    "ascii"
+                ),
+            }
+        )
+        book_id = responses[-1][1]["id"]
+        handler.api_recommendation_create(
+            {"kind": "movie", "title": "测试推荐"}
+        )
+        recommendation_id = responses[-1][1]["id"]
+
+        rows = app.query(
+            """SELECT user_id, kind, module, target_id
+               FROM user_notifications
+               WHERE kind IN ('music_new', 'book_new', 'recommendation_new')
+               ORDER BY user_id, kind"""
+        )
+        self.assertEqual(len(rows), 6)
+        self.assertEqual(
+            {
+                (
+                    int(row["user_id"]),
+                    str(row["kind"]),
+                    str(row["module"]),
+                    int(row["target_id"]),
+                )
+                for row in rows
+            },
+            {
+                (self.author_id, "music_new", "music", music_id),
+                (self.other_id, "music_new", "music", music_id),
+                (self.author_id, "book_new", "books", book_id),
+                (self.other_id, "book_new", "books", book_id),
+                (
+                    self.author_id,
+                    "recommendation_new",
+                    "recommendations",
+                    recommendation_id,
+                ),
+                (
+                    self.other_id,
+                    "recommendation_new",
+                    "recommendations",
+                    recommendation_id,
+                ),
+            },
+        )
+
+        member_handler, member_responses = self.make_handler(
+            self.author_id, username="author1"
+        )
+        member_handler.api_site_notification_summary()
+        summary = member_responses[-1][1]
+        self.assertEqual(summary["music"], 1)
+        self.assertEqual(summary["books"], 1)
+        self.assertEqual(summary["recommendations"], 1)
+
+        member_handler.api_site_notifications_seen({"module": "music"})
+        member_handler.api_site_notification_summary()
+        summary = member_responses[-1][1]
+        self.assertEqual(summary["music"], 0)
+        self.assertEqual(summary["books"], 1)
+        self.assertEqual(summary["recommendations"], 1)
+
     def test_deleted_message_clears_notification(self):
         handler, _ = self.make_handler(self.other_id, username="other1")
         handler.api_site_like_toggle(

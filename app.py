@@ -6201,10 +6201,13 @@ def mark_messages_seen(user_id):
 
 
 LIKE_TARGET_TYPES = {"message", "moment", "comment"}
-NOTIFICATION_MODULES = {"messages", "moments", "map"}
+NOTIFICATION_MODULES = {"messages", "moments", "map", "music", "books", "recommendations"}
 NOTIFICATION_ACTIVITY_ACTIONS = {
     "moment_new": {"moment_create"},
     "message_reply": {"message_reply"},
+    "music_new": {"music_upload"},
+    "book_new": {"book_upload"},
+    "recommendation_new": {"recommendation_create"},
 }
 
 
@@ -6359,6 +6362,17 @@ def mark_notifications_seen(user_id, module, target_id=None):
     return 1
 
 
+def clear_notification_target(module, target_id):
+    """内容被删除后，清理所有账号指向该内容的未读提醒。"""
+    if module not in NOTIFICATION_MODULES:
+        return
+    execute(
+        """UPDATE user_notifications SET seen_at = ?
+           WHERE module = ? AND target_id = ? AND seen_at IS NULL""",
+        (now_text(), module, int(target_id or 0)),
+    )
+
+
 def prune_notification_targets(user_id, module, table):
     """指向已删除内容的提醒直接标记已读，返回仍然存在的目标。"""
     targets = unseen_notification_targets(user_id, module)
@@ -6385,6 +6399,12 @@ def notification_alert_text(module, info):
         if kind == "place_like":
             return "点赞了你的标记点" if count == 1 else f"有 {count} 个新点赞（你的标记点）"
         return "标记点有新动态" if count == 1 else f"标记点有 {count} 条新动态"
+    if module == "music":
+        return "上传了一首歌" if count == 1 else f"上传了 {count} 首歌"
+    if module == "books":
+        return "上架了一本电子书" if count == 1 else f"上架了 {count} 本电子书"
+    if module == "recommendations":
+        return "新增了一条推荐" if count == 1 else f"新增了 {count} 条推荐"
     if module == "moments":
         if kind == "comment_reply":
             return "回复了你的评论" if count == 1 else f"有 {count} 条新回复（你的评论）"
@@ -9812,6 +9832,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
             "admin": False,
             "messages": 0,
             "moments": 0,
+            "music": 0,
+            "books": 0,
+            "recommendations": 0,
             "workbench": 0,
             "pending_users": 0,
             "pending_reviews": 0,
@@ -9826,7 +9849,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
             else int(identity.get("user_id") or 0)
         )
         unseen = unseen_notifications(user_id)
-        summary["moments"] = int((unseen.get("moments") or {}).get("count") or 0)
+        for module in ("messages", "moments", "music", "books", "recommendations"):
+            summary[module] = int((unseen.get(module) or {}).get("count") or 0)
         if identity.get("kind") in ("owner", "admin"):
             summary["admin"] = True
             last_seen = message_last_seen(user_id)
@@ -11182,17 +11206,23 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )
         self.send_json(200, {"ok": True, "status": status})
 
-    def notify_members_new_moment(self, moment_id):
-        """给所有已批准普通账号写一条新动态提醒。"""
+    def notify_members_new_content(self, kind, module, target_id, actor, text):
+        """给所有已批准普通账号写一条新内容提醒。"""
         for member_id in member_user_ids():
             add_user_notification(
                 member_id,
-                "moment_new",
-                "moments",
-                moment_id,
-                "管理员",
-                "更新了动态",
+                kind,
+                module,
+                target_id,
+                actor,
+                text,
             )
+
+    def notify_members_new_moment(self, moment_id):
+        """给所有已批准普通账号写一条新动态提醒。"""
+        self.notify_members_new_content(
+            "moment_new", "moments", moment_id, "管理员", "更新了动态"
+        )
 
     def api_admin_share_content(self, payload):
         """把笔记 / 电子书 / 歌曲分享到动态或推荐页。"""
@@ -11269,6 +11299,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
             f"分享{info['label']}到推荐：{info['title']}",
             target_type=resource_type,
             target_id=resource_id,
+        )
+        self.notify_members_new_content(
+            "recommendation_new",
+            "recommendations",
+            recommendation_id,
+            "管理员",
+            "新增了一条推荐",
         )
         self.send_json(
             200,
@@ -11636,6 +11673,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
             target_type="recommendation",
             target_id=recommendation_id,
         )
+        self.notify_members_new_content(
+            "recommendation_new",
+            "recommendations",
+            recommendation_id,
+            "管理员",
+            "新增了一条推荐",
+        )
         self.send_json(200, {"id": recommendation_id})
 
     def remove_recommendation_cover_if_unused(self, relative):
@@ -11658,6 +11702,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 target_type="recommendation",
                 target_id=recommendation_id,
             )
+            clear_notification_target("recommendations", recommendation_id)
             execute("DELETE FROM recommendations WHERE id = ?", (recommendation_id,))
             self.remove_recommendation_cover_if_unused(current.get("cover_path"))
             self.send_json(200, {"ok": True})
@@ -11953,6 +11998,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
             target_type="music",
             target_id=row_id,
         )
+        self.notify_members_new_content(
+            "music_new", "music", row_id, "管理员", "上传了一首歌"
+        )
         self.send_json(
             200,
             {
@@ -11982,6 +12030,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "DELETE FROM download_requests WHERE resource_type = 'music' AND resource_id = ?",
                 (item_id,),
             )
+            clear_notification_target("music", item_id)
             execute(
                 """UPDATE share_links SET revoked_at = ?
                    WHERE resource_type = 'music' AND resource_id = ? AND revoked_at IS NULL""",
@@ -12149,6 +12198,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
             target_type="book",
             target_id=row_id,
         )
+        self.notify_members_new_content(
+            "book_new", "books", row_id, "管理员", "上架了一本电子书"
+        )
         self.send_json(200, self.book_payload(row, self.book_user_id()))
 
     def api_book_download(self, book_id):
@@ -12213,6 +12265,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "DELETE FROM download_requests WHERE resource_type = 'book' AND resource_id = ?",
                 (item_id,),
             )
+            clear_notification_target("books", item_id)
             execute(
                 """UPDATE share_links SET revoked_at = ?
                    WHERE resource_type = 'book' AND resource_id = ? AND revoked_at IS NULL""",

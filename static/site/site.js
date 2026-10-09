@@ -155,9 +155,9 @@
     }
   }
 
-  function applyMessagesBadge(count) {
-    var entry = document.getElementById("messagesEntry");
-    var badge = document.getElementById("messagesPending");
+  function applyModuleBadge(entryId, badgeId, count) {
+    var entry = document.getElementById(entryId);
+    var badge = document.getElementById(badgeId);
     var value = Number(count) || 0;
     if (entry) entry.classList.toggle("has-pending", value > 0);
     if (badge) {
@@ -166,15 +166,24 @@
     }
   }
 
+  function applyMessagesBadge(count) {
+    applyModuleBadge("messagesEntry", "messagesPending", count);
+  }
+
   function applyMomentsBadge(count) {
-    var entry = document.getElementById("momentsEntry");
-    var badge = document.getElementById("momentsPending");
-    var value = Number(count) || 0;
-    if (entry) entry.classList.toggle("has-pending", value > 0);
-    if (badge) {
-      badge.hidden = value <= 0;
-      badge.textContent = value > 99 ? "99+" : String(value);
-    }
+    applyModuleBadge("momentsEntry", "momentsPending", count);
+  }
+
+  function applyMusicBadge(count) {
+    applyModuleBadge("musicEntry", "musicPending", count);
+  }
+
+  function applyBooksBadge(count) {
+    applyModuleBadge("booksEntry", "booksPending", count);
+  }
+
+  function applyRecommendationsBadge(count) {
+    applyModuleBadge("recommendationsEntry", "recommendationsPending", count);
   }
 
   var notificationSummaryBusy = false;
@@ -183,6 +192,9 @@
     if (!authState.authenticated) {
       applyMessagesBadge(0);
       applyMomentsBadge(0);
+      applyMusicBadge(0);
+      applyBooksBadge(0);
+      applyRecommendationsBadge(0);
       applyPendingBadge(0);
       return Promise.resolve();
     }
@@ -197,6 +209,9 @@
       .then(function (data) {
         applyMessagesBadge(Number(data.messages) || 0);
         applyMomentsBadge(Number(data.moments) || 0);
+        applyMusicBadge(Number(data.music) || 0);
+        applyBooksBadge(Number(data.books) || 0);
+        applyRecommendationsBadge(Number(data.recommendations) || 0);
         applyPendingBadge(Number(data.workbench) || 0);
       })
       .catch(function () {})
