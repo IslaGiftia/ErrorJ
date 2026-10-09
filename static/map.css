@@ -992,6 +992,11 @@ body {
   border-top: 1px solid var(--mp-border);
 }
 
+.mp-actions-spacer {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .mp-link-btn {
   display: inline-flex;
   align-items: center;
@@ -1024,10 +1029,12 @@ body {
 
 .mp-edit-btn {
   flex: 0 0 auto;
+  min-width: 46px;
 }
 
 .mp-react-btn {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   gap: 4px;
@@ -1041,6 +1048,16 @@ body {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+}
+
+.mp-react-label {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.mp-react-icon {
+  display: inline-block;
+  line-height: 1;
 }
 
 .mp-react-btn:hover {

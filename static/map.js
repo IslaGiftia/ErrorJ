@@ -841,9 +841,10 @@
     }
     html += '<div class="mp-popup-nav">' + nav + "</div></div>";
     html += '<div class="mp-popup-actions">';
-    var likeLabel = place.like_count > 0 ? "点赞 " + place.like_count : "点赞";
+    var likeLabel =
+      place.like_count > 0 ? "点赞 · " + place.like_count : "点赞";
     var checkinLabel =
-      place.checkin_count > 0 ? "打卡 " + place.checkin_count : "打卡";
+      place.checkin_count > 0 ? "打卡 · " + place.checkin_count : "打卡";
     html +=
       '<button type="button" class="mp-react-btn' +
       (place.liked ? " is-on" : "") +
@@ -851,7 +852,7 @@
       place.id +
       '" aria-pressed="' +
       (place.liked ? "true" : "false") +
-      '" title="点赞这个标记点">♡<span>' +
+      '" title="点赞这个标记点"><span class="mp-react-icon">♡</span><span class="mp-react-label">' +
       likeLabel +
       "</span></button>";
     html +=
@@ -861,10 +862,11 @@
       place.id +
       '" aria-pressed="' +
       (place.checked_in ? "true" : "false") +
-      '" title="标记为已去过">✓<span>' +
+      '" title="标记为已去过"><span class="mp-react-icon">✓</span><span class="mp-react-label">' +
       checkinLabel +
       "</span></button>";
     if (place.can_edit) {
+      html += '<span class="mp-actions-spacer"></span>';
       html +=
         '<button type="button" class="mp-link-btn mp-edit-btn" data-mp-action="edit" data-mp-id="' +
         place.id +
@@ -2115,13 +2117,13 @@
         .then(function (data) {
           var count = Number(data && data.count) || 0;
           var base = reactKind === "like" ? "点赞" : "打卡";
-          var label = count > 0 ? base + " " + count : base;
+          var label = count > 0 ? base + " · " + count : base;
           reactEl.classList.toggle("is-on", Boolean(data && data.active));
           reactEl.setAttribute(
             "aria-pressed",
             data && data.active ? "true" : "false"
           );
-          var textEl = reactEl.querySelector("span");
+          var textEl = reactEl.querySelector(".mp-react-label");
           if (textEl) textEl.textContent = label;
           if (reactKind === "like") {
             reactPlace.liked = Boolean(data && data.active);
