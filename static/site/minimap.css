@@ -152,6 +152,9 @@
   top: 4%;
   right: 4%;
   z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   min-width: 1.7em;
   height: 1.7em;
   padding: 0 0.45em;
@@ -161,9 +164,10 @@
   color: #fff;
   font-size: 0.85em;
   font-weight: 800;
-  line-height: 1.7em;
+  line-height: 1;
   text-align: center;
   pointer-events: none;
+  box-sizing: border-box;
 }
 
 .map-dock-badge[hidden] {
