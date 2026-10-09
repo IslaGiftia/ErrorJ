@@ -1166,3 +1166,26 @@ GET  /api/site/moments/unread（再次查询）  -> unread=0 targets=[]
 11:00 原有条目                -> 完整保留，未被合并覆盖
 其余条目                      -> 00:30 / 01:00 / 02:00 / 09:00 / 10:00 不变
 ```
+
+## 32. 2026-10-09 地图标记点点赞与「已去过」
+
+完成内容：
+
+- 新增 `map_place_interactions` 表（place_id + user_id + kind 主键，kind 为 like / checkin），记录每个账号对标记点的点赞与打卡。
+- `GET /api/map` 返回 `like_count`、`checkin_count`、`liked`、`checked_in` 以及未读互动提醒 `notify_targets` / `notify_count`；`POST /api/map/places/<id>/interact` 负责切换，重复点击即取消。
+- 标记点卡片在「高德导航 / 百度地图」前新增「♡ 点赞」「✓ 已去过」两个按钮（仅登录账号可见可点，与留言板爱心同一套主题色）。
+- 别人点赞或打卡自己添加的标记点时，作者收到站内提醒（左下角日志显示「提醒 某某点赞了你的标记点 / 某某打卡了你的标记点」），地图入口呼吸闪烁并显示角标；打卡带 `map_interaction` Webhook。
+- 打开标记点卡片即把该点的提醒标记已读，首页地图入口角标和呼吸同步消失，逻辑与留言、动态一致。
+
+验证结果：
+
+```text
+普通账号登录               -> 200
+点赞 / 打卡                -> 200，count=1，liked / checked_in=true
+取消点赞                   -> 200，count=0，liked=false
+站内提醒                   -> place_like / place_checkin，module=map，text=「牛大能 点赞了你的标记点」等
+地图接口                   -> like_count / checkin_count / liked / checked_in / notify_targets 正常
+首页入口                   -> has-pending + 角标（新标记数与互动提醒合并显示）
+自动化测试                 -> 58 / 58 通过
+测试数据                   -> 已全部清理，临时改动的账号密码已恢复
+```
