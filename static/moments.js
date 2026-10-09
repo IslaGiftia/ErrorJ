@@ -915,7 +915,6 @@
   }
 
   renderPending();
-  initMomentFilters();
   setMomentFilter(new URLSearchParams(location.search).get("filter") || "all");
   $("momentShowRegion").checked = regionPreference();
   refreshIcons();
@@ -966,6 +965,7 @@
       ? "管理员"
       : String(status.username || status.nickname || "");
     $("momentForm").hidden = !canManage;
+    if (canInteract) initMomentFilters();
     if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);
     return loadMoments();
   }).catch(function () {

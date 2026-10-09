@@ -918,7 +918,6 @@
   }
 
   renderPending();
-  initMessageFilters();
   setMessageFilter(new URLSearchParams(location.search).get("filter") || "all");
   $("msgShowRegion").checked = regionPreference();
   refreshIcons();
@@ -970,7 +969,10 @@
       ? "管理员"
       : String(status.username || status.nickname || "");
     $("messageComposerPanel").hidden = !canPost;
-    if (canPost) loadQuota();
+    if (canPost) {
+      initMessageFilters();
+      loadQuota();
+    }
     return loadMessages();
   }).catch(function () {
     canPost = false;
