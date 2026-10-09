@@ -15,6 +15,8 @@
   var freshTargets = {};
   var jumpBtn = null;
   var jumpFrame = null;
+  var lastMomentUnread = null;
+  var momentPollBusy = false;
 
   function imageLimitLabel() {
     return window.ErrorUploadLimits
@@ -414,6 +416,7 @@
   function updateJumpButton() {
     var btn = ensureJumpButton();
     btn.hidden = !freshBelowNode();
+    document.dispatchEvent(new CustomEvent("errorjumpvisibilitychange"));
   }
 
   window.addEventListener(
@@ -874,6 +877,32 @@
     });
   }
 
+  function pollMomentNotifications() {
+    if (!canInteract || momentPollBusy) return;
+    momentPollBusy = true;
+    fetch("/api/site/notifications/summary", { cache: "no-store" })
+      .then(function (response) {
+        if (!response.ok) throw new Error("通知状态加载失败");
+        return response.json();
+      })
+      .then(function (data) {
+        var count = Number(data.moments) || 0;
+        var previous = lastMomentUnread;
+        lastMomentUnread = count;
+        if (
+          previous !== null &&
+          count !== previous &&
+          !document.querySelector(".mo-comment-form textarea:focus, .mo-edit")
+        ) {
+          loadMoments();
+        }
+      })
+      .catch(function () {})
+      .then(function () {
+        momentPollBusy = false;
+      });
+  }
+
   // ---------- 筛选 ----------
   var MOMENT_FILTER_VALUES = ["all", "liked", "commented"];
   var MOMENT_FILTER_EMPTY_TEXT = {
@@ -1006,9 +1035,17 @@
     $("momentForm").hidden = !canManage;
     if (canInteract) initMomentFilters();
     if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);
-    return loadMoments();
+    return loadMoments().then(pollMomentNotifications);
   }).catch(function () {
     $("momentForm").hidden = true;
     return loadMoments();
   });
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) pollMomentNotifications();
+  });
+  window.addEventListener("focus", pollMomentNotifications);
+  window.addEventListener("online", pollMomentNotifications);
+  setInterval(function () {
+    if (!document.hidden) pollMomentNotifications();
+  }, 5000);
 })();

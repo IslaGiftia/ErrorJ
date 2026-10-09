@@ -788,21 +788,8 @@ img {
   line-height: 1.8;
 }
 
-.landing-footer {
-  margin: 40px 0 0;
-  color: var(--ink-3, var(--muted));
-  font-size: 14px;
-}
-
 .landing-credit-block {
   margin: 18px 0 0;
-}
-
-.landing-font-credit {
-  margin: 0;
-  color: var(--ink-3, var(--muted));
-  font-size: 12px;
-  opacity: 0.75;
 }
 
 .landing-record {
@@ -1299,10 +1286,6 @@ body[data-page] .under-construction {
   font-size: 14px;
 }
 
-.landing-three .landing-footer {
-  margin-top: 28px;
-}
-
 @media (max-width: 980px) {
   .landing-three {
     padding-top: 72px;
@@ -1378,10 +1361,6 @@ body[data-page] .under-construction {
   .landing-three .landing-links {
     margin-top: auto;
     padding-top: 44px;
-  }
-
-  .landing-three .landing-footer {
-    margin-top: 40px;
   }
 
   .landing-three .landing-credit-block {
@@ -1498,15 +1477,6 @@ body[data-page] .under-construction {
   .landing-module-actions {
     gap: 14px;
     margin-top: 40px;
-  }
-
-  .landing-three .landing-footer {
-    position: fixed;
-    left: 50%;
-    bottom: calc(var(--dock-bottom) + 44px);
-    width: max-content;
-    margin: 0;
-    transform: translateX(-50%);
   }
 
   .landing-three .landing-credit-block {

@@ -71,7 +71,7 @@
   }
 
   function load() {
-    if (manuallyHidden) return;
+    if (manuallyHidden || document.hidden) return;
     fetch("/api/site/activity", { cache: "no-store" })
       .then(function (response) {
         return response.ok ? response.json() : { items: [] };
@@ -112,5 +112,5 @@
 
   syncTitle();
   load();
-  setInterval(load, 10000);
+  setInterval(load, 5000);
 })();

@@ -1596,6 +1596,90 @@ class ComplianceWorkflowTests(unittest.TestCase):
     def test_log_retention_default_is_six_months(self):
         self.assertEqual(app.LOG_RETENTION_DAYS, 180)
 
+    def test_back_to_top_is_loaded_on_content_pages(self):
+        pages = (
+            "messages.html",
+            "moments.html",
+            "music.html",
+            "books.html",
+            "recommendations.html",
+            "games/index.html",
+            "games/2048/index.html",
+            "games/memory/index.html",
+            "games/minesweeper/index.html",
+            "games/caro/index.html",
+        )
+        for page in pages:
+            text = (app.STATIC_DIR / page).read_text(encoding="utf-8")
+            self.assertIn("/static/site/back-to-top.js", text)
+        script = (app.STATIC_DIR / "site" / "back-to-top.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("errorjumpvisibilitychange", script)
+        self.assertIn(".site-back-top[hidden]", script)
+
+    def test_report_modal_has_explicit_hidden_rule(self):
+        css = (app.STATIC_DIR / "site" / "report.css").read_text(encoding="utf-8")
+        self.assertIn(".er-report-overlay[hidden]", css)
+
+    def test_home_footer_only_keeps_icp_record(self):
+        html = (app.STATIC_DIR / "site" / "site.html").read_text(encoding="utf-8")
+        self.assertIn("陕ICP备2026028018号-1", html)
+        self.assertNotIn("举报邮箱：2873523107@qq.com", html)
+        self.assertNotIn("时光流转，愿你与珍爱之人，能够再次重逢。", html)
+        self.assertNotIn("网页字体为 vivo Sans", html)
+
+    def test_notification_summary_includes_all_admin_queues(self):
+        stamp = app.now_text()
+        app.execute(
+            """INSERT INTO users
+                   (username, nickname, password_hash, status, role, created_at, updated_at)
+               VALUES ('pending1', '待审用户', 'hash', 'pending', 'member', ?, ?)""",
+            (stamp, stamp),
+        )
+        app.execute(
+            """INSERT INTO site_messages
+                   (nickname, content, user_id, status, created_at)
+               VALUES ('用户甲', '第二条待审留言', ?, 'pending', ?)""",
+            (self.member_id, stamp),
+        )
+        app.execute(
+            """INSERT INTO content_reports
+                   (target_type, target_key, target_title, reason, status, created_at)
+               VALUES ('game', '2048', '2048', '违法违规', 'pending', ?)""",
+            (stamp,),
+        )
+        app.execute(
+            """INSERT INTO download_requests
+                   (user_id, resource_type, resource_id, status, created_at, updated_at)
+               VALUES (?, 'book', ?, 'pending', ?, ?)""",
+            (self.member_id, self.book_id, stamp, stamp),
+        )
+        handler = self.make_handler(
+            {"kind": "owner", "user_id": 0, "nickname": "管理员"}, admin=True
+        )
+        summary = handler.notification_summary()
+        self.assertTrue(summary["admin"])
+        self.assertEqual(summary["pending_users"], 1)
+        self.assertEqual(summary["pending_reviews"], 2)
+        self.assertEqual(summary["pending_reports"], 1)
+        self.assertEqual(summary["pending_downloads"], 1)
+        self.assertEqual(summary["workbench"], 5)
+
+    def test_notification_summary_tracks_member_interactions(self):
+        app.add_user_notification(
+            self.member_id, "message_reply", "messages", self.message_id, "用户乙", "回复了你"
+        )
+        app.add_user_notification(
+            self.member_id, "moment_comment", "moments", self.moment_id, "用户乙", "评论了你的动态"
+        )
+        handler = self.make_handler(self.member(self.member_id))
+        summary = handler.notification_summary()
+        self.assertFalse(summary["admin"])
+        self.assertEqual(summary["messages"], 1)
+        self.assertEqual(summary["moments"], 1)
+        self.assertEqual(summary["workbench"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -18,6 +18,8 @@
   var jumpFrame = null;
   var dailyRemaining = null;
   var dailyLimit = 0;
+  var lastMessageUnread = null;
+  var messagePollBusy = false;
 
   function applyUploadLimits() {
     if (!window.ErrorUploadLimits) return;
@@ -670,6 +672,7 @@
   function updateJumpButton() {
     var btn = ensureJumpButton();
     btn.hidden = !freshBelowNode();
+    document.dispatchEvent(new CustomEvent("errorjumpvisibilitychange"));
   }
 
   window.addEventListener(
@@ -869,6 +872,32 @@
     });
   }
 
+  function pollMessageNotifications() {
+    if (!canPost || messagePollBusy) return;
+    messagePollBusy = true;
+    fetch("/api/site/notifications/summary", { cache: "no-store" })
+      .then(function (response) {
+        if (!response.ok) throw new Error("通知状态加载失败");
+        return response.json();
+      })
+      .then(function (data) {
+        var count = Number(data.messages) || 0;
+        var previous = lastMessageUnread;
+        lastMessageUnread = count;
+        if (
+          previous !== null &&
+          count !== previous &&
+          !document.querySelector(".mg-reply-form:not([hidden])")
+        ) {
+          loadMessages();
+        }
+      })
+      .catch(function () {})
+      .then(function () {
+        messagePollBusy = false;
+      });
+  }
+
   // ---------- 筛选 ----------
   var FILTER_VALUES = ["all", "mine", "liked", "replied"];
   var FILTER_EMPTY_TEXT = {
@@ -1010,10 +1039,18 @@
       initMessageFilters();
       loadQuota();
     }
-    return loadMessages();
+    return loadMessages().then(pollMessageNotifications);
   }).catch(function () {
     canPost = false;
     $("messageComposerPanel").hidden = true;
     return loadMessages();
   });
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) pollMessageNotifications();
+  });
+  window.addEventListener("focus", pollMessageNotifications);
+  window.addEventListener("online", pollMessageNotifications);
+  setInterval(function () {
+    if (!document.hidden) pollMessageNotifications();
+  }, 5000);
 })();

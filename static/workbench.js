@@ -21,6 +21,12 @@
     reports: [],
     reportStatus: "pending",
     reportPendingCount: 0,
+    badgeCounts: {
+      pending_users: 0,
+      pending_reviews: 0,
+      pending_reports: 0,
+      pending_downloads: 0,
+    },
     downloadRequests: [],
     downloadRequestStatus: "pending",
     uploadLimitSchema: [],
@@ -661,11 +667,26 @@
         setReviewBadge(status.pending_attachments || 0);
         setReportsBadge(status.pending_reports || 0);
         setDownloadsBadge(status.pending_download_requests || 0);
+        state.badgeCounts = {
+          pending_users: Number(status.pending_users) || 0,
+          pending_reviews: Number(status.pending_attachments) || 0,
+          pending_reports: Number(status.pending_reports) || 0,
+          pending_downloads: Number(status.pending_download_requests) || 0,
+        };
       }
     } catch (err) {}
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden && state.isAdmin) refreshNavBadges();
     });
+    window.addEventListener("focus", () => {
+      if (state.isAdmin) refreshNavBadges();
+    });
+    window.addEventListener("online", () => {
+      if (state.isAdmin) refreshNavBadges();
+    });
+    setInterval(() => {
+      if (!document.hidden && state.isAdmin) refreshNavBadges();
+    }, 5000);
     try {
       state.projects = await api("/api/projects");
       syncProjectSelects();
@@ -719,12 +740,45 @@
 
   async function refreshNavBadges() {
     try {
-      const status = await api("/api/auth/status");
-      if (!(status.admin || status.owner)) return;
-      setPendingBadge(status.pending_users || 0);
-      setReviewBadge(status.pending_attachments || 0);
-      setReportsBadge(status.pending_reports || 0);
-      setDownloadsBadge(status.pending_download_requests || 0);
+      const data = await api("/api/site/notifications/summary");
+      if (!data.admin) return;
+      const next = {
+        pending_users: Number(data.pending_users) || 0,
+        pending_reviews: Number(data.pending_reviews) || 0,
+        pending_reports: Number(data.pending_reports) || 0,
+        pending_downloads: Number(data.pending_downloads) || 0,
+      };
+      const previous = state.badgeCounts || {};
+      setPendingBadge(next.pending_users);
+      setReviewBadge(next.pending_reviews);
+      setReportsBadge(next.pending_reports);
+      setDownloadsBadge(next.pending_downloads);
+      state.badgeCounts = next;
+      if (
+        state.view === "accounts" &&
+        state.accountTab === "pending" &&
+        previous.pending_users !== next.pending_users
+      ) {
+        loadAccounts();
+      }
+      if (
+        state.view === "review" &&
+        previous.pending_reviews !== next.pending_reviews
+      ) {
+        loadReview();
+      }
+      if (
+        state.view === "reports" &&
+        previous.pending_reports !== next.pending_reports
+      ) {
+        loadReports();
+      }
+      if (
+        state.view === "downloads" &&
+        previous.pending_downloads !== next.pending_downloads
+      ) {
+        loadDownloadRequests();
+      }
     } catch (err) {}
   }
 

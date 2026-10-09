@@ -5420,6 +5420,8 @@ def required_permission(path, method):
         return ""
     if path == "/api/site/notifications/seen" and method == "POST":
         return ""
+    if path == "/api/site/notifications/summary" and method == "GET":
+        return ""
     if path == "/api/site/moments/unread" and method == "GET":
         return ""
     if re.fullmatch(r"/api/moments/\d+/comments", path) and method == "POST":
@@ -8434,6 +8436,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_moments(query)
             elif path == "/api/site/moments/unread":
                 self.api_site_moments_unread()
+            elif path == "/api/site/notifications/summary":
+                self.api_site_notification_summary()
             elif path == "/api/recommendations":
                 self.api_recommendations(query)
             elif path == "/api/map/poi-search":
@@ -9780,6 +9784,82 @@ class InventoryHandler(BaseHTTPRequestHandler):
             int(identity.get("user_id") or 0), module, target_id
         )
         self.send_json(200, {"ok": True, "cleared": 1})
+
+    def notification_summary(self, identity=None):
+        identity = identity if identity is not None else self.session_identity()
+        summary = {
+            "authenticated": identity is not None,
+            "admin": False,
+            "messages": 0,
+            "moments": 0,
+            "workbench": 0,
+            "pending_users": 0,
+            "pending_reviews": 0,
+            "pending_reports": 0,
+            "pending_downloads": 0,
+        }
+        if not identity:
+            return summary
+        user_id = (
+            0
+            if identity.get("kind") == "owner"
+            else int(identity.get("user_id") or 0)
+        )
+        unseen = unseen_notifications(user_id)
+        summary["moments"] = int((unseen.get("moments") or {}).get("count") or 0)
+        if identity.get("kind") in ("owner", "admin"):
+            summary["admin"] = True
+            last_seen = message_last_seen(user_id)
+            summary["messages"] = int(
+                query_one(
+                    "SELECT COUNT(*) AS n FROM site_messages WHERE id > ?",
+                    (last_seen,),
+                )["n"]
+            )
+            summary["pending_users"] = int(
+                query_one(
+                    "SELECT COUNT(*) AS n FROM users WHERE status = 'pending'"
+                )["n"]
+            )
+            pending_messages = int(
+                query_one(
+                    """SELECT COUNT(*) AS n FROM site_messages
+                       WHERE parent_id IS NULL AND status = 'pending'"""
+                )["n"]
+            )
+            pending_legacy = int(
+                query_one(
+                    """SELECT COUNT(*) AS n FROM site_message_files f
+                       JOIN site_messages m ON m.id = f.message_id
+                       WHERE f.status = 'pending' AND m.parent_id IS NULL
+                         AND m.status = 'approved'"""
+                )["n"]
+            )
+            summary["pending_reviews"] = pending_messages + pending_legacy
+            summary["pending_reports"] = int(
+                query_one(
+                    "SELECT COUNT(*) AS n FROM content_reports WHERE status = 'pending'"
+                )["n"]
+            )
+            summary["pending_downloads"] = int(
+                query_one(
+                    "SELECT COUNT(*) AS n FROM download_requests WHERE status = 'pending'"
+                )["n"]
+            )
+            summary["workbench"] = (
+                summary["pending_users"]
+                + summary["pending_reviews"]
+                + summary["pending_reports"]
+                + summary["pending_downloads"]
+            )
+        else:
+            summary["messages"] = int(
+                (unseen.get("messages") or {}).get("count") or 0
+            )
+        return summary
+
+    def api_site_notification_summary(self):
+        self.send_json(200, self.notification_summary())
 
     def api_site_moments_unread(self):
         identity = self.session_identity()

@@ -166,24 +166,6 @@
     }
   }
 
-  function loadMessagesBadge() {
-    // 管理员显示未读留言；普通账号显示自己留言的点赞 / 回复提醒
-    if (!authState.authenticated) {
-      applyMessagesBadge(0);
-      return;
-    }
-    fetch("/api/site/messages/unread", { cache: "no-store" })
-      .then(function (response) {
-        return response.ok ? response.json() : { unread: 0 };
-      })
-      .then(function (data) {
-        applyMessagesBadge(Number(data && data.unread) || 0);
-      })
-      .catch(function () {
-        applyMessagesBadge(0);
-      });
-  }
-
   function applyMomentsBadge(count) {
     var entry = document.getElementById("momentsEntry");
     var badge = document.getElementById("momentsPending");
@@ -195,22 +177,33 @@
     }
   }
 
-  function loadMomentsBadge() {
-    // 只有普通账号会在管理员发新动态、回复评论时收到提醒
+  var notificationSummaryBusy = false;
+
+  function loadNotificationSummary() {
     if (!authState.authenticated) {
+      applyMessagesBadge(0);
       applyMomentsBadge(0);
-      return;
+      applyPendingBadge(0);
+      return Promise.resolve();
     }
-    fetch("/api/site/moments/unread", { cache: "no-store" })
+    if (notificationSummaryBusy) return notificationSummaryBusy;
+    notificationSummaryBusy = fetch("/api/site/notifications/summary", {
+      cache: "no-store",
+    })
       .then(function (response) {
-        return response.ok ? response.json() : { unread: 0 };
+        if (!response.ok) throw new Error("通知状态加载失败");
+        return response.json();
       })
       .then(function (data) {
-        applyMomentsBadge(Number(data && data.unread) || 0);
+        applyMessagesBadge(Number(data.messages) || 0);
+        applyMomentsBadge(Number(data.moments) || 0);
+        applyPendingBadge(Number(data.workbench) || 0);
       })
-      .catch(function () {
-        applyMomentsBadge(0);
+      .catch(function () {})
+      .then(function () {
+        notificationSummaryBusy = false;
       });
+    return notificationSummaryBusy;
   }
 
   function applyGuestPageVisibility(status) {
@@ -236,18 +229,7 @@
     authState.permissions = Array.isArray(status.permissions) ? status.permissions : [];
     authState.ready = true;
     setAuthUi();
-    loadMessagesBadge();
-    loadMomentsBadge();
-    if (authState.admin) {
-      applyPendingBadge(
-        (status.pending_users || 0) +
-          (status.pending_attachments || 0) +
-          (status.pending_reports || 0) +
-          (status.pending_download_requests || 0)
-      );
-    } else {
-      applyPendingBadge(0);
-    }
+    loadNotificationSummary();
     if (authState.authenticated) {
       loadPrivateLandingData();
     }
@@ -604,10 +586,14 @@
 
   setAuthUi();
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden || !authState.authenticated) return;
-    loadMessagesBadge();
-    loadMomentsBadge();
+    if (document.hidden) return;
+    loadNotificationSummary();
   });
+  window.addEventListener("focus", loadNotificationSummary);
+  window.addEventListener("online", loadNotificationSummary);
+  setInterval(function () {
+    if (!document.hidden) loadNotificationSummary();
+  }, 5000);
   fetch("/api/auth/status", { cache: "no-store" })
     .then(function (response) { return response.json(); })
     .then(applyAuthStatus)
