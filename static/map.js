@@ -852,7 +852,7 @@
       place.id +
       '" aria-pressed="' +
       (place.liked ? "true" : "false") +
-      '" title="点赞这个标记点"><span class="mp-react-icon">♡</span><span class="mp-react-label">' +
+      '" title="点赞这个标记点"><svg class="mp-react-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.3l-1.1-1C6.1 15 3 12.2 3 8.7 3 6 5 4 7.6 4c1.5 0 2.9.7 3.8 1.8l.6.7.6-.7C13.5 4.7 14.9 4 16.4 4 19 4 21 6 21 8.7c0 3.5-3.1 6.3-7.9 10.6l-1.1 1z"/></svg><span class="mp-react-label">' +
       likeLabel +
       "</span></button>";
     html +=
@@ -862,7 +862,7 @@
       place.id +
       '" aria-pressed="' +
       (place.checked_in ? "true" : "false") +
-      '" title="标记为已去过"><span class="mp-react-icon">✓</span><span class="mp-react-label">' +
+      '" title="标记为已去过"><svg class="mp-react-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12.5l4.5 4.5L19.5 6.5"/></svg><span class="mp-react-label">' +
       checkinLabel +
       "</span></button>";
     if (place.can_edit) {

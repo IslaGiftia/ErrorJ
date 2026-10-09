@@ -1057,6 +1057,14 @@ body {
 
 .mp-react-icon {
   display: inline-block;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
   line-height: 1;
 }
 
