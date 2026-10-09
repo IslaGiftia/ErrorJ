@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""把 config/changelog-seed.json 里的每日更新日志写入 moments 表。
+"""把 config/changelog-seed.json 里的更新日志写入 moments 表。
 
-每条日志写成一条动态，created_at 使用日志日期（默认 20:00:00），
-这样动态页面显示的时间就是 Error酱 实际更新的日期。
+每条日志写成一条动态，created_at 使用日志条目中的实际修改时间。
+时间相同视为同一条；同一小时内的多次改动可以按完整时间保存多条。
 
 用法：
     python tools/import_changelog_moments.py --dry-run   # 只预览
@@ -61,7 +61,7 @@ def parse_args():
     parser.add_argument("--time", default=DEFAULT_TIME, help="每天写入的时间，默认 20:00:00")
     parser.add_argument("--date", default="", help="只处理指定日期，格式 YYYY-MM-DD")
     parser.add_argument("--dry-run", action="store_true", help="只打印将执行的操作")
-    parser.add_argument("--force", action="store_true", help="同一天已存在时覆盖内容")
+    parser.add_argument("--force", action="store_true", help="按日期重建更新日志")
     parser.add_argument("--delete", action="store_true", help="删除所有“更新日志”动态后退出")
     return parser.parse_args()
 
@@ -90,16 +90,39 @@ def main():
     conn.row_factory = sqlite3.Row
     try:
         like = f"%{tag}%"
-        # 每小时的改动单独一条：键用 "YYYY-MM-DD HH" 而不是整天
+        # 按完整时间戳去重，同一小时内的多次改动不会互相覆盖。
         existing = {
-            (row["day"] or "") + " " + (row["hour"] or ""): row["id"]
+            str(row["created_at"] or ""): row["id"]
             for row in conn.execute(
-                """SELECT id, substr(created_at, 1, 10) AS day,
-                          substr(created_at, 12, 2) AS hour
-                   FROM moments WHERE tags LIKE ?""",
+                """SELECT id, created_at FROM moments WHERE tags LIKE ?""",
                 (like,),
             )
         }
+
+        force_dates = {
+            str(entry.get("date") or "").strip()
+            for entry in entries
+            if str(entry.get("date") or "").strip()
+        }
+        if args.force and not args.delete:
+            for day in force_dates:
+                if args.dry_run:
+                    existing = {
+                        key: row_id
+                        for key, row_id in existing.items()
+                        if not key.startswith(day + " ")
+                    }
+                    continue
+                conn.execute(
+                    """DELETE FROM moments
+                       WHERE tags LIKE ? AND substr(created_at, 1, 10) = ?""",
+                    (like, day),
+                )
+                existing = {
+                    key: row_id
+                    for key, row_id in existing.items()
+                    if not key.startswith(day + " ")
+                }
 
         if args.delete:
             targets = list(existing.items())
@@ -125,7 +148,7 @@ def main():
                 continue
             content = build_content(entry, tag)
             stamp = f"{day} {normalize_time(entry.get('time'), args.time)}"
-            key = day + " " + stamp[11:13]
+            key = stamp
             if key in existing:
                 if not args.force:
                     print(f"[跳过] {key} 已存在（id={existing[key]}）")

@@ -1753,6 +1753,24 @@ class ComplianceWorkflowTests(unittest.TestCase):
             text = (app.STATIC_DIR / filename).read_text(encoding="utf-8")
             self.assertNotIn("errorShowRegion", text)
 
+    def test_reference_project_name_and_wording(self):
+        home = (app.STATIC_DIR / "site" / "site.html").read_text(encoding="utf-8")
+        references = (app.STATIC_DIR / "references.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(">参考项目</a>", home)
+        self.assertIn("<h1>Error酱参考项目</h1>", references)
+        self.assertNotIn("搬运", references)
+
+    def test_changelog_importer_uses_full_timestamp(self):
+        script = (app.BASE_DIR / "tools" / "import_changelog_moments.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("key = stamp", script)
+        self.assertNotIn("stamp[11:13]", script)
+        self.assertIn("force_dates", script)
+        self.assertIn("DELETE FROM moments", script)
+
 
 if __name__ == "__main__":
     unittest.main()
