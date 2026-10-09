@@ -1067,3 +1067,29 @@ JPEG 扩展名为 PNG           -> 可上传，内部按 image/jpeg 和 .jpg 保
 失效处理                    -> 删除原笔记后卡片 available=false（单元测试覆盖）
 自动化测试                  -> 46 / 46 通过
 ```
+
+## 27. 2026-10-09 管理员入口 IP 白名单（方案 A）
+
+完成内容：
+
+- 新增 `/etc/nginx/conf.d/errorjiang-admin-allow.conf`（仓库模板 `deploy/nginx-errorjiang-admin-allow.conf`）：用 `geo` 定义管理员白名单变量 `$errorjiang_admin_ok`，用 `map` 从 `X-Forwarded-For` 提取真实客户端 IP 到 `$errorjiang_real_ip`。
+- 站点对公网继续开放（首页、留言、动态、推荐、音乐、书架、参考项目以及游客模式不变），但管理员相关入口只允许白名单 IP 访问，非白名单来源返回 403：`/api/login`、`/api/register`、`/logout`、`/workbench`、`/api/workbench`、`/api/prompts`、`/api/admin`。
+- 移除 80 端口的 `default_server`（公网 IP 直连入口），只保留域名访问的 80 → 443 跳转，避免用服务器 IP 绕过域名白名单。
+- 反向代理统一改用 `$errorjiang_real_ip`，应用侧活动日志和限流记录到真实客户端 IP，不再记录成代理地址。
+- 白名单当前放行管理员公网出口 `111.18.134.33` 和本机 `127.0.0.1`；公网 IP 变化后修改该文件并 `nginx -t && systemctl reload nginx` 即可。
+
+验证结果：
+
+```text
+nginx -t                     -> syntax is ok / test is successful
+非白名单来源 api/login         -> 403
+非白名单来源 api/register      -> 403
+非白名单来源 /workbench        -> 403
+非白名单来源 api/admin/*       -> 403
+非白名单来源 api/workbench/*   -> 403
+非白名单来源 api/prompts       -> 403
+非白名单来源 公开页面          -> 200（首页 / 留言 / 动态 / 注册页 / 登录页 / 公开接口）
+管理员 IP api/login           -> 401（到达应用，密码校验正常）
+管理员 IP /workbench          -> 302（跳转登录页）
+重启后服务                     -> errorjiang active、nginx active
+```
