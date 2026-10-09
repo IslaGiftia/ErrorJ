@@ -1112,3 +1112,21 @@ nginx -t                     -> syntax is ok / test is successful
 白名单 /api/login            -> 401（管理员登录正常）
 自动化测试                    -> 55 / 55 通过
 ```
+
+## 29. 2026-10-09 修复站长无法清除动态评论提醒
+
+完成内容：
+
+- 动态评论提醒按设计写入站长账号（`user_id = 0`），但 `/api/site/notifications/seen` 对站长直接返回 `cleared: 0`，导致鼠标悬停卡片时只是前端取消闪烁，数据库里的提醒仍是未读，刷新首页后左下角日志和卡片闪烁又出现。
+- 去掉站长分支的提前返回，站长和普通账号统一走 `mark_notifications_seen`，悬停卡片即写入 `seen_at`。
+- 清理了线上那条卡住的未读提醒（牛大能评论动态 id 43）。
+
+验证结果：
+
+```text
+GET  /api/site/moments/unread（带测试提醒）-> unread=1 targets=[测试动态]
+POST /api/site/notifications/seen          -> 200 {"ok":true,"cleared":1}
+GET  /api/site/moments/unread（再次查询）  -> unread=0 targets=[]
+测试数据清理                                -> 动态与提醒均已删除
+自动化测试                                  -> 56 / 56 通过
+```
