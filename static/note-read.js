@@ -7,6 +7,11 @@
   var outlineActive = -1;
   var outlineOpen = false;
   var outlineFrame = null;
+  var HEAD_HIDE_OFFSET = 48;
+  var lastScrollTop = 0;
+  var headHidden = false;
+  var suppressAutoHide = false;
+  var autoHideTimer = null;
 
   function $(id) {
     return document.getElementById(id);
@@ -74,6 +79,12 @@
   function scrollToHeading(index) {
     var item = outline[index];
     if (!item) return;
+    setHeadHidden(false);
+    suppressAutoHide = true;
+    clearTimeout(autoHideTimer);
+    autoHideTimer = window.setTimeout(function () {
+      suppressAutoHide = false;
+    }, 700);
     item.el.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -171,6 +182,40 @@
     outlineFrame = window.requestAnimationFrame(updateActiveHeading);
   }
 
+  /* ---------- 向下滚动收起标题区，向上滚动再滑出来 ---------- */
+
+  function syncReadTopHeight() {
+    var top = $("readTop");
+    if (!top) return;
+    document.documentElement.style.setProperty(
+      "--nt-read-top-h",
+      (headHidden ? 0 : top.offsetHeight) + "px"
+    );
+  }
+
+  function setHeadHidden(hidden) {
+    headHidden = Boolean(hidden);
+    var top = $("readTop");
+    if (top) top.classList.toggle("is-hidden", headHidden);
+    syncReadTopHeight();
+  }
+
+  function handleScroll() {
+    var top = window.scrollY || document.documentElement.scrollTop || 0;
+    var delta = top - lastScrollTop;
+    lastScrollTop = top;
+    if (!suppressAutoHide) {
+      if (top <= 4) {
+        if (headHidden) setHeadHidden(false);
+      } else if (delta > 2 && top > HEAD_HIDE_OFFSET) {
+        if (!headHidden) setHeadHidden(true);
+      } else if (delta < -2) {
+        if (headHidden) setHeadHidden(false);
+      }
+    }
+    scheduleOutlineUpdate();
+  }
+
   function el(tag, className, text) {
     var node = document.createElement(tag);
     if (className) node.className = className;
@@ -213,6 +258,7 @@
         content.innerHTML = renderMarkdown(note.content);
         decorate(content);
         buildOutline();
+        syncReadTopHeight();
       })
       .catch(function (err) {
         showStatus(err.message || "这篇笔记暂时无法阅读。");
@@ -221,8 +267,11 @@
 
   load();
 
-  window.addEventListener("scroll", scheduleOutlineUpdate, { passive: true });
-  window.addEventListener("resize", scheduleOutlineUpdate);
+  window.addEventListener("scroll", handleScroll, { passive: true });
+  window.addEventListener("resize", function () {
+    syncReadTopHeight();
+    scheduleOutlineUpdate();
+  });
   $("outlineToggle").addEventListener("click", function () {
     setOutlineOpen(!outlineOpen);
   });

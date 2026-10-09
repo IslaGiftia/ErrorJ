@@ -547,14 +547,33 @@ button.mo-share:hover {
 }
 
 .mo-share-play {
-  position: absolute;
-  inset: 0;
+  flex: 0 0 auto;
+  align-self: center;
+  margin-left: auto;
+  width: 36px;
+  height: 36px;
+  padding: 0;
   display: grid;
   place-items: center;
-  background: rgba(12, 14, 24, 0.42);
-  color: #fff;
-  font-size: 15px;
+  border: 1px solid var(--mo-border);
+  border-radius: 50%;
+  background: var(--mo-accent-soft);
+  color: var(--mo-accent);
+  font: inherit;
+  font-size: 14px;
   line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.mo-share-play:hover {
+  border-color: var(--mo-accent);
+}
+
+.mo-share.is-playing .mo-share-play {
+  border-color: var(--mo-accent);
+  background: var(--mo-accent);
+  color: #fff;
 }
 
 .mo-share.is-playing .mo-share-cover {

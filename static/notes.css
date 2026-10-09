@@ -100,17 +100,30 @@
 }
 
 .nt-read-doc {
-  padding: 24px 26px 40px;
+  padding: 0 26px 40px;
   border: 1px solid var(--nt-border);
   border-radius: 14px;
   background: var(--nt-surface);
   box-shadow: var(--nt-shadow);
 }
 
-.nt-read-head {
-  margin-bottom: 18px;
-  padding-bottom: 12px;
+.nt-read-top {
+  position: sticky;
+  top: 0;
+  z-index: 31;
+  margin: 0 0 14px;
+  padding: 20px 0 10px;
+  background: var(--nt-surface);
   border-bottom: 1px solid var(--nt-border);
+  transition: transform 0.22s ease;
+}
+
+.nt-read-top.is-hidden {
+  transform: translateY(-100%);
+}
+
+.nt-read-head {
+  padding: 0;
 }
 
 .nt-read-status {
@@ -120,11 +133,12 @@
 
 .nt-read-outline {
   position: sticky;
-  top: 0;
+  top: var(--nt-read-top-h, 0px);
   z-index: 30;
   margin: 0 0 14px;
   border: 1px solid var(--nt-border);
   border-radius: 10px;
+  transition: top 0.22s ease;
 }
 
 .nt-read-doc .nt-markdown h1,
@@ -139,7 +153,11 @@
   }
 
   .nt-read-doc {
-    padding: 18px 14px 28px;
+    padding: 0 14px 28px;
+  }
+
+  .nt-read-top {
+    padding: 16px 0 10px;
   }
 }
 

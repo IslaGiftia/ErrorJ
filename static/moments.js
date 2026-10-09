@@ -457,14 +457,16 @@
       } else {
         cover.appendChild(el("span", "mo-share-placeholder", "♪"));
       }
-      var glyph = el("span", "mo-share-play", "▶");
-      cover.appendChild(glyph);
+      var play = el("button", "mo-share-play", "▶");
+      play.type = "button";
+      play.setAttribute("aria-label", "播放");
       var audio = new Audio();
       audio.preload = "none";
       audio.src = share.url;
       function sync(playing) {
-        glyph.textContent = playing ? "❚❚" : "▶";
+        play.textContent = playing ? "❚❚" : "▶";
         cover.setAttribute("aria-label", playing ? "暂停" : "播放");
+        play.setAttribute("aria-label", playing ? "暂停" : "播放");
         card.classList.toggle("is-playing", playing);
       }
       audio.addEventListener("play", function () {
@@ -476,11 +478,7 @@
       audio.addEventListener("ended", function () {
         sync(false);
       });
-      cover.addEventListener("click", function () {
-        if (!canInteract) {
-          toast("请登录后播放");
-          return;
-        }
+      function togglePlayback() {
         if (!audio.paused) {
           audio.pause();
           return;
@@ -492,8 +490,10 @@
         audio.play().catch(function () {
           toast("播放失败，稍后再试");
         });
-      });
-      card.append(cover, info);
+      }
+      cover.addEventListener("click", togglePlayback);
+      play.addEventListener("click", togglePlayback);
+      card.append(cover, info, play);
       return card;
     }
     var linkCard = el("button", "mo-share is-link");
