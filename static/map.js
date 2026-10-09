@@ -816,13 +816,34 @@
       }
       html += "</div>";
     }
+    var nav =
+      '<a class="mp-link-btn" target="_blank" rel="noopener" href="https://uri.amap.com/marker?position=' +
+      gcj[1].toFixed(6) +
+      "," +
+      gcj[0].toFixed(6) +
+      "&name=" +
+      encodeURIComponent(place.name) +
+      '">高德导航</a>' +
+      '<a class="mp-link-btn" target="_blank" rel="noopener" href="https://api.map.baidu.com/marker?location=' +
+      bd[0].toFixed(6) +
+      "," +
+      bd[1].toFixed(6) +
+      "&title=" +
+      encodeURIComponent(place.name) +
+      "&content=" +
+      encodeURIComponent(place.name) +
+      "&output=html&src=webapp.errorjiang.map" +
+      '">百度导航</a>';
+    html += '<div class="mp-popup-foot">';
     if (place.created_by_name) {
-      html += '<p class="mp-popup-by">添加者：' + esc(place.created_by_name) + "</p>";
+      html +=
+        '<p class="mp-popup-by">添加者：' + esc(place.created_by_name) + "</p>";
     }
+    html += '<div class="mp-popup-nav">' + nav + "</div></div>";
     html += '<div class="mp-popup-actions">';
     var likeLabel = place.like_count > 0 ? "点赞 " + place.like_count : "点赞";
     var checkinLabel =
-      place.checkin_count > 0 ? "已去过 " + place.checkin_count : "已去过";
+      place.checkin_count > 0 ? "打卡 " + place.checkin_count : "打卡";
     html +=
       '<button type="button" class="mp-react-btn' +
       (place.liked ? " is-on" : "") +
@@ -843,32 +864,13 @@
       '" title="标记为已去过">✓<span>' +
       checkinLabel +
       "</span></button>";
-    html +=
-      '<a class="mp-link-btn" target="_blank" rel="noopener" href="https://uri.amap.com/marker?position=' +
-      gcj[1].toFixed(6) +
-      "," +
-      gcj[0].toFixed(6) +
-      "&name=" +
-      encodeURIComponent(place.name) +
-      '">高德导航</a>';
-    html +=
-      '<a class="mp-link-btn" target="_blank" rel="noopener" href="https://api.map.baidu.com/marker?location=' +
-      bd[0].toFixed(6) +
-      "," +
-      bd[1].toFixed(6) +
-      "&title=" +
-      encodeURIComponent(place.name) +
-      "&content=" +
-      encodeURIComponent(place.name) +
-      "&output=html&src=webapp.errorjiang.map" +
-      '">百度地图</a>';
     if (place.can_edit) {
       html +=
-        '<span class="mp-spacer"></span><button type="button" class="mp-link-btn" data-mp-action="edit" data-mp-id="' +
+        '<button type="button" class="mp-link-btn mp-edit-btn" data-mp-action="edit" data-mp-id="' +
         place.id +
         '">编辑</button>';
       html +=
-        '<button type="button" class="mp-link-btn is-danger" data-mp-action="delete" data-mp-id="' +
+        '<button type="button" class="mp-link-btn mp-edit-btn is-danger" data-mp-action="delete" data-mp-id="' +
         place.id +
         '">删除</button>';
     }
@@ -2112,7 +2114,7 @@
       })
         .then(function (data) {
           var count = Number(data && data.count) || 0;
-          var base = reactKind === "like" ? "点赞" : "已去过";
+          var base = reactKind === "like" ? "点赞" : "打卡";
           var label = count > 0 ? base + " " + count : base;
           reactEl.classList.toggle("is-on", Boolean(data && data.active));
           reactEl.setAttribute(

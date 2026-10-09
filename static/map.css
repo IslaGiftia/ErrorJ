@@ -918,6 +918,34 @@ body {
   font-size: 11px;
 }
 
+.mp-popup-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--mp-border);
+}
+
+.mp-popup-foot .mp-popup-by {
+  margin: 0;
+}
+
+.mp-popup-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.mp-popup-nav .mp-link-btn {
+  height: 26px;
+  padding: 0 9px;
+  font-size: 11px;
+}
+
 .mp-popup-meta {
   margin: 6px 0 0;
   color: var(--mp-muted);
@@ -956,9 +984,12 @@ body {
 
 .mp-popup-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-top: 10px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--mp-border);
 }
 
 .mp-link-btn {
@@ -985,9 +1016,20 @@ body {
   color: var(--mp-danger);
 }
 
+.mp-popup-actions .mp-link-btn {
+  height: 28px;
+  padding: 0 11px;
+  font-size: 12px;
+}
+
+.mp-edit-btn {
+  flex: 0 0 auto;
+}
+
 .mp-react-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
   height: 28px;
   padding: 0 10px;
@@ -998,6 +1040,7 @@ body {
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .mp-react-btn:hover {
