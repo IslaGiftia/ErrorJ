@@ -218,6 +218,9 @@ class HomeActivityTests(unittest.TestCase):
     def test_activity_api_is_public(self):
         self.assertIn("/api/site/activity", app.ALWAYS_PUBLIC_APIS)
 
+    def test_notification_unread_api_is_public(self):
+        self.assertIn("/api/site/notifications/unread", app.ALWAYS_PUBLIC_APIS)
+
     def test_game_activity_api_is_public(self):
         self.assertIn("/api/site/game-play", app.ALWAYS_PUBLIC_APIS)
 
@@ -1385,6 +1388,17 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(summary["music"], 1)
         self.assertEqual(summary["books"], 1)
         self.assertEqual(summary["recommendations"], 1)
+
+        member_handler.api_site_notification_unread({"module": ["music"]})
+        self.assertEqual(member_responses[-1][1]["targets"], [music_id])
+        member_handler.api_site_notification_unread({"module": ["books"]})
+        self.assertEqual(member_responses[-1][1]["targets"], [book_id])
+        member_handler.api_site_notification_unread(
+            {"module": ["recommendations"]}
+        )
+        self.assertEqual(
+            member_responses[-1][1]["targets"], [recommendation_id]
+        )
 
         member_handler.api_site_notifications_seen({"module": "music"})
         member_handler.api_site_notification_summary()

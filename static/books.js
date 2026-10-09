@@ -243,6 +243,12 @@
       })
       .join("");
     if (window.lucide) lucide.createIcons();
+    if (window.ErrorFreshCards) {
+      books.forEach(function (book) {
+        var node = grid.querySelector('[data-book-open="' + book.id + '"]');
+        window.ErrorFreshCards.mark(node, book.id);
+      });
+    }
   }
 
   function loadBooks() {
@@ -632,6 +638,9 @@
   });
 
   loadAuth()
+    .then(function () {
+      return window.ErrorFreshCards ? window.ErrorFreshCards.load() : null;
+    })
     .then(loadBooks)
     .catch(function (err) {
       toast(err.message);

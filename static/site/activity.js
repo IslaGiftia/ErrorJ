@@ -84,6 +84,7 @@
         lastPayloadKey = key;
         latestItems = items;
         render();
+        window.dispatchEvent(new CustomEvent("erroractivitychange"));
       })
       .catch(function () {});
   }

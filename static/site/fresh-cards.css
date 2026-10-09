@@ -1,0 +1,64 @@
+.mu-row.is-fresh {
+  --mu-fresh-base: 0 0 0 rgba(0, 0, 0, 0);
+  animation: muFreshPulse 3.6s ease-in-out infinite;
+}
+
+.bk-card.is-fresh {
+  --bk-fresh-base: var(--bk-shadow);
+  animation: bkFreshPulse 3.6s ease-in-out infinite;
+}
+
+.rec-card.is-fresh {
+  --rec-fresh-base: var(--rec-shadow);
+  animation: recFreshPulse 3.6s ease-in-out infinite;
+}
+
+@keyframes muFreshPulse {
+  0%,
+  100% {
+    box-shadow: var(--mu-fresh-base);
+  }
+
+  50% {
+    box-shadow:
+      var(--mu-fresh-base),
+      0 0 0 3px color-mix(in srgb, var(--mu-accent) 16%, transparent),
+      0 0 18px color-mix(in srgb, var(--mu-accent) 36%, transparent);
+  }
+}
+
+@keyframes bkFreshPulse {
+  0%,
+  100% {
+    box-shadow: var(--bk-fresh-base);
+  }
+
+  50% {
+    box-shadow:
+      var(--bk-fresh-base),
+      0 0 0 3px color-mix(in srgb, var(--bk-accent) 16%, transparent),
+      0 0 18px color-mix(in srgb, var(--bk-accent) 36%, transparent);
+  }
+}
+
+@keyframes recFreshPulse {
+  0%,
+  100% {
+    box-shadow: var(--rec-fresh-base);
+  }
+
+  50% {
+    box-shadow:
+      var(--rec-fresh-base),
+      0 0 0 3px color-mix(in srgb, var(--rec-accent) 16%, transparent),
+      0 0 18px color-mix(in srgb, var(--rec-accent) 36%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mu-row.is-fresh,
+  .bk-card.is-fresh,
+  .rec-card.is-fresh {
+    animation: none;
+  }
+}

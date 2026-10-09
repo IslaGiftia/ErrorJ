@@ -311,6 +311,9 @@
     );
     card.appendChild(coverNode(item));
     card.appendChild(cardBody(item));
+    if (window.ErrorFreshCards) {
+      window.ErrorFreshCards.mark(card, item.id);
+    }
     return card;
   }
 
@@ -727,5 +730,9 @@
 
   state.lastColumnCount = columnCount();
   if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);
-  loadRecommendations();
+  if (window.ErrorFreshCards) {
+    window.ErrorFreshCards.load().then(loadRecommendations);
+  } else {
+    loadRecommendations();
+  }
 })();

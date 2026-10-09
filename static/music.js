@@ -259,6 +259,12 @@
       })
       .join("");
     if (window.lucide) lucide.createIcons();
+    if (window.ErrorFreshCards) {
+      tracks.forEach(function (track) {
+        var node = box.querySelector('[data-music-play="' + track.id + '"]');
+        window.ErrorFreshCards.mark(node, track.id);
+      });
+    }
   }
 
   function scrollActiveIntoView() {
@@ -1126,6 +1132,9 @@
   }
 
   loadAuth()
+    .then(function () {
+      return window.ErrorFreshCards ? window.ErrorFreshCards.load() : null;
+    })
     .then(loadTracks)
     .catch(function () {
       loadTracks().catch(function (err) {

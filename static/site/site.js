@@ -606,9 +606,10 @@
   });
   window.addEventListener("focus", loadNotificationSummary);
   window.addEventListener("online", loadNotificationSummary);
+  window.addEventListener("erroractivitychange", loadNotificationSummary);
   setInterval(function () {
     if (!document.hidden) loadNotificationSummary();
-  }, 5000);
+  }, 3000);
   fetch("/api/auth/status", { cache: "no-store" })
     .then(function (response) { return response.json(); })
     .then(applyAuthStatus)

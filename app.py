@@ -134,6 +134,7 @@ ALWAYS_PUBLIC_APIS = {
     "/api/site/game-play",
     "/api/site/reports",
     "/api/site/upload-limits",
+    "/api/site/notifications/unread",
     "/api/auth/status",
     "/api/login",
     "/api/member/login",
@@ -5420,6 +5421,8 @@ def required_permission(path, method):
         return ""
     if path == "/api/site/notifications/seen" and method == "POST":
         return ""
+    if path == "/api/site/notifications/unread" and method == "GET":
+        return ""
     if path == "/api/site/notifications/summary" and method == "GET":
         return ""
     if path == "/api/site/moments/unread" and method == "GET":
@@ -6208,6 +6211,14 @@ NOTIFICATION_ACTIVITY_ACTIONS = {
     "music_new": {"music_upload"},
     "book_new": {"book_upload"},
     "recommendation_new": {"recommendation_create"},
+}
+NOTIFICATION_TARGET_TABLES = {
+    "messages": "site_messages",
+    "moments": "moments",
+    "map": "map_places",
+    "music": "site_music",
+    "books": "books",
+    "recommendations": "recommendations",
 }
 
 
@@ -8478,6 +8489,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_moments_unread()
             elif path == "/api/site/notifications/summary":
                 self.api_site_notification_summary()
+            elif path == "/api/site/notifications/unread":
+                self.api_site_notification_unread(query)
             elif path == "/api/recommendations":
                 self.api_recommendations(query)
             elif path == "/api/map/poi-search":
@@ -9904,6 +9917,31 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def api_site_notification_summary(self):
         self.send_json(200, self.notification_summary())
+
+    def api_site_notification_unread(self, params):
+        identity = self.session_identity()
+        if not identity:
+            self.send_json(200, {"unread": 0, "targets": []})
+            return
+        module = self.log_param(params, "module")
+        table = NOTIFICATION_TARGET_TABLES.get(module)
+        if not table:
+            api_error(self, 400, "提醒类型不正确")
+            return
+        user_id = (
+            0
+            if identity.get("kind") == "owner"
+            else int(identity.get("user_id") or 0)
+        )
+        targets = prune_notification_targets(user_id, module, table)
+        info = unseen_notifications(user_id).get(module) or {}
+        self.send_json(
+            200,
+            {
+                "unread": int(info.get("count") or 0),
+                "targets": targets,
+            },
+        )
 
     def api_site_moments_unread(self):
         identity = self.session_identity()
