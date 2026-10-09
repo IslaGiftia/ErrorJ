@@ -898,7 +898,7 @@ def init_db():
                 user_id INTEGER,
                 ip TEXT,
                 ip_region TEXT,
-                show_region INTEGER NOT NULL DEFAULT 1,
+                show_region INTEGER NOT NULL DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'approved',
                 reviewed_by TEXT,
                 reviewed_at TEXT,
@@ -944,7 +944,7 @@ def init_db():
                 pinned INTEGER NOT NULL DEFAULT 0,
                 ip TEXT,
                 ip_region TEXT,
-                show_region INTEGER NOT NULL DEFAULT 1,
+                show_region INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL
             );
 
@@ -1655,7 +1655,7 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             ("ip_region", "ALTER TABLE site_messages ADD COLUMN ip_region TEXT"),
             (
                 "show_region",
-                "ALTER TABLE site_messages ADD COLUMN show_region INTEGER NOT NULL DEFAULT 1",
+                "ALTER TABLE site_messages ADD COLUMN show_region INTEGER NOT NULL DEFAULT 0",
             ),
             (
                 "status",
@@ -1679,7 +1679,7 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             ("ip_region", "ALTER TABLE moments ADD COLUMN ip_region TEXT"),
             (
                 "show_region",
-                "ALTER TABLE moments ADD COLUMN show_region INTEGER NOT NULL DEFAULT 1",
+                "ALTER TABLE moments ADD COLUMN show_region INTEGER NOT NULL DEFAULT 0",
             ),
         ):
             if column not in moment_columns:
@@ -10251,7 +10251,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 return
         created_at = now_text()
         client_ip = self.client_ip()
-        show_region = 0 if payload.get("show_region") is False else 1
+        show_region = 1 if payload.get("show_region") is True else 0
         ip_region = lookup_ip_region(client_ip) if show_region else ""
         saved = []
         storage_limit = upload_limit("message_file")["max_file_bytes"]
@@ -10735,7 +10735,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         created_at = now_text()
         client_ip = self.client_ip()
-        show_region = 0 if payload.get("show_region") is False else 1
+        show_region = 1 if payload.get("show_region") is True else 0
         ip_region = lookup_ip_region(client_ip) if show_region else ""
         saved = []
         storage_limit = upload_limit("moment_image")["max_file_bytes"]

@@ -6,8 +6,6 @@
   var MAX_TOTAL_BYTES = 15 * 1024 * 1024;
   var IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
   var FILE_EXTENSIONS = IMAGE_EXTENSIONS.concat([".pdf", ".txt", ".md"]);
-  var REGION_KEY = "errorShowRegion";
-
   var pendingFiles = [];
   var toastTimer = null;
   var canPost = false;
@@ -100,21 +98,6 @@
     if (window.lucide && typeof window.lucide.createIcons === "function") {
       window.lucide.createIcons();
     }
-  }
-
-  function regionPreference() {
-    try {
-      // 默认不公开 IP 属地，用户主动勾选后才记住
-      return localStorage.getItem(REGION_KEY) === "1";
-    } catch (err) {
-      return false;
-    }
-  }
-
-  function rememberRegionPreference(value) {
-    try {
-      localStorage.setItem(REGION_KEY, value ? "1" : "0");
-    } catch (err) {}
   }
 
   function applyQuota(limit, remaining) {
@@ -355,7 +338,6 @@
       sendBusy.abort = task.abort;
       return task.promise;
     }).then(function (result) {
-      rememberRegionPreference($("msgShowRegion").checked);
       $("msgContent").value = "";
       pendingFiles = [];
       renderPending();
@@ -504,7 +486,7 @@
     var regionLabel = el("label", "mg-region-toggle");
     var regionInput = document.createElement("input");
     regionInput.type = "checkbox";
-    regionInput.checked = regionPreference();
+    regionInput.checked = false;
     regionLabel.append(
       regionInput,
       el("span", "", "公开 IP 属地（国内显示省份，国外显示国家 / 地区）")
@@ -542,7 +524,6 @@
           show_region: regionInput.checked,
         }),
       }).then(function () {
-        rememberRegionPreference(regionInput.checked);
         applyQuota(dailyLimit, Math.max(0, (Number(dailyRemaining) || 0) - 1));
         toast("回复已发布");
         return loadMessages();
@@ -989,7 +970,7 @@
 
   renderPending();
   setMessageFilter(new URLSearchParams(location.search).get("filter") || "all");
-  $("msgShowRegion").checked = regionPreference();
+  $("msgShowRegion").checked = false;
   refreshIcons();
   if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);
 

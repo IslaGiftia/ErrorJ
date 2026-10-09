@@ -330,6 +330,7 @@ class ContentShareTests(unittest.TestCase):
             app, "DB_PATH", Path(self._temp.name) / "inventory.db"
         )
         self._db_patch.start()
+        app.RATE_LIMITS.clear()
         app.init_db()
         stamp = app.now_text()
         self.member_id = app.execute(
@@ -516,6 +517,7 @@ class InteractionTests(unittest.TestCase):
             app, "DB_PATH", Path(self._temp.name) / "inventory.db"
         )
         self._db_patch.start()
+        app.RATE_LIMITS.clear()
         app.init_db()
         stamp = app.now_text()
         self.author_id = app.execute(
@@ -1418,6 +1420,7 @@ class ComplianceWorkflowTests(unittest.TestCase):
             app, "DB_PATH", Path(self._temp.name) / "inventory.db"
         )
         self._db_patch.start()
+        app.RATE_LIMITS.clear()
         app.init_db()
         stamp = app.now_text()
         self.member_id = app.execute(
@@ -1718,6 +1721,37 @@ class ComplianceWorkflowTests(unittest.TestCase):
         self.assertEqual(summary["messages"], 1)
         self.assertEqual(summary["moments"], 1)
         self.assertEqual(summary["workbench"], 0)
+
+    def test_ip_region_visibility_defaults_to_private(self):
+        handler = self.make_handler(self.member(self.member_id), method="POST")
+        with patch.object(app, "notify_async", return_value=False):
+            handler.api_site_message_create(
+                {"content": "属地默认测试", "files": []}
+            )
+        row = app.query_one(
+            "SELECT show_region FROM site_messages WHERE content = ?",
+            ("属地默认测试",),
+        )
+        self.assertEqual(int(row["show_region"]), 0)
+
+        with patch.object(app, "notify_async", return_value=False):
+            handler.api_site_message_create(
+                {"content": "属地主动公开测试", "files": [], "show_region": True}
+            )
+        row = app.query_one(
+            "SELECT show_region FROM site_messages WHERE content = ?",
+            ("属地主动公开测试",),
+        )
+        self.assertEqual(int(row["show_region"]), 1)
+
+    def test_ip_region_checkboxes_default_unchecked(self):
+        messages_html = (app.STATIC_DIR / "messages.html").read_text(encoding="utf-8")
+        moments_html = (app.STATIC_DIR / "moments.html").read_text(encoding="utf-8")
+        self.assertNotIn('id="msgShowRegion" checked', messages_html)
+        self.assertNotIn('id="momentShowRegion" checked', moments_html)
+        for filename in ("messages.js", "moments.js"):
+            text = (app.STATIC_DIR / filename).read_text(encoding="utf-8")
+            self.assertNotIn("errorShowRegion", text)
 
 
 if __name__ == "__main__":

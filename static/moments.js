@@ -5,8 +5,6 @@
   var MAX_IMAGE_BYTES = 5 * 1024 * 1024;
   var MAX_TOTAL_BYTES = 15 * 1024 * 1024;
   var IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
-  var REGION_KEY = "errorShowRegion";
-
   var pendingImages = [];
   var toastTimer = null;
   var canInteract = false;
@@ -69,21 +67,6 @@
         return data;
       });
     });
-  }
-
-  function regionPreference() {
-    try {
-      // 默认不公开 IP 属地，用户主动勾选后才记住
-      return localStorage.getItem(REGION_KEY) === "1";
-    } catch (err) {
-      return false;
-    }
-  }
-
-  function rememberRegionPreference(value) {
-    try {
-      localStorage.setItem(REGION_KEY, value ? "1" : "0");
-    } catch (err) {}
   }
 
   function refreshIcons() {
@@ -299,7 +282,6 @@
       publishBusy.abort = task.abort;
       return task.promise;
     }).then(function () {
-      rememberRegionPreference($("momentShowRegion").checked);
       $("momentContent").value = "";
       $("momentTags").value = "";
       pendingImages = [];
@@ -992,7 +974,7 @@
 
   renderPending();
   setMomentFilter(new URLSearchParams(location.search).get("filter") || "all");
-  $("momentShowRegion").checked = regionPreference();
+  $("momentShowRegion").checked = false;
   refreshIcons();
 
   var momentList = $("momentList");
