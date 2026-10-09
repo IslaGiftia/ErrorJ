@@ -482,11 +482,12 @@
       var password = document.getElementById("authPassword");
       submit.disabled = true;
       error.hidden = true;
-      fetch("/api/login", {
+      var account = username ? username.value.trim() : "";
+      fetch(account ? "/api/member/login" : "/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          username: username ? username.value.trim() : "",
+          username: account,
           password: password.value,
           remember: document.getElementById("authRemember").checked,
         }),

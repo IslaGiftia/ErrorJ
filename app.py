@@ -128,6 +128,7 @@ ALWAYS_PUBLIC_APIS = {
     "/api/site/upload-limits",
     "/api/auth/status",
     "/api/login",
+    "/api/member/login",
     "/api/register",
     "/api/logout",
 }
@@ -6658,7 +6659,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def guard_request(self, path, method):
         """返回 True 表示请求可以继续处理。"""
-        if method in ("POST", "PATCH", "DELETE") and path != "/api/login":
+        if method in ("POST", "PATCH", "DELETE") and path not in ("/api/login", "/api/member/login"):
             if AUTH_STATE.get("enabled") and not self.origin_allowed():
                 api_error(self, 403, "请求来源不合法。")
                 return False
@@ -6777,7 +6778,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             },
         )
 
-    def api_login(self, payload):
+    def api_login(self, payload, member_only=False):
         identifier = self.client_ip()
         if login_blocked(identifier):
             self.log_activity(
@@ -6793,6 +6794,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         username = str(payload.get("username") or "").strip()
         password = str(payload.get("password") or "")
+        if member_only and not username:
+            api_error(self, 400, "请输入用户名和密码。")
+            return
         if username:
             user = query_one(
                 "SELECT id, username, password_hash, status FROM users WHERE username = ?",
@@ -8254,6 +8258,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/login":
                 self.api_login(payload)
+            elif path == "/api/member/login":
+                self.api_login(payload, member_only=True)
             elif path == "/api/register":
                 self.api_register(payload)
             elif path == "/api/logout":

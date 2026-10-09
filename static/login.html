@@ -210,11 +210,12 @@
         event.preventDefault();
         errorBox.hidden = true;
         button.disabled = true;
-        fetch("/api/login", {
+        var account = document.getElementById("username").value.trim();
+        fetch(account ? "/api/member/login" : "/api/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            username: document.getElementById("username").value.trim(),
+            username: account,
             password: document.getElementById("password").value,
             remember: document.getElementById("remember").checked,
           }),

@@ -1093,3 +1093,22 @@ nginx -t                     -> syntax is ok / test is successful
 管理员 IP /workbench          -> 302（跳转登录页）
 重启后服务                     -> errorjiang active、nginx active
 ```
+
+## 28. 2026-10-09 普通账号登录与管理员入口分离
+
+完成内容：
+
+- 新增 `POST /api/member/login`：只接受"用户名 + 密码"的普通账号登录，任何来源都能访问，仍受 nginx 6 次/分钟和应用 5 次/5 分钟的登录限流。
+- `/api/login` 只保留给管理员登录（表单用户名留空）和白名单来源，非白名单 IP 继续 403；`/workbench`、`/api/workbench`、`/api/prompts`、`/api/admin` 的保护不变。
+- 首页登录弹窗和 `/login` 页面根据用户名是否填写自动选择接口，普通账号不再被 IP 白名单误伤。
+- 站点配置模板、白名单文件说明同步更新。
+
+验证结果：
+
+```text
+非白名单 /api/login          -> 403（管理员入口保护生效）
+非白名单 /api/member/login   -> 401（到达应用，密码校验正常）
+模拟非白名单 首页             -> 200
+白名单 /api/login            -> 401（管理员登录正常）
+自动化测试                    -> 55 / 55 通过
+```
