@@ -1368,6 +1368,43 @@ class HomeActivityAlertTests(unittest.TestCase):
                 items = responses[0][1]["items"]
                 self.assertFalse(any(item.get("alert") for item in items))
 
+    def test_guest_activity_includes_generic_moment_event(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.object(app, "DB_PATH", Path(temp_dir) / "inventory.db"):
+                app.init_db()
+                app.write_activity(
+                    {"kind": "owner", "user_id": 0, "username": "管理员"},
+                    "moment_create",
+                    "发布动态：不应公开的正文",
+                    target_type="moment",
+                    target_id=1,
+                )
+                handler = object.__new__(app.InventoryHandler)
+                handler.session_identity = lambda: None
+                handler.is_admin = lambda: False
+                responses = []
+                handler.send_json = lambda status, payload: responses.append(
+                    (status, payload)
+                )
+                handler.api_site_activity()
+                items = responses[0][1]["items"]
+                matching = [
+                    item
+                    for item in items
+                    if item.get("text") == app.PUBLIC_ACTIVITY_LABELS["moment_create"]
+                ]
+                self.assertEqual(len(matching), 1)
+                self.assertEqual(matching[0]["actor"], "管理员")
+                self.assertFalse(matching[0]["alert"])
+                self.assertNotIn("不应公开的正文", str(items))
+                self.assertFalse(
+                    any(
+                        key in item
+                        for item in items
+                        for key in ("_action", "_target_type", "_target_id")
+                    )
+                )
+
 
 class UploadLimitTests(unittest.TestCase):
     def test_defaults_cover_every_schema_key(self):

@@ -13656,13 +13656,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )
         items = []
         for row in rows:
-            if not viewer_signed_in and row["action"] in (
-                "message_create",
-                "message_reply",
-                "moment_create",
-                "moment_update",
-            ):
-                continue
             kind = str(row.get("actor_kind") or "guest")
             user_id = int(row.get("user_id") or 0)
             if kind not in ("owner", "admin", "member") or (kind == "member" and user_id <= 0):
