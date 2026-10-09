@@ -9460,9 +9460,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         raw_target = payload.get("target_id")
         target_id = int(raw_target) if str(raw_target or "").isdigit() else None
-        if identity.get("kind") in ("owner", "admin"):
-            self.send_json(200, {"ok": True, "cleared": 0})
-            return
         mark_notifications_seen(
             int(identity.get("user_id") or 0), module, target_id
         )

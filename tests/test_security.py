@@ -952,6 +952,32 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(member_responses[-1][1]["targets"], [])
         self.assertEqual(member_responses[-1][1]["unread"], 0)
 
+    def test_owner_mark_seen_clears_moment_comment_alert(self):
+        stamp = app.now_text()
+        moment_id = app.execute(
+            "INSERT INTO moments (content, created_at) VALUES (?, ?)",
+            ("动态内容", stamp),
+        )
+        handler, _ = self.make_handler(self.other_id, username="other1")
+        handler.api_moment_comment_create(moment_id, {"content": "评论一下"})
+        owner_handler, owner_responses = self.make_handler(0, kind="owner")
+        owner_handler.api_site_moments_unread()
+        self.assertEqual(owner_responses[-1][1]["targets"], [moment_id])
+        self.assertEqual(owner_responses[-1][1]["unread"], 1)
+
+        owner_handler.api_site_notifications_seen(
+            {"module": "moments", "target_id": moment_id}
+        )
+        owner_handler.api_site_moments_unread()
+        self.assertEqual(owner_responses[-1][1]["targets"], [])
+        self.assertEqual(owner_responses[-1][1]["unread"], 0)
+        self.assertIsNotNone(
+            app.query_one(
+                """SELECT seen_at FROM user_notifications
+                   WHERE user_id = 0 AND module = 'moments'"""
+            )["seen_at"]
+        )
+
     def test_deleted_message_clears_notification(self):
         handler, _ = self.make_handler(self.other_id, username="other1")
         handler.api_site_like_toggle(
