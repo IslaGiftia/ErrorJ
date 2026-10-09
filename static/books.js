@@ -182,7 +182,7 @@
           download =
             '<button class="bk-card-edit" type="button" data-book-share="' +
             book.id +
-            '" title="生成限时分享链接"><i data-lucide="share-2"></i></button>' +
+            '" title="分享"><i data-lucide="share-2"></i></button>' +
             '<button class="bk-card-edit" type="button" data-book-download="' +
             book.id +
             '" title="下载原文件"><i data-lucide="download"></i></button>';

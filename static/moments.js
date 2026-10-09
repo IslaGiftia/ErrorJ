@@ -11,6 +11,9 @@
   var toastTimer = null;
   var canInteract = false;
   var shareAudio = null;
+  var freshTargets = {};
+  var jumpBtn = null;
+  var jumpFrame = null;
 
   function imageLimitLabel() {
     return window.ErrorUploadLimits
@@ -67,9 +70,10 @@
 
   function regionPreference() {
     try {
-      return localStorage.getItem(REGION_KEY) !== "0";
+      // 默认不公开 IP 属地，用户主动勾选后才记住
+      return localStorage.getItem(REGION_KEY) === "1";
     } catch (err) {
-      return true;
+      return false;
     }
   }
 
@@ -358,6 +362,71 @@
     return wrap;
   }
 
+  function markFreshCard(node, id) {
+    if (!freshTargets[String(id)]) return;
+    node.classList.add("is-fresh");
+    node.addEventListener(
+      "mouseenter",
+      function () {
+        node.classList.remove("is-fresh");
+        updateJumpButton();
+        if (!canInteract) return;
+        api("/api/site/notifications/seen", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ module: "moments", target_id: id }),
+        }).catch(function () {});
+      },
+      { once: true }
+    );
+  }
+
+  function ensureJumpButton() {
+    if (jumpBtn) return jumpBtn;
+    jumpBtn = el("button", "mo-jump-btn", "↓");
+    jumpBtn.type = "button";
+    jumpBtn.title = "跳到有提醒的动态";
+    jumpBtn.setAttribute("aria-label", "跳到有提醒的动态");
+    jumpBtn.hidden = true;
+    jumpBtn.addEventListener("click", function () {
+      var target = freshBelowNode();
+      if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    document.body.appendChild(jumpBtn);
+    return jumpBtn;
+  }
+
+  function freshNodes() {
+    return Array.prototype.slice.call(
+      document.querySelectorAll(".mo-item.is-fresh")
+    );
+  }
+
+  function freshBelowNode() {
+    return (
+      freshNodes().filter(function (node) {
+        return node.getBoundingClientRect().top > window.innerHeight - 80;
+      })[0] || null
+    );
+  }
+
+  function updateJumpButton() {
+    var btn = ensureJumpButton();
+    btn.hidden = !freshBelowNode();
+  }
+
+  window.addEventListener(
+    "scroll",
+    function () {
+      if (jumpFrame) return;
+      jumpFrame = window.requestAnimationFrame(function () {
+        jumpFrame = null;
+        updateJumpButton();
+      });
+    },
+    { passive: true }
+  );
+
   function buildShareCard(share) {
     var info = el("div", "mo-share-info");
     info.appendChild(el("span", "mo-share-label", share.label || "内容"));
@@ -408,6 +477,10 @@
         sync(false);
       });
       cover.addEventListener("click", function () {
+        if (!canInteract) {
+          toast("请登录后播放");
+          return;
+        }
         if (!audio.paused) {
           audio.pause();
           return;
@@ -580,6 +653,7 @@
 
   function buildMoment(moment) {
     var item = el("article", "mo-card mo-item " + (moment.can_save ? "can-save" : "no-save"));
+    markFreshCard(item, moment.id);
     var avatar = document.createElement("img");
     avatar.className = "mo-avatar";
     avatar.src = "/static/site/error-chan-favicon.png?v=3";
@@ -710,7 +784,21 @@
 
   function loadMoments() {
     var list = $("momentList");
-    return api("/api/moments").then(function (rows) {
+    var targetsRequest = canInteract
+      ? api("/api/site/moments/unread")
+          .then(function (data) {
+            return (data && data.targets) || [];
+          })
+          .catch(function () {
+            return [];
+          })
+      : Promise.resolve([]);
+    return Promise.all([api("/api/moments"), targetsRequest]).then(function (result) {
+      var rows = result[0];
+      freshTargets = {};
+      (result[1] || []).forEach(function (id) {
+        freshTargets[String(id)] = true;
+      });
       list.innerHTML = "";
       $("momentCount").textContent = rows.length ? "共 " + rows.length + " 条" : "";
       if (!rows.length) {
@@ -721,6 +809,7 @@
         list.appendChild(buildMoment(row));
       });
       refreshIcons();
+      updateJumpButton();
     }).catch(function (err) {
       list.innerHTML = "";
       list.appendChild(el("div", "mo-empty", "加载失败：" + err.message));
@@ -775,13 +864,6 @@
     canInteract = Boolean(status.authenticated);
     $("momentForm").hidden = !canManage;
     if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);
-    if (canInteract && !canManage) {
-      api("/api/site/notifications/seen", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ module: "moments" }),
-      }).catch(function () {});
-    }
     return loadMoments();
   }).catch(function () {
     $("momentForm").hidden = true;

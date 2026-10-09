@@ -701,6 +701,58 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(notifications[0]["module"], "moments")
         self.assertEqual(int(notifications[0]["target_id"]), moment_id)
 
+    def test_moment_comment_notifies_owner(self):
+        stamp = app.now_text()
+        moment_id = app.execute(
+            "INSERT INTO moments (content, created_at) VALUES (?, ?)",
+            ("动态内容", stamp),
+        )
+        handler, responses = self.make_handler(self.other_id, username="other1")
+        handler.api_moment_comment_create(moment_id, {"content": "来评论一下"})
+        parent_id = responses[-1][1]["id"]
+        owner_rows = app.query(
+            """SELECT kind, text FROM user_notifications
+               WHERE user_id = 0 AND module = 'moments'"""
+        )
+        self.assertEqual(len(owner_rows), 1)
+        self.assertEqual(owner_rows[0]["kind"], "moment_comment")
+        self.assertEqual(owner_rows[0]["text"], "评论了你的动态")
+
+        author_handler, _ = self.make_handler(self.author_id, username="author1")
+        author_handler.api_moment_comment_create(
+            moment_id, {"content": "回复这条评论", "parent_id": parent_id}
+        )
+        self.assertEqual(
+            app.query_one(
+                """SELECT COUNT(*) AS n FROM user_notifications
+                   WHERE user_id = 0 AND kind = 'moment_comment'"""
+            )["n"],
+            2,
+        )
+        parent_rows = app.query(
+            """SELECT text FROM user_notifications
+               WHERE user_id = ? AND kind = 'comment_reply'""",
+            (self.other_id,),
+        )
+        self.assertEqual([row["text"] for row in parent_rows], ["回复了你的评论"])
+
+        owner_handler, owner_responses = self.make_handler(0, kind="owner")
+        owner_handler.api_site_moments_unread()
+        payload = owner_responses[-1][1]
+        self.assertEqual(payload["unread"], 2)
+        self.assertEqual(payload["targets"], [moment_id])
+
+        owner_handler.api_site_activity()
+        items = owner_responses[-1][1]["items"]
+        self.assertTrue(
+            any(
+                item.get("alert")
+                and "动态" in str(item.get("text"))
+                and "评论" in str(item.get("text"))
+                for item in items
+            )
+        )
+
     def test_reply_to_message_notifies_author(self):
         handler, responses = self.make_handler(self.other_id, username="other1")
         handler.api_site_message_create(
@@ -733,6 +785,102 @@ class InteractionTests(unittest.TestCase):
         app.mark_notifications_seen(self.author_id, "messages")
         member_handler.api_site_messages_unread()
         self.assertEqual(member_responses[-1][1]["unread"], 0)
+
+    def test_message_list_reports_like_usernames(self):
+        handler, _ = self.make_handler(self.other_id, username="other1")
+        handler.api_site_like_toggle(
+            {"target_type": "message", "target_id": self.message_id}
+        )
+        admin_handler, admin_responses = self.make_handler(0, kind="owner")
+        admin_handler.api_site_messages({})
+        roots = admin_responses[-1][1]
+        target = [row for row in roots if int(row["id"]) == self.message_id][0]
+        self.assertEqual(target["like_users"], ["other1"])
+        self.assertEqual(target["like_count"], 1)
+
+    def test_guest_sees_masked_like_usernames(self):
+        handler, _ = self.make_handler(self.other_id, username="other1")
+        handler.api_site_like_toggle(
+            {"target_type": "message", "target_id": self.message_id}
+        )
+        guest = object.__new__(app.InventoryHandler)
+        guest.session_identity = lambda: None
+        guest.is_admin = lambda: False
+        responses = []
+        guest.send_json = lambda status, payload: responses.append((status, payload))
+        guest.api_site_messages({})
+        roots = responses[-1][1]
+        target = [row for row in roots if int(row["id"]) == self.message_id][0]
+        self.assertEqual(target["like_users"], [app.mask_username("other1")])
+
+    def test_reply_to_reply_is_grouped_and_notifies(self):
+        handler, responses = self.make_handler(self.other_id, username="other1")
+        handler.api_site_message_create(
+            {"content": "第一条回复", "parent_id": self.message_id, "files": []}
+        )
+        reply_id = responses[-1][1]["id"]
+        author_handler, author_responses = self.make_handler(
+            self.author_id, username="author1"
+        )
+        author_handler.api_site_message_create(
+            {"content": "回复那条回复", "parent_id": reply_id, "files": []}
+        )
+        nested_id = author_responses[-1][1]["id"]
+        notifications = app.query(
+            """SELECT text FROM user_notifications
+               WHERE user_id = ? AND kind = 'message_reply'""",
+            (self.other_id,),
+        )
+        self.assertTrue(
+            any(str(row["text"]) == "回复了你" for row in notifications)
+        )
+
+        admin_handler, admin_responses = self.make_handler(0, kind="owner")
+        admin_handler.api_site_messages({})
+        root = [
+            row
+            for row in admin_responses[-1][1]
+            if int(row["id"]) == self.message_id
+        ][0]
+        reply_ids = [int(row["id"]) for row in root["replies"]]
+        self.assertIn(reply_id, reply_ids)
+        self.assertIn(nested_id, reply_ids)
+        nested = [
+            row for row in root["replies"] if int(row["id"]) == nested_id
+        ][0]
+        self.assertEqual(int(nested["parent_id"]), reply_id)
+        self.assertEqual(nested["reply_to"], "other1")
+
+    def test_unread_targets_clear_per_card(self):
+        handler, _ = self.make_handler(self.other_id, username="other1")
+        handler.api_site_like_toggle(
+            {"target_type": "message", "target_id": self.message_id}
+        )
+        member_handler, member_responses = self.make_handler(
+            self.author_id, username="author1"
+        )
+        member_handler.api_site_messages_unread()
+        self.assertEqual(member_responses[-1][1]["targets"], [self.message_id])
+        member_handler.api_site_notifications_seen(
+            {"module": "messages", "target_id": self.message_id}
+        )
+        member_handler.api_site_messages_unread()
+        self.assertEqual(member_responses[-1][1]["targets"], [])
+        self.assertEqual(member_responses[-1][1]["unread"], 0)
+
+    def test_deleted_message_clears_notification(self):
+        handler, _ = self.make_handler(self.other_id, username="other1")
+        handler.api_site_like_toggle(
+            {"target_type": "message", "target_id": self.message_id}
+        )
+        app.execute("DELETE FROM site_messages WHERE id = ?", (self.message_id,))
+        member_handler, member_responses = self.make_handler(
+            self.author_id, username="author1"
+        )
+        member_handler.api_site_messages_unread()
+        payload = member_responses[-1][1]
+        self.assertEqual(payload["targets"], [])
+        self.assertEqual(payload["unread"], 0)
 
 
 class HomeActivityAlertTests(unittest.TestCase):

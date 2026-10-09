@@ -254,7 +254,7 @@
         </div>
         <div class="wb-card-actions">
           ${row.flash_url ? `<a href="${escapeHtml(row.flash_url)}" target="_blank" rel="noopener" title="打开烧录链接"><button type="button"><i data-lucide="external-link"></i></button></a>` : ""}
-          <button type="button" data-share-asset="${row.id}" title="生成限时分享链接"><i data-lucide="share-2"></i></button>
+          <button type="button" data-share-asset="${row.id}" title="分享"><i data-lucide="share-2"></i></button>
           <a href="/api/workbench/assets/${row.id}/download" title="下载"><button type="button"><i data-lucide="download"></i></button></a>
           <button type="button" data-edit-asset="${row.id}" title="编辑"><i data-lucide="pencil"></i></button>
           <button type="button" data-delete-asset="${row.id}" title="删除"><i data-lucide="trash-2"></i></button>

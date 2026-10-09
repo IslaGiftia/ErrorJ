@@ -62,7 +62,9 @@
 }
 
 .nt-read-body {
-  overflow: auto;
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
 }
 
 .nt-breadcrumb {
@@ -114,6 +116,21 @@
 .nt-read-status {
   padding: 18px 0;
   color: var(--nt-muted);
+}
+
+.nt-read-outline {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  margin: 0 0 14px;
+  border: 1px solid var(--nt-border);
+  border-radius: 10px;
+}
+
+.nt-read-doc .nt-markdown h1,
+.nt-read-doc .nt-markdown h2,
+.nt-read-doc .nt-markdown h3 {
+  scroll-margin-top: 72px;
 }
 
 @media (max-width: 640px) {

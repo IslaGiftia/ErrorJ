@@ -693,6 +693,53 @@ button.mo-share:hover {
   padding: 8px 14px;
 }
 
+/* ---------- 新互动提醒：和首页模块按钮一样的呼吸 ---------- */
+.mo-item.is-fresh {
+  --mo-fresh-base: var(--mo-shadow);
+  animation: moFreshPulse 3.6s ease-in-out infinite;
+}
+
+@keyframes moFreshPulse {
+  0%,
+  100% {
+    box-shadow: var(--mo-fresh-base);
+  }
+
+  50% {
+    box-shadow:
+      var(--mo-fresh-base),
+      0 0 0 3px color-mix(in srgb, var(--mo-accent) 16%, transparent),
+      0 0 18px color-mix(in srgb, var(--mo-accent) 36%, transparent);
+  }
+}
+
+.mo-jump-btn {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 40;
+  width: 44px;
+  height: 44px;
+  border: 1px solid color-mix(in srgb, var(--mo-accent) 50%, transparent);
+  border-radius: 50%;
+  background: var(--mo-accent);
+  color: #fff;
+  font-size: 19px;
+  line-height: 1;
+  box-shadow: 0 10px 24px rgba(80, 60, 200, 0.32);
+  cursor: pointer;
+}
+
+.mo-jump-btn[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mo-item.is-fresh {
+    animation: none;
+  }
+}
+
 .mo-edit textarea {
   width: 100%;
   min-height: 84px;

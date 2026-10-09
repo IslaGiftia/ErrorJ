@@ -34,6 +34,13 @@
         <h1 class="nt-title-text" id="readTitle">加载中…</h1>
         <div class="nt-doc-meta" id="readMeta"></div>
       </header>
+      <div class="nt-outline nt-read-outline" id="outlineBar" hidden>
+        <button class="nt-outline-toggle" id="outlineToggle" type="button"
+          aria-label="展开章节" aria-expanded="false" title="章节">☰</button>
+        <nav class="nt-outline-path" id="outlinePath" aria-label="当前阅读位置"></nav>
+        <span class="nt-outline-count" id="outlineCount"></span>
+        <div class="nt-outline-panel" id="outlinePanel" hidden></div>
+      </div>
       <div class="nt-read-status" id="readStatus" hidden></div>
       <article class="nt-markdown" id="readContent"></article>
     </article>

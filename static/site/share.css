@@ -1,11 +1,40 @@
 .share-overlay,
 .download-request-overlay {
-  --share-accent: var(--bk-accent, var(--mu-accent, var(--wb-accent, #4f46e5)));
-  --share-panel: var(--bk-surface, var(--mu-surface, var(--wb-surface, #fff)));
-  --share-text: var(--bk-text, var(--mu-text, var(--wb-text, #172033)));
-  --share-muted: var(--bk-muted, var(--mu-muted, var(--wb-muted, #667085)));
-  --share-line: var(--bk-line, var(--mu-line, var(--wb-line, #d8dce6)));
-  --share-bg: var(--bk-bg, var(--mu-bg, var(--wb-bg, #f4f6fb)));
+  --share-accent: var(
+    --bk-accent,
+    var(--mu-accent, var(--nt-accent, var(--wb-accent, #4f46e5)))
+  );
+  --share-panel: var(
+    --bk-surface,
+    var(--mu-surface, var(--nt-surface, var(--wb-surface, #fff)))
+  );
+  --share-text: var(
+    --bk-text,
+    var(--mu-text, var(--nt-text, var(--wb-text, #172033)))
+  );
+  --share-muted: var(
+    --bk-muted,
+    var(--mu-muted, var(--nt-muted, var(--wb-muted, #667085)))
+  );
+  --share-line: var(
+    --bk-line,
+    var(--mu-line, var(--nt-border, var(--wb-line, #d8dce6)))
+  );
+  --share-bg: var(
+    --bk-bg,
+    var(--mu-bg, var(--nt-bg, var(--wb-bg, #f4f6fb)))
+  );
+}
+
+/* 深色模式下即使页面没有定义上面这些变量，也跟随用户选择的暗色 */
+:root[data-theme="dark"] .share-overlay,
+:root[data-theme="dark"] .download-request-overlay {
+  --share-accent: var(--bk-accent, var(--mu-accent, var(--nt-accent, #a78bfa)));
+  --share-panel: var(--bk-surface, var(--mu-surface, var(--nt-surface, #262626)));
+  --share-text: var(--bk-text, var(--mu-text, var(--nt-text, #f4f4f5)));
+  --share-muted: var(--bk-muted, var(--mu-muted, var(--nt-muted, #a1a1aa)));
+  --share-line: var(--bk-line, var(--mu-line, var(--nt-border, #3f3f46)));
+  --share-bg: var(--bk-bg, var(--mu-bg, var(--nt-bg, #1f1f23)));
 }
 
 .share-overlay,
@@ -143,6 +172,9 @@
 .share-panel {
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
+  /* 三个选项面板高度统一，切换时窗口不再忽大忽小 */
+  min-height: 156px;
 }
 
 .share-panel[hidden] {

@@ -193,7 +193,7 @@
             actionButtons +=
               '<button class="mu-icon-btn" type="button" data-music-share="' +
               track.id +
-              '" title="生成限时分享链接"><i data-lucide="share-2"></i></button>' +
+              '" title="分享"><i data-lucide="share-2"></i></button>' +
               '<button class="mu-icon-btn" type="button" data-music-download="' +
               track.id +
               '" title="下载歌曲"><i data-lucide="download"></i></button>';

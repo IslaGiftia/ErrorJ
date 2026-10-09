@@ -12,6 +12,10 @@
   var toastTimer = null;
   var canPost = false;
   var isAdmin = false;
+  var viewerLikeName = "";
+  var freshTargets = {};
+  var jumpBtn = null;
+  var jumpFrame = null;
   var dailyRemaining = null;
   var dailyLimit = 0;
 
@@ -98,9 +102,10 @@
 
   function regionPreference() {
     try {
-      return localStorage.getItem(REGION_KEY) !== "0";
+      // 默认不公开 IP 属地，用户主动勾选后才记住
+      return localStorage.getItem(REGION_KEY) === "1";
     } catch (err) {
-      return true;
+      return false;
     }
   }
 
@@ -483,7 +488,7 @@
     return wrap;
   }
 
-  function buildReplyForm(rootId) {
+  function buildReplyForm(parentId, placeholder) {
     var form = el("form", "mg-reply-form");
     form.hidden = true;
 
@@ -491,7 +496,7 @@
     textField.appendChild(el("label", "", "回复"));
     var textArea = document.createElement("textarea");
     textArea.maxLength = 1000;
-    textArea.placeholder = "回复一下…";
+    textArea.placeholder = placeholder || "回复一下…";
     textField.appendChild(textArea);
 
     var regionLabel = el("label", "mg-region-toggle");
@@ -531,7 +536,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           content: content,
-          parent_id: rootId,
+          parent_id: parentId,
           show_region: regionInput.checked,
         }),
       }).then(function () {
@@ -553,12 +558,29 @@
     var wrap = el("div", "mg-like");
     var btn = el("button", "mg-like-btn", "♥");
     var count = el("span", "mg-like-count", String(target.like_count || 0));
+    var names = el("span", "mg-like-names", "");
     btn.type = "button";
+    function syncNames() {
+      var users = (target.like_users || []).slice();
+      if (!users.length) {
+        names.hidden = true;
+        names.textContent = "";
+        return;
+      }
+      var shown = users.slice(0, 3).join("、");
+      names.hidden = false;
+      names.textContent =
+        users.length > 3 ? shown + " 等 " + users.length + " 人" : shown;
+    }
     function sync() {
       btn.classList.toggle("is-liked", Boolean(target.liked));
       btn.title = target.liked ? "取消点赞" : "点赞";
       count.textContent = String(target.like_count || 0);
+      count.hidden = !target.like_count && !target.liked;
+      syncNames();
     }
+    count.hidden = true;
+    names.hidden = true;
     sync();
     btn.addEventListener("click", function () {
       if (!canPost) {
@@ -576,6 +598,14 @@
       }).then(function (data) {
         target.liked = Boolean(data && data.liked);
         target.like_count = Number(data && data.count) || 0;
+        var users = Array.isArray(target.like_users) ? target.like_users : [];
+        var own = viewerLikeName;
+        if (own) {
+          var index = users.indexOf(own);
+          if (target.liked && index < 0) users.unshift(own);
+          if (!target.liked && index >= 0) users.splice(index, 1);
+        }
+        target.like_users = users;
         sync();
       }).catch(function (err) {
         toast(err.message || "操作失败");
@@ -585,11 +615,78 @@
     });
     wrap.appendChild(btn);
     wrap.appendChild(count);
+    wrap.appendChild(names);
     return wrap;
   }
 
+  function markFreshCard(node, id) {
+    if (!freshTargets[String(id)]) return;
+    node.classList.add("is-fresh");
+    node.addEventListener(
+      "mouseenter",
+      function () {
+        node.classList.remove("is-fresh");
+        updateJumpButton();
+        if (!canPost) return;
+        api("/api/site/notifications/seen", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ module: "messages", target_id: id }),
+        }).catch(function () {});
+      },
+      { once: true }
+    );
+  }
+
+  function ensureJumpButton() {
+    if (jumpBtn) return jumpBtn;
+    jumpBtn = el("button", "mg-jump-btn", "↓");
+    jumpBtn.type = "button";
+    jumpBtn.title = "跳到有提醒的留言";
+    jumpBtn.setAttribute("aria-label", "跳到有提醒的留言");
+    jumpBtn.hidden = true;
+    jumpBtn.addEventListener("click", function () {
+      var target = freshBelowNode();
+      if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    document.body.appendChild(jumpBtn);
+    return jumpBtn;
+  }
+
+  function freshNodes() {
+    return Array.prototype.slice.call(
+      document.querySelectorAll(".mg-item.is-fresh, .mg-reply.is-fresh")
+    );
+  }
+
+  function freshBelowNode() {
+    return (
+      freshNodes().filter(function (node) {
+        return node.getBoundingClientRect().top > window.innerHeight - 80;
+      })[0] || null
+    );
+  }
+
+  function updateJumpButton() {
+    var btn = ensureJumpButton();
+    btn.hidden = !freshBelowNode();
+  }
+
+  window.addEventListener(
+    "scroll",
+    function () {
+      if (jumpFrame) return;
+      jumpFrame = window.requestAnimationFrame(function () {
+        jumpFrame = null;
+        updateJumpButton();
+      });
+    },
+    { passive: true }
+  );
+
   function buildMessage(message) {
     var item = el("article", "mg-item " + (message.can_save ? "can-save" : "no-save"));
+    markFreshCard(item, message.id);
     var head = el("div", "mg-item-head");
     head.appendChild(el("span", "mg-nick", message.nickname || "匿名"));
     head.appendChild(el("span", "mg-time", formatTime(message.created_at)));
@@ -607,25 +704,41 @@
     item.appendChild(buildLikeControl("message", message));
 
     var repliesBox = el("div", "mg-replies");
-    var replyForm = null;
+    var rootForm = null;
+    var deleteBtn = null;
     if (canPost) {
       var actions = el("div", "mg-item-actions");
       var replyBtn = el("button", "mg-link-btn", "回复");
       replyBtn.type = "button";
       actions.append(replyBtn);
-      var deleteBtn = null;
       if (message.can_delete) {
         deleteBtn = el("button", "mg-link-btn is-danger", "删除");
         deleteBtn.type = "button";
         actions.append(deleteBtn);
       }
       item.appendChild(actions);
-      replyForm = buildReplyForm(message.id);
+      rootForm = buildReplyForm(
+        message.id,
+        "回复 " + (message.nickname || "这条留言") + "…"
+      );
+      replyBtn.addEventListener("click", function () {
+        rootForm.hidden = !rootForm.hidden;
+        if (!rootForm.hidden) {
+          var area = rootForm.querySelector("textarea");
+          if (area) area.focus();
+        }
+      });
     }
     (message.replies || []).forEach(function (reply) {
       var row = el("div", "mg-reply " + (reply.can_save ? "can-save" : "no-save"));
+      markFreshCard(row, reply.id);
       var replyHead = el("div", "mg-item-head");
       replyHead.appendChild(el("span", "mg-nick", reply.nickname || "匿名"));
+      if (Number(reply.parent_id) !== Number(message.id)) {
+        replyHead.appendChild(
+          el("span", "mg-reply-to", "回复 @" + (reply.reply_to || "某人"))
+        );
+      }
       replyHead.appendChild(el("span", "mg-time", formatTime(reply.created_at)));
       if (reply.region) {
         replyHead.appendChild(el("span", "mg-region", "IP 属地：" + reply.region));
@@ -639,21 +752,27 @@
         row.appendChild(buildFiles(replyFiles));
       }
       row.appendChild(buildLikeControl("message", reply));
-      repliesBox.appendChild(row);
-    });
-
-    if (replyForm) {
-      var toggleReply = item.querySelector(".mg-link-btn");
-      if (toggleReply) {
-        toggleReply.addEventListener("click", function () {
-          replyForm.hidden = !replyForm.hidden;
-          if (!replyForm.hidden) {
-            var area = replyForm.querySelector("textarea");
+      if (canPost) {
+        var replyActions = el("div", "mg-item-actions");
+        var subReplyBtn = el("button", "mg-link-btn", "回复");
+        subReplyBtn.type = "button";
+        replyActions.appendChild(subReplyBtn);
+        row.appendChild(replyActions);
+        var subForm = buildReplyForm(
+          reply.id,
+          "回复 " + (reply.nickname || "这条回复") + "…"
+        );
+        subReplyBtn.addEventListener("click", function () {
+          subForm.hidden = !subForm.hidden;
+          if (!subForm.hidden) {
+            var area = subForm.querySelector("textarea");
             if (area) area.focus();
           }
         });
+        row.appendChild(subForm);
       }
-    }
+      repliesBox.appendChild(row);
+    });
 
     if (deleteBtn) {
       deleteBtn.addEventListener("click", function () {
@@ -669,15 +788,31 @@
     }
 
     item.appendChild(repliesBox);
-    if (replyForm) {
-      item.appendChild(replyForm);
+    if (rootForm) {
+      item.appendChild(rootForm);
     }
     return item;
   }
 
   function loadMessages() {
     var list = $("messageList");
-    return api("/api/site/messages").then(function (rows) {
+    var targetsRequest = canPost
+      ? api("/api/site/messages/unread")
+          .then(function (data) {
+            return (data && data.targets) || [];
+          })
+          .catch(function () {
+            return [];
+          })
+      : Promise.resolve([]);
+    return Promise.all([api("/api/site/messages"), targetsRequest]).then(function (
+      result
+    ) {
+      var rows = result[0];
+      freshTargets = {};
+      (result[1] || []).forEach(function (id) {
+        freshTargets[String(id)] = true;
+      });
       list.innerHTML = "";
       var total = 0;
       var newest = 0;
@@ -693,12 +828,6 @@
           method: "POST",
           body: JSON.stringify({}),
         }).catch(function () {});
-      } else if (canPost) {
-        api("/api/site/notifications/seen", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ module: "messages" }),
-        }).catch(function () {});
       }
       $("messageCount").textContent = rows.length ? "共 " + total + " 条" : "";
       if (!rows.length) {
@@ -711,6 +840,7 @@
         list.appendChild(buildMessage(row));
       });
       refreshIcons();
+      updateJumpButton();
     }).catch(function (err) {
       list.innerHTML = "";
       list.appendChild(el("div", "mg-empty", "加载失败：" + err.message));
@@ -764,6 +894,9 @@
   api("/api/auth/status").then(function (status) {
     canPost = Boolean(status.authenticated);
     isAdmin = Boolean(status.admin || status.owner);
+    viewerLikeName = status.owner
+      ? "管理员"
+      : String(status.username || status.nickname || "");
     $("messageComposerPanel").hidden = !canPost;
     if (canPost) loadQuota();
     return loadMessages();

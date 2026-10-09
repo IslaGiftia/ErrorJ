@@ -351,6 +351,7 @@ NOTIFY_EVENTS = (
     {"key": "attachment", "label": "新的待审核附件", "default": True},
     {"key": "download_request", "label": "新的下载申请", "default": True},
     {"key": "message", "label": "新的留言", "default": False},
+    {"key": "moment_comment", "label": "新的动态评论", "default": True},
     {"key": "place", "label": "新的标记点", "default": True},
     {"key": "security", "label": "安全提醒（登录失败 / 敏感词拦截）", "default": True},
 )
@@ -5757,6 +5758,13 @@ def notify_settings():
                             events.append(item["key"])
                     app_meta_set("notify_events", json.dumps(events, ensure_ascii=False))
                     app_meta_set("notify_events_migrated_v4", "1")
+                # v5：加入「新的动态评论」等后续新增的默认事件
+                if app_meta_get("notify_events_migrated_v5", "") != "1":
+                    for item in NOTIFY_EVENTS:
+                        if item.get("default") and item["key"] not in events:
+                            events.append(item["key"])
+                    app_meta_set("notify_events", json.dumps(events, ensure_ascii=False))
+                    app_meta_set("notify_events_migrated_v5", "1")
         except json.JSONDecodeError:
             events = list(NOTIFY_DEFAULT_EVENTS)
     channel = app_meta_get("notify_channel", "wecom")
@@ -5998,9 +6006,11 @@ def liked_target_ids(viewer_id, target_type, target_ids):
 
 
 def add_user_notification(user_id, kind, module, target_id, actor, text):
-    """给单个账号写一条站内提醒；user_id 为 0（站长）时不写。"""
-    user_id = int(user_id or 0)
-    if not user_id or module not in NOTIFICATION_MODULES:
+    """给单个账号写一条站内提醒；user_id 为 0 表示站长本人。"""
+    if user_id is None:
+        return None
+    user_id = int(user_id)
+    if user_id < 0 or module not in NOTIFICATION_MODULES:
         return None
     return execute(
         """INSERT INTO user_notifications
@@ -6034,9 +6044,9 @@ def member_user_ids():
 
 def unseen_notifications(user_id):
     """按模块汇总该账号的未读提醒。"""
-    user_id = int(user_id or 0)
-    if not user_id:
+    if user_id is None:
         return {}
+    user_id = int(user_id)
     rows = query(
         """SELECT module, COUNT(*) AS n, MAX(created_at) AS last_at,
                   MAX(id) AS last_id
@@ -6061,10 +6071,36 @@ def unseen_notifications(user_id):
     return result
 
 
-def mark_notifications_seen(user_id, module):
-    user_id = int(user_id or 0)
-    if not user_id or module not in NOTIFICATION_MODULES:
+def unseen_notification_targets(user_id, module):
+    """未读提醒对应到具体卡片的目标 ID，用于页面里的呼吸高亮。"""
+    if user_id is None:
+        return []
+    user_id = int(user_id)
+    if user_id < 0 or module not in NOTIFICATION_MODULES:
+        return []
+    rows = query(
+        """SELECT DISTINCT target_id FROM user_notifications
+           WHERE user_id = ? AND module = ? AND seen_at IS NULL
+             AND target_id > 0""",
+        (user_id, module),
+    )
+    return sorted(int(row["target_id"]) for row in rows)
+
+
+def mark_notifications_seen(user_id, module, target_id=None):
+    if user_id is None:
         return 0
+    user_id = int(user_id)
+    if user_id < 0 or module not in NOTIFICATION_MODULES:
+        return 0
+    if target_id:
+        execute(
+            """UPDATE user_notifications SET seen_at = ?
+               WHERE user_id = ? AND module = ? AND target_id = ?
+                 AND seen_at IS NULL""",
+            (now_text(), user_id, module, int(target_id)),
+        )
+        return 1
     execute(
         """UPDATE user_notifications SET seen_at = ?
            WHERE user_id = ? AND module = ? AND seen_at IS NULL""",
@@ -6073,16 +6109,36 @@ def mark_notifications_seen(user_id, module):
     return 1
 
 
+def prune_notification_targets(user_id, module, table):
+    """指向已删除内容的提醒直接标记已读，返回仍然存在的目标。"""
+    targets = unseen_notification_targets(user_id, module)
+    if not targets:
+        return []
+    placeholders = ",".join("?" for _ in targets)
+    rows = query(
+        f"SELECT id FROM {table} WHERE id IN ({placeholders})", tuple(targets)
+    )
+    existing = {int(row["id"]) for row in rows}
+    for target in targets:
+        if target not in existing:
+            mark_notifications_seen(user_id, module, target)
+    return [target for target in targets if target in existing]
+
+
 def notification_alert_text(module, info):
     """把未读提醒汇总成首页左下角的一行提示。"""
     count = max(1, int((info or {}).get("count") or 0))
     kind = str((info or {}).get("kind") or "")
     if module == "moments":
         if kind == "comment_reply":
-            return "有 1 条新回复（你的评论）" if count == 1 else f"有 {count} 条新回复（你的评论）"
+            return "回复了你的评论" if count == 1 else f"有 {count} 条新回复（你的评论）"
+        if kind == "moment_comment":
+            return "评论了你的动态" if count == 1 else f"有 {count} 条新评论（你的动态）"
         return "更新了动态" if count == 1 else f"更新了 {count} 条动态"
     if kind == "message_reply":
-        return "回复了你的留言" if count == 1 else f"有 {count} 条新回复（你的留言）"
+        if count == 1:
+            return str((info or {}).get("text") or "回复了你的留言")
+        return f"有 {count} 条新回复"
     return "点赞了你的留言" if count == 1 else f"有 {count} 个新点赞（你的留言）"
 
 
@@ -9318,14 +9374,22 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not identity:
             self.send_json(
                 200,
-                {"admin": False, "unread": 0, "newest_id": 0, "last_seen_id": 0},
+                {
+                    "admin": False,
+                    "unread": 0,
+                    "newest_id": 0,
+                    "last_seen_id": 0,
+                    "targets": [],
+                },
             )
             return
         if identity.get("kind") not in ("owner", "admin"):
             # 普通账号：未读的点赞 / 回复提醒
-            info = unseen_notifications(
-                int(identity.get("user_id") or 0)
-            ).get("messages") or {}
+            user_id = int(identity.get("user_id") or 0)
+            targets = prune_notification_targets(
+                user_id, "messages", "site_messages"
+            )
+            info = unseen_notifications(user_id).get("messages") or {}
             self.send_json(
                 200,
                 {
@@ -9333,6 +9397,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "unread": int(info.get("count") or 0),
                     "newest_id": 0,
                     "last_seen_id": 0,
+                    "targets": targets,
                 },
             )
             return
@@ -9349,6 +9414,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "unread": int(unread),
                 "newest_id": newest,
                 "last_seen_id": last_seen,
+                "targets": prune_notification_targets(
+                    user_id, "messages", "site_messages"
+                ),
             },
         )
 
@@ -9377,29 +9445,35 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not identity:
             api_error(self, 401, "请先登录。")
             return
-        module = str((payload or {}).get("module") or "").strip()
+        payload = payload or {}
+        module = str(payload.get("module") or "").strip()
         if module not in NOTIFICATION_MODULES:
             api_error(self, 400, "提醒类型不正确。")
             return
+        raw_target = payload.get("target_id")
+        target_id = int(raw_target) if str(raw_target or "").isdigit() else None
         if identity.get("kind") in ("owner", "admin"):
             self.send_json(200, {"ok": True, "cleared": 0})
             return
-        mark_notifications_seen(int(identity.get("user_id") or 0), module)
+        mark_notifications_seen(
+            int(identity.get("user_id") or 0), module, target_id
+        )
         self.send_json(200, {"ok": True, "cleared": 1})
 
     def api_site_moments_unread(self):
         identity = self.session_identity()
-        if not identity or identity.get("kind") in ("owner", "admin"):
-            self.send_json(200, {"unread": 0, "text": ""})
+        if not identity:
+            self.send_json(200, {"unread": 0, "text": "", "targets": []})
             return
-        info = unseen_notifications(
-            int(identity.get("user_id") or 0)
-        ).get("moments") or {}
+        user_id = 0 if identity.get("kind") == "owner" else int(identity.get("user_id") or 0)
+        targets = prune_notification_targets(user_id, "moments", "moments")
+        info = unseen_notifications(user_id).get("moments") or {}
         self.send_json(
             200,
             {
                 "unread": int(info.get("count") or 0),
                 "text": str(info.get("kind") or ""),
+                "targets": targets,
             },
         )
 
@@ -9493,6 +9567,30 @@ class InventoryHandler(BaseHTTPRequestHandler):
         message_ids = [int(row["id"]) for row in rows]
         like_count_map = like_counts("message", message_ids)
         liked_set = liked_target_ids(viewer_id, "message", message_ids)
+        like_user_map = {}
+        if message_ids:
+            placeholders = ",".join("?" for _ in message_ids)
+            for like in query(
+                f"""SELECT l.target_id, l.user_id, u.username
+                    FROM content_likes l
+                    LEFT JOIN users u ON u.id = l.user_id
+                    WHERE l.target_type = 'message'
+                      AND l.target_id IN ({placeholders})
+                    ORDER BY l.created_at, l.user_id""",
+                tuple(message_ids),
+            ):
+                like_user = int(like["user_id"] or 0)
+                if like_user == 0:
+                    name = "管理员"
+                else:
+                    username = str(like.get("username") or "").strip() or "普通用户"
+                    name = username[:32] if viewer_signed_in else mask_username(username)
+                like_user_map.setdefault(int(like["target_id"]), []).append(name)
+        display_names = {}
+        for row in rows:
+            display_names[int(row["id"])] = self.message_display_name(
+                row, authors, viewer_signed_in
+            )
         # 之前没解析出属地的留言，打开页面时自动补一次（最多 3 条/次）
         for row in [
             item
@@ -9510,9 +9608,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
             row["files"] = files.get(row["id"], [])
             row["like_count"] = like_count_map.get(int(row["id"]), 0)
             row["liked"] = int(row["id"]) in liked_set
+            row["like_users"] = like_user_map.get(int(row["id"]), [])[:12]
             row["can_delete"] = can_delete
-            row["nickname"] = self.message_display_name(
-                row, authors, viewer_signed_in
+            row["nickname"] = display_names.get(int(row["id"]), "匿名")
+            reply_to = row.get("parent_id")
+            row["reply_to"] = (
+                display_names.get(int(reply_to), "") if reply_to else ""
             )
             row["can_save"] = bool(
                 can_delete
@@ -9531,8 +9632,26 @@ class InventoryHandler(BaseHTTPRequestHandler):
             row.pop("show_region", None)
         roots = [row for row in rows if not row.get("parent_id")]
         replies = [row for row in rows if row.get("parent_id")]
+        by_id = {int(row["id"]): row for row in rows}
+
+        def thread_root(row):
+            current = row
+            guard = 0
+            while current and current.get("parent_id") and guard < 50:
+                guard += 1
+                current = by_id.get(int(current["parent_id"]))
+            return current
+
         for root in roots:
-            root["replies"] = [row for row in replies if row["parent_id"] == root["id"]]
+            root["replies"] = []
+        for reply in replies:
+            root = thread_root(reply)
+            if root and int(root.get("id") or 0) != int(reply.get("id") or 0):
+                root.setdefault("replies", []).append(reply)
+        for root in roots:
+            root["replies"] = sorted(
+                root.get("replies") or [], key=lambda item: int(item["id"])
+            )
         self.send_json(200, roots)
 
     def message_attachments(self, payload):
@@ -9642,7 +9761,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         if parent_id:
             parent = query_one(
-                "SELECT id, user_id AS author_id FROM site_messages WHERE id = ?",
+                """SELECT id, user_id AS author_id, parent_id
+                   FROM site_messages WHERE id = ?""",
                 (parent_id,),
             )
             if not parent:
@@ -9732,7 +9852,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "messages",
                     parent_id,
                     self.notification_actor_name(identity),
-                    "回复了你的留言",
+                    "回复了你" if (parent or {}).get("parent_id") else "回复了你的留言",
                 )
         if saved and not auto_approve:
             notify_async(
@@ -9740,11 +9860,29 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "Error酱：有新的待审附件",
                 f"{nickname} 的留言附件等待审核，请到工作台「内容审核」处理。",
             )
-        notify_async(
-            "message",
-            "Error酱：新的留言",
-            f"{nickname}：{(content[:60] if content else '（仅附件）')}",
-        )
+        if parent_id:
+            parent_author = int((parent or {}).get("author_id") or 0)
+            if parent_author:
+                author_row = query_one(
+                    "SELECT username FROM users WHERE id = ?", (parent_author,)
+                )
+                parent_name = str((author_row or {}).get("username") or "普通用户")
+            else:
+                parent_name = "管理员"
+            nested_reply = bool((parent or {}).get("parent_id"))
+            notify_async(
+                "message",
+                "Error酱：新的回复",
+                f"{nickname} 回复了「{parent_name}」"
+                + ("的回复" if nested_reply else "的留言")
+                + f"：{(content[:60] if content else '（仅附件）')}",
+            )
+        else:
+            notify_async(
+                "message",
+                "Error酱：新的留言",
+                f"{nickname}：{(content[:60] if content else '（仅附件）')}",
+            )
         self.send_json(
             200,
             {
@@ -9931,6 +10069,22 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     actor,
                     "回复了你的评论",
                 )
+        if identity.get("kind") != "owner":
+            # 动态都是管理员发的，评论提醒统一收敛到站长账号
+            add_user_notification(
+                0,
+                "moment_comment",
+                "moments",
+                moment_id,
+                actor,
+                "评论了你的动态",
+            )
+            notify_async(
+                "moment_comment",
+                "Error酱：新的动态评论",
+                f"{actor} 评论了你的动态：{content[:60]}",
+                "/moments",
+            )
         self.log_activity(
             "moment_comment",
             f"评论了动态：{content[:40]}",
@@ -12823,6 +12977,17 @@ class InventoryHandler(BaseHTTPRequestHandler):
                         "created_at": (newest_download or {}).get("created_at") or now_text(),
                         "actor": "管理员",
                         "text": f"有 {int(pending_downloads)} 个下载申请",
+                        "alert": True,
+                    }
+                )
+            # 站长自己收到的新动态评论、留言点赞 / 回复
+            for module, info in unseen_notifications(admin_user_id).items():
+                items.append(
+                    {
+                        "id": f"notify-{module}",
+                        "created_at": info.get("created_at") or now_text(),
+                        "actor": info.get("actor") or "提醒",
+                        "text": notification_alert_text(module, info),
                         "alert": True,
                     }
                 )

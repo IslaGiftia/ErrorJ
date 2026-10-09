@@ -594,6 +594,73 @@ button.mg-file {
   font-size: 12.5px;
 }
 
+.mg-like-names {
+  min-width: 0;
+  color: var(--mg-muted);
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mg-reply-to {
+  color: var(--mg-accent);
+  font-size: 12.5px;
+}
+
+/* ---------- 新互动提醒：和首页模块按钮一样的呼吸 ---------- */
+.mg-item.is-fresh {
+  --mg-fresh-base: var(--mg-shadow);
+  animation: mgFreshPulse 3.6s ease-in-out infinite;
+}
+
+.mg-reply.is-fresh {
+  --mg-fresh-base: 0 0 0 rgba(0, 0, 0, 0);
+  animation: mgFreshPulse 3.6s ease-in-out infinite;
+}
+
+@keyframes mgFreshPulse {
+  0%,
+  100% {
+    box-shadow: var(--mg-fresh-base);
+  }
+
+  50% {
+    box-shadow:
+      var(--mg-fresh-base),
+      0 0 0 3px color-mix(in srgb, var(--mg-accent) 16%, transparent),
+      0 0 18px color-mix(in srgb, var(--mg-accent) 36%, transparent);
+  }
+}
+
+.mg-jump-btn {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 40;
+  width: 44px;
+  height: 44px;
+  border: 1px solid color-mix(in srgb, var(--mg-accent) 50%, transparent);
+  border-radius: 50%;
+  background: var(--mg-accent);
+  color: #fff;
+  font-size: 19px;
+  line-height: 1;
+  box-shadow: 0 10px 24px rgba(80, 60, 200, 0.32);
+  cursor: pointer;
+}
+
+.mg-jump-btn[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mg-item.is-fresh,
+  .mg-reply.is-fresh {
+    animation: none;
+  }
+}
+
 .mg-reply-text {
   margin: 0;
   white-space: pre-wrap;
