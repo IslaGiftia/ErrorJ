@@ -1771,6 +1771,13 @@ class ComplianceWorkflowTests(unittest.TestCase):
         self.assertIn("force_dates", script)
         self.assertIn("DELETE FROM moments", script)
 
+    def test_moments_mobile_comment_layout_is_scoped(self):
+        css = (app.STATIC_DIR / "moments.css").read_text(encoding="utf-8")
+        script = (app.STATIC_DIR / "moments.js").read_text(encoding="utf-8")
+        self.assertIn(".mo-composer-foot > .mo-btn-primary", css)
+        self.assertIn(".mo-comment-submit", css)
+        self.assertIn("scrollIntoView", script)
+
 
 if __name__ == "__main__":
     unittest.main()

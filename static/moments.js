@@ -575,6 +575,19 @@
     form.appendChild(area);
     form.appendChild(submit);
     if (parentId) form.hidden = true;
+    area.addEventListener("focus", function () {
+      if (!window.matchMedia("(max-width: 640px)").matches) return;
+      window.setTimeout(function () {
+        if (document.activeElement !== area) return;
+        var viewportHeight = window.visualViewport
+          ? window.visualViewport.height
+          : window.innerHeight;
+        var rect = area.getBoundingClientRect();
+        if (rect.bottom > viewportHeight - 24 || rect.top < 16) {
+          area.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 320);
+    });
     form.addEventListener("submit", function (event) {
       event.preventDefault();
       var text = area.value.trim();

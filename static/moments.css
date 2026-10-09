@@ -747,6 +747,7 @@ button.mo-share:hover {
   font: inherit;
   font-size: 13.5px;
   resize: vertical;
+  scroll-margin-block: 120px 40px;
 }
 
 .mo-comment-form textarea:focus {
@@ -983,10 +984,28 @@ button.mo-share:hover {
     height: 96px;
   }
 
-  .mo-btn-primary {
+  .mo-composer-foot > .mo-btn-primary {
     margin-left: 0;
     width: 100%;
     justify-content: center;
+  }
+
+  .mo-comment-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+  }
+
+  .mo-comment-form textarea {
+    min-height: 42px;
+    max-height: 120px;
+    resize: none;
+  }
+
+  .mo-comment-submit {
+    width: auto;
+    margin-left: 0;
+    padding: 8px 12px;
   }
 }
 [hidden] {
