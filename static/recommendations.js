@@ -30,6 +30,7 @@
   var state = {
     items: [],
     canManage: false,
+    requiresLogin: false,
     tab: "all",
     query: "",
     editingId: null,
@@ -264,7 +265,7 @@
         openResource.target = "_blank";
         openResource.rel = "noopener noreferrer";
         links.appendChild(openResource);
-      } else {
+      } else if (!state.requiresLogin) {
         links.appendChild(el("span", "rec-resource-missing", "内容已失效"));
       }
     } else if (item.url) {
@@ -281,6 +282,20 @@
       download.rel = "noopener noreferrer";
       links.appendChild(download);
     }
+    if (state.requiresLogin) {
+      var loginOnly = el("button", "rec-login-only", "登录后访问");
+      loginOnly.type = "button";
+      loginOnly.addEventListener("click", function () {
+        toast("登录后可以打开推荐内容");
+      });
+      links.appendChild(loginOnly);
+    }
+    var report = el("button", "rec-report-btn", "举报");
+    report.type = "button";
+    report.setAttribute("data-report-type", "recommendation");
+    report.setAttribute("data-report-key", item.id);
+    report.setAttribute("data-report-title", item.title || "推荐内容");
+    links.appendChild(report);
     if (links.childNodes.length) body.appendChild(links);
     return body;
   }
@@ -322,6 +337,7 @@
     return api("/api/recommendations").then(function (data) {
       state.items = Array.isArray(data.items) ? data.items : [];
       state.canManage = Boolean(data.can_manage);
+      state.requiresLogin = Boolean(data.requires_login);
       $("recAddBtn").hidden = !state.canManage;
       renderStats();
       renderTabs();

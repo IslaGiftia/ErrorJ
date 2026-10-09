@@ -178,6 +178,12 @@
             '" title="编辑"><i data-lucide="pencil"></i></button>'
           : "";
         var download = "";
+        var report =
+          '<button class="bk-card-edit" type="button" data-report-type="book" data-report-key="' +
+          book.id +
+          '" data-report-title="' +
+          esc(book.title || "电子书") +
+          '" title="举报"><i data-lucide="flag"></i></button>';
         if (state.canManage) {
           download =
             '<button class="bk-card-edit" type="button" data-book-share="' +
@@ -229,6 +235,7 @@
           "</span>" +
           size +
           download +
+          report +
           edit +
           "</div>" +
           "</article>"
@@ -510,6 +517,10 @@
   }
 
   function openReader(id) {
+    if (!state.authenticated) {
+      toast("登录后可以阅读");
+      return;
+    }
     location.href = "/books/read?id=" + encodeURIComponent(id);
   }
 
@@ -531,6 +542,7 @@
     renderGrid();
   });
   $("bookGrid").addEventListener("click", function (event) {
+    if (event.target.closest("[data-report-type]")) return;
     var share = event.target.closest("[data-book-share]");
     if (share) {
       event.stopPropagation();
@@ -576,6 +588,7 @@
   });
   $("bookGrid").addEventListener("keydown", function (event) {
     if (event.key !== "Enter" && event.key !== " ") return;
+    if (event.target.closest("[data-report-type]")) return;
     var card = event.target.closest("[data-book-open]");
     if (!card) return;
     event.preventDefault();

@@ -728,6 +728,17 @@
     }
 
     body.appendChild(buildMomentLike(moment));
+    if (canInteract) {
+      var itemActions = el("div", "mo-item-actions");
+      var reportBtn = el("button", "mo-link-btn", "举报");
+      reportBtn.type = "button";
+      reportBtn.setAttribute("data-report-type", "moment");
+      reportBtn.setAttribute("data-report-key", moment.id);
+      reportBtn.setAttribute("data-report-title", "动态：" + String(moment.content || "").slice(0, 40));
+      reportBtn.setAttribute("data-report-login", "1");
+      itemActions.appendChild(reportBtn);
+      body.appendChild(itemActions);
+    }
     body.appendChild(buildComments(moment));
 
     item.appendChild(body);
@@ -813,6 +824,30 @@
     return item;
   }
 
+  function buildLockedMoment(row) {
+    var item = el("article", "mo-card mo-item is-locked");
+    var avatar = document.createElement("img");
+    avatar.className = "mo-avatar";
+    avatar.src = "/static/site/error-chan-favicon.png?v=3";
+    avatar.alt = "Error酱";
+    item.appendChild(avatar);
+    var body = el("div", "mo-item-body");
+    var head = el("div", "mo-item-head");
+    head.appendChild(el("span", "mo-nick", "Error酱"));
+    if (row.pinned) head.appendChild(el("span", "mo-pin-badge", "置顶"));
+    head.appendChild(el("span", "mo-time", formatTime(row.created_at)));
+    body.appendChild(head);
+    var locked = el("div", "mo-locked");
+    locked.appendChild(el("strong", "", "登录后查看动态"));
+    locked.appendChild(el("p", "", "动态正文、图片、评论和点赞信息仅向登录账号开放。"));
+    var login = el("a", "mo-btn mo-btn-primary", "前往登录");
+    login.href = "/login?next=" + encodeURIComponent("/moments");
+    locked.appendChild(login);
+    body.appendChild(locked);
+    item.appendChild(body);
+    return item;
+  }
+
   function loadMoments() {
     var list = $("momentList");
     var targetsRequest = canInteract
@@ -825,7 +860,9 @@
           })
       : Promise.resolve([]);
     return Promise.all([api("/api/moments"), targetsRequest]).then(function (result) {
-      latestMomentRows = result[0];
+      var payload = result[0] || {};
+      momentsRequireLogin = Boolean(payload.requires_login);
+      latestMomentRows = Array.isArray(payload) ? payload : (payload.items || []);
       freshTargets = {};
       (result[1] || []).forEach(function (id) {
         freshTargets[String(id)] = true;
@@ -845,6 +882,7 @@
   };
   var currentMomentFilter = "all";
   var latestMomentRows = [];
+  var momentsRequireLogin = false;
 
   function momentMatchesFilter(row) {
     if (currentMomentFilter === "liked") return Boolean(row.liked_by_me);
@@ -885,6 +923,7 @@
   }
 
   function momentEmptyText() {
+    if (momentsRequireLogin) return "登录后查看动态。";
     if (currentMomentFilter !== "all") {
       return (
         MOMENT_FILTER_EMPTY_TEXT[currentMomentFilter] ||
@@ -908,7 +947,7 @@
       return;
     }
     rows.forEach(function (row) {
-      list.appendChild(buildMoment(row));
+      list.appendChild(momentsRequireLogin ? buildLockedMoment(row) : buildMoment(row));
     });
     refreshIcons();
     updateJumpButton();

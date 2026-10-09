@@ -810,6 +810,56 @@ button.mg-file {
   background: var(--mg-surface);
 }
 
+.mg-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+.mg-status.is-pending {
+  background: rgba(200, 135, 24, 0.12);
+  color: #b27613;
+}
+
+.mg-status.is-rejected {
+  background: rgba(214, 69, 69, 0.12);
+  color: #c53f3f;
+}
+
+.mg-locked {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 52px 20px;
+  border: 1px solid var(--mg-border);
+  border-radius: 10px;
+  background: var(--mg-surface);
+  text-align: center;
+}
+
+.mg-locked-icon {
+  font-size: 28px;
+  font-style: normal;
+}
+
+.mg-locked h3,
+.mg-locked strong {
+  margin: 0;
+}
+
+.mg-locked p {
+  margin: 0;
+  color: var(--mg-muted);
+}
+
+.mg-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 @media (max-width: 640px) {
   .mg-app {
     padding: 0 12px 48px;

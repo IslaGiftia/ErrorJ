@@ -16,7 +16,11 @@
     rolePermissionData: null,
     isOwner: false,
     isAdmin: false,
-    reviewFiles: [],
+    reviewMessages: [],
+    reviewLegacyFiles: [],
+    reports: [],
+    reportStatus: "pending",
+    reportPendingCount: 0,
     downloadRequests: [],
     downloadRequestStatus: "pending",
     uploadLimitSchema: [],
@@ -155,17 +159,19 @@
     if (view === "repairs") loadRepairs();
     if (view === "accounts") loadAccounts();
     if (view === "review") loadReview();
+    if (view === "reports") loadReports();
     if (view === "downloads") loadDownloadRequests();
     if (view === "uploads") loadUploadLimits();
     if (view === "logs") loadLogs();
   }
 
   function initialView() {
-    const allowed = ["overview", "assets", "firmware", "repairs", "prompts", "accounts", "review", "downloads", "uploads", "logs"];
+    const allowed = ["overview", "assets", "firmware", "repairs", "prompts", "accounts", "review", "reports", "downloads", "uploads", "logs"];
     const params = new URLSearchParams(location.search);
     const candidate = (params.get("view") || (location.hash || "").replace("#", "") || "overview").trim();
     if (candidate === "accounts" && !state.isAdmin) return "overview";
     if (candidate === "review" && !state.isAdmin) return "overview";
+    if (candidate === "reports" && !state.isAdmin) return "overview";
     if (candidate === "downloads" && !state.isAdmin) return "overview";
     if (candidate === "uploads" && !state.isAdmin) return "overview";
     if (candidate === "logs" && !state.isAdmin) return "overview";
@@ -630,6 +636,7 @@
     bindEvents();
     bindAccountEvents();
     bindReviewEvents();
+    bindReportEvents();
     bindDownloadEvents();
     bindLogEvents();
     bindUploadLimitEvents();
@@ -641,6 +648,8 @@
       if (accountsNav) accountsNav.hidden = !state.isAdmin;
       const reviewNav = document.querySelector('[data-view="review"]');
       if (reviewNav) reviewNav.hidden = !state.isAdmin;
+      const reportsNav = document.querySelector('[data-view="reports"]');
+      if (reportsNav) reportsNav.hidden = !state.isAdmin;
       const downloadsNav = document.querySelector('[data-view="downloads"]');
       if (downloadsNav) downloadsNav.hidden = !state.isAdmin;
       const uploadsNav = document.querySelector('[data-view="uploads"]');
@@ -650,6 +659,7 @@
       if (state.isAdmin) {
         setPendingBadge(status.pending_users || 0);
         setReviewBadge(status.pending_attachments || 0);
+        setReportsBadge(status.pending_reports || 0);
         setDownloadsBadge(status.pending_download_requests || 0);
       }
     } catch (err) {}
@@ -713,6 +723,7 @@
       if (!(status.admin || status.owner)) return;
       setPendingBadge(status.pending_users || 0);
       setReviewBadge(status.pending_attachments || 0);
+      setReportsBadge(status.pending_reports || 0);
       setDownloadsBadge(status.pending_download_requests || 0);
     } catch (err) {}
   }
@@ -1094,7 +1105,7 @@
           <span class="wb-chip${data.enabled ? " wb-chip-approved" : ""}">${data.enabled ? "已开启" : "已关闭"}</span>
         </div>
         <div class="wb-panel-body">
-          <p class="wb-hint">新注册申请、待审核附件、新留言会推送到你的手机或群机器人；站内的工作台呼吸提醒仍然保留。</p>
+          <p class="wb-hint">新注册申请、待审核留言和内容举报会推送到你的手机或群机器人；站内的工作台呼吸提醒仍然保留。</p>
           <div class="wb-notify-grid">
             <label class="wb-perm-item"><input type="checkbox" id="notifyEnabled"${data.enabled ? " checked" : ""}><span>开启通知</span></label>
             <label class="wb-field"><span>渠道</span>
@@ -1766,7 +1777,9 @@
           <div class="wb-log-meta">
             <span>${formatTime(row.created_at)}</span>
             <span>${escapeHtml(row.actor_name || "游客")}</span>
-            <span>${escapeHtml(row.ip || "未知 IP")}${row.ip_region ? " · " + escapeHtml(row.ip_region) : ""}</span>
+            <span>${escapeHtml(row.ip || "未知 IP")}${row.source_port ? ":" + row.source_port : ""}${row.ip_region ? " · " + escapeHtml(row.ip_region) : ""}</span>
+            ${row.method || row.target_host ? `<span>${escapeHtml(row.method || "")} → ${escapeHtml(row.target_host || "")}${row.target_port ? ":" + row.target_port : ""}</span>` : ""}
+            ${row.client_platform ? `<span>${escapeHtml(row.client_platform)}</span>` : ""}
             ${row.source_path ? `<span>来源 ${escapeHtml(row.source_path)}</span>` : ""}
           </div>
         </article>`
@@ -1817,7 +1830,9 @@
           </div>
           <div class="wb-log-meta">
             <span>${formatTime(row.created_at)}</span>
-            <span>${escapeHtml(row.ip || "未知 IP")}${row.ip_region ? " · " + escapeHtml(row.ip_region) : ""}</span>
+            <span>${escapeHtml(row.ip || "未知 IP")}${row.source_port ? ":" + row.source_port : ""}${row.ip_region ? " · " + escapeHtml(row.ip_region) : ""}</span>
+            ${row.method || row.target_host ? `<span>${escapeHtml(row.method || "")} → ${escapeHtml(row.target_host || "")}${row.target_port ? ":" + row.target_port : ""}</span>` : ""}
+            ${row.client_platform ? `<span>${escapeHtml(row.client_platform)}</span>` : ""}
             ${row.referer ? `<span>来源 ${escapeHtml(row.referer)}</span>` : ""}
             ${row.device ? `<span>${escapeHtml(row.device)}</span>` : ""}
           </div>
@@ -1964,7 +1979,7 @@
     });
   }
 
-  // ---------- 内容审核 ----------
+  // ---------- 留言审核与举报处理 ----------
   function uploadLimitMb(bytes) {
     const value = Number(bytes || 0) / (1024 * 1024);
     return Number.isInteger(value) ? String(value) : value.toFixed(1);
@@ -2223,12 +2238,27 @@
     }
   }
 
+  function setReportsBadge(count) {
+    const value = Number(count) || 0;
+    const nav = $("reportsNavBadge");
+    if (nav) {
+      nav.hidden = value <= 0;
+      nav.textContent = value > 99 ? "99+" : String(value);
+    }
+    const panel = $("reportPendingCount");
+    if (panel) {
+      panel.hidden = value <= 0;
+      panel.textContent = value > 99 ? "99+" : String(value);
+    }
+  }
+
   async function loadReview() {
     const panel = $("reviewPanel");
     panel.innerHTML = '<div class="wb-empty">正在加载…</div>';
     try {
       const data = await api("/api/admin/review?status=pending");
-      state.reviewFiles = data.files || [];
+      state.reviewMessages = data.messages || [];
+      state.reviewLegacyFiles = data.legacy_files || [];
       setReviewBadge(data.pending || 0);
       panel.innerHTML = reviewHtml();
       if (window.lucide) lucide.createIcons();
@@ -2238,46 +2268,75 @@
   }
 
   function reviewHtml() {
-    if (!state.reviewFiles.length) {
-      return '<div class="wb-empty">没有待审核的附件。</div>';
+    if (!state.reviewMessages.length && !state.reviewLegacyFiles.length) {
+      return '<div class="wb-empty">没有待审核的留言。</div>';
     }
     return (
       '<div class="wb-review-grid">' +
-      state.reviewFiles
-        .map((file) => {
+      state.reviewMessages.map((message) => {
+        const files = (message.files || []).map((file) => {
           const thumb = file.is_image
             ? `<button class="wb-review-thumb wb-review-thumb-btn" type="button" data-review-preview="${file.id}" title="点击预览">
                  <img src="${escapeHtml(file.url)}" alt="" loading="lazy">
                </button>`
             : '<i data-lucide="file-text"></i>';
-          const excerpt = (file.message_content || "").slice(0, 120);
-          return `
+          return `<div class="wb-report-file">
+            ${file.is_image ? thumb : `<div class="wb-review-thumb">${thumb}</div>`}
+            <span>${escapeHtml(file.file_name || "")} · ${formatBytes(file.file_size || 0)}</span>
+          </div>`;
+        }).join("");
+        return `
+        <article class="wb-review-card">
+          <div class="wb-review-body">
+            <div class="wb-user-title">
+              <strong>留言 #${message.id} · ${escapeHtml(message.message_author || message.message_nickname || "匿名")}</strong>
+              <span class="wb-chip wb-chip-pending">待审核</span>
+            </div>
+            <div class="wb-user-meta">
+              发布时间 ${formatTime(message.created_at)}
+            </div>
+            <p class="wb-review-text">${escapeHtml(message.message_content || "（仅附件）")}</p>
+            <div class="wb-report-files">${files || '<span class="wb-user-meta">无附件</span>'}</div>
+          </div>
+          <div class="wb-user-actions">
+            <button class="wb-btn wb-btn-primary" type="button" data-review-message="approve" data-review-id="${message.id}">
+              <i data-lucide="check"></i><span>通过</span>
+            </button>
+            <button class="wb-btn wb-btn-danger" type="button" data-review-message="reject" data-review-id="${message.id}">
+              <i data-lucide="x"></i><span>拒绝</span>
+            </button>
+          </div>
+        </article>`;
+      }).join("") +
+      state.reviewLegacyFiles.map((file) => {
+        const thumb = file.is_image
+          ? `<button class="wb-review-thumb wb-review-thumb-btn" type="button" data-review-preview="${file.id}" title="点击预览">
+               <img src="${escapeHtml(file.url)}" alt="" loading="lazy">
+             </button>`
+          : '<i data-lucide="file-text"></i>';
+        return `
         <article class="wb-review-card">
           ${file.is_image ? thumb : `<div class="wb-review-thumb">${thumb}</div>`}
           <div class="wb-review-body">
             <div class="wb-user-title">
-              <strong>${escapeHtml(file.file_name)}</strong>
+              <strong>历史附件 · ${escapeHtml(file.file_name)}</strong>
               <span class="wb-chip wb-chip-pending">待审核</span>
             </div>
             <div class="wb-user-meta">
-              ${escapeHtml(file.message_author || file.message_nickname || "匿名")} · ${formatTime(file.created_at)} · ${formatBytes(file.file_size)}
+              ${escapeHtml(file.message_author || file.message_nickname || "匿名")} · ${formatTime(file.created_at)}
             </div>
-            ${excerpt ? `<p class="wb-review-text">${escapeHtml(excerpt)}</p>` : ""}
+            <p class="wb-review-text">${escapeHtml((file.message_content || "").slice(0, 160))}</p>
           </div>
           <div class="wb-user-actions">
-            <a class="wb-btn" href="${escapeHtml(file.url)}" download="${escapeHtml(file.file_name)}">
-              <i data-lucide="download"></i><span>下载</span>
-            </a>
-            <button class="wb-btn wb-btn-primary" type="button" data-review-action="approve" data-review-id="${file.id}">
+            <button class="wb-btn wb-btn-primary" type="button" data-review-file="approve" data-review-file-id="${file.id}">
               <i data-lucide="check"></i><span>通过</span>
             </button>
-            <button class="wb-btn wb-btn-danger" type="button" data-review-action="reject" data-review-id="${file.id}">
-              <i data-lucide="trash-2"></i><span>拒绝并删除</span>
+            <button class="wb-btn wb-btn-danger" type="button" data-review-file="reject" data-review-file-id="${file.id}">
+              <i data-lucide="x"></i><span>拒绝</span>
             </button>
           </div>
         </article>`;
-        })
-        .join("") +
+      }).join("") +
       "</div>"
     );
   }
@@ -2322,7 +2381,7 @@
             method: "POST",
             body: JSON.stringify({}),
           });
-          toast(`已通过 ${data.approved} 个附件`);
+          toast(`已通过 ${data.approved_messages || 0} 条留言和 ${data.approved_legacy_files || 0} 个历史附件`);
           await loadReview();
         } catch (err) {
           toast(err.message);
@@ -2334,35 +2393,130 @@
     panel.addEventListener("click", async (event) => {
       const previewBtn = event.target.closest("[data-review-preview]");
       if (previewBtn) {
-        const file = state.reviewFiles.find(
+        const file = state.reviewLegacyFiles.find(
           (item) => String(item.id) === previewBtn.dataset.reviewPreview
-        );
+        ) || state.reviewMessages
+          .flatMap((message) => message.files || [])
+          .find((item) => String(item.id) === previewBtn.dataset.reviewPreview);
         if (file) openReviewPreview(file);
         return;
       }
-      const button = event.target.closest("[data-review-action]");
-      if (!button) return;
-      const action = button.dataset.reviewAction;
-      const id = button.dataset.reviewId;
-      if (action === "reject" && button.dataset.armed !== "1") {
-        button.dataset.armed = "1";
-        const label = button.querySelector("span");
-        if (label) label.textContent = "再点一次确认";
-        setTimeout(() => {
-          if (button.isConnected) {
-            button.dataset.armed = "0";
-            if (label) label.textContent = "拒绝并删除";
-          }
-        }, 4000);
-        return;
-      }
+      const messageButton = event.target.closest("[data-review-message]");
+      const fileButton = event.target.closest("[data-review-file]");
+      if (!messageButton && !fileButton) return;
       try {
-        await api(`/api/admin/review/${id}`, {
-          method: "POST",
-          body: JSON.stringify({ action }),
-        });
-        toast(action === "approve" ? "已通过" : "已拒绝并删除");
+        if (messageButton) {
+          const action = messageButton.dataset.reviewMessage;
+          const reviewNote = action === "reject" ? (window.prompt("拒绝原因（可选）") || "") : "";
+          await api(`/api/admin/review/${messageButton.dataset.reviewId}`, {
+            method: "POST",
+            body: JSON.stringify({ action, review_note: reviewNote }),
+          });
+        } else {
+          await api(`/api/admin/review-files/${fileButton.dataset.reviewFileId}`, {
+            method: "POST",
+            body: JSON.stringify({ action: fileButton.dataset.reviewFile }),
+          });
+        }
+        toast("审核结果已保存");
         await loadReview();
+      } catch (err) {
+        toast(err.message);
+      }
+    });
+  }
+
+  async function loadReports() {
+    const panel = $("reportsPanel");
+    panel.innerHTML = '<div class="wb-empty">正在加载…</div>';
+    try {
+      const data = await api(`/api/admin/reports?status=${encodeURIComponent(state.reportStatus)}`);
+      state.reports = data.reports || [];
+      state.reportPendingCount = Number(data.pending) || 0;
+      setReportsBadge(state.reportPendingCount);
+      panel.innerHTML = reportHtml();
+      if (window.lucide) lucide.createIcons();
+    } catch (err) {
+      panel.innerHTML = `<div class="wb-empty">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function reportStatusLabel(status) {
+    return { pending: "待处理", resolved: "已处理", dismissed: "已驳回" }[status] || status;
+  }
+
+  function reportTargetLabel(type) {
+    return { message: "留言", moment: "动态", game: "游戏", book: "电子书", recommendation: "推荐" }[type] || type;
+  }
+
+  function reportHtml() {
+    if (!state.reports.length) {
+      return '<div class="wb-empty">当前没有举报记录。</div>';
+    }
+    return '<div class="wb-review-grid">' + state.reports.map((report) => {
+      const snapshot = report.target_snapshot_data || {};
+      const content = snapshot.content || snapshot.description || snapshot.title || "";
+      const actions = report.status === "pending"
+        ? `<button class="wb-btn wb-btn-primary" type="button" data-report-action="resolve" data-report-id="${report.id}"><i data-lucide="check"></i><span>处理完成</span></button>
+           <button class="wb-btn" type="button" data-report-action="dismiss" data-report-id="${report.id}"><i data-lucide="x"></i><span>驳回举报</span></button>`
+        : `<button class="wb-btn" type="button" data-report-action="reopen" data-report-id="${report.id}"><i data-lucide="rotate-ccw"></i><span>重新打开</span></button>`;
+      return `
+        <article class="wb-review-card wb-report-card">
+          <div class="wb-review-body">
+            <div class="wb-user-title">
+              <strong>${escapeHtml(report.target_title || "未命名内容")}</strong>
+              <span class="wb-chip ${report.status === "pending" ? "wb-chip-pending" : ""}">${escapeHtml(reportStatusLabel(report.status))}</span>
+              ${report.overdue ? '<span class="wb-chip wb-chip-danger">超过 24 小时</span>' : ""}
+            </div>
+            <div class="wb-user-meta">
+              ${escapeHtml(reportTargetLabel(report.target_type))} · ${escapeHtml(report.reporter_name || "游客")} · ${formatTime(report.created_at)} · ${escapeHtml(report.ip || "")}
+            </div>
+            <p class="wb-review-text"><strong>理由：</strong>${escapeHtml(report.reason || "")}</p>
+            ${report.detail ? `<p class="wb-review-text">${escapeHtml(report.detail)}</p>` : ""}
+            ${report.contact ? `<div class="wb-user-meta">联系方式：${escapeHtml(report.contact)}</div>` : ""}
+            ${content ? `<pre class="wb-report-snapshot">${escapeHtml(String(content).slice(0, 800))}</pre>` : ""}
+            ${report.resolution ? `<div class="wb-user-meta">处理说明：${escapeHtml(report.resolution)}</div>` : ""}
+            ${report.handled_by ? `<div class="wb-user-meta">处理人：${escapeHtml(report.handled_by)} · ${formatTime(report.handled_at)}</div>` : ""}
+          </div>
+          <div class="wb-user-actions">${actions}</div>
+        </article>`;
+    }).join("") + "</div>";
+  }
+
+  function bindReportEvents() {
+    const refresh = $("reportsRefreshBtn");
+    if (refresh) {
+      refresh.addEventListener("click", () => loadReports().catch((err) => toast(err.message)));
+    }
+    const tabs = $("reportTabs");
+    if (tabs) {
+      tabs.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-report-status]");
+        if (!button) return;
+        state.reportStatus = button.dataset.reportStatus;
+        tabs.querySelectorAll("button").forEach((item) => {
+          item.classList.toggle("active", item === button);
+        });
+        loadReports().catch((err) => toast(err.message));
+      });
+    }
+    const panel = $("reportsPanel");
+    if (!panel) return;
+    panel.addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-report-action]");
+      if (!button) return;
+      const action = button.dataset.reportAction;
+      const resolution = action === "reopen"
+        ? ""
+        : (window.prompt("处理说明（可选）") || "");
+      try {
+        await api(`/api/admin/reports/${button.dataset.reportId}`, {
+          method: "POST",
+          body: JSON.stringify({ action, resolution }),
+        });
+        toast("举报状态已更新");
+        await loadReports();
+        await refreshNavBadges();
       } catch (err) {
         toast(err.message);
       }

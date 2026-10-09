@@ -988,14 +988,48 @@ a {
     padding-left: 16px;
   }
 
-  .rec-card-actions {
-    opacity: 1;
-  }
+.rec-card-actions {
+  opacity: 1;
+}
+
+.rec-login-only,
+.rec-report-btn {
+  border: 1px solid var(--rec-line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--rec-muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.rec-report-btn:hover,
+.rec-login-only:hover {
+  color: var(--rec-text);
+}
 
   .rec-bookmark-field {
     align-items: stretch;
     flex-direction: column;
   }
+}
+
+.rec-login-only,
+.rec-report-btn {
+  border: 1px solid var(--rec-line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--rec-muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.rec-report-btn:hover,
+.rec-login-only:hover {
+  color: var(--rec-text);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="/static/site/site.css">
   <link rel="stylesheet" href="/static/site/rain.css">
   <link rel="stylesheet" href="/static/games/lobby.css">
+  <link rel="stylesheet" href="/static/site/report.css">
   <script>
     (function () {
       try {
@@ -40,43 +41,69 @@
     </a>
 
     <div class="lobby-grid">
-      <a class="game-card" href="/games/gomoku">
-        <span class="game-icon"><i data-lucide="circle-dot"></i></span>
-        <span class="game-name">五子棋</span>
-        <span class="game-desc">双人对战与人机模式，先连成五子者胜。</span>
-        <span class="game-tags"><em>策略</em><em>双人/人机</em></span>
-      </a>
+      <article class="game-card" data-game-slug="gomoku">
+        <a class="game-card-main" href="/games/gomoku">
+          <span class="game-icon"><i data-lucide="circle-dot"></i></span>
+          <span class="game-name">五子棋</span>
+          <span class="game-desc">双人对战与人机模式，先连成五子者胜。</span>
+          <span class="game-tags"><em>策略</em><em>双人/人机</em></span>
+        </a>
+        <button class="game-report" type="button" data-report-type="game" data-report-key="gomoku" data-report-title="五子棋">举报</button>
+      </article>
 
-      <a class="game-card" href="/games/2048">
-        <span class="game-icon"><i data-lucide="layout-grid"></i></span>
-        <span class="game-name">2048</span>
-        <span class="game-desc">滑动合并相同数字，拼出 2048 就算通关。</span>
-        <span class="game-tags"><em>数字</em><em>方向键/滑动</em></span>
-      </a>
+      <article class="game-card" data-game-slug="2048">
+        <a class="game-card-main" href="/games/2048">
+          <span class="game-icon"><i data-lucide="layout-grid"></i></span>
+          <span class="game-name">2048</span>
+          <span class="game-desc">滑动合并相同数字，拼出 2048 就算通关。</span>
+          <span class="game-tags"><em>数字</em><em>方向键/滑动</em></span>
+        </a>
+        <button class="game-report" type="button" data-report-type="game" data-report-key="2048" data-report-title="2048">举报</button>
+      </article>
 
-      <a class="game-card" href="/games/minesweeper">
-        <span class="game-icon"><i data-lucide="bomb"></i></span>
-        <span class="game-name">扫雷</span>
-        <span class="game-desc">根据数字推断雷的位置，三种难度可切换。</span>
-        <span class="game-tags"><em>推理</em><em>单击/长按插旗</em></span>
-      </a>
+      <article class="game-card" data-game-slug="minesweeper">
+        <a class="game-card-main" href="/games/minesweeper">
+          <span class="game-icon"><i data-lucide="bomb"></i></span>
+          <span class="game-name">扫雷</span>
+          <span class="game-desc">根据数字推断雷的位置，三种难度可切换。</span>
+          <span class="game-tags"><em>推理</em><em>单击/长按插旗</em></span>
+        </a>
+        <button class="game-report" type="button" data-report-type="game" data-report-key="minesweeper" data-report-title="扫雷">举报</button>
+      </article>
 
-      <a class="game-card" href="/games/memory">
-        <span class="game-icon"><i data-lucide="layers"></i></span>
-        <span class="game-name">记忆翻牌</span>
-        <span class="game-desc">翻开两张相同的图标，用最少步数全部配对。</span>
-        <span class="game-tags"><em>记忆</em><em>计时+步数</em></span>
-      </a>
+      <article class="game-card" data-game-slug="memory">
+        <a class="game-card-main" href="/games/memory">
+          <span class="game-icon"><i data-lucide="layers"></i></span>
+          <span class="game-name">记忆翻牌</span>
+          <span class="game-desc">翻开两张相同的图标，用最少步数全部配对。</span>
+          <span class="game-tags"><em>记忆</em><em>计时+步数</em></span>
+        </a>
+        <button class="game-report" type="button" data-report-type="game" data-report-key="memory" data-report-title="记忆翻牌">举报</button>
+      </article>
     </div>
 
     <a class="lobby-back" href="/" data-back data-back-parent="/">返回Error酱首页</a>
+    <a class="lobby-back" href="/reporting">举报与投诉</a>
   </main>
 
   <script src="/static/vendor/lucide.min.js"></script>
   <script src="/static/site/rain.js"></script>
   <script src="/static/site/back-link.js"></script>
+  <script src="/static/site/report.js"></script>
   <script>
     if (window.lucide) window.lucide.createIcons();
+    fetch("/api/auth/status", { cache: "no-store" })
+      .then(function (response) { return response.json(); })
+      .then(function (status) {
+        if (status.authenticated) return;
+        document.querySelectorAll(".game-card-main").forEach(function (link) {
+          link.addEventListener("click", function (event) {
+            event.preventDefault();
+            window.alert("登录后可以进入游戏。");
+          });
+        });
+      })
+      .catch(function () {});
   </script>
 
 </body>

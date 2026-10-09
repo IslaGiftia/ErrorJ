@@ -242,6 +242,7 @@
       applyPendingBadge(
         (status.pending_users || 0) +
           (status.pending_attachments || 0) +
+          (status.pending_reports || 0) +
           (status.pending_download_requests || 0)
       );
     } else {

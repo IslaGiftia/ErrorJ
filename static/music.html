@@ -22,6 +22,7 @@
   <link rel="stylesheet" href="/static/fonts.css">
   <link rel="stylesheet" href="/static/site/progress.css">
   <link rel="stylesheet" href="/static/site/share.css">
+  <link rel="stylesheet" href="/static/site/report.css">
   <link rel="stylesheet" href="/static/music.css">
 </head>
 <body>
@@ -40,6 +41,7 @@
           </button>
         </div>
         <span class="mu-count" id="musicCount"></span>
+        <a class="mu-btn" href="/reporting">举报与投诉</a>
         <button class="mu-btn mu-btn-primary" id="musicUploadBtn" type="button" hidden>
           <i data-lucide="upload"></i><span>上传歌曲</span>
         </button>
@@ -52,7 +54,7 @@
       </div>
     </main>
 
-    <footer class="mu-bar" id="playerBar">
+    <footer class="mu-bar" id="playerBar" hidden>
       <div class="mu-bar-inner">
         <div class="mu-progress">
           <span class="mu-time" id="playerCurrent">0:00</span>
@@ -165,6 +167,7 @@
   <script src="/static/site/progress.js"></script>
   <script src="/static/site/share.js"></script>
   <script src="/static/site/upload-limits.js"></script>
+  <script src="/static/site/report.js"></script>
   <script src="/static/music.js"></script>
 </body>
 </html>

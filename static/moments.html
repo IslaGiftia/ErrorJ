@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="/static/moments.css">
   <link rel="stylesheet" href="/static/site/rain.css">
   <link rel="stylesheet" href="/static/site/progress.css">
+  <link rel="stylesheet" href="/static/site/report.css">
   <script>
     (function () {
       try {
@@ -35,7 +36,10 @@
       <span class="mo-brand-icon"><i data-lucide="coffee"></i></span>
       <strong>动态</strong>
     </a>
-    <span class="mo-count" id="momentCount"></span>
+    <div class="mo-header-actions">
+      <a class="mo-link-btn" href="/reporting">举报与投诉</a>
+      <span class="mo-count" id="momentCount"></span>
+    </div>
   </header>
 
   <div class="mo-app">
@@ -89,6 +93,7 @@
   <script src="/static/site/rain.js"></script>
   <script src="/static/site/progress.js"></script>
   <script src="/static/site/upload-limits.js"></script>
+  <script src="/static/site/report.js"></script>
   <script src="/static/moments.js"></script>
 
 </body>

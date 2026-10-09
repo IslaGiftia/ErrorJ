@@ -740,7 +740,7 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(comment["like_users"], ["other1"])
         self.assertTrue(comment["liked"] is False)
 
-    def test_comment_like_shows_masked_for_guest(self):
+    def test_guest_cannot_see_comment_like_users(self):
         stamp = app.now_text()
         moment_id = app.execute(
             "INSERT INTO moments (content, created_at) VALUES (?, ?)",
@@ -762,10 +762,11 @@ class InteractionTests(unittest.TestCase):
         responses = []
         guest.send_json = lambda status, payload: responses.append((status, payload))
         guest.api_moments({})
-        moments = responses[-1][1]
-        target = [row for row in moments if int(row["id"]) == moment_id][0]
+        payload = responses[-1][1]
+        self.assertTrue(payload["requires_login"])
         self.assertEqual(
-            target["comments"][0]["like_users"], [app.mask_username("other1")]
+            set(payload["items"][0]),
+            {"id", "pinned", "created_at"},
         )
 
     def test_moment_like_lists_usernames(self):
@@ -882,7 +883,7 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(target["like_users"], ["other1"])
         self.assertEqual(target["like_count"], 1)
 
-    def test_guest_sees_masked_like_usernames(self):
+    def test_guest_cannot_see_message_like_usernames(self):
         handler, _ = self.make_handler(self.other_id, username="other1")
         handler.api_site_like_toggle(
             {"target_type": "message", "target_id": self.message_id}
@@ -893,9 +894,9 @@ class InteractionTests(unittest.TestCase):
         responses = []
         guest.send_json = lambda status, payload: responses.append((status, payload))
         guest.api_site_messages({})
-        roots = responses[-1][1]
-        target = [row for row in roots if int(row["id"]) == self.message_id][0]
-        self.assertEqual(target["like_users"], [app.mask_username("other1")])
+        payload = responses[-1][1]
+        self.assertTrue(payload["requires_login"])
+        self.assertEqual(payload["messages"], [])
 
     def test_reply_to_reply_is_grouped_and_notifies(self):
         handler, responses = self.make_handler(self.other_id, username="other1")
@@ -1408,6 +1409,192 @@ class UploadLimitTests(unittest.TestCase):
         self.assertEqual(
             app.format_upload_limit_bytes(int(2.5 * 1024 * 1024)), "2.5MB"
         )
+
+
+class ComplianceWorkflowTests(unittest.TestCase):
+    def setUp(self):
+        self._temp = tempfile.TemporaryDirectory()
+        self._db_patch = patch.object(
+            app, "DB_PATH", Path(self._temp.name) / "inventory.db"
+        )
+        self._db_patch.start()
+        app.init_db()
+        stamp = app.now_text()
+        self.member_id = app.execute(
+            """INSERT INTO users
+                   (username, nickname, password_hash, status, role,
+                    created_at, updated_at)
+               VALUES (?, ?, ?, 'approved', 'member', ?, ?)""",
+            ("member1", "用户甲", "hash", stamp, stamp),
+        )
+        self.other_id = app.execute(
+            """INSERT INTO users
+                   (username, nickname, password_hash, status, role,
+                    created_at, updated_at)
+               VALUES (?, ?, ?, 'approved', 'member', ?, ?)""",
+            ("member2", "用户乙", "hash", stamp, stamp),
+        )
+        self.message_id = app.execute(
+            """INSERT INTO site_messages
+                   (nickname, content, user_id, status, created_at)
+               VALUES (?, ?, ?, 'pending', ?)""",
+            ("用户甲", "待审核留言", self.member_id, stamp),
+        )
+        self.moment_id = app.execute(
+            "INSERT INTO moments (content, created_at) VALUES (?, ?)",
+            ("动态内容", stamp),
+        )
+        self.music_id = app.execute(
+            """INSERT INTO site_music
+                   (title, artist, source_type, source_id, sort_order, created_at)
+               VALUES (?, ?, 'url', ?, 0, ?)""",
+            ("测试歌曲", "歌手", "https://example.com/test.mp3", stamp),
+        )
+        self.book_id = app.execute(
+            """INSERT INTO books
+                   (title, author, format, file_path, sort_order, created_at, updated_at)
+               VALUES (?, ?, 'txt', ?, 0, ?, ?)""",
+            ("测试书", "作者", "book_files/test.txt", stamp, stamp),
+        )
+        self.recommendation_id = app.execute(
+            """INSERT INTO recommendations
+                   (kind, title, url, created_at, updated_at)
+               VALUES ('site', ?, ?, ?, ?)""",
+            ("测试推荐", "https://example.com/tool", stamp, stamp),
+        )
+
+    def tearDown(self):
+        self._db_patch.stop()
+        self._temp.cleanup()
+
+    def make_handler(self, identity, admin=False, method="GET"):
+        handler = object.__new__(app.InventoryHandler)
+        handler.command = method
+        handler.headers = {"User-Agent": "test", "Host": "example.test"}
+        handler.client_address = ("127.0.0.1", 12345)
+        handler.session_identity = lambda: identity
+        handler.is_admin = lambda: admin
+        handler.client_ip = lambda: "127.0.0.1"
+        handler.client_port = lambda: 12345
+        handler.target_endpoint = lambda: ("example.test", 443)
+        handler.client_platform = lambda: "test"
+        handler.responses = []
+        handler.send_json = lambda status, payload: handler.responses.append(
+            (status, payload)
+        )
+        handler.log_activity = lambda *args, **kwargs: None
+        return handler
+
+    def member(self, user_id):
+        return {
+            "kind": "member",
+            "user_id": user_id,
+            "username": f"member{user_id}",
+            "nickname": f"用户{user_id}",
+        }
+
+    def test_message_review_controls_visibility_and_keeps_publish_time(self):
+        author = self.make_handler(self.member(self.member_id))
+        author.api_site_messages({})
+        author_rows = author.responses[-1][1]
+        self.assertEqual(len(author_rows), 1)
+        published_at = author_rows[0]["created_at"]
+        self.assertTrue(author_rows[0]["pending_review"])
+
+        other = self.make_handler(self.member(self.other_id))
+        other.api_site_messages({})
+        self.assertEqual(other.responses[-1][1], [])
+
+        guest = self.make_handler(None)
+        guest.api_site_messages({})
+        self.assertTrue(guest.responses[-1][1]["requires_login"])
+
+        admin = self.make_handler(
+            {"kind": "owner", "user_id": 0, "nickname": "管理员"},
+            admin=True,
+            method="POST",
+        )
+        admin.api_admin_review_action(
+            f"/api/admin/review/{self.message_id}", {"action": "approve"}
+        )
+        self.assertEqual(admin.responses[-1][1]["status"], "approved")
+        other.api_site_messages({})
+        visible = other.responses[-1][1]
+        self.assertEqual(visible[0]["id"], self.message_id)
+        self.assertEqual(visible[0]["created_at"], published_at)
+        self.assertFalse(visible[0]["pending_review"])
+        self.assertNotIn("reviewed_at", visible[0])
+
+    def test_guest_content_endpoints_hide_actionable_data(self):
+        guest = self.make_handler(None)
+        guest.api_site_music({})
+        music = guest.responses[-1][1][0]
+        self.assertEqual(music["url"], "")
+        self.assertTrue(music["requires_login"])
+
+        guest.api_books({})
+        book = guest.responses[-1][1][0]
+        self.assertNotIn("file_url", book)
+        self.assertTrue(book["requires_login"])
+
+        guest.api_recommendations({})
+        recommendation = guest.responses[-1][1]["items"][0]
+        self.assertEqual(recommendation["url"], "")
+        self.assertTrue(recommendation["requires_login"])
+
+        guest.api_moments({})
+        payload = guest.responses[-1][1]
+        self.assertTrue(payload["requires_login"])
+        self.assertEqual(
+            set(payload["items"][0]),
+            {"id", "pinned", "created_at"},
+        )
+
+        guest.api_site_music_stream(self.music_id)
+        self.assertEqual(guest.responses[-1][0], 401)
+        self.assertFalse(guest.guest_request_allowed("/games/2048", "GET", None))
+
+    def test_reports_allow_public_content_for_guests_but_require_login_for_messages(self):
+        guest = self.make_handler(None, method="POST")
+        with patch.object(app, "notify_async", return_value=False):
+            guest.api_site_report_create(
+                {
+                    "target_type": "game",
+                    "target_key": "2048",
+                    "reason": "违法违规",
+                }
+            )
+            guest.api_site_report_create(
+                {
+                    "target_type": "book",
+                    "target_key": str(self.book_id),
+                    "reason": "侵权或隐私",
+                }
+            )
+            guest.api_site_report_create(
+                {
+                    "target_type": "recommendation",
+                    "target_key": str(self.recommendation_id),
+                    "reason": "诈骗广告",
+                }
+            )
+            guest.api_site_report_create(
+                {
+                    "target_type": "message",
+                    "target_key": str(self.message_id),
+                    "reason": "违法违规",
+                }
+            )
+        self.assertEqual(guest.responses[-4][0], 200)
+        self.assertEqual(guest.responses[-3][0], 200)
+        self.assertEqual(guest.responses[-2][0], 200)
+        self.assertEqual(guest.responses[-1][0], 401)
+        self.assertEqual(
+            app.query_one("SELECT COUNT(*) AS n FROM content_reports")["n"], 3
+        )
+
+    def test_log_retention_default_is_six_months(self):
+        self.assertEqual(app.LOG_RETENTION_DAYS, 180)
 
 
 if __name__ == "__main__":

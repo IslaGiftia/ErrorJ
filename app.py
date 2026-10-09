@@ -104,7 +104,7 @@ GUEST_PAGE_RULES = {
     "/books": "guest:page:books",
     "/references": "guest:page:references",
 }
-GUEST_PAGE_PREFIX_RULES = (("/games/", "guest:page:games"),)
+GUEST_PAGE_PREFIX_RULES = ()
 GUEST_API_RULES = {
     "/api/site/messages": "guest:page:messages",
     "/api/moments": "guest:page:moments",
@@ -119,12 +119,20 @@ GUEST_DATA_RULES = (
     ("book_covers/", "guest:page:books"),
     ("recommend_images/", "guest:page:recommendations"),
 )
-# 永远公开的基础页：首页、登录、注册、静态资源和登录相关接口
-ALWAYS_PUBLIC_PAGES = {"/", "/index.html", "/login", "/register", "/favicon.ico"}
+# 永远公开的基础页：首页、登录、注册、举报说明、静态资源和登录相关接口
+ALWAYS_PUBLIC_PAGES = {
+    "/",
+    "/index.html",
+    "/login",
+    "/register",
+    "/reporting",
+    "/favicon.ico",
+}
 ALWAYS_PUBLIC_APIS = {
     "/api/health",
     "/api/site/activity",
     "/api/site/game-play",
+    "/api/site/reports",
     "/api/site/upload-limits",
     "/api/auth/status",
     "/api/login",
@@ -221,7 +229,6 @@ PERMISSION_GROUPS = (
             {"key": "books:write", "label": "上传、编辑、删除书架电子书"},
             {"key": "links:write", "label": "管理宝藏网站链接"},
             {"key": "photos:write", "label": "管理照片墙"},
-            {"key": "messages:attach_auto", "label": "留言附件免审核（可信用户）"},
         ),
     },
     {
@@ -349,9 +356,10 @@ NOTIFY_CHANNELS = (
 )
 NOTIFY_EVENTS = (
     {"key": "register", "label": "新的注册申请", "default": True},
-    {"key": "attachment", "label": "新的待审核附件", "default": True},
+    {"key": "attachment", "label": "新的待审核留言", "default": True},
+    {"key": "report", "label": "新的内容举报", "default": True},
     {"key": "download_request", "label": "新的下载申请", "default": True},
-    {"key": "message", "label": "新的留言", "default": False},
+    {"key": "message", "label": "新的留言", "default": True},
     {"key": "moment_comment", "label": "新的动态评论", "default": True},
     {"key": "place", "label": "新的标记点", "default": True},
     {"key": "map_interaction", "label": "标记点被点赞 / 打卡", "default": True},
@@ -373,10 +381,11 @@ TRUST_PROXY = os.environ.get("INVENTORY_TRUST_PROXY", "") not in ("", "0", "fals
 FORCE_SECURE_COOKIES = os.environ.get("INVENTORY_SECURE_COOKIES", "") not in ("", "0", "false")
 ACCESS_LOG = os.environ.get("INVENTORY_ACCESS_LOG", "") not in ("", "0", "false")
 try:
-    LOG_RETENTION_DAYS = max(1, int(os.environ.get("INVENTORY_LOG_DAYS", "29") or 29))
+    LOG_RETENTION_DAYS = max(1, int(os.environ.get("INVENTORY_LOG_DAYS", "180") or 180))
 except (TypeError, ValueError):
-    LOG_RETENTION_DAYS = 29
+    LOG_RETENTION_DAYS = 180
 LOG_CLEANUP_INTERVAL_SECONDS = 24 * 3600
+REPORT_REMINDER_INTERVAL_SECONDS = 30 * 60
 ACCESS_LOG_QUEUE = queue.Queue(maxsize=2000)
 PAGE_VIEW_PATHS = {
     "/",
@@ -393,6 +402,7 @@ PAGE_VIEW_PATHS = {
     "/map",
     "/recommendations",
     "/music",
+    "/reporting",
     "/games",
     "/games/gomoku",
     "/games/2048",
@@ -423,6 +433,24 @@ MESSAGE_FILE_MAX_BYTES = 5 * 1024 * 1024
 MESSAGE_FILE_TOTAL_MAX_BYTES = 15 * 1024 * 1024
 MESSAGE_FILE_MAX_COUNT = 3
 MESSAGE_DAILY_LIMIT = 9
+REPORT_TARGET_TYPES = ("message", "moment", "game", "book", "recommendation")
+REPORT_LOGIN_REQUIRED_TARGETS = {"message", "moment"}
+REPORT_TARGET_LABELS = {
+    "message": "留言",
+    "moment": "动态",
+    "game": "游戏",
+    "book": "电子书",
+    "recommendation": "推荐",
+}
+REPORT_REASONS = (
+    "违法违规",
+    "色情低俗",
+    "暴力恐怖",
+    "诈骗广告",
+    "侵权或隐私",
+    "其他",
+)
+REPORT_SLA_HOURS = 24
 MOMENT_CONTENT_MAX_CHARS = 2000
 MOMENT_COMMENT_MAX_CHARS = 500
 MOMENT_IMAGE_MAX_BYTES = 5 * 1024 * 1024
@@ -871,6 +899,10 @@ def init_db():
                 ip TEXT,
                 ip_region TEXT,
                 show_region INTEGER NOT NULL DEFAULT 1,
+                status TEXT NOT NULL DEFAULT 'approved',
+                reviewed_by TEXT,
+                reviewed_at TEXT,
+                review_note TEXT,
                 created_at TEXT NOT NULL
             );
 
@@ -1148,6 +1180,35 @@ def init_db():
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS content_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target_type TEXT NOT NULL,
+                target_key TEXT NOT NULL,
+                target_title TEXT,
+                target_snapshot TEXT,
+                reporter_user_id INTEGER NOT NULL DEFAULT 0,
+                reporter_name TEXT,
+                reason TEXT NOT NULL,
+                detail TEXT,
+                contact TEXT,
+                ip TEXT,
+                ip_region TEXT,
+                user_agent TEXT,
+                client_platform TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                handled_by TEXT,
+                handled_at TEXT,
+                resolution TEXT,
+                reminded_at TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_content_reports_status
+                ON content_reports (status, created_at);
+
+            CREATE INDEX IF NOT EXISTS idx_content_reports_target
+                ON content_reports (target_type, target_key, created_at);
+
             CREATE TABLE IF NOT EXISTS moment_shares (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 moment_id INTEGER NOT NULL UNIQUE REFERENCES moments(id) ON DELETE CASCADE,
@@ -1219,7 +1280,13 @@ def init_db():
                 summary TEXT,
                 ip TEXT,
                 ip_region TEXT,
-                source_path TEXT
+                source_path TEXT,
+                method TEXT,
+                source_port INTEGER,
+                target_host TEXT,
+                target_port INTEGER,
+                user_agent TEXT,
+                client_platform TEXT
             );
 
             CREATE TABLE IF NOT EXISTS access_log (
@@ -1234,7 +1301,12 @@ def init_db():
                 actor_name TEXT,
                 referer TEXT,
                 user_agent TEXT,
-                device TEXT
+                device TEXT,
+                method TEXT,
+                source_port INTEGER,
+                target_host TEXT,
+                target_port INTEGER,
+                client_platform TEXT
             );
 
             CREATE TABLE IF NOT EXISTS learning_notes (
@@ -1585,9 +1657,20 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
                 "show_region",
                 "ALTER TABLE site_messages ADD COLUMN show_region INTEGER NOT NULL DEFAULT 1",
             ),
+            (
+                "status",
+                "ALTER TABLE site_messages ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'",
+            ),
+            ("reviewed_by", "ALTER TABLE site_messages ADD COLUMN reviewed_by TEXT"),
+            ("reviewed_at", "ALTER TABLE site_messages ADD COLUMN reviewed_at TEXT"),
+            ("review_note", "ALTER TABLE site_messages ADD COLUMN review_note TEXT"),
         ):
             if column not in message_columns:
                 conn.execute(ddl)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_site_messages_status "
+            "ON site_messages(status, created_at)"
+        )
         moment_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(moments)").fetchall()
         }
@@ -1601,6 +1684,36 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
         ):
             if column not in moment_columns:
                 conn.execute(ddl)
+        activity_log_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(activity_log)").fetchall()
+        }
+        for column, ddl in (
+            ("method", "ALTER TABLE activity_log ADD COLUMN method TEXT"),
+            ("source_port", "ALTER TABLE activity_log ADD COLUMN source_port INTEGER"),
+            ("target_host", "ALTER TABLE activity_log ADD COLUMN target_host TEXT"),
+            ("target_port", "ALTER TABLE activity_log ADD COLUMN target_port INTEGER"),
+            ("user_agent", "ALTER TABLE activity_log ADD COLUMN user_agent TEXT"),
+            ("client_platform", "ALTER TABLE activity_log ADD COLUMN client_platform TEXT"),
+        ):
+            if column not in activity_log_columns:
+                conn.execute(ddl)
+        access_log_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(access_log)").fetchall()
+        }
+        for column, ddl in (
+            ("method", "ALTER TABLE access_log ADD COLUMN method TEXT"),
+            ("source_port", "ALTER TABLE access_log ADD COLUMN source_port INTEGER"),
+            ("target_host", "ALTER TABLE access_log ADD COLUMN target_host TEXT"),
+            ("target_port", "ALTER TABLE access_log ADD COLUMN target_port INTEGER"),
+            ("client_platform", "ALTER TABLE access_log ADD COLUMN client_platform TEXT"),
+        ):
+            if column not in access_log_columns:
+                conn.execute(ddl)
+        report_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(content_reports)").fetchall()
+        }
+        if "client_platform" not in report_columns:
+            conn.execute("ALTER TABLE content_reports ADD COLUMN client_platform TEXT")
         migrated = conn.execute(
             "SELECT value FROM app_meta WHERE key = 'map_categories_v2'"
         ).fetchone()
@@ -5276,6 +5389,10 @@ def required_permission(path, method):
         return ""
     if path == "/api/site/messages/quota" and method == "GET":
         return ""
+    if path == "/api/site/reports" and method == "POST":
+        return ""
+    if path == "/api/site/reports" and method == "GET":
+        return ""
     if path == "/api/references":
         return "" if method == "GET" else None
     if re.fullmatch(r"/api/references/\d+", path):
@@ -5397,7 +5514,6 @@ DATA_PERMISSION_RULES = (
 )
 # 游客可见模块的接口 / 子路径前缀
 GUEST_RULE_PREFIXES = (
-    ("/games/", "guest:page:games"),
     ("/api/site/messages/", "guest:page:messages"),
     ("/api/moments/", "guest:page:moments"),
     ("/api/recommendations/", "guest:page:recommendations"),
@@ -5411,7 +5527,7 @@ def guest_page_permission_for_path(path):
         return GUEST_PAGE_RULES[path]
     if path in GUEST_API_RULES:
         return GUEST_API_RULES[path]
-    if path == "/games" or path.startswith("/games/"):
+    if path == "/games":
         return "guest:page:games"
     if path.startswith("/api/site/message-files/"):
         return "guest:page:messages"
@@ -5485,6 +5601,12 @@ def write_activity(
     ip="",
     ip_region="",
     source_path="",
+    method="",
+    source_port=None,
+    target_host="",
+    target_port=None,
+    user_agent="",
+    client_platform="",
 ):
     """写入一条内容事件日志；失败只提示，不影响主流程。"""
     actor = actor or {}
@@ -5492,8 +5614,10 @@ def write_activity(
         execute(
             """INSERT INTO activity_log
                    (created_at, actor_kind, user_id, actor_name, action,
-                    target_type, target_id, summary, ip, ip_region, source_path)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    target_type, target_id, summary, ip, ip_region, source_path,
+                    method, source_port, target_host, target_port, user_agent,
+                    client_platform)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 now_text(),
                 actor.get("kind") or "guest",
@@ -5506,6 +5630,12 @@ def write_activity(
                 str(ip or "")[:80],
                 str(ip_region or "")[:40],
                 str(source_path or "")[:200],
+                str(method or "")[:12],
+                int(source_port) if source_port not in (None, "") else None,
+                str(target_host or "")[:200],
+                int(target_port) if target_port not in (None, "") else None,
+                str(user_agent or "")[:300],
+                str(client_platform or "")[:120],
             ),
         )
     except Exception as exc:
@@ -5513,7 +5643,19 @@ def write_activity(
 
 
 def enqueue_access_log(
-    path, ip, status=200, actor_kind="guest", user_id=0, actor_name="", referer="", user_agent=""
+    path,
+    ip,
+    status=200,
+    actor_kind="guest",
+    user_id=0,
+    actor_name="",
+    referer="",
+    user_agent="",
+    method="GET",
+    source_port=None,
+    target_host="",
+    target_port=None,
+    client_platform="",
 ):
     """把页面访问丢进队列，由后台线程落库并补齐属地。"""
     try:
@@ -5529,6 +5671,11 @@ def enqueue_access_log(
                 "referer": str(referer or "")[:300],
                 "user_agent": str(user_agent or "")[:300],
                 "device": describe_user_agent(user_agent),
+                "method": str(method or "GET")[:12],
+                "source_port": int(source_port) if source_port not in (None, "") else None,
+                "target_host": str(target_host or "")[:200],
+                "target_port": int(target_port) if target_port not in (None, "") else None,
+                "client_platform": str(client_platform or "")[:120],
             }
         )
     except queue.Full:
@@ -5546,8 +5693,9 @@ def access_log_worker():
             execute(
                 """INSERT INTO access_log
                        (created_at, actor_kind, ip, ip_region, path, status, user_id,
-                        actor_name, referer, user_agent, device)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        actor_name, referer, user_agent, device, method, source_port,
+                        target_host, target_port, client_platform)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     item["created_at"],
                     item["actor_kind"],
@@ -5560,6 +5708,11 @@ def access_log_worker():
                     item["referer"],
                     item["user_agent"],
                     item["device"],
+                    item["method"],
+                    item["source_port"],
+                    item["target_host"],
+                    item["target_port"],
+                    item["client_platform"],
                 ),
             )
         except Exception as exc:
@@ -5600,6 +5753,37 @@ def logs_maintenance_loop():
         except Exception as exc:
             print(f"[logs] 清理失败: {exc}", file=sys.stderr)
         time.sleep(LOG_CLEANUP_INTERVAL_SECONDS)
+
+
+def report_reminder_loop():
+    """对超过 24 小时未处理的举报补发一次 Webhook 提醒。"""
+    while True:
+        try:
+            cutoff = (
+                datetime.now() - timedelta(hours=REPORT_SLA_HOURS)
+            ).strftime("%Y-%m-%d %H:%M:%S")
+            rows = query(
+                """SELECT id, target_title FROM content_reports
+                   WHERE status = 'pending' AND reminded_at IS NULL
+                     AND created_at <= ?
+                   ORDER BY id LIMIT 50""",
+                (cutoff,),
+            )
+            for row in rows:
+                notify_async(
+                    "report",
+                    "Error酱：举报处理已超过 24 小时",
+                    f"举报 #{row['id']}「{row.get('target_title') or ''}」仍未处理，"
+                    "请到工作台「举报处理」完成核实。",
+                    "/workbench?view=reports",
+                )
+                execute(
+                    "UPDATE content_reports SET reminded_at = ? WHERE id = ? AND reminded_at IS NULL",
+                    (now_text(), row["id"]),
+                )
+        except Exception as exc:
+            print(f"[reports] 超时提醒失败: {exc}", file=sys.stderr)
+        time.sleep(REPORT_REMINDER_INTERVAL_SECONDS)
 
 
 # ---------- 站长通知（Webhook 推送） ----------
@@ -5795,6 +5979,20 @@ def notify_settings():
                             events.append(item["key"])
                     app_meta_set("notify_events", json.dumps(events, ensure_ascii=False))
                     app_meta_set("notify_events_migrated_v5", "1")
+                # v6：内容举报
+                if app_meta_get("notify_events_migrated_v6", "") != "1":
+                    for item in NOTIFY_EVENTS:
+                        if item.get("default") and item["key"] not in events:
+                            events.append(item["key"])
+                    app_meta_set("notify_events", json.dumps(events, ensure_ascii=False))
+                    app_meta_set("notify_events_migrated_v6", "1")
+                # v7：留言审核改为真正的先审后发后，新留言通知默认开启
+                if app_meta_get("notify_events_migrated_v7", "") != "1":
+                    for item in NOTIFY_EVENTS:
+                        if item.get("default") and item["key"] not in events:
+                            events.append(item["key"])
+                    app_meta_set("notify_events", json.dumps(events, ensure_ascii=False))
+                    app_meta_set("notify_events_migrated_v7", "1")
         except json.JSONDecodeError:
             events = list(NOTIFY_DEFAULT_EVENTS)
     channel = app_meta_get("notify_channel", "wecom")
@@ -6527,6 +6725,35 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     continue
         return self.client_address[0] if self.client_address else "unknown"
 
+    def client_port(self):
+        try:
+            return int(self.client_address[1])
+        except (IndexError, TypeError, ValueError):
+            return None
+
+    def target_endpoint(self):
+        host_header = (self.headers.get("Host") or "").strip()
+        proto = (
+            "https"
+            if FORCE_SECURE_COOKIES
+            or (self.headers.get("X-Forwarded-Proto") or "").lower() == "https"
+            else "http"
+        )
+        parsed = urlsplit(f"//{host_header}" if host_header else "")
+        host = parsed.hostname or host_header or HOST
+        port = parsed.port or (443 if proto == "https" else PORT)
+        return host, int(port)
+
+    def client_platform(self):
+        platform_hint = (self.headers.get("Sec-CH-UA-Platform") or "").strip().strip('"')
+        mobile_hint = (self.headers.get("Sec-CH-UA-Mobile") or "").strip().strip('"')
+        if mobile_hint == "?1":
+            mobile_hint = "mobile"
+        elif mobile_hint == "?0":
+            mobile_hint = "desktop"
+        parts = [part for part in (platform_hint, mobile_hint) if part]
+        return " · ".join(parts)
+
     def log_activity(
         self,
         action,
@@ -6545,6 +6772,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             if ip_region is None:
                 ip_region = lookup_ip_region(ip) if ip else ""
             identity = actor if actor is not None else self.session_identity()
+            target_host, target_port = self.target_endpoint()
             write_activity(
                 identity,
                 action,
@@ -6554,6 +6782,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 ip=ip,
                 ip_region=ip_region,
                 source_path=source_path,
+                method=self.command,
+                source_port=self.client_port(),
+                target_host=target_host,
+                target_port=target_port,
+                user_agent=self.headers.get("User-Agent") or "",
+                client_platform=self.client_platform(),
             )
         except Exception as exc:
             print(f"[activity] {exc}", file=sys.stderr)
@@ -6572,6 +6806,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 else:
                     user_id = int(identity.get("user_id") or 0)
                     name = identity.get("nickname") or identity.get("username") or ""
+            target_host, target_port = self.target_endpoint()
             enqueue_access_log(
                 path=path,
                 ip=self.client_ip(),
@@ -6581,6 +6816,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 actor_name=name,
                 referer=self.headers.get("Referer") or "",
                 user_agent=self.headers.get("User-Agent") or "",
+                method=self.command,
+                source_port=self.client_port(),
+                target_host=target_host,
+                target_port=target_port,
+                client_platform=self.client_platform(),
             )
         except Exception as exc:
             print(f"[access] {exc}", file=sys.stderr)
@@ -6781,6 +7021,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         permissions = []
         pending_users = 0
         pending_attachments = 0
+        pending_reports = 0
         pending_download_requests = 0
         if identity and identity.get("kind") != "owner":
             permissions = sorted(user_permission_set(identity.get("user_id")))
@@ -6788,8 +7029,19 @@ class InventoryHandler(BaseHTTPRequestHandler):
             pending_users = query_one(
                 "SELECT COUNT(*) AS n FROM users WHERE status = 'pending'"
             )["n"]
-            pending_attachments = query_one(
-                "SELECT COUNT(*) AS n FROM site_message_files WHERE status = 'pending'"
+            pending_messages = query_one(
+                """SELECT COUNT(*) AS n FROM site_messages
+                   WHERE parent_id IS NULL AND status = 'pending'"""
+            )["n"]
+            pending_legacy_files = query_one(
+                """SELECT COUNT(*) AS n FROM site_message_files f
+                   JOIN site_messages m ON m.id = f.message_id
+                   WHERE f.status = 'pending' AND m.parent_id IS NULL
+                     AND m.status = 'approved'"""
+            )["n"]
+            pending_attachments = int(pending_messages) + int(pending_legacy_files)
+            pending_reports = query_one(
+                "SELECT COUNT(*) AS n FROM content_reports WHERE status = 'pending'"
             )["n"]
             pending_download_requests = query_one(
                 "SELECT COUNT(*) AS n FROM download_requests WHERE status = 'pending'"
@@ -6809,6 +7061,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "map_allowed": self.map_view_allowed(identity) if identity else False,
                 "pending_users": pending_users,
                 "pending_attachments": pending_attachments,
+                "pending_reports": pending_reports,
                 "pending_download_requests": pending_download_requests,
             },
         )
@@ -7582,7 +7835,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )["n"]
         rows = query(
             f"""SELECT id, created_at, actor_kind, user_id, actor_name, action,
-                       target_type, target_id, summary, ip, ip_region, source_path
+                       target_type, target_id, summary, ip, ip_region, source_path,
+                       method, source_port, target_host, target_port, user_agent,
+                       client_platform
                 FROM activity_log{where}
                 ORDER BY id DESC LIMIT ? OFFSET ?""",
             tuple(values) + (limit, (page - 1) * limit),
@@ -7620,7 +7875,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )["n"]
         rows = query(
             f"""SELECT id, created_at, actor_kind, user_id, actor_name, ip, ip_region,
-                       path, status, referer, device, user_agent
+                       path, status, referer, device, user_agent, method, source_port,
+                       target_host, target_port, client_platform
                 FROM access_log{where}
                 ORDER BY id DESC LIMIT ? OFFSET ?""",
             tuple(values) + (limit, (page - 1) * limit),
@@ -7718,12 +7974,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
             where = self.where_clause(conditions)
             rows = query(
                 f"""SELECT created_at, actor_kind, actor_name, ip, ip_region, path,
-                           status, referer, device, user_agent
+                           status, referer, device, user_agent, method, source_port,
+                           target_host, target_port, client_platform
                     FROM access_log{where} ORDER BY id DESC LIMIT 5000""",
                 tuple(values),
             )
             writer.writerow(
-                ["时间", "访客类型", "账号", "IP", "属地", "路径", "状态码", "来源页", "设备", "User-Agent"]
+                ["时间", "访客类型", "账号", "IP", "属地", "路径", "状态码", "来源页", "设备", "User-Agent", "方法", "源端口", "目标主机", "目标端口", "客户端平台"]
             )
             for row in rows:
                 writer.writerow(
@@ -7738,6 +7995,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
                         row["referer"] or "",
                         row["device"] or "",
                         row["user_agent"] or "",
+                        row["method"] or "",
+                        row["source_port"] if row["source_port"] is not None else "",
+                        row["target_host"] or "",
+                        row["target_port"] if row["target_port"] is not None else "",
+                        row["client_platform"] or "",
                     ]
                 )
             download_name = f"errorjiang-访问日志-{today_text()}.csv"
@@ -7746,12 +8008,14 @@ class InventoryHandler(BaseHTTPRequestHandler):
             where = self.where_clause(conditions)
             rows = query(
                 f"""SELECT created_at, actor_kind, actor_name, action, target_type,
-                           target_id, summary, ip, ip_region, source_path
+                           target_id, summary, ip, ip_region, source_path, method,
+                           source_port, target_host, target_port, user_agent,
+                           client_platform
                     FROM activity_log{where} ORDER BY id DESC LIMIT 5000""",
                 tuple(values),
             )
             writer.writerow(
-                ["时间", "操作者类型", "操作者", "动作", "对象类型", "对象 ID", "摘要", "IP", "属地", "来源页面"]
+                ["时间", "操作者类型", "操作者", "动作", "对象类型", "对象 ID", "摘要", "IP", "属地", "来源页面", "方法", "源端口", "目标主机", "目标端口", "User-Agent", "客户端平台"]
             )
             for row in rows:
                 writer.writerow(
@@ -7766,6 +8030,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                         row["ip"] or "",
                         row["ip_region"] or "",
                         row["source_path"] or "",
+                        row["method"] or "",
+                        row["source_port"] if row["source_port"] is not None else "",
+                        row["target_host"] or "",
+                        row["target_port"] if row["target_port"] is not None else "",
+                        row["user_agent"] or "",
+                        row["client_platform"] or "",
                     ]
                 )
             download_name = f"errorjiang-内容事件-{today_text()}.csv"
@@ -8057,6 +8327,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
             self.log_page_view(path)
             self.send_file("register.html")
             return
+        if path == "/reporting":
+            self.log_page_view(path)
+            self.send_file("reporting.html")
+            return
         if path == "/prompts":
             self.send_response(302)
             self.send_header("Location", "/workbench?view=prompts")
@@ -8186,6 +8460,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_admin_sensitive_words(query)
             elif path == "/api/admin/review":
                 self.api_admin_review(query)
+            elif path == "/api/admin/reports":
+                self.api_admin_reports(query)
             elif path == "/api/admin/notify":
                 self.api_admin_notify(query)
             elif path == "/api/admin/upload-limits":
@@ -8315,6 +8591,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_create_wishlist(payload)
             elif path == "/api/site/messages":
                 self.api_site_message_create(payload)
+            elif path == "/api/site/reports":
+                self.api_site_report_create(payload)
             elif path == "/api/site/game-play":
                 self.api_site_game_play(payload)
             elif path == "/api/site/messages/seen":
@@ -8365,6 +8643,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_admin_review_all(payload)
             elif re.fullmatch(r"/api/admin/review/\d+", path):
                 self.api_admin_review_action(path, payload)
+            elif re.fullmatch(r"/api/admin/review-files/\d+", path):
+                self.api_admin_review_file_action(path, payload)
+            elif re.fullmatch(r"/api/admin/reports/\d+", path):
+                self.api_admin_report_action(path, payload)
             elif re.fullmatch(r"/api/admin/users/\d+/status", path):
                 self.api_admin_user_status(path, payload)
             elif re.fullmatch(r"/api/admin/users/\d+/permissions", path):
@@ -9304,50 +9586,47 @@ class InventoryHandler(BaseHTTPRequestHandler):
         """按留言 ID 分组返回附件，供列表接口一次性取回。"""
         if not message_ids:
             return {}
+        identity = self.session_identity()
+        if not identity:
+            return {}
         placeholders = ",".join("?" for _ in message_ids)
         rows = query(
-            f"""SELECT id, message_id, file_name, file_path, file_size, mime_type,
-                       status, uploaded_by
-                FROM site_message_files
-                WHERE message_id IN ({placeholders})
-                ORDER BY id""",
+            f"""SELECT f.id, f.message_id, f.file_name, f.file_path, f.file_size,
+                       f.mime_type, f.status, f.uploaded_by,
+                       m.status AS message_status, m.user_id AS message_user_id
+                FROM site_message_files f
+                LEFT JOIN site_messages m ON m.id = f.message_id
+                WHERE f.message_id IN ({placeholders})
+                ORDER BY f.id""",
             tuple(message_ids),
         )
-        identity = self.session_identity()
-        viewer_id = None
-        if identity:
-            viewer_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
+        viewer_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
         is_admin = self.is_admin()
         grouped = {}
         for row in rows:
             extension = os.path.splitext(row.get("file_name") or "")[1].lower()
-            status = row.get("status") or "approved"
-            approved = status == "approved"
+            file_status = row.get("status") or "approved"
+            message_status = row.get("message_status") or "approved"
+            approved = file_status == "approved" and message_status == "approved"
             owned = (
                 viewer_id is not None
-                and row.get("uploaded_by") is not None
-                and row["uploaded_by"] == viewer_id
+                and (
+                    row.get("uploaded_by") == viewer_id
+                    or row.get("message_user_id") == viewer_id
+                )
             )
             visible = approved or is_admin or owned
             is_image = extension in MESSAGE_IMAGE_EXTENSIONS
-            guest_locked = viewer_id is None and not is_admin and not is_image
             entry = {
                 "id": row["id"],
-                "status": status,
+                "status": file_status,
+                "message_status": message_status,
                 "is_image": is_image,
                 "visible": visible,
                 "can_save": bool(is_admin or owned),
-                "locked": guest_locked,
+                "locked": False,
             }
-            if guest_locked:
-                entry.update(
-                    {
-                        "file_name": row["file_name"],
-                        "file_size": row["file_size"],
-                        "mime_type": row["mime_type"],
-                    }
-                )
-            elif visible:
+            if visible:
                 entry.update(
                     {
                         "file_name": row["file_name"],
@@ -9535,7 +9814,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         if target_type == "message":
             row = query_one(
-                "SELECT id, user_id FROM site_messages WHERE id = ?", (target_id,)
+                "SELECT id, user_id, status FROM site_messages WHERE id = ?", (target_id,)
             )
         elif target_type == "moment":
             row = query_one("SELECT id FROM moments WHERE id = ?", (target_id,))
@@ -9547,6 +9826,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
             )
         if not row:
             api_error(self, 404, "要点赞的内容不存在。")
+            return
+        if target_type == "message" and row.get("status") != "approved" and not self.is_admin():
+            api_error(self, 403, "这条留言尚未通过审核。")
             return
         user_id = 0 if identity.get("kind") == "owner" else int(identity.get("user_id") or 0)
         existing = query_one(
@@ -9599,28 +9881,50 @@ class InventoryHandler(BaseHTTPRequestHandler):
         self.send_json(200, {"liked": liked, "count": int(count)})
 
     def api_site_messages(self, params):
-        rows = query(
+        identity = self.session_identity()
+        if not identity:
+            self.send_json(200, {"requires_login": True, "messages": []})
+            return
+        viewer_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
+        is_admin = self.is_admin()
+        all_rows = query(
             """SELECT id, nickname, content, parent_id, user_id, ip, ip_region,
-                      show_region, created_at
+                      show_region, status, reviewed_by, reviewed_at, review_note,
+                      created_at
                FROM site_messages
                ORDER BY COALESCE(parent_id, id) DESC, id ASC"""
         )
-        identity = self.session_identity()
-        viewer_id = None
-        if identity:
-            viewer_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
-        my_ids = (
-            set(
-                int(row["id"])
-                for row in rows
-                if viewer_id is not None and int(row.get("user_id") or 0) == int(viewer_id)
-            )
-            if viewer_id is not None
-            else set()
-        )
+        by_id_all = {int(row["id"]): row for row in all_rows}
+
+        def visible_root(row):
+            current = row
+            guard = 0
+            while current and current.get("parent_id") and guard < 50:
+                guard += 1
+                current = by_id_all.get(int(current["parent_id"]))
+            return current
+
+        if is_admin:
+            rows = all_rows
+        else:
+            rows = []
+            for row in all_rows:
+                root = visible_root(row)
+                if not root:
+                    continue
+                if int(root["id"]) == int(row["id"]):
+                    if row.get("status") == "approved" or int(row.get("user_id") or 0) == int(viewer_id):
+                        rows.append(row)
+                elif root.get("status") == "approved" or int(root.get("user_id") or 0) == int(viewer_id):
+                    rows.append(row)
+        my_ids = {
+            int(row["id"])
+            for row in rows
+            if int(row.get("user_id") or 0) == int(viewer_id)
+        }
         liked_ids = liked_target_ids(viewer_id, "message", [row["id"] for row in rows])
-        viewer_signed_in = identity is not None
-        can_delete = self.is_admin()
+        viewer_signed_in = True
+        can_delete = is_admin
         user_ids = sorted(
             {row["user_id"] for row in rows if row.get("user_id") not in (None, 0)}
         )
@@ -9679,6 +9983,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             row["liked"] = int(row["id"]) in liked_set
             row["like_users"] = like_user_map.get(int(row["id"]), [])[:12]
             row["can_delete"] = can_delete
+            row["can_review"] = is_admin
             row["nickname"] = display_names.get(int(row["id"]), "匿名")
             reply_to = row.get("parent_id")
             row["reply_to"] = (
@@ -9695,6 +10000,15 @@ class InventoryHandler(BaseHTTPRequestHandler):
             row["region"] = (
                 normalize_region(row.get("ip_region")) if row.get("show_region") else ""
             )
+            row["pending_review"] = row.get("status") == "pending"
+            row["rejected"] = row.get("status") == "rejected"
+            row["can_reply"] = bool(
+                is_admin or row.get("status") == "approved" or int(row["id"]) in my_ids
+            )
+            if not is_admin:
+                row.pop("review_note", None)
+                row.pop("reviewed_by", None)
+                row.pop("reviewed_at", None)
             row.pop("ip", None)
             row.pop("user_id", None)
             row.pop("ip_region", None)
@@ -9838,12 +10152,22 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         if parent_id:
             parent = query_one(
-                """SELECT id, user_id AS author_id, parent_id
+                """SELECT id, user_id AS author_id, parent_id, status
                    FROM site_messages WHERE id = ?""",
                 (parent_id,),
             )
             if not parent:
                 api_error(self, 400, "要回复的留言不存在。")
+                return
+            if prepared:
+                api_error(self, 400, "回复暂不支持附件。")
+                return
+            if (
+                parent.get("status") != "approved"
+                and int(parent.get("author_id") or 0) != int(user_id)
+                and not self.is_admin()
+            ):
+                api_error(self, 403, "这条留言还在审核中，暂时不能回复。")
                 return
         created_at = now_text()
         client_ip = self.client_ip()
@@ -9865,15 +10189,16 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 remove_data_file(relative)
             api_error(self, 400, str(exc))
             return
-        auto_approve = self.is_admin() or self.can("messages:attach_auto")
         uploader_id = user_id
+        message_status = "approved" if parent_id else "pending"
+        file_status = "approved" if parent_id else "pending"
 
         def write(conn):
             cursor = conn.execute(
                 """INSERT INTO site_messages
                        (nickname, content, parent_id, user_id, ip, ip_region,
-                        show_region, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        show_region, status, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     nickname,
                     content,
@@ -9882,6 +10207,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     client_ip,
                     ip_region,
                     show_region,
+                    message_status,
                     created_at,
                 ),
             )
@@ -9898,7 +10224,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                         relative,
                         size,
                         mime_type,
-                        "approved" if auto_approve else "pending",
+                        file_status,
                         uploader_id,
                         created_at,
                     ),
@@ -9931,12 +10257,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     self.notification_actor_name(identity),
                     "回复了你" if (parent or {}).get("parent_id") else "回复了你的留言",
                 )
-        if saved and not auto_approve:
-            notify_async(
-                "attachment",
-                "Error酱：有新的待审附件",
-                f"{nickname} 的留言附件等待审核，请到工作台「内容审核」处理。",
-            )
         if parent_id:
             parent_author = int((parent or {}).get("author_id") or 0)
             if parent_author:
@@ -9958,14 +10278,14 @@ class InventoryHandler(BaseHTTPRequestHandler):
             notify_async(
                 "message",
                 "Error酱：新的留言",
-                f"{nickname}：{(content[:60] if content else '（仅附件）')}",
+                f"{nickname}：{(content[:60] if content else '（仅附件）')}，请到工作台「留言审核」处理。",
             )
         self.send_json(
             200,
             {
                 "id": row_id,
                 "files": len(saved),
-                "pending_review": bool(saved) and not auto_approve,
+                "pending_review": message_status == "pending",
                 "daily_limit": daily_limit,
                 "daily_used": daily_used + 1,
                 "daily_remaining": max(0, daily_limit - daily_used - 1),
@@ -10071,18 +10391,36 @@ class InventoryHandler(BaseHTTPRequestHandler):
         return grouped, viewer_commented_ids
 
     def api_moments(self, params):
+        identity = self.session_identity()
+        if not identity:
+            rows = query(
+                "SELECT id, pinned, created_at FROM moments ORDER BY pinned DESC, created_at DESC, id DESC"
+            )
+            self.send_json(
+                200,
+                {
+                    "requires_login": True,
+                    "items": [
+                        {
+                            "id": row["id"],
+                            "pinned": bool(row["pinned"]),
+                            "created_at": row["created_at"],
+                        }
+                        for row in rows
+                    ],
+                },
+            )
+            return
         rows = query(
             """SELECT id, content, tags, pinned, ip, ip_region, show_region, created_at
                FROM moments
                ORDER BY pinned DESC, created_at DESC, id DESC"""
         )
         can_manage = self.is_admin()
-        identity = self.session_identity()
         viewer_id = None
-        if identity:
-            viewer_id = 0 if identity.get("kind") == "owner" else int(
-                identity.get("user_id") or 0
-            )
+        viewer_id = 0 if identity.get("kind") == "owner" else int(
+            identity.get("user_id") or 0
+        )
         files = self.moment_files_map([row["id"] for row in rows])
         moment_ids = [int(row["id"]) for row in rows]
         comments, comment_moment_ids = self.moment_comments_map(
@@ -10988,6 +11326,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def recommendation_rows(self, params=None):
         params = params or {}
+        is_guest = self.session_identity() is None
         conditions = []
         values = []
         kind = str((params.get("kind") or [""])[0] or "").strip().lower()
@@ -11038,6 +11377,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 row["resource"] = shared_resource_info(
                     row.get("resource_type"), row.get("resource_id")
                 )
+            row["requires_login"] = is_guest
+            if is_guest:
+                row["url"] = ""
+                row["download_url"] = ""
+                row.pop("resource", None)
+                row.pop("resource_type", None)
+                row.pop("resource_id", None)
         return rows
 
     def api_recommendations(self, params):
@@ -11046,6 +11392,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             {
                 "items": self.recommendation_rows(params),
                 "can_manage": self.is_admin(),
+                "requires_login": self.session_identity() is None,
             },
         )
 
@@ -11353,19 +11700,25 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 duration = ensure_music_duration(row)
                 if duration:
                     row["duration"] = duration
-                row["url"] = f"/api/site/music/{row['id']}/stream"
+                row["url"] = (
+                    f"/api/site/music/{row['id']}/stream" if identity else ""
+                )
                 row["download_state"] = self.download_state(identity, "music", row["id"])
             else:
-                row["url"] = row.get("source_id") or ""
+                row["url"] = (row.get("source_id") or "") if identity else ""
                 row["download_state"] = "external"
             row["cover_url"] = (
                 "/site-files/" + row["cover_path"] if row.get("cover_path") else ""
             )
+            row["requires_login"] = identity is None
             if not is_admin:
                 row.pop("source_id", None)
         self.send_json(200, rows)
 
     def api_site_music_stream(self, item_id, head_only=False):
+        if self.session_identity() is None:
+            api_error(self, 401, "登录后可以播放。")
+            return
         row = query_one(
             """SELECT title, source_type, source_id
                FROM site_music WHERE id = ?""",
@@ -11575,9 +11928,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return 0
         return identity.get("user_id")
 
-    def book_payload(self, row, user_id=None):
+    def book_payload(self, row, user_id=None, can_read=True):
         item = dict(row)
-        item["file_url"] = f"/api/books/{item['id']}/content"
+        if can_read:
+            item["file_url"] = f"/api/books/{item['id']}/content"
+        else:
+            item.pop("file_url", None)
+        item["requires_login"] = not can_read
         item["cover_url"] = "/site-files/" + item["cover_path"] if item.get("cover_path") else ""
         item["progress"] = None
         if user_id is not None:
@@ -11597,7 +11954,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         is_admin = self.is_admin()
         items = []
         for row in rows:
-            item = self.book_payload(row, user_id)
+            item = self.book_payload(row, user_id, can_read=identity is not None)
             item["download_state"] = self.download_state(identity, "book", row["id"])
             if not is_admin:
                 item.pop("file_path", None)
@@ -13146,28 +13503,35 @@ class InventoryHandler(BaseHTTPRequestHandler):
         self.send_json(200, {"ok": True})
 
     def api_site_message_file(self, path):
-        """留言附件：已通过的对所有人开放，待审核的只有上传者和管理员可见。"""
+        """留言附件：登录账号可看已通过留言，作者和管理员可看待审附件。"""
         file_id = int(path.rsplit("/", 1)[1])
         row = query_one(
-            "SELECT * FROM site_message_files WHERE id = ?", (file_id,)
+            """SELECT f.*, m.status AS message_status, m.user_id AS message_user_id
+               FROM site_message_files f
+               LEFT JOIN site_messages m ON m.id = f.message_id
+               WHERE f.id = ?""",
+            (file_id,),
         )
         if not row:
             api_error(self, 404, "附件不存在。")
             return
         identity = self.session_identity()
+        if not identity:
+            api_error(self, 401, "登录后才可以查看留言附件。")
+            return
         is_admin = self.is_admin()
-        status = row.get("status") or "approved"
-        if status != "approved" and not is_admin:
-            viewer_id = None
-            if identity:
-                viewer_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
-            if viewer_id is None or row.get("uploaded_by") is None or row["uploaded_by"] != viewer_id:
+        viewer_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
+        owned = bool(
+            row.get("uploaded_by") == viewer_id
+            or row.get("message_user_id") == viewer_id
+        )
+        approved = (
+            (row.get("status") or "approved") == "approved"
+            and (row.get("message_status") or "approved") == "approved"
+        )
+        if not approved and not is_admin:
+            if not owned:
                 api_error(self, 403, "附件正在审核中。")
-                return
-        if identity is None:
-            extension = os.path.splitext(row.get("file_name") or "")[1].lower()
-            if extension not in MESSAGE_IMAGE_EXTENSIONS:
-                api_error(self, 403, "登录后才可以查看这个附件。")
                 return
         self.send_data_file(row["file_path"])
 
@@ -13191,6 +13555,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )
         items = []
         for row in rows:
+            if not viewer_signed_in and row["action"] in (
+                "message_create",
+                "message_reply",
+                "moment_create",
+                "moment_update",
+            ):
+                continue
             kind = str(row.get("actor_kind") or "guest")
             user_id = int(row.get("user_id") or 0)
             if kind not in ("owner", "admin", "member") or (kind == "member" and user_id <= 0):
@@ -13255,22 +13626,48 @@ class InventoryHandler(BaseHTTPRequestHandler):
                         "alert": True,
                     },
                 )
-            pending_files = query_one(
-                "SELECT COUNT(*) AS n FROM site_message_files WHERE status = 'pending'"
+            pending_messages = query_one(
+                """SELECT COUNT(*) AS n FROM site_messages
+                   WHERE parent_id IS NULL AND status = 'pending'"""
             )["n"]
-            if pending_files:
-                newest_file = query_one(
-                    """SELECT created_at FROM site_message_files
+            pending_legacy = query_one(
+                """SELECT COUNT(*) AS n FROM site_message_files f
+                   JOIN site_messages m ON m.id = f.message_id
+                   WHERE f.status = 'pending' AND m.parent_id IS NULL
+                     AND m.status = 'approved'"""
+            )["n"]
+            pending_reviews = int(pending_messages) + int(pending_legacy)
+            if pending_reviews:
+                newest_pending = query_one(
+                    """SELECT created_at FROM site_messages
+                       WHERE parent_id IS NULL AND status = 'pending'
+                       ORDER BY id DESC LIMIT 1"""
+                )
+                items.append(
+                    {
+                        "id": "message-review-alert",
+                        "created_at": (newest_pending or {}).get("created_at") or now_text(),
+                        "actor": "管理员",
+                        "text": f"有 {pending_reviews} 条留言待审核",
+                        "alert": True,
+                    },
+                )
+            pending_reports = query_one(
+                "SELECT COUNT(*) AS n FROM content_reports WHERE status = 'pending'"
+            )["n"]
+            if pending_reports:
+                newest_report = query_one(
+                    """SELECT created_at FROM content_reports
                        WHERE status = 'pending' ORDER BY id DESC LIMIT 1"""
                 )
                 items.append(
                     {
-                        "id": "attachment-alert",
-                        "created_at": (newest_file or {}).get("created_at") or now_text(),
+                        "id": "report-alert",
+                        "created_at": (newest_report or {}).get("created_at") or now_text(),
                         "actor": "管理员",
-                        "text": f"有 {int(pending_files)} 个待审核附件",
+                        "text": f"有 {int(pending_reports)} 个待处理举报",
                         "alert": True,
-                    },
+                    }
                 )
             pending_downloads = query_one(
                 "SELECT COUNT(*) AS n FROM download_requests WHERE status = 'pending'"
@@ -13338,25 +13735,333 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )
         self.send_json(200, {"ok": True, "recorded": True})
 
-    # ---------- 内容审核（管理员） ----------
+    def report_target(self, target_type, target_key, identity):
+        """校验举报对象并返回可长期保存的内容快照。"""
+        target_type = str(target_type or "").strip()
+        target_key = str(target_key or "").strip()[:80]
+        if target_type not in REPORT_TARGET_TYPES or not target_key:
+            raise ValueError("举报对象不正确。")
+        if target_type in REPORT_LOGIN_REQUIRED_TARGETS and not identity:
+            raise PermissionError("登录后可以举报留言和动态。")
+
+        if target_type == "message":
+            if not target_key.isdigit():
+                raise ValueError("举报对象不正确。")
+            row = query_one(
+                """SELECT id, nickname, content, status, created_at
+                   FROM site_messages WHERE id = ?""",
+                (int(target_key),),
+            )
+            if not row:
+                raise LookupError("留言不存在。")
+            if row.get("status") != "approved":
+                raise ValueError("只能举报已经审核通过的留言。")
+            return (
+                f"留言 #{row['id']}",
+                {
+                    "id": row["id"],
+                    "nickname": row.get("nickname") or "",
+                    "content": str(row.get("content") or "")[:1000],
+                    "created_at": row.get("created_at") or "",
+                    "status": row.get("status") or "",
+                },
+            )
+
+        if target_type == "moment":
+            if not target_key.isdigit():
+                raise ValueError("举报对象不正确。")
+            row = query_one(
+                "SELECT id, content, tags, created_at FROM moments WHERE id = ?",
+                (int(target_key),),
+            )
+            if not row:
+                raise LookupError("动态不存在。")
+            return (
+                f"动态 #{row['id']}",
+                {
+                    "id": row["id"],
+                    "content": str(row.get("content") or "")[:2000],
+                    "tags": row.get("tags") or "",
+                    "created_at": row.get("created_at") or "",
+                },
+            )
+
+        if target_type == "game":
+            games = {
+                "gomoku": "五子棋",
+                "2048": "2048",
+                "minesweeper": "扫雷",
+                "memory": "记忆翻牌",
+            }
+            if target_key not in games:
+                raise ValueError("举报对象不正确。")
+            return (games[target_key], {"slug": target_key, "title": games[target_key]})
+
+        if target_type == "book":
+            if not target_key.isdigit():
+                raise ValueError("举报对象不正确。")
+            row = query_one(
+                """SELECT id, title, author, description, format, created_at
+                   FROM books WHERE id = ?""",
+                (int(target_key),),
+            )
+            if not row:
+                raise LookupError("电子书不存在。")
+            return (
+                str(row.get("title") or f"电子书 #{row['id']}")[:160],
+                {
+                    "id": row["id"],
+                    "title": row.get("title") or "",
+                    "author": row.get("author") or "",
+                    "description": str(row.get("description") or "")[:1000],
+                    "format": row.get("format") or "",
+                    "created_at": row.get("created_at") or "",
+                },
+            )
+
+        if target_type == "recommendation":
+            if not target_key.isdigit():
+                raise ValueError("举报对象不正确。")
+            row = query_one(
+                """SELECT id, kind, title, subtitle, description, created_at
+                   FROM recommendations WHERE id = ?""",
+                (int(target_key),),
+            )
+            if not row:
+                raise LookupError("推荐内容不存在。")
+            return (
+                str(row.get("title") or f"推荐 #{row['id']}")[:160],
+                {
+                    "id": row["id"],
+                    "kind": row.get("kind") or "",
+                    "title": row.get("title") or "",
+                    "subtitle": row.get("subtitle") or "",
+                    "description": str(row.get("description") or "")[:1000],
+                    "created_at": row.get("created_at") or "",
+                },
+            )
+        raise ValueError("举报对象不正确。")
+
+    def api_site_report_create(self, payload):
+        if not rate_allow("site_report", self.client_ip(), 10, 3600):
+            api_error(self, 429, "举报提交过于频繁，请稍后再试。")
+            return
+        identity = self.session_identity()
+        target_type = str(payload.get("target_type") or "").strip()
+        target_key = str(payload.get("target_key") or payload.get("target_id") or "").strip()
+        reason = str(payload.get("reason") or "").strip()
+        detail = str(payload.get("detail") or "").strip()[:1000]
+        contact = str(payload.get("contact") or "").strip()[:200]
+        if reason not in REPORT_REASONS:
+            api_error(self, 400, "请选择举报理由。")
+            return
+        try:
+            target_title, snapshot = self.report_target(target_type, target_key, identity)
+        except PermissionError as exc:
+            api_error(self, 401, str(exc))
+            return
+        except LookupError as exc:
+            api_error(self, 404, str(exc))
+            return
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        reporter_user_id = (
+            0
+            if identity and identity.get("kind") == "owner"
+            else int((identity or {}).get("user_id") or 0)
+        )
+        if identity:
+            reporter_name = self.notification_actor_name(identity)
+        else:
+            reporter_name = "游客"
+        cutoff = (datetime.now() - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+        if reporter_user_id:
+            duplicate = query_one(
+                """SELECT id FROM content_reports
+                   WHERE target_type = ? AND target_key = ?
+                     AND reporter_user_id = ? AND created_at >= ?""",
+                (target_type, target_key, reporter_user_id, cutoff),
+            )
+        else:
+            duplicate = query_one(
+                """SELECT id FROM content_reports
+                   WHERE target_type = ? AND target_key = ?
+                     AND ip = ? AND created_at >= ?""",
+                (target_type, target_key, self.client_ip(), cutoff),
+            )
+        if duplicate:
+            api_error(self, 429, "同一内容 24 小时内无需重复举报。")
+            return
+        client_ip = self.client_ip()
+        region = lookup_ip_region(client_ip) if client_ip else ""
+        report_id = execute(
+            """INSERT INTO content_reports
+                   (target_type, target_key, target_title, target_snapshot,
+                    reporter_user_id, reporter_name, reason, detail, contact,
+                    ip, ip_region, user_agent, client_platform, status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)""",
+            (
+                target_type,
+                target_key,
+                target_title,
+                json.dumps(snapshot, ensure_ascii=False),
+                reporter_user_id,
+                reporter_name,
+                reason,
+                detail or None,
+                contact or None,
+                client_ip,
+                region,
+                self.headers.get("User-Agent") or "",
+                self.client_platform(),
+                now_text(),
+            ),
+        )
+        self.log_activity(
+            "report_create",
+            f"举报{REPORT_TARGET_LABELS.get(target_type, target_type)}：{target_title}",
+            target_type=f"report_{target_type}",
+            target_id=report_id,
+            actor=identity,
+            ip=client_ip,
+            ip_region=region,
+        )
+        notify_async(
+            "report",
+            "Error酱：收到新的内容举报",
+            f"{reporter_name} 举报了{REPORT_TARGET_LABELS.get(target_type, target_type)}「{target_title}」，"
+            "请到工作台「举报处理」查看。",
+            "/workbench?view=reports",
+        )
+        self.send_json(200, {"id": report_id, "status": "pending"})
+
+    def admin_report_payload(self, row):
+        item = dict(row)
+        try:
+            item["target_snapshot_data"] = json.loads(item.get("target_snapshot") or "{}")
+        except json.JSONDecodeError:
+            item["target_snapshot_data"] = {}
+        created = str(item.get("created_at") or "")
+        item["overdue"] = bool(
+            item.get("status") == "pending"
+            and created
+            and created
+            <= (datetime.now() - timedelta(hours=REPORT_SLA_HOURS)).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+        )
+        item["sla_hours"] = REPORT_SLA_HOURS
+        return item
+
+    def api_admin_reports(self, params):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以处理举报。")
+            return
+        status_filter = str((params.get("status") or ["pending"])[0] or "pending").strip()
+        if status_filter not in ("pending", "resolved", "dismissed", "all"):
+            status_filter = "pending"
+        where = ""
+        values = ()
+        if status_filter != "all":
+            where = "WHERE status = ?"
+            values = (status_filter,)
+        rows = query(
+            f"""SELECT * FROM content_reports
+                {where}
+                ORDER BY CASE WHEN status = 'pending' THEN 0 ELSE 1 END,
+                         created_at DESC, id DESC
+                LIMIT 300""",
+            values,
+        )
+        counts = {
+            row["status"]: int(row["n"])
+            for row in query(
+                "SELECT status, COUNT(*) AS n FROM content_reports GROUP BY status"
+            )
+        }
+        self.send_json(
+            200,
+            {
+                "reports": [self.admin_report_payload(row) for row in rows],
+                "counts": counts,
+                "pending": int(counts.get("pending") or 0),
+                "status": status_filter,
+            },
+        )
+
+    def api_admin_report_action(self, path, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以处理举报。")
+            return
+        report_id = int(path.rstrip("/").rsplit("/", 1)[-1])
+        row = query_one("SELECT * FROM content_reports WHERE id = ?", (report_id,))
+        if not row:
+            api_error(self, 404, "举报记录不存在。")
+            return
+        action = str(payload.get("action") or "").strip()
+        if action not in ("resolve", "dismiss", "reopen"):
+            api_error(self, 400, "未知处理操作。")
+            return
+        identity = self.session_identity()
+        reviewer = (identity or {}).get("nickname") or "管理员"
+        status = {
+            "resolve": "resolved",
+            "dismiss": "dismissed",
+            "reopen": "pending",
+        }[action]
+        resolution = str(payload.get("resolution") or "").strip()[:1000]
+        execute(
+            """UPDATE content_reports
+               SET status = ?, handled_by = ?, handled_at = ?, resolution = ?,
+                   reminded_at = CASE WHEN ? = 'pending' THEN NULL ELSE reminded_at END
+               WHERE id = ?""",
+            (
+                status,
+                reviewer if status != "pending" else None,
+                now_text() if status != "pending" else None,
+                resolution or None,
+                status,
+                report_id,
+            ),
+        )
+        write_audit(
+            identity,
+            f"report_{status}",
+            resolution or row.get("target_title") or "",
+            {"id": report_id, "nickname": row.get("target_title") or ""},
+        )
+        self.log_activity(
+            f"report_{status}",
+            f"处理举报 #{report_id}：{row.get('target_title') or ''}",
+            target_type="report",
+            target_id=report_id,
+        )
+        self.send_json(200, {"ok": True, "status": status})
+
+    # ---------- 留言审核（管理员） ----------
     def api_admin_review(self, params):
         if not self.is_admin():
             api_error(self, 403, "只有管理员可以查看审核队列。")
             return
         status_filter = str((params.get("status") or ["pending"])[0] or "pending").strip()
-        if status_filter not in ("pending", "approved"):
+        if status_filter not in ("pending", "approved", "rejected", "all"):
             status_filter = "pending"
+        where = "WHERE m.parent_id IS NULL"
+        values = ()
+        if status_filter != "all":
+            where += " AND m.status = ?"
+            values = (status_filter,)
         rows = query(
-            """SELECT f.id, f.message_id, f.file_name, f.file_size, f.mime_type,
-                      f.status, f.uploaded_by, f.created_at, f.reviewed_at, f.reviewed_by,
-                      m.nickname AS message_nickname, m.content AS message_content,
-                      m.created_at AS message_created_at, m.user_id AS message_user_id
-               FROM site_message_files f
-               LEFT JOIN site_messages m ON m.id = f.message_id
-               WHERE f.status = ?
-               ORDER BY f.id DESC
-               LIMIT 200""",
-            (status_filter,),
+            f"""SELECT m.id, m.nickname AS message_nickname, m.content AS message_content,
+                       m.user_id AS message_user_id, m.status, m.created_at,
+                       m.reviewed_by, m.reviewed_at, m.review_note
+                FROM site_messages m
+                {where}
+                ORDER BY CASE WHEN m.status = 'pending' THEN 0 ELSE 1 END,
+                         m.created_at DESC, m.id DESC
+                LIMIT 200""",
+            values,
         )
         author_ids = sorted(
             {
@@ -13373,7 +14078,32 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 tuple(author_ids),
             ):
                 authors[user["id"]] = user
+        files = self.site_message_files_map([row["id"] for row in rows])
         for row in rows:
+            row["message_author"] = self.message_display_name(
+                {
+                    "user_id": row.get("message_user_id"),
+                    "nickname": row.get("message_nickname"),
+                },
+                authors,
+                True,
+            )
+            row["files"] = files.get(row["id"], [])
+        legacy_rows = []
+        if status_filter in ("pending", "all"):
+            legacy_rows = query(
+                """SELECT f.id, f.message_id, f.file_name, f.file_size, f.mime_type,
+                          f.status, f.uploaded_by, f.created_at,
+                          m.nickname AS message_nickname, m.content AS message_content,
+                          m.created_at AS message_created_at, m.user_id AS message_user_id
+                   FROM site_message_files f
+                   JOIN site_messages m ON m.id = f.message_id
+                   WHERE f.status = 'pending' AND m.parent_id IS NULL
+                     AND m.status = 'approved'
+                   ORDER BY f.id DESC
+                   LIMIT 200"""
+            )
+        for row in legacy_rows:
             extension = os.path.splitext(row.get("file_name") or "")[1].lower()
             row["is_image"] = extension in MESSAGE_IMAGE_EXTENSIONS
             row["url"] = f"/api/site/message-files/{row['id']}"
@@ -13385,16 +14115,92 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 authors,
                 True,
             )
-        pending = query_one(
-            "SELECT COUNT(*) AS n FROM site_message_files WHERE status = 'pending'"
+        pending_messages = query_one(
+            "SELECT COUNT(*) AS n FROM site_messages WHERE parent_id IS NULL AND status = 'pending'"
         )["n"]
-        self.send_json(200, {"files": rows, "pending": pending})
+        pending_legacy = query_one(
+            """SELECT COUNT(*) AS n FROM site_message_files f
+               JOIN site_messages m ON m.id = f.message_id
+               WHERE f.status = 'pending' AND m.parent_id IS NULL
+                 AND m.status = 'approved'"""
+        )["n"]
+        pending = int(pending_messages) + int(pending_legacy)
+        self.send_json(
+            200,
+            {
+                "messages": rows,
+                "legacy_files": legacy_rows,
+                "pending": pending,
+            },
+        )
 
     def api_admin_review_action(self, path, payload):
         if not self.is_admin():
-            api_error(self, 403, "只有管理员可以审核附件。")
+            api_error(self, 403, "只有管理员可以审核留言。")
             return
-        file_id = int(path.split("/")[4])
+        message_id = int(path.split("/")[4])
+        row = query_one(
+            "SELECT * FROM site_messages WHERE id = ? AND parent_id IS NULL",
+            (message_id,),
+        )
+        if not row:
+            api_error(self, 404, "留言不存在。")
+            return
+        action = str(payload.get("action") or "").strip()
+        identity = self.session_identity()
+        reviewer = (identity or {}).get("nickname") or "管理员"
+        review_note = str(payload.get("review_note") or "").strip()[:500]
+        if action == "approve":
+            execute(
+                """UPDATE site_messages
+                   SET status = 'approved', reviewed_by = ?, reviewed_at = ?,
+                       review_note = NULL
+                   WHERE id = ?""",
+                (reviewer, now_text(), message_id),
+            )
+            execute(
+                """UPDATE site_message_files
+                   SET status = 'approved', reviewed_by = ?, reviewed_at = ?
+                   WHERE message_id = ?""",
+                (reviewer, now_text(), message_id),
+            )
+            write_audit(
+                identity,
+                "approve_message",
+                str(row.get("content") or "")[:200],
+                {"id": message_id, "nickname": row.get("nickname") or ""},
+            )
+            self.send_json(200, {"ok": True, "status": "approved"})
+            return
+        if action == "reject":
+            execute(
+                """UPDATE site_messages
+                   SET status = 'rejected', reviewed_by = ?, reviewed_at = ?,
+                       review_note = ?
+                   WHERE id = ?""",
+                (reviewer, now_text(), review_note or None, message_id),
+            )
+            execute(
+                """UPDATE site_message_files
+                   SET status = 'rejected', reviewed_by = ?, reviewed_at = ?
+                   WHERE message_id = ?""",
+                (reviewer, now_text(), message_id),
+            )
+            write_audit(
+                identity,
+                "reject_message",
+                review_note or str(row.get("content") or "")[:200],
+                {"id": message_id, "nickname": row.get("nickname") or ""},
+            )
+            self.send_json(200, {"ok": True, "status": "rejected"})
+            return
+        api_error(self, 400, "未知审核操作。")
+
+    def api_admin_review_file_action(self, path, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以审核留言附件。")
+            return
+        file_id = int(path.rstrip("/").rsplit("/", 1)[-1])
         row = query_one("SELECT * FROM site_message_files WHERE id = ?", (file_id,))
         if not row:
             api_error(self, 404, "附件不存在。")
@@ -13402,54 +14208,77 @@ class InventoryHandler(BaseHTTPRequestHandler):
         action = str(payload.get("action") or "").strip()
         identity = self.session_identity()
         reviewer = (identity or {}).get("nickname") or "管理员"
-        if action == "approve":
-            execute(
-                """UPDATE site_message_files
-                   SET status = 'approved', reviewed_by = ?, reviewed_at = ?
-                   WHERE id = ?""",
-                (reviewer, now_text(), file_id),
-            )
-            write_audit(
-                identity,
-                "approve_attachment",
-                row.get("file_name") or "",
-                {"id": row.get("message_id"), "nickname": row.get("file_name")},
-            )
-            self.send_json(200, {"ok": True, "status": "approved"})
+        if action not in ("approve", "reject"):
+            api_error(self, 400, "未知审核操作。")
             return
-        if action == "reject":
-            execute("DELETE FROM site_message_files WHERE id = ?", (file_id,))
-            remove_data_file(row.get("file_path"))
-            write_audit(
-                identity,
-                "reject_attachment",
-                row.get("file_name") or "",
-                {"id": row.get("message_id"), "nickname": row.get("file_name")},
-            )
-            self.send_json(200, {"ok": True, "status": "rejected"})
-            return
-        api_error(self, 400, "未知审核操作。")
+        status = "approved" if action == "approve" else "rejected"
+        execute(
+            """UPDATE site_message_files
+               SET status = ?, reviewed_by = ?, reviewed_at = ?
+               WHERE id = ?""",
+            (status, reviewer, now_text(), file_id),
+        )
+        write_audit(
+            identity,
+            f"{action}_legacy_attachment",
+            row.get("file_name") or "",
+            {"id": row.get("message_id"), "nickname": row.get("file_name") or ""},
+        )
+        self.send_json(200, {"ok": True, "status": status})
 
     def api_admin_review_all(self, payload):
         if not self.is_admin():
-            api_error(self, 403, "只有管理员可以审核附件。")
+            api_error(self, 403, "只有管理员可以审核留言。")
             return
         identity = self.session_identity()
         reviewer = (identity or {}).get("nickname") or "管理员"
-        rows = query("SELECT id FROM site_message_files WHERE status = 'pending'")
-        if not rows:
-            self.send_json(200, {"ok": True, "approved": 0})
-            return
         stamp = now_text()
-        for row in rows:
+        message_rows = query(
+            "SELECT id FROM site_messages WHERE parent_id IS NULL AND status = 'pending'"
+        )
+        for row in message_rows:
+            execute(
+                """UPDATE site_messages
+                   SET status = 'approved', reviewed_by = ?, reviewed_at = ?,
+                       review_note = NULL
+                   WHERE id = ?""",
+                (reviewer, stamp, row["id"]),
+            )
+            execute(
+                """UPDATE site_message_files
+                   SET status = 'approved', reviewed_by = ?, reviewed_at = ?
+                   WHERE message_id = ?""",
+                (reviewer, stamp, row["id"]),
+            )
+        legacy_rows = query(
+            """SELECT f.id FROM site_message_files f
+               JOIN site_messages m ON m.id = f.message_id
+               WHERE f.status = 'pending' AND m.parent_id IS NULL
+                 AND m.status = 'approved'"""
+        )
+        for row in legacy_rows:
             execute(
                 """UPDATE site_message_files
                    SET status = 'approved', reviewed_by = ?, reviewed_at = ?
                    WHERE id = ?""",
                 (reviewer, stamp, row["id"]),
             )
-        write_audit(identity, "approve_attachment_batch", f"批量通过 {len(rows)} 个附件")
-        self.send_json(200, {"ok": True, "approved": len(rows)})
+        total = len(message_rows) + len(legacy_rows)
+        if total:
+            write_audit(
+                identity,
+                "approve_message_batch",
+                f"批量通过 {len(message_rows)} 条留言、{len(legacy_rows)} 个旧附件",
+            )
+        self.send_json(
+            200,
+            {
+                "ok": True,
+                "approved": total,
+                "approved_messages": len(message_rows),
+                "approved_legacy_files": len(legacy_rows),
+            },
+        )
 
     def api_site_photo_delete(self, path):
         item_id = int(path.split("/")[4])
@@ -15299,6 +16128,9 @@ def main():
     start_access_log_worker()
     threading.Thread(
         target=logs_maintenance_loop, name="logs-cleanup", daemon=True
+    ).start()
+    threading.Thread(
+        target=report_reminder_loop, name="report-reminder", daemon=True
     ).start()
     server = ThreadingHTTPServer((HOST, PORT), InventoryHandler)
     print(f"电子元件库存系统已启动：http://127.0.0.1:{PORT}")

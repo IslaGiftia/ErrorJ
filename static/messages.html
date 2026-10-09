@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/static/messages.css">
   <link rel="stylesheet" href="/static/site/rain.css">
   <link rel="stylesheet" href="/static/site/progress.css">
+  <link rel="stylesheet" href="/static/site/report.css">
   <script>
     (function () {
       try {
@@ -34,6 +35,7 @@
       <strong>留言</strong>
     </a>
     <div class="mg-header-actions">
+      <a class="mg-link-btn" href="/reporting">举报与投诉</a>
       <span class="mg-count" id="messageCount"></span>
     </div>
   </header>
@@ -42,7 +44,7 @@
     <main class="mg-main">
       <section class="mg-panel" id="messageComposerPanel" hidden>
         <h1>留言</h1>
-        <p class="mg-hint" id="messageUploadHint">文字、附件都行。单条最多 3 个附件，单个不超过 5MB；支持图片、PDF、文本，附件需要审核通过后其他人才能看到。</p>
+        <p class="mg-hint" id="messageUploadHint">文字、附件都行。单条最多 3 个附件，单个不超过 5MB；整条留言需要管理员审核通过后其他人才能看到。</p>
         <form id="messageForm">
           <div class="mg-field">
             <label for="msgContent">内容</label>
@@ -97,6 +99,7 @@
   <script src="/static/site/rain.js"></script>
   <script src="/static/site/progress.js"></script>
   <script src="/static/site/upload-limits.js"></script>
+  <script src="/static/site/report.js"></script>
   <script src="/static/messages.js"></script>
 
 </body>

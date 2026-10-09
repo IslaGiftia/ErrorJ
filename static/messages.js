@@ -31,7 +31,7 @@
         "文字、附件都行。单条最多 " + MAX_FILES + " 个附件，单个不超过 " +
         window.ErrorUploadLimits.label(MAX_FILE_BYTES) +
         "（合计 " + window.ErrorUploadLimits.label(MAX_TOTAL_BYTES) +
-        "）；支持图片、PDF、文本，附件需要审核通过后其他人才能看到。";
+        "）；支持图片、PDF、文本，整条留言和附件审核通过后其他人才能看到。";
     }
   }
 
@@ -359,7 +359,7 @@
       renderPending();
       toast(
         result && result.pending_review
-          ? "留言已发布，附件审核通过后其他人才能看到"
+          ? "留言已发布，待管理员审核通过后其他人才能看到"
           : "留言已发布"
       );
       if (result && result.daily_limit) {
@@ -693,6 +693,11 @@
     if (message.region) {
       head.appendChild(el("span", "mg-region", "IP 属地：" + message.region));
     }
+    if (message.pending_review) {
+      head.appendChild(el("span", "mg-status is-pending", "待审核"));
+    } else if (message.rejected) {
+      head.appendChild(el("span", "mg-status is-rejected", "未通过审核"));
+    }
     item.appendChild(head);
     if (message.content) {
       item.appendChild(el("p", "mg-text", message.content));
@@ -701,33 +706,49 @@
     if (files.length) {
       item.appendChild(buildFiles(files));
     }
-    item.appendChild(buildLikeControl("message", message));
+    if (!message.pending_review && !message.rejected) {
+      item.appendChild(buildLikeControl("message", message));
+    }
 
     var repliesBox = el("div", "mg-replies");
     var rootForm = null;
     var deleteBtn = null;
     if (canPost) {
       var actions = el("div", "mg-item-actions");
-      var replyBtn = el("button", "mg-link-btn", "回复");
-      replyBtn.type = "button";
-      actions.append(replyBtn);
+      var replyBtn = null;
+      if (message.can_reply) {
+        replyBtn = el("button", "mg-link-btn", "回复");
+        replyBtn.type = "button";
+        actions.append(replyBtn);
+      }
+      if (message.status === "approved") {
+        var reportBtn = el("button", "mg-link-btn", "举报");
+        reportBtn.type = "button";
+        reportBtn.setAttribute("data-report-type", "message");
+        reportBtn.setAttribute("data-report-key", message.id);
+        reportBtn.setAttribute("data-report-title", "留言：" + (message.content || "").slice(0, 40));
+        reportBtn.setAttribute("data-report-login", "1");
+        actions.append(reportBtn);
+      }
       if (message.can_delete) {
         deleteBtn = el("button", "mg-link-btn is-danger", "删除");
         deleteBtn.type = "button";
         actions.append(deleteBtn);
       }
       item.appendChild(actions);
-      rootForm = buildReplyForm(
-        message.id,
-        "回复 " + (message.nickname || "这条留言") + "…"
-      );
-      replyBtn.addEventListener("click", function () {
-        rootForm.hidden = !rootForm.hidden;
-        if (!rootForm.hidden) {
-          var area = rootForm.querySelector("textarea");
-          if (area) area.focus();
-        }
-      });
+      if (replyBtn) {
+        rootForm = buildReplyForm(
+          message.id,
+          "回复 " + (message.nickname || "这条留言") + "…"
+        );
+        replyBtn.addEventListener("click", function () {
+          rootForm.hidden = !rootForm.hidden;
+          if (!rootForm.hidden) {
+            var area = rootForm.querySelector("textarea");
+            if (area) area.focus();
+          }
+        });
+      }
     }
     (message.replies || []).forEach(function (reply) {
       var row = el("div", "mg-reply " + (reply.can_save ? "can-save" : "no-save"));
@@ -795,6 +816,7 @@
   }
 
   function loadMessages() {
+    var list = $("messageList");
     var targetsRequest = canPost
       ? api("/api/site/messages/unread")
           .then(function (data) {
@@ -807,7 +829,22 @@
     return Promise.all([api("/api/site/messages"), targetsRequest]).then(function (
       result
     ) {
-      latestMessageRows = result[0];
+      var payload = result[0] || {};
+      if (payload.requires_login) {
+        latestMessageRows = [];
+        $("messageCount").textContent = "";
+        list.innerHTML = "";
+        var locked = el("div", "mg-locked");
+        locked.appendChild(el("i", "mg-locked-icon", "🔒"));
+        locked.appendChild(el("strong", "", "登录后查看留言"));
+        locked.appendChild(el("p", "", "留言内容仅向经管理员审核通过的登录账号开放。"));
+        var login = el("a", "mg-btn mg-btn-primary", "前往登录");
+        login.href = "/login?next=" + encodeURIComponent("/messages");
+        locked.appendChild(login);
+        list.appendChild(locked);
+        return;
+      }
+      latestMessageRows = Array.isArray(payload) ? payload : (payload.messages || []);
       freshTargets = {};
       (result[1] || []).forEach(function (id) {
         freshTargets[String(id)] = true;
@@ -849,7 +886,7 @@
         "没有符合条件的留言。"
       );
     }
-    return canPost ? "还没有留言，来说点什么吧。" : "还没有留言。";
+    return canPost ? "还没有留言，来说点什么吧。" : "登录后查看留言。";
   }
 
   function messageMatchesFilter(row) {

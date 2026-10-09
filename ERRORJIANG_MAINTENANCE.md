@@ -994,6 +994,22 @@ tail -n 100 /var/log/nginx/access.log
 tail -n 100 /var/log/nginx/error.log
 ```
 
+合规部署时建议启用独立日志文件并保留 180 天：
+
+```bash
+sudo cp deploy/nginx-errorjiang-logging.conf /etc/nginx/conf.d/errorjiang-logging.conf
+sudo cp deploy/errorjiang-logrotate.conf /etc/logrotate.d/errorjiang
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+之后查看：
+
+```bash
+tail -n 100 /var/log/nginx/errorjiang.access.log
+tail -n 100 /var/log/nginx/errorjiang.error.log
+```
+
 ## 15. 常见问题处理
 
 ### 15.1 重启后立即 curl 提示 Connection refused

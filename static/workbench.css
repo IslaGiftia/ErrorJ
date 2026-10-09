@@ -1150,7 +1150,7 @@ svg {
   }
 }
 
-/* ---------- 内容审核 ---------- */
+/* ---------- 留言审核与举报处理 ---------- */
 .wb-review-grid {
   display: flex;
   flex-direction: column;
@@ -1254,6 +1254,39 @@ svg {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+}
+
+.wb-report-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--wb-muted);
+  font-size: 12px;
+}
+
+.wb-report-files {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.wb-report-snapshot {
+  max-height: 220px;
+  overflow: auto;
+  margin: 12px 0 0;
+  padding: 10px;
+  border: 1px solid var(--wb-line);
+  border-radius: 7px;
+  background: var(--wb-bg);
+  color: var(--wb-muted);
+  font: 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+.wb-chip-danger {
+  border-color: rgba(213, 72, 85, 0.35);
+  background: rgba(213, 72, 85, 0.1);
+  color: #d54855;
 }
 
 @media (max-width: 640px) {

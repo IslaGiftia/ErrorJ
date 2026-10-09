@@ -228,9 +228,12 @@
           '<li class="mu-row' +
           (active ? " is-active" : "") +
           (active && playing ? " is-playing" : "") +
-          '" data-music-play="' +
-          track.id +
-          '" role="button" tabindex="0" aria-label="播放 ' +
+          '" ' +
+          (state.authenticated
+            ? 'data-music-play="' + track.id + '"'
+            : 'data-music-locked="' + track.id + '"') +
+          ' role="button" tabindex="0" aria-label="' +
+          (state.authenticated ? "播放 " : "登录后播放 ") +
           esc(track.title) +
           '">' +
           '<span class="mu-row-index">' +
@@ -804,6 +807,7 @@
       renderList();
       renderPlayer();
       if (!state.currentId && state.tracks.length) {
+        if (!state.authenticated) return;
         var last = null;
         try {
           last = Number(localStorage.getItem(LAST_KEY) || 0);
@@ -826,11 +830,20 @@
         state.canManage = Boolean(status.owner);
         state.authenticated = Boolean(status.authenticated);
         $("musicUploadBtn").hidden = !state.canManage;
+        $("playerBar").hidden = !state.authenticated;
+        if (!state.authenticated) {
+          audio.pause();
+          audio.removeAttribute("src");
+          audio.load();
+          state.currentId = null;
+        }
+        renderPlayer();
         renderList();
       })
       .catch(function () {
         state.canManage = false;
         state.authenticated = false;
+        $("playerBar").hidden = true;
       });
   }
 
@@ -947,6 +960,7 @@
   });
 
   $("musicList").addEventListener("click", function (event) {
+    if (event.target.closest("[data-report-type]")) return;
     var clear = event.target.closest("[data-search-clear]");
     if (clear) {
       clearSearch();
@@ -996,12 +1010,18 @@
     }
     var row = event.target.closest("[data-music-play]");
     if (row) playTrack(Number(row.getAttribute("data-music-play")), true);
+    var locked = event.target.closest("[data-music-locked]");
+    if (locked) toast("登录后可以播放");
   });
 
   $("musicList").addEventListener("keydown", function (event) {
     if (event.key !== "Enter" && event.key !== " ") return;
     var row = event.target.closest("[data-music-play]");
-    if (!row) return;
+    if (!row) {
+      var locked = event.target.closest("[data-music-locked]");
+      if (locked) toast("登录后可以播放");
+      return;
+    }
     event.preventDefault();
     playTrack(Number(row.getAttribute("data-music-play")), true);
   });

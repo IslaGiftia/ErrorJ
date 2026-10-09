@@ -924,6 +924,40 @@ button.mo-share:hover {
   user-select: none;
 }
 
+.mo-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mo-item-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.mo-locked {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px dashed var(--mo-border);
+  border-radius: 8px;
+  color: var(--mo-muted);
+}
+
+.mo-locked strong {
+  color: var(--mo-text);
+}
+
+.mo-locked p {
+  margin: 0;
+  line-height: 1.7;
+}
+
+.mo-locked .mo-btn {
+  justify-self: start;
+}
+
 @media (max-width: 640px) {
   .mo-app {
     padding: 0 12px 48px;

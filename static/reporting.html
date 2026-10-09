@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <title>举报与投诉 - Error酱</title>
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
+  <link rel="stylesheet" href="/static/fonts.css">
+  <link rel="stylesheet" href="/static/site/report.css">
+</head>
+<body class="report-page">
+  <main>
+    <a class="report-back" href="/">返回 Error酱首页</a>
+    <h1>举报与投诉</h1>
+    <p>如发现 Error酱 页面存在违法违规、色情低俗、暴力恐怖、诈骗广告、侵权或隐私问题，可以通过页面举报按钮或举报邮箱反馈。</p>
+
+    <h2>举报方式</h2>
+    <p>举报邮箱：<a href="mailto:2873523107@qq.com">2873523107@qq.com</a></p>
+    <p>留言、动态、游戏、书籍和推荐页面均提供逐项举报入口。留言和动态举报要求登录；游戏、书籍和推荐允许游客举报。</p>
+
+    <h2>请提供的信息</h2>
+    <ul>
+      <li>具体页面地址或内容名称。</li>
+      <li>违规情况的简要说明。</li>
+      <li>可选的联系方式，便于处理需要补充信息时联系。</li>
+    </ul>
+
+    <h2>处理时限</h2>
+    <p>管理员收到举报后将在 24 小时内开始核实处理。确认违规的内容会立即隐藏、删除或停止提供，并保留举报和处理记录。</p>
+
+    <h2>恶意举报</h2>
+    <p>请如实举报。对明显重复、恶意或造谣式举报，管理员可以拒绝处理并保留相关日志。</p>
+  </main>
+</body>
+</html>

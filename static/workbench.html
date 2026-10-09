@@ -39,7 +39,8 @@
         <button type="button" data-view="repairs"><i data-lucide="clipboard-list"></i><span>维修台账</span></button>
         <button type="button" data-view="prompts"><i data-lucide="sparkles"></i><span>提示词</span></button>
         <button type="button" data-view="accounts"><i data-lucide="shield-check"></i><span>账号权限</span><em class="wb-nav-badge" id="accountsNavBadge" hidden></em></button>
-        <button type="button" data-view="review"><i data-lucide="inbox"></i><span>内容审核</span><em class="wb-nav-badge" id="reviewNavBadge" hidden></em></button>
+        <button type="button" data-view="review"><i data-lucide="inbox"></i><span>留言审核</span><em class="wb-nav-badge" id="reviewNavBadge" hidden></em></button>
+        <button type="button" data-view="reports"><i data-lucide="flag"></i><span>举报处理</span><em class="wb-nav-badge" id="reportsNavBadge" hidden></em></button>
         <button type="button" data-view="downloads"><i data-lucide="download"></i><span>下载申请</span><em class="wb-nav-badge" id="downloadsNavBadge" hidden></em></button>
         <button type="button" data-view="uploads"><i data-lucide="sliders-horizontal"></i><span>上传限制</span></button>
         <button type="button" data-view="logs"><i data-lucide="scroll-text"></i><span>日志</span></button>
@@ -185,8 +186,8 @@
       <section class="wb-view" id="view-review" hidden>
         <div class="wb-page-head">
           <div>
-            <h1>内容审核</h1>
-            <p>留言附件审核通过后，游客和普通账户才能看到；拒绝会直接删除文件。</p>
+            <h1>留言审核</h1>
+            <p>留言正文和附件一起审核；通过后登录账号可见，拒绝会保留记录但不再公开展示。</p>
           </div>
           <div class="wb-inline">
             <button class="wb-btn" id="reviewRefreshBtn" type="button">
@@ -198,6 +199,25 @@
           </div>
         </div>
         <div class="wb-account-panel" id="reviewPanel"></div>
+      </section>
+
+      <section class="wb-view" id="view-reports" hidden>
+        <div class="wb-page-head">
+          <div>
+            <h1>举报处理</h1>
+            <p>举报记录保留内容快照；管理员需在 24 小时内开始核实处理。</p>
+          </div>
+          <button class="wb-btn" id="reportsRefreshBtn" type="button">
+            <i data-lucide="refresh-cw"></i><span>刷新</span>
+          </button>
+        </div>
+        <div class="wb-tabs" id="reportTabs">
+          <button class="active" type="button" data-report-status="pending">待处理 <em id="reportPendingCount">0</em></button>
+          <button type="button" data-report-status="resolved">已处理</button>
+          <button type="button" data-report-status="dismissed">已驳回</button>
+          <button type="button" data-report-status="all">全部</button>
+        </div>
+        <div class="wb-account-panel" id="reportsPanel"></div>
       </section>
 
       <section class="wb-view" id="view-downloads" hidden>
@@ -235,7 +255,7 @@
         <div class="wb-page-head">
           <div>
             <h1>日志</h1>
-            <p>站点访问、内容事件、管理审计和推送记录；明细按保留期自动清理（默认 29 天）。</p>
+            <p>站点访问、内容事件、管理审计和推送记录；网络与操作明细按保留期自动清理（默认 180 天）。</p>
           </div>
           <button class="wb-btn" id="logRefreshBtn" type="button">
             <i data-lucide="refresh-cw"></i><span>刷新</span>
