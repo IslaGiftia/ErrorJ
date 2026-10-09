@@ -7,6 +7,7 @@
   var dock = document.getElementById("mapDock");
   var holder = document.getElementById("mapDockMini");
   var countEl = document.getElementById("mapDockCount");
+  var badgeEl = document.getElementById("mapDockBadge");
   if (!dock || !holder || typeof L === "undefined") return;
 
   // 默认使用静态底图占位，只有地图接口确认有权限后才加载真实底图。
@@ -161,6 +162,8 @@
   var serverSignedIn = false;
   var serverUnseenId = 0;
   var serverUnseenCount = 0;
+  var serverNotifyIds = [];
+  var serverNotifyCount = 0;
 
   mini.setView(
     savedView ? [savedView.lat, savedView.lng] : [34.3416, 108.9398],
@@ -238,13 +241,41 @@
         if (id > newestNewId) newestNewId = id;
       });
     }
+    var notifiedId = serverNotifyIds.length
+      ? Math.max.apply(null, serverNotifyIds)
+      : 0;
+    var totalCount = newCount + serverNotifyCount;
+    if (!newestNewId && notifiedId) newestNewId = notifiedId;
     if (dock) {
       dock.classList.toggle("has-pending", newestNewId > 0);
       dock.href = newestNewId > 0 ? "/map?place=" + newestNewId : "/map";
     }
+    if (countEl) {
+      if (totalCount > 0) {
+        countEl.textContent = totalCount + " 条提醒";
+        countEl.hidden = false;
+      } else if (places.length) {
+        countEl.textContent = places.length + " 个标记";
+        countEl.hidden = false;
+      } else {
+        countEl.hidden = true;
+      }
+    }
+    if (badgeEl) {
+      if (totalCount > 0) {
+        badgeEl.textContent = totalCount > 99 ? "99+" : String(totalCount);
+        badgeEl.hidden = false;
+      } else {
+        badgeEl.hidden = true;
+      }
+    }
     window.dispatchEvent(
       new CustomEvent("errordockstats", {
-        detail: { places: places.length, newPlaces: newCount }
+        detail: {
+          places: places.length,
+          newPlaces: newCount,
+          notifications: serverNotifyCount
+        }
       })
     );
   }
@@ -275,6 +306,10 @@
         serverSignedIn = Boolean(data.signed_in);
         serverUnseenId = Number(data.newest_unseen_id) || 0;
         serverUnseenCount = Number(data.unseen_count) || 0;
+        serverNotifyIds = Array.isArray(data.notify_targets)
+          ? data.notify_targets.map(Number).filter(function (id) { return id > 0; })
+          : [];
+        serverNotifyCount = Number(data.notify_count) || serverNotifyIds.length;
         colorById = {};
         (data.categories || []).forEach(function (cat) {
           colorById[cat.id] = cat.color || "#7b68ee";
@@ -284,14 +319,6 @@
         renderDots();
         if (!savedView && places.length) fitAll();
         updateDockPending();
-        if (countEl) {
-          if (places.length) {
-            countEl.textContent = places.length + " 个标记";
-            countEl.hidden = false;
-          } else {
-            countEl.hidden = true;
-          }
-        }
         mini.invalidateSize();
       })
       .catch(function (err) {
@@ -307,8 +334,11 @@
           dockBlocked = err.status;
           dock.classList.remove("has-pending");
           dock.href = "/map";
+          serverNotifyIds = [];
+          serverNotifyCount = 0;
         }
         if (countEl) countEl.hidden = true;
+        if (badgeEl) badgeEl.hidden = true;
       });
   }
 

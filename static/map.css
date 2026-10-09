@@ -692,6 +692,28 @@ body {
   border: 0;
 }
 
+.mp-marker.is-fresh .mp-pin-head {
+  animation: mpPinPulse 2.4s ease-in-out infinite;
+}
+
+@keyframes mpPinPulse {
+  0%,
+  100% {
+    box-shadow: 0 3px 8px rgba(15, 20, 30, 0.35);
+  }
+  50% {
+    box-shadow:
+      0 0 0 5px color-mix(in srgb, var(--pin-color, #7b68ee) 35%, transparent),
+      0 0 18px color-mix(in srgb, var(--pin-color, #7b68ee) 65%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-marker.is-fresh .mp-pin-head {
+    animation: none;
+  }
+}
+
 .mp-pin {
   position: relative;
   display: block;
@@ -961,6 +983,36 @@ body {
 
 .mp-link-btn.is-danger {
   color: var(--mp-danger);
+}
+
+.mp-react-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--mp-border);
+  border-radius: 8px;
+  background: var(--mp-surface);
+  color: var(--mp-text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mp-react-btn:hover {
+  background: var(--mp-hover);
+}
+
+.mp-react-btn.is-on {
+  border-color: color-mix(in srgb, var(--primary, #7b68ee) 55%, var(--mp-border));
+  background: color-mix(in srgb, var(--primary, #7b68ee) 12%, var(--mp-surface));
+  color: var(--primary, #7b68ee);
+}
+
+.mp-react-btn:disabled {
+  cursor: default;
+  opacity: 0.7;
 }
 
 /* ---------- leaflet controls ---------- */

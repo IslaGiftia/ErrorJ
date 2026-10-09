@@ -820,6 +820,29 @@
       html += '<p class="mp-popup-by">添加者：' + esc(place.created_by_name) + "</p>";
     }
     html += '<div class="mp-popup-actions">';
+    var likeLabel = place.like_count > 0 ? "点赞 " + place.like_count : "点赞";
+    var checkinLabel =
+      place.checkin_count > 0 ? "已去过 " + place.checkin_count : "已去过";
+    html +=
+      '<button type="button" class="mp-react-btn' +
+      (place.liked ? " is-on" : "") +
+      '" data-mp-react="like" data-mp-id="' +
+      place.id +
+      '" aria-pressed="' +
+      (place.liked ? "true" : "false") +
+      '" title="点赞这个标记点">♡<span>' +
+      likeLabel +
+      "</span></button>";
+    html +=
+      '<button type="button" class="mp-react-btn' +
+      (place.checked_in ? " is-on" : "") +
+      '" data-mp-react="checkin" data-mp-id="' +
+      place.id +
+      '" aria-pressed="' +
+      (place.checked_in ? "true" : "false") +
+      '" title="标记为已去过">✓<span>' +
+      checkinLabel +
+      "</span></button>";
     html +=
       '<a class="mp-link-btn" target="_blank" rel="noopener" href="https://uri.amap.com/marker?position=' +
       gcj[1].toFixed(6) +
@@ -857,7 +880,7 @@
     var color = placeColor(place);
     var ink = lum(color) > 0.36 ? "#2b2d42" : "#ffffff";
     var icon = L.divIcon({
-      className: "mp-marker",
+      className: "mp-marker" + (place.fresh ? " is-fresh" : ""),
       html:
         '<span class="mp-pin" style="--pin-color:' +
         esc(color) +
@@ -880,6 +903,19 @@
     marker.on("popupopen", function () {
       state.activeId = place.id;
       renderList();
+      if (place.fresh) {
+        place.fresh = false;
+        var iconEl = marker.getElement();
+        if (iconEl) iconEl.classList.remove("is-fresh");
+        api("/api/map/seen", {
+          method: "POST",
+          body: JSON.stringify({ notify_targets: [place.id] })
+        })
+          .then(function () {
+            notifyDockRefresh();
+          })
+          .catch(function () {});
+      }
     });
     marker.on("dragend", function () {
       var latlng = marker.getLatLng();
@@ -972,7 +1008,12 @@
       state.places = data.places || [];
       if (data.signed_in) {
         // 登录账号的「已看到标记」记在服务端，换浏览器、换设备都一致
-        api("/api/map/seen", { method: "POST", body: JSON.stringify({}) }).catch(function () {});
+        api("/api/map/seen", {
+          method: "POST",
+          body: JSON.stringify({
+            notify_targets: data.notify_targets || []
+          })
+        }).catch(function () {});
       } else {
         var maxPlaceId = 0;
         state.places.forEach(function (place) {
@@ -2059,6 +2100,44 @@
   }
 
   mapEl.addEventListener("click", function (event) {
+    var reactEl = event.target.closest("[data-mp-react]");
+    if (reactEl) {
+      var reactPlace = placeById(Number(reactEl.getAttribute("data-mp-id")));
+      var reactKind = reactEl.getAttribute("data-mp-react");
+      if (!reactPlace || reactEl.disabled) return;
+      reactEl.disabled = true;
+      api("/api/map/places/" + reactPlace.id + "/interact", {
+        method: "POST",
+        body: JSON.stringify({ kind: reactKind })
+      })
+        .then(function (data) {
+          var count = Number(data && data.count) || 0;
+          var base = reactKind === "like" ? "点赞" : "已去过";
+          var label = count > 0 ? base + " " + count : base;
+          reactEl.classList.toggle("is-on", Boolean(data && data.active));
+          reactEl.setAttribute(
+            "aria-pressed",
+            data && data.active ? "true" : "false"
+          );
+          var textEl = reactEl.querySelector("span");
+          if (textEl) textEl.textContent = label;
+          if (reactKind === "like") {
+            reactPlace.liked = Boolean(data && data.active);
+            reactPlace.like_count = count;
+          } else {
+            reactPlace.checked_in = Boolean(data && data.active);
+            reactPlace.checkin_count = count;
+          }
+          notifyDockRefresh();
+        })
+        .catch(function (err) {
+          toast(err.message || "操作失败");
+        })
+        .then(function () {
+          reactEl.disabled = false;
+        });
+      return;
+    }
     var actionEl = event.target.closest("[data-mp-action]");
     if (!actionEl) return;
     var place = placeById(Number(actionEl.getAttribute("data-mp-id")));

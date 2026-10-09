@@ -147,6 +147,29 @@
   pointer-events: none;
 }
 
+.map-dock-badge {
+  position: absolute;
+  top: 4%;
+  right: 4%;
+  z-index: 3;
+  min-width: 1.7em;
+  height: 1.7em;
+  padding: 0 0.45em;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: 999px;
+  background: var(--primary, #7b68ee);
+  color: #fff;
+  font-size: 0.85em;
+  font-weight: 800;
+  line-height: 1.7em;
+  text-align: center;
+  pointer-events: none;
+}
+
+.map-dock-badge[hidden] {
+  display: none;
+}
+
 /* 地图入口上方的信息面板（与圆盘圆心左右对称、全透明） */
 .dock-hud {
   position: fixed;

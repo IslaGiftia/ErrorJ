@@ -978,6 +978,94 @@ class InteractionTests(unittest.TestCase):
             )["seen_at"]
         )
 
+    def test_map_place_interact_toggles_and_notifies_creator(self):
+        stamp = app.now_text()
+        place_id = app.execute(
+            """INSERT INTO map_places
+                   (name, lat, lng, created_by, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            ("测试地点", 34.34, 108.94, self.author_id, stamp, stamp),
+        )
+        handler, responses = self.make_handler(self.other_id, username="other1")
+        handler.request_base_url = lambda: "https://zhexiyan.cc"
+        handler.api_map_place_interact(
+            f"/api/map/places/{place_id}/interact", {"kind": "like"}
+        )
+        self.assertEqual(
+            responses[-1][1], {"active": True, "count": 1, "kind": "like"}
+        )
+        handler.api_map_place_interact(
+            f"/api/map/places/{place_id}/interact", {"kind": "checkin"}
+        )
+        self.assertEqual(
+            responses[-1][1], {"active": True, "count": 1, "kind": "checkin"}
+        )
+        rows = app.query(
+            """SELECT kind, module, target_id, text FROM user_notifications
+               WHERE user_id = ? AND module = 'map' ORDER BY id""",
+            (self.author_id,),
+        )
+        self.assertEqual(
+            [row["kind"] for row in rows], ["place_like", "place_checkin"]
+        )
+        self.assertEqual({int(row["target_id"]) for row in rows}, {place_id})
+        self.assertTrue(rows[0]["text"].endswith("点赞了你的标记点"))
+        self.assertTrue(rows[1]["text"].endswith("打卡了你的标记点"))
+
+        handler.api_map_place_interact(
+            f"/api/map/places/{place_id}/interact", {"kind": "like"}
+        )
+        self.assertEqual(
+            responses[-1][1], {"active": False, "count": 0, "kind": "like"}
+        )
+        author_handler, _ = self.make_handler(self.author_id, username="author1")
+        author_handler.api_map_mark_seen({"notify_targets": [place_id]})
+        self.assertEqual(
+            (app.unseen_notifications(self.author_id).get("map") or {}).get("count", 0),
+            0,
+        )
+        self.assertEqual(
+            app.query_one(
+                "SELECT COUNT(*) AS n FROM map_place_interactions WHERE kind = 'checkin'"
+            )["n"],
+            1,
+        )
+
+    def test_map_api_exposes_interaction_state(self):
+        stamp = app.now_text()
+        place_id = app.execute(
+            """INSERT INTO map_places
+                   (name, lat, lng, created_by, created_at, updated_at)
+               VALUES (?, ?, ?, 0, ?, ?)""",
+            ("打卡点", 34.34, 108.94, stamp, stamp),
+        )
+        app.execute(
+            """INSERT INTO map_place_interactions (place_id, user_id, kind, created_at)
+               VALUES (?, ?, 'checkin', ?)""",
+            (place_id, self.author_id, stamp),
+        )
+        app.add_user_notification(
+            0, "place_checkin", "map", place_id, "作者甲", "作者甲 打卡了你的标记点"
+        )
+        handler, responses = self.make_handler(0, kind="owner", username="owner")
+        handler.api_map()
+        payload = responses[-1][1]
+        target = [
+            row for row in payload["places"] if int(row["id"]) == place_id
+        ][0]
+        self.assertEqual(target["checkin_count"], 1)
+        self.assertFalse(target["checked_in"])
+        self.assertTrue(target["fresh"])
+        self.assertEqual(payload["notify_targets"], [place_id])
+
+        owner_handler, owner_responses = self.make_handler(0, kind="owner")
+        owner_handler.api_map_mark_seen({"notify_targets": [place_id]})
+        owner_handler.api_site_activity()
+        items = owner_responses[-1][1]["items"]
+        self.assertFalse(
+            any(item.get("id") == "notify-map" for item in items)
+        )
+
     def test_deleted_message_clears_notification(self):
         handler, _ = self.make_handler(self.other_id, username="other1")
         handler.api_site_like_toggle(

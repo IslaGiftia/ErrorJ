@@ -354,6 +354,7 @@ NOTIFY_EVENTS = (
     {"key": "message", "label": "新的留言", "default": False},
     {"key": "moment_comment", "label": "新的动态评论", "default": True},
     {"key": "place", "label": "新的标记点", "default": True},
+    {"key": "map_interaction", "label": "标记点被点赞 / 打卡", "default": True},
     {"key": "security", "label": "安全提醒（登录失败 / 敏感词拦截）", "default": True},
 )
 NOTIFY_DEFAULT_EVENTS = tuple(
@@ -878,6 +879,17 @@ def init_db():
                 last_seen_id INTEGER NOT NULL DEFAULT 0,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS map_place_interactions (
+                place_id INTEGER NOT NULL REFERENCES map_places(id) ON DELETE CASCADE,
+                user_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (place_id, user_id, kind)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_map_place_interactions_user
+                ON map_place_interactions (user_id, kind);
 
             CREATE TABLE IF NOT EXISTS site_message_files (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -5972,7 +5984,7 @@ def mark_messages_seen(user_id):
 
 
 LIKE_TARGET_TYPES = {"message", "moment", "comment"}
-NOTIFICATION_MODULES = {"messages", "moments"}
+NOTIFICATION_MODULES = {"messages", "moments", "map"}
 
 
 def like_counts(target_type, target_ids):
@@ -6130,6 +6142,12 @@ def notification_alert_text(module, info):
     """把未读提醒汇总成首页左下角的一行提示。"""
     count = max(1, int((info or {}).get("count") or 0))
     kind = str((info or {}).get("kind") or "")
+    if module == "map":
+        if kind == "place_checkin":
+            return "打卡了你的标记点" if count == 1 else f"有 {count} 次打卡（你的标记点）"
+        if kind == "place_like":
+            return "点赞了你的标记点" if count == 1 else f"有 {count} 个新点赞（你的标记点）"
+        return "标记点有新动态" if count == 1 else f"标记点有 {count} 条新动态"
     if module == "moments":
         if kind == "comment_reply":
             return "回复了你的评论" if count == 1 else f"有 {count} 条新回复（你的评论）"
@@ -8299,7 +8317,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
             elif path == "/api/map/places":
                 self.api_map_place_create(payload)
             elif path == "/api/map/seen":
-                self.api_map_mark_seen()
+                self.api_map_mark_seen(payload)
+            elif re.fullmatch(r"/api/map/places/\d+/interact", path):
+                self.api_map_place_interact(path, payload)
             elif re.fullmatch(r"/api/map/places/\d+/photos", path):
                 self.api_map_place_photo_upload(path, payload)
             elif path == "/api/map/import":
@@ -11928,6 +11948,36 @@ class InventoryHandler(BaseHTTPRequestHandler):
             grouped.setdefault(row["place_id"], []).append(row)
         return grouped
 
+    def map_interaction_counts(self, place_ids):
+        if not place_ids:
+            return {}
+        placeholders = ",".join("?" for _ in place_ids)
+        rows = query(
+            f"""SELECT place_id, kind, COUNT(*) AS n
+                FROM map_place_interactions
+                WHERE place_id IN ({placeholders})
+                GROUP BY place_id, kind""",
+            tuple(place_ids),
+        )
+        result = {}
+        for row in rows:
+            result.setdefault(int(row["place_id"]), {})[str(row["kind"])] = int(row["n"])
+        return result
+
+    def map_interaction_mine(self, place_ids, user_id):
+        if user_id is None or not place_ids:
+            return {}
+        placeholders = ",".join("?" for _ in place_ids)
+        rows = query(
+            f"""SELECT place_id, kind FROM map_place_interactions
+                WHERE user_id = ? AND place_id IN ({placeholders})""",
+            (int(user_id), *place_ids),
+        )
+        result = {}
+        for row in rows:
+            result.setdefault(int(row["place_id"]), set()).add(str(row["kind"]))
+        return result
+
     def map_identity_user_id(self):
         identity = self.session_identity()
         if not identity:
@@ -11982,6 +12032,17 @@ class InventoryHandler(BaseHTTPRequestHandler):
         user_id = self.map_identity_user_id()
         places = self.map_place_rows()
         photos = self.map_photos_map([row["id"] for row in places])
+        place_ids = [int(row["id"]) for row in places]
+        interaction_counts = self.map_interaction_counts(place_ids)
+        interaction_mine = self.map_interaction_mine(place_ids, user_id)
+        notify_targets = []
+        if identity:
+            live_ids = {int(row["id"]) for row in places}
+            notify_targets = [
+                target_id
+                for target_id in unseen_notification_targets(user_id, "map")
+                if target_id in live_ids
+            ]
         creator_ids = sorted(
             {row["created_by"] for row in places if row.get("created_by") not in (None, 0)}
         )
@@ -12013,6 +12074,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 ]
         for row in places:
             row["photos"] = photos.get(row["id"], [])
+            counts = interaction_counts.get(int(row["id"])) or {}
+            mine = interaction_mine.get(int(row["id"])) or set()
+            row["like_count"] = int(counts.get("like", 0))
+            row["checkin_count"] = int(counts.get("checkin", 0))
+            row["liked"] = "like" in mine
+            row["checked_in"] = "checkin" in mine
+            row["fresh"] = bool(identity and int(row["id"]) in notify_targets)
             row["created_by_name"] = self.map_created_by_label(
                 row.get("created_by"), creators, viewer_signed_in
             )
@@ -12053,6 +12121,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "map_public": MAP_PUBLIC,
                 "unseen_count": len(unseen_ids),
                 "newest_unseen_id": max(unseen_ids) if unseen_ids else 0,
+                "notify_targets": notify_targets,
+                "notify_count": len(notify_targets),
             },
         )
 
@@ -12143,13 +12213,27 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         self.send_json(200, data)
 
-    def api_map_mark_seen(self):
-        """把当前账号的「已看到标记」更新为最新一条（只用于首页呼吸提示）。"""
+    def api_map_mark_seen(self, payload=None):
+        """更新「已看到标记」；如带 notify_targets 则同时把地图提醒标记已读。"""
         identity = self.session_identity()
         if not identity:
             api_error(self, 401, "请先登录。")
             return
         user_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
+        payload = payload or {}
+        raw_targets = payload.get("notify_targets")
+        cleared = 0
+        if isinstance(raw_targets, list):
+            seen = set()
+            for value in raw_targets:
+                if not str(value).isdigit():
+                    continue
+                target_id = int(value)
+                if target_id <= 0 or target_id in seen:
+                    continue
+                seen.add(target_id)
+                mark_notifications_seen(user_id, "map", target_id)
+                cleared += 1
         row = query_one("SELECT COALESCE(MAX(id), 0) AS value FROM map_places")
         newest = int(row["value"] if row else 0)
         execute(
@@ -12160,7 +12244,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                    updated_at = excluded.updated_at""",
             (user_id, newest, now_text()),
         )
-        self.send_json(200, {"last_seen_id": newest})
+        self.send_json(200, {"last_seen_id": newest, "cleared": cleared})
 
     def map_category_payload(self, payload, current=None, category_id=None):
         current = current or {}
@@ -12392,6 +12476,91 @@ class InventoryHandler(BaseHTTPRequestHandler):
             target_id=place_id,
         )
         self.send_json(200, {"id": place_id})
+
+    def api_map_place_interact(self, path, payload):
+        """标记点的点赞 / 打卡；两个都允许登录账号操作，重复点击即取消。"""
+        place_id = int(path.split("/")[4])
+        kind = str((payload or {}).get("kind") or "").strip()
+        if kind not in ("like", "checkin"):
+            api_error(self, 400, "互动类型不正确。")
+            return
+        identity = self.session_identity()
+        if not identity:
+            api_error(self, 401, "请先登录。")
+            return
+        user_id = self.map_identity_user_id()
+        if user_id is None:
+            api_error(self, 401, "请先登录。")
+            return
+        if not rate_allow("map_interact", self.client_ip(), 60, 60):
+            api_error(self, 429, "操作太频繁，请稍后再试。")
+            return
+        place = query_one(
+            "SELECT id, name, created_by FROM map_places WHERE id = ?", (place_id,)
+        )
+        if not place:
+            api_error(self, 404, "标记不存在。")
+            return
+        existing = query_one(
+            """SELECT 1 AS ok FROM map_place_interactions
+               WHERE place_id = ? AND user_id = ? AND kind = ?""",
+            (place_id, user_id, kind),
+        )
+        if existing:
+            execute(
+                """DELETE FROM map_place_interactions
+                   WHERE place_id = ? AND user_id = ? AND kind = ?""",
+                (place_id, user_id, kind),
+            )
+            active = False
+        else:
+            execute(
+                """INSERT OR IGNORE INTO map_place_interactions
+                       (place_id, user_id, kind, created_at)
+                   VALUES (?, ?, ?, ?)""",
+                (place_id, user_id, kind, now_text()),
+            )
+            active = True
+            creator_id = int(place.get("created_by") or 0)
+            if creator_id != user_id:
+                actor = self.notification_actor_name(identity)
+                if kind == "like":
+                    add_user_notification(
+                        creator_id,
+                        "place_like",
+                        "map",
+                        place_id,
+                        actor,
+                        f"{actor} 点赞了你的标记点",
+                    )
+                else:
+                    add_user_notification(
+                        creator_id,
+                        "place_checkin",
+                        "map",
+                        place_id,
+                        actor,
+                        f"{actor} 打卡了你的标记点",
+                    )
+                place_name = str(place.get("name") or f"#{place_id}")
+                link = self.request_base_url() + f"/map?place={place_id}"
+                notify_async(
+                    "map_interaction",
+                    "Error酱：标记点有新互动",
+                    (
+                        f"{actor} 点赞了你的标记点「{place_name}」"
+                        if kind == "like"
+                        else f"{actor} 打卡了你的标记点「{place_name}」"
+                    )
+                    + f"\n查看位置：{link}",
+                    link,
+                )
+        count = query_one(
+            """SELECT COUNT(*) AS n FROM map_place_interactions
+               WHERE place_id = ? AND kind = ?""",
+            (place_id, kind),
+        )["n"]
+        self.send_json(200, {"active": active, "count": int(count), "kind": kind})
 
     def api_map_place_photo_upload(self, path, payload):
         place_id = int(path.split("/")[4])
@@ -13051,11 +13220,16 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 )
             # 站长自己收到的新动态评论、留言点赞 / 回复
             for module, info in unseen_notifications(admin_user_id).items():
+                alert_actor = (
+                    "提醒"
+                    if module == "map"
+                    else (info.get("actor") or "提醒")
+                )
                 items.append(
                     {
                         "id": f"notify-{module}",
                         "created_at": info.get("created_at") or now_text(),
-                        "actor": info.get("actor") or "提醒",
+                        "actor": alert_actor,
                         "text": notification_alert_text(module, info),
                         "alert": True,
                     }
