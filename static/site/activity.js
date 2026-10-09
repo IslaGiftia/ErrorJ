@@ -4,8 +4,24 @@
   var track = document.getElementById("activityFeedTrack");
   if (!panel || !feed || !track) return;
 
+  var VISIBLE_ITEMS = 9;
+  var EXPANDED_ITEMS = 20;
   var lastPayloadKey = "";
+  var latestItems = [];
   var manuallyHidden = false;
+  var expanded = false;
+  var clickTimer = null;
+
+  function syncTitle() {
+    panel.title = expanded
+      ? "单击收起，双击隐藏"
+      : "单击展开，双击隐藏";
+    panel.setAttribute(
+      "aria-label",
+      expanded ? "首页动态（已展开）" : "首页动态"
+    );
+    panel.classList.toggle("is-expanded", expanded);
+  }
 
   function formatTime(value) {
     var text = String(value || "");
@@ -32,16 +48,16 @@
     return row;
   }
 
-  function render(items) {
+  function render() {
     if (manuallyHidden) return;
-    var ordered = items
+    var ordered = latestItems
       .slice()
       .sort(function (left, right) {
         return String(right.created_at || "").localeCompare(
           String(left.created_at || "")
         );
       })
-      .slice(0, 9);
+      .slice(0, expanded ? EXPANDED_ITEMS : VISIBLE_ITEMS);
     if (!ordered.length) {
       panel.hidden = true;
       return;
@@ -66,7 +82,8 @@
         var key = JSON.stringify(items);
         if (key === lastPayloadKey) return;
         lastPayloadKey = key;
-        render(items);
+        latestItems = items;
+        render();
       })
       .catch(function () {});
   }
@@ -75,11 +92,25 @@
     if (!document.hidden) load();
   });
   window.addEventListener("errorauthchange", load);
+  panel.addEventListener("click", function () {
+    if (clickTimer) return;
+    clickTimer = window.setTimeout(function () {
+      clickTimer = null;
+      expanded = !expanded;
+      syncTitle();
+      render();
+    }, 220);
+  });
   panel.addEventListener("dblclick", function () {
+    if (clickTimer) {
+      window.clearTimeout(clickTimer);
+      clickTimer = null;
+    }
     manuallyHidden = true;
     panel.hidden = true;
   });
 
+  syncTitle();
   load();
   setInterval(load, 10000);
 })();

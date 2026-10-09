@@ -8,11 +8,32 @@
   font-size: 12px;
   pointer-events: auto;
   user-select: none;
+  cursor: pointer;
 }
 
 .activity-feed {
   height: auto;
   overflow: visible;
+}
+
+.activity-panel.is-expanded {
+  cursor: pointer;
+}
+
+.activity-panel.is-expanded .activity-feed {
+  max-height: min(62vh, 760px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+}
+
+.activity-panel.is-expanded .activity-feed::-webkit-scrollbar {
+  width: 4px;
+}
+
+.activity-panel.is-expanded .activity-feed::-webkit-scrollbar-thumb {
+  border-radius: 2px;
+  background: rgba(127, 127, 127, 0.35);
 }
 
 .activity-feed-track {
