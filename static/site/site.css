@@ -788,15 +788,22 @@ img {
   line-height: 1.8;
 }
 
-.landing-credit-block {
-  margin: 18px 0 0;
-}
-
 .landing-record {
-  margin: 6px 0 0;
+  margin: 0;
   color: var(--ink-3, var(--muted));
   font-size: 11px;
+  line-height: 1;
   opacity: 0.58;
+}
+
+.landing-three .landing-credit-block {
+  position: fixed;
+  left: 50%;
+  bottom: var(--dock-bottom);
+  z-index: 69;
+  width: max-content;
+  margin: 0;
+  transform: translateX(-50%);
 }
 
 .landing-record a {
@@ -1309,6 +1316,7 @@ body[data-page] .under-construction {
 
 @media (max-width: 640px) {
   .landing-three {
+    --dock-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     padding: 72px 14px 24px;
   }
 
@@ -1361,10 +1369,6 @@ body[data-page] .under-construction {
   .landing-three .landing-links {
     margin-top: auto;
     padding-top: 44px;
-  }
-
-  .landing-three .landing-credit-block {
-    margin-top: 40px;
   }
 
   .repo-grid {
@@ -1477,15 +1481,6 @@ body[data-page] .under-construction {
   .landing-module-actions {
     gap: 14px;
     margin-top: 40px;
-  }
-
-  .landing-three .landing-credit-block {
-    position: fixed;
-    left: 50%;
-    bottom: var(--dock-bottom);
-    width: max-content;
-    margin: 0;
-    transform: translateX(-50%);
   }
 
 }

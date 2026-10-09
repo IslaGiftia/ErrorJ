@@ -1628,6 +1628,9 @@ class ComplianceWorkflowTests(unittest.TestCase):
         self.assertNotIn("举报邮箱：2873523107@qq.com", html)
         self.assertNotIn("时光流转，愿你与珍爱之人，能够再次重逢。", html)
         self.assertNotIn("网页字体为 vivo Sans", html)
+        css = (app.STATIC_DIR / "site" / "site.css").read_text(encoding="utf-8")
+        self.assertIn(".landing-three .landing-credit-block", css)
+        self.assertIn("bottom: var(--dock-bottom)", css)
 
     def test_notification_summary_includes_all_admin_queues(self):
         stamp = app.now_text()
