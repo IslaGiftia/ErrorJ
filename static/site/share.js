@@ -258,7 +258,9 @@
       await copyText(data.url || "");
       shareSubmit.textContent = "已生成";
     } catch (err) {
-      window.alert(err.message || "生成失败");
+      await window.ErrorDialog.alert(err.message || "生成失败", {
+        title: "生成失败",
+      });
       shareSubmit.textContent = "生成并复制";
     } finally {
       shareSubmit.disabled = false;
@@ -323,7 +325,9 @@
         requestOverlay.hidden = true;
         if (requestCallback) requestCallback(data.status || "pending");
       } catch (err) {
-        window.alert(err.message || "申请失败");
+        await window.ErrorDialog.alert(err.message || "申请失败", {
+          title: "申请失败",
+        });
       } finally {
         requestSubmit.disabled = false;
         requestSubmit.textContent = "提交申请";

@@ -536,7 +536,12 @@
 
   async function deleteAsset(id) {
     const asset = state.assets.find((item) => item.id === id);
-    if (!asset || !window.confirm(`删除「${asset.title}」及其文件？`)) return;
+    if (!asset) return;
+    const confirmed = await window.ErrorDialog.confirm(
+      `删除「${asset.title}」及其文件？`,
+      { title: "删除资料", confirmText: "删除", danger: true }
+    );
+    if (!confirmed) return;
     try {
       await api(`/api/workbench/assets/${id}`, { method: "DELETE" });
       toast("文件已删除");
@@ -548,7 +553,12 @@
 
   async function deleteRepair(id) {
     const repair = state.repairs.find((item) => item.id === id);
-    if (!repair || !window.confirm(`删除「${repair.device_name}」的维修记录？`)) return;
+    if (!repair) return;
+    const confirmed = await window.ErrorDialog.confirm(
+      `删除「${repair.device_name}」的维修记录？`,
+      { title: "删除维修记录", confirmText: "删除", danger: true }
+    );
+    if (!confirmed) return;
     try {
       await api(`/api/workbench/repairs/${id}`, { method: "DELETE" });
       toast("维修记录已删除");
@@ -2461,7 +2471,14 @@
       try {
         if (messageButton) {
           const action = messageButton.dataset.reviewMessage;
-          const reviewNote = action === "reject" ? (window.prompt("拒绝原因（可选）") || "") : "";
+          let reviewNote = "";
+          if (action === "reject") {
+            reviewNote = await window.ErrorDialog.prompt("拒绝原因（可选）", {
+              title: "拒绝留言",
+              placeholder: "填写原因，可留空",
+            });
+            if (reviewNote === null) return;
+          }
           await api(`/api/admin/review/${messageButton.dataset.reviewId}`, {
             method: "POST",
             body: JSON.stringify({ action, review_note: reviewNote }),
@@ -2560,9 +2577,14 @@
       const button = event.target.closest("[data-report-action]");
       if (!button) return;
       const action = button.dataset.reportAction;
-      const resolution = action === "reopen"
-        ? ""
-        : (window.prompt("处理说明（可选）") || "");
+      let resolution = "";
+      if (action !== "reopen") {
+        resolution = await window.ErrorDialog.prompt("处理说明（可选）", {
+          title: action === "resolve" ? "处理完成" : "驳回举报",
+          placeholder: "填写处理说明，可留空",
+        });
+        if (resolution === null) return;
+      }
       try {
         await api(`/api/admin/reports/${button.dataset.reportId}`, {
           method: "POST",

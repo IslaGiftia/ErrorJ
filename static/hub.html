@@ -505,7 +505,7 @@
       }
 
       function toast(msg) {
-        alert(msg);
+        window.ErrorDialog.alert(msg).catch(function () {});
       }
 
       document.querySelectorAll(".hub-tab").forEach((btn) => {
@@ -551,7 +551,11 @@
             if (box.classList.contains("open")) box.querySelector("textarea").focus();
           });
           delBtn.addEventListener("click", async () => {
-            if (!confirm("确认删除这条留言？")) return;
+            if (!(await window.ErrorDialog.confirm("确认删除这条留言？", {
+              title: "删除留言",
+              confirmText: "删除",
+              danger: true,
+            }))) return;
             await api("/api/site/messages/" + m.id, { method: "DELETE" });
             loadMessages();
           });
@@ -640,7 +644,11 @@
           info.appendChild(left);
           const del = el("button", "btn btn-ghost btn-sm", "删除");
           del.addEventListener("click", async () => {
-            if (!confirm("确认删除这张照片？")) return;
+            if (!(await window.ErrorDialog.confirm("确认删除这张照片？", {
+              title: "删除照片",
+              confirmText: "删除",
+              danger: true,
+            }))) return;
             await api("/api/site/photos/" + p.id, { method: "DELETE" });
             loadPhotos();
           });
@@ -699,7 +707,11 @@
           item.appendChild(meta);
           const del = el("button", "btn btn-ghost btn-sm", "删除");
           del.addEventListener("click", async () => {
-            if (!confirm("确认删除这首歌？")) return;
+            if (!(await window.ErrorDialog.confirm("确认删除这首歌？", {
+              title: "删除歌曲",
+              confirmText: "删除",
+              danger: true,
+            }))) return;
             await api("/api/site/music/" + m.id, { method: "DELETE" });
             loadMusic();
           });
@@ -782,7 +794,11 @@
             card.appendChild(el("span", "desc", l.description || ""));
             const del = el("button", "btn btn-ghost btn-sm", "删除");
             del.addEventListener("click", async () => {
-              if (!confirm("确认删除这个推荐？")) return;
+              if (!(await window.ErrorDialog.confirm("确认删除这个推荐？", {
+                title: "删除推荐",
+                confirmText: "删除",
+                danger: true,
+              }))) return;
               await api("/api/site/links/" + l.id, { method: "DELETE" });
               loadLinks();
             });
@@ -846,5 +862,6 @@
       activateTab(initialTab);
     })();
   </script>
+  <script src="/static/site/dialog.js"></script>
 </body>
 </html>

@@ -98,7 +98,7 @@
       overlay.hidden = true;
       await loadReferences();
     } catch (err) {
-      window.alert(err.message);
+      await window.ErrorDialog.alert(err.message, { title: "保存失败" });
     } finally {
       saveButton.disabled = false;
     }
@@ -127,12 +127,17 @@
     var item = state.items.find(function (entry) {
       return String(entry.id) === del.dataset.referenceDelete;
     });
-    if (!item || !window.confirm("删除「" + item.title + "」？")) return;
+    if (!item) return;
+    var confirmed = await window.ErrorDialog.confirm(
+      "删除「" + item.title + "」？",
+      { title: "删除参考项目", confirmText: "删除", danger: true }
+    );
+    if (!confirmed) return;
     try {
       await api("/api/references/" + item.id, { method: "DELETE" });
       await loadReferences();
     } catch (err) {
-      window.alert(err.message);
+      await window.ErrorDialog.alert(err.message, { title: "删除失败" });
     }
   });
 

@@ -114,7 +114,9 @@
         var data = await response.json().catch(function () { return {}; });
         if (!response.ok) throw new Error(data.error || "提交失败");
         closeModal();
-        window.alert("举报已提交，管理员会尽快核实处理。");
+        await window.ErrorDialog.alert("举报已提交，管理员会尽快核实处理。", {
+          title: "举报已提交",
+        });
       } catch (err) {
         error.textContent = err.message || "提交失败";
         error.hidden = false;
@@ -134,11 +136,15 @@
         var response = await fetch("/api/auth/status", { cache: "no-store" });
         var status = await response.json();
         if (!status.authenticated) {
-          window.alert("登录后可以举报留言和动态。");
+          await window.ErrorDialog.alert("登录后可以举报留言和动态。", {
+            title: "请先登录",
+          });
           return;
         }
       } catch (err) {
-        window.alert("暂时无法确认登录状态，请稍后再试。");
+        await window.ErrorDialog.alert("暂时无法确认登录状态，请稍后再试。", {
+          title: "暂时无法提交",
+        });
         return;
       }
     }

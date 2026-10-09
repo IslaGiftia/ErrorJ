@@ -181,10 +181,14 @@
       });
     });
 
-    remove.addEventListener("click", function (event) {
+    remove.addEventListener("click", async function (event) {
       event.preventDefault();
       event.stopPropagation();
-      if (!window.confirm("删除推荐「" + item.title + "」？封面文件也会一起清理。")) return;
+      var confirmed = await window.ErrorDialog.confirm(
+        "删除推荐「" + item.title + "」？封面文件也会一起清理。",
+        { title: "删除推荐", confirmText: "删除", danger: true }
+      );
+      if (!confirmed) return;
       api("/api/recommendations/" + item.id, { method: "DELETE" }).then(function () {
         toast("已删除");
         return loadRecommendations();

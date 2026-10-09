@@ -1622,6 +1622,42 @@ class ComplianceWorkflowTests(unittest.TestCase):
         css = (app.STATIC_DIR / "site" / "report.css").read_text(encoding="utf-8")
         self.assertIn(".er-report-overlay[hidden]", css)
 
+    def test_routed_pages_do_not_use_native_dialogs(self):
+        files = (
+            "games/index.html",
+            "messages.js",
+            "moments.js",
+            "prompts.js",
+            "reader.js",
+            "references.js",
+            "recommendations.js",
+            "workbench.js",
+            "site/report.js",
+            "site/share.js",
+        )
+        native = ("window.alert(", "window.confirm(", "window.prompt(")
+        for relative in files:
+            text = (app.STATIC_DIR / relative).read_text(encoding="utf-8")
+            for marker in native:
+                self.assertNotIn(marker, text, relative)
+
+    def test_error_dialog_is_loaded_on_interactive_pages(self):
+        files = (
+            "messages.html",
+            "moments.html",
+            "music.html",
+            "books.html",
+            "notes.html",
+            "recommendations.html",
+            "references.html",
+            "reader.html",
+            "workbench.html",
+            "games/index.html",
+        )
+        for relative in files:
+            text = (app.STATIC_DIR / relative).read_text(encoding="utf-8")
+            self.assertIn("/static/site/dialog.js", text, relative)
+
     def test_home_footer_only_keeps_icp_record(self):
         html = (app.STATIC_DIR / "site" / "site.html").read_text(encoding="utf-8")
         self.assertIn("陕ICP备2026028018号-1", html)

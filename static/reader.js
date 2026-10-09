@@ -979,14 +979,17 @@ $("rdSelection").addEventListener("click", async (event) => {
     return;
   }
   if (action === "note") {
-    const note = window.prompt("写点什么（批注内容）", "");
+    const note = await window.ErrorDialog.prompt("写点什么（批注内容）", {
+      title: "添加批注",
+      placeholder: "输入批注内容",
+    });
     if (note === null) return;
     await addAnnotation("note", note.trim());
     return;
   }
   await addAnnotation("highlight");
 });
-$("rdPanelBody").addEventListener("click", (event) => {
+$("rdPanelBody").addEventListener("click", async (event) => {
   const bookmark = event.target.closest("[data-bookmark]");
   if (bookmark) {
     if (event.detail === 2 || event.altKey) {
@@ -1002,7 +1005,14 @@ $("rdPanelBody").addEventListener("click", (event) => {
     const entry = Array.from(state.annotationByValue.values()).find(
       (item) => Number(item.id) === Number(annotation.getAttribute("data-annotation"))
     );
-    if (entry && window.confirm("删除这条划线 / 批注？")) removeAnnotation(entry);
+    if (entry) {
+      const confirmed = await window.ErrorDialog.confirm("删除这条划线 / 批注？", {
+        title: "删除批注",
+        confirmText: "删除",
+        danger: true,
+      });
+      if (confirmed) removeAnnotation(entry);
+    }
     return;
   }
   const result = event.target.closest("[data-cfi]");

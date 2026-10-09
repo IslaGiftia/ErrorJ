@@ -1,0 +1,126 @@
+.site-dialog-overlay[hidden] {
+  display: none !important;
+}
+
+.site-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 11000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(10, 12, 22, 0.62);
+  backdrop-filter: blur(8px);
+}
+
+.site-dialog {
+  width: min(440px, 100%);
+  max-height: min(680px, 92vh);
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid var(--site-dialog-line, #d9dce7);
+  border-radius: 8px;
+  background: var(--site-dialog-panel, #fff);
+  color: var(--site-dialog-text, #202337);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+}
+
+.site-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.site-dialog-head h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.site-dialog-close {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-size: 24px;
+  cursor: pointer;
+}
+
+.site-dialog-message {
+  margin: 0 0 14px;
+  color: var(--site-dialog-muted, #68708b);
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.site-dialog-input {
+  display: block;
+  margin: 0 0 14px;
+}
+
+.site-dialog-input textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  padding: 9px 10px;
+  border: 1px solid var(--site-dialog-line, #d9dce7);
+  border-radius: 7px;
+  background: var(--site-dialog-input, #f7f8fc);
+  color: inherit;
+  font: inherit;
+}
+
+.site-dialog-error {
+  margin: 0 0 12px;
+  color: #d54855;
+  font-size: 13px;
+}
+
+.site-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.site-dialog-btn {
+  border: 1px solid var(--site-dialog-line, #d9dce7);
+  border-radius: 7px;
+  padding: 8px 14px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.site-dialog-btn.is-primary {
+  border-color: #6d5be8;
+  background: #6d5be8;
+  color: #fff;
+}
+
+.site-dialog-btn.is-danger {
+  border-color: #d54855;
+  background: #d54855;
+  color: #fff;
+}
+
+:root[data-theme="dark"] {
+  --site-dialog-page-bg: #171717;
+  --site-dialog-panel: #262626;
+  --site-dialog-text: #f4f4f5;
+  --site-dialog-muted: #a1a1aa;
+  --site-dialog-line: #3f3f46;
+  --site-dialog-input: #202024;
+}
+
+:root:not([data-theme="dark"]) {
+  --site-dialog-panel: #fff;
+  --site-dialog-text: #202337;
+  --site-dialog-muted: #5f667d;
+  --site-dialog-line: #d9dce7;
+  --site-dialog-input: #f7f8fc;
+}

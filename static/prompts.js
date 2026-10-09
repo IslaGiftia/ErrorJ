@@ -157,9 +157,13 @@
     });
   }
 
-  function deletePrompt(item) {
+  async function deletePrompt(item) {
     if (!state.canManage) return;
-    if (!window.confirm("删除提示词「" + item.title + "」？")) return;
+    var confirmed = await window.ErrorDialog.confirm(
+      "删除提示词「" + item.title + "」？",
+      { title: "删除提示词", confirmText: "删除", danger: true }
+    );
+    if (!confirmed) return;
     api("/api/prompts/" + item.id, { method: "DELETE" }).then(function () {
       toast("已删除");
       return loadPrompts();

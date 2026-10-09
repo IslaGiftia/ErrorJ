@@ -625,8 +625,12 @@
     if (comment.can_delete) {
       var deleteBtn = el("button", "mo-link-btn is-danger", "删除");
       deleteBtn.type = "button";
-      deleteBtn.addEventListener("click", function () {
-        if (!window.confirm("删除这条评论？下面的回复也会一起删除。")) return;
+      deleteBtn.addEventListener("click", async function () {
+        var confirmed = await window.ErrorDialog.confirm(
+          "删除这条评论？下面的回复也会一起删除。",
+          { title: "删除评论", confirmText: "删除", danger: true }
+        );
+        if (!confirmed) return;
         api("/api/site/moment-comments/" + comment.id, { method: "DELETE" })
           .then(function () {
             toast("评论已删除");
@@ -813,8 +817,12 @@
         });
       });
 
-      deleteBtn.addEventListener("click", function () {
-        if (!window.confirm("删除这条说说？配图也会一起删掉。")) return;
+      deleteBtn.addEventListener("click", async function () {
+        var confirmed = await window.ErrorDialog.confirm(
+          "删除这条说说？配图也会一起删掉。",
+          { title: "删除动态", confirmText: "删除", danger: true }
+        );
+        if (!confirmed) return;
         api("/api/moments/" + moment.id, { method: "DELETE" }).then(function () {
           toast("已删除");
           return loadMoments();

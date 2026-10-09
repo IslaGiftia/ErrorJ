@@ -799,9 +799,13 @@
     });
 
     if (deleteBtn) {
-      deleteBtn.addEventListener("click", function () {
+      deleteBtn.addEventListener("click", async function () {
         var hint = (message.replies || []).length ? "这条留言下面的回复也会一起删除。" : "删除后无法恢复。";
-        if (!window.confirm("确认删除这条留言？\n" + hint)) return;
+        var confirmed = await window.ErrorDialog.confirm(
+          "确认删除这条留言？\n" + hint,
+          { title: "删除留言", confirmText: "删除", danger: true }
+        );
+        if (!confirmed) return;
         api("/api/site/messages/" + message.id, { method: "DELETE" }).then(function () {
           toast("已删除");
           return loadMessages();
