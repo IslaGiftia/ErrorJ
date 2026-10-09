@@ -619,6 +619,19 @@ button.mo-share:hover {
   font-size: 12.5px;
 }
 
+.mo-like-names {
+  min-width: 0;
+  color: var(--mo-muted);
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mo-comment > .mo-like {
+  margin-top: 6px;
+}
+
 .mo-comments {
   margin-top: 10px;
   display: flex;

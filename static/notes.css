@@ -131,7 +131,7 @@
   color: var(--nt-muted);
 }
 
-.nt-read-outline {
+.nt-outline.nt-read-outline {
   position: sticky;
   top: var(--nt-read-top-h, 0px);
   z-index: 30;

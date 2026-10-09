@@ -10,6 +10,7 @@
   var pendingImages = [];
   var toastTimer = null;
   var canInteract = false;
+  var viewerLikeName = "";
   var shareAudio = null;
   var freshTargets = {};
   var jumpBtn = null;
@@ -513,15 +514,23 @@
     return linkCard;
   }
 
-  function buildMomentLike(moment) {
-    var wrap = el("div", "mo-like");
-    var btn = el("button", "mo-like-btn", "♥");
-    var count = el("span", "mo-like-count", String(moment.like_count || 0));
-    btn.type = "button";
+  function likeNamesText(target) {
+    var users = (target.like_users || []).slice();
+    if (!users.length) return "";
+    var shown = users.slice(0, 3).join("、");
+    return users.length > 3 ? shown + " 等 " + users.length + " 人" : shown;
+  }
+
+  function bindLikeControl(wrap, btn, count, names, targetType, target) {
+    var namesEl = names;
     function sync() {
-      btn.classList.toggle("is-liked", Boolean(moment.liked));
-      btn.title = moment.liked ? "取消点赞" : "点赞";
-      count.textContent = String(moment.like_count || 0);
+      btn.classList.toggle("is-liked", Boolean(target.liked));
+      btn.title = target.liked ? "取消点赞" : "点赞";
+      count.textContent = String(target.like_count || 0);
+      count.hidden = !target.like_count && !target.liked;
+      var text = likeNamesText(target);
+      namesEl.hidden = !text;
+      namesEl.textContent = text;
     }
     sync();
     btn.addEventListener("click", function () {
@@ -533,10 +542,18 @@
       api("/api/site/likes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target_type: "moment", target_id: moment.id }),
+        body: JSON.stringify({ target_type: targetType, target_id: target.id }),
       }).then(function (data) {
-        moment.liked = Boolean(data && data.liked);
-        moment.like_count = Number(data && data.count) || 0;
+        target.liked = Boolean(data && data.liked);
+        target.like_count = Number(data && data.count) || 0;
+        var users = Array.isArray(target.like_users) ? target.like_users : [];
+        var own = viewerLikeName;
+        if (own) {
+          var index = users.indexOf(own);
+          if (target.liked && index < 0) users.unshift(own);
+          if (!target.liked && index >= 0) users.splice(index, 1);
+        }
+        target.like_users = users;
         sync();
       }).catch(function (err) {
         toast(err.message || "操作失败");
@@ -544,9 +561,22 @@
         btn.disabled = false;
       });
     });
-    wrap.appendChild(btn);
-    wrap.appendChild(count);
+    return sync;
+  }
+
+  function buildLikeRow(targetType, target) {
+    var wrap = el("div", "mo-like");
+    var btn = el("button", "mo-like-btn", "♥");
+    var count = el("span", "mo-like-count", "");
+    var names = el("span", "mo-like-names", "");
+    btn.type = "button";
+    wrap.append(btn, count, names);
+    bindLikeControl(wrap, btn, count, names, targetType, target);
     return wrap;
+  }
+
+  function buildMomentLike(moment) {
+    return buildLikeRow("moment", moment);
   }
 
   function buildCommentForm(moment, parentId, placeholder) {
@@ -587,6 +617,7 @@
     head.appendChild(el("span", "mo-comment-time", formatTime(comment.created_at)));
     row.appendChild(head);
     row.appendChild(el("p", "mo-comment-text", comment.content));
+    row.appendChild(buildLikeRow("comment", comment));
     var actions = el("div", "mo-comment-actions");
     if (comment.can_delete) {
       var deleteBtn = el("button", "mo-link-btn is-danger", "删除");
@@ -862,6 +893,9 @@
   api("/api/auth/status").then(function (status) {
     var canManage = Boolean(status.admin);
     canInteract = Boolean(status.authenticated);
+    viewerLikeName = status.owner
+      ? "管理员"
+      : String(status.username || status.nickname || "");
     $("momentForm").hidden = !canManage;
     if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);
     return loadMoments();

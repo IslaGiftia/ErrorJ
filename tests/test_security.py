@@ -701,6 +701,90 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(notifications[0]["module"], "moments")
         self.assertEqual(int(notifications[0]["target_id"]), moment_id)
 
+    def test_comment_like_notifies_author_and_shows_names(self):
+        stamp = app.now_text()
+        moment_id = app.execute(
+            "INSERT INTO moments (content, created_at) VALUES (?, ?)",
+            ("动态内容", stamp),
+        )
+        comment_id = app.execute(
+            """INSERT INTO moment_comments
+                   (moment_id, parent_id, user_id, actor, content, created_at)
+               VALUES (?, NULL, ?, ?, ?, ?)""",
+            (moment_id, self.author_id, "作者甲", "我的评论", stamp),
+        )
+        handler, responses = self.make_handler(self.other_id, username="other1")
+        handler.api_site_like_toggle(
+            {"target_type": "comment", "target_id": comment_id}
+        )
+        self.assertEqual(responses[-1][1], {"liked": True, "count": 1})
+        notifications = app.query(
+            """SELECT kind, module, target_id, text FROM user_notifications
+               WHERE user_id = ? AND kind = 'comment_like'""",
+            (self.author_id,),
+        )
+        self.assertEqual(len(notifications), 1)
+        self.assertEqual(notifications[0]["module"], "moments")
+        self.assertEqual(int(notifications[0]["target_id"]), moment_id)
+        self.assertEqual(notifications[0]["text"], "点赞了你的评论")
+
+        viewer_handler, viewer_responses = self.make_handler(
+            self.author_id, username="author1"
+        )
+        viewer_handler.api_moments({})
+        moments = viewer_responses[-1][1]
+        target = [row for row in moments if int(row["id"]) == moment_id][0]
+        self.assertEqual(target["like_users"], [])
+        comment = target["comments"][0]
+        self.assertEqual(comment["like_count"], 1)
+        self.assertEqual(comment["like_users"], ["other1"])
+        self.assertTrue(comment["liked"] is False)
+
+    def test_comment_like_shows_masked_for_guest(self):
+        stamp = app.now_text()
+        moment_id = app.execute(
+            "INSERT INTO moments (content, created_at) VALUES (?, ?)",
+            ("动态内容", stamp),
+        )
+        comment_id = app.execute(
+            """INSERT INTO moment_comments
+                   (moment_id, parent_id, user_id, actor, content, created_at)
+               VALUES (?, NULL, ?, ?, ?, ?)""",
+            (moment_id, self.author_id, "作者甲", "我的评论", stamp),
+        )
+        handler, _ = self.make_handler(self.other_id, username="other1")
+        handler.api_site_like_toggle(
+            {"target_type": "comment", "target_id": comment_id}
+        )
+        guest = object.__new__(app.InventoryHandler)
+        guest.session_identity = lambda: None
+        guest.is_admin = lambda: False
+        responses = []
+        guest.send_json = lambda status, payload: responses.append((status, payload))
+        guest.api_moments({})
+        moments = responses[-1][1]
+        target = [row for row in moments if int(row["id"]) == moment_id][0]
+        self.assertEqual(
+            target["comments"][0]["like_users"], [app.mask_username("other1")]
+        )
+
+    def test_moment_like_lists_usernames(self):
+        stamp = app.now_text()
+        moment_id = app.execute(
+            "INSERT INTO moments (content, created_at) VALUES (?, ?)",
+            ("动态内容", stamp),
+        )
+        handler, _ = self.make_handler(self.other_id, username="other1")
+        handler.api_site_like_toggle({"target_type": "moment", "target_id": moment_id})
+        viewer_handler, viewer_responses = self.make_handler(
+            self.author_id, username="author1"
+        )
+        viewer_handler.api_moments({})
+        moments = viewer_responses[-1][1]
+        target = [row for row in moments if int(row["id"]) == moment_id][0]
+        self.assertEqual(target["like_count"], 1)
+        self.assertEqual(target["like_users"], ["other1"])
+
     def test_moment_comment_notifies_owner(self):
         stamp = app.now_text()
         moment_id = app.execute(

@@ -5970,7 +5970,7 @@ def mark_messages_seen(user_id):
     return seen
 
 
-LIKE_TARGET_TYPES = {"message", "moment"}
+LIKE_TARGET_TYPES = {"message", "moment", "comment"}
 NOTIFICATION_MODULES = {"messages", "moments"}
 
 
@@ -6132,6 +6132,8 @@ def notification_alert_text(module, info):
     if module == "moments":
         if kind == "comment_reply":
             return "回复了你的评论" if count == 1 else f"有 {count} 条新回复（你的评论）"
+        if kind == "comment_like":
+            return "点赞了你的评论" if count == 1 else f"有 {count} 个新点赞（你的评论）"
         if kind == "moment_comment":
             return "评论了你的动态" if count == 1 else f"有 {count} 条新评论（你的动态）"
         return "更新了动态" if count == 1 else f"更新了 {count} 条动态"
@@ -9495,8 +9497,14 @@ class InventoryHandler(BaseHTTPRequestHandler):
             row = query_one(
                 "SELECT id, user_id FROM site_messages WHERE id = ?", (target_id,)
             )
-        else:
+        elif target_type == "moment":
             row = query_one("SELECT id FROM moments WHERE id = ?", (target_id,))
+        else:
+            row = query_one(
+                """SELECT id, user_id, moment_id
+                   FROM moment_comments WHERE id = ?""",
+                (target_id,),
+            )
         if not row:
             api_error(self, 404, "要点赞的内容不存在。")
             return
@@ -9531,6 +9539,17 @@ class InventoryHandler(BaseHTTPRequestHandler):
                         target_id,
                         self.notification_actor_name(identity),
                         "点赞了你的留言",
+                    )
+            elif target_type == "comment":
+                author_id = int(row.get("user_id") or 0)
+                if author_id and author_id != user_id:
+                    add_user_notification(
+                        author_id,
+                        "comment_like",
+                        "moments",
+                        int(row.get("moment_id") or 0),
+                        self.notification_actor_name(identity),
+                        "点赞了你的评论",
                     )
         count = query_one(
             """SELECT COUNT(*) AS n FROM content_likes
@@ -9924,7 +9943,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             )
         return grouped
 
-    def moment_comments_map(self, moment_ids, viewer_id, can_manage):
+    def moment_comments_map(self, moment_ids, viewer_id, can_manage, viewer_signed_in):
         """按动态分组返回评论，并标出每一条能不能删。"""
         if not moment_ids:
             return {}
@@ -9936,6 +9955,28 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 ORDER BY id""",
             tuple(moment_ids),
         )
+        comment_ids = [int(row["id"]) for row in rows]
+        like_count_map = like_counts("comment", comment_ids)
+        liked_set = liked_target_ids(viewer_id, "comment", comment_ids)
+        like_user_map = {}
+        if comment_ids:
+            like_placeholders = ",".join("?" for _ in comment_ids)
+            for like in query(
+                f"""SELECT l.target_id, l.user_id, u.username
+                    FROM content_likes l
+                    LEFT JOIN users u ON u.id = l.user_id
+                    WHERE l.target_type = 'comment'
+                      AND l.target_id IN ({like_placeholders})
+                    ORDER BY l.created_at, l.user_id""",
+                tuple(comment_ids),
+            ):
+                like_user = int(like["user_id"] or 0)
+                if like_user == 0:
+                    name = "管理员"
+                else:
+                    username = str(like.get("username") or "").strip() or "普通用户"
+                    name = username[:32] if viewer_signed_in else mask_username(username)
+                like_user_map.setdefault(int(like["target_id"]), []).append(name)
         grouped = {}
         for row in rows:
             can_delete = bool(
@@ -9950,6 +9991,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "content": row["content"],
                     "created_at": row["created_at"],
                     "can_delete": can_delete,
+                    "like_count": like_count_map.get(int(row["id"]), 0),
+                    "liked": int(row["id"]) in liked_set,
+                    "like_users": like_user_map.get(int(row["id"]), [])[:12],
                 }
             )
         return grouped
@@ -9969,7 +10013,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
             )
         files = self.moment_files_map([row["id"] for row in rows])
         moment_ids = [int(row["id"]) for row in rows]
-        comments = self.moment_comments_map(moment_ids, viewer_id, can_manage)
+        comments = self.moment_comments_map(
+            moment_ids, viewer_id, can_manage, identity is not None
+        )
         share_ids = {}
         if moment_ids:
             placeholders = ",".join("?" for _ in moment_ids)
@@ -9984,6 +10030,25 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 )
         like_count_map = like_counts("moment", moment_ids)
         liked_set = liked_target_ids(viewer_id, "moment", moment_ids)
+        like_user_map = {}
+        if moment_ids:
+            placeholders = ",".join("?" for _ in moment_ids)
+            for like in query(
+                f"""SELECT l.target_id, l.user_id, u.username
+                    FROM content_likes l
+                    LEFT JOIN users u ON u.id = l.user_id
+                    WHERE l.target_type = 'moment'
+                      AND l.target_id IN ({placeholders})
+                    ORDER BY l.created_at, l.user_id""",
+                tuple(moment_ids),
+            ):
+                like_user = int(like["user_id"] or 0)
+                if like_user == 0:
+                    name = "管理员"
+                else:
+                    username = str(like.get("username") or "").strip() or "普通用户"
+                    name = username[:32] if identity is not None else mask_username(username)
+                like_user_map.setdefault(int(like["target_id"]), []).append(name)
         for row in [
             item
             for item in rows
@@ -10005,6 +10070,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             )
             row["like_count"] = like_count_map.get(int(row["id"]), 0)
             row["liked"] = int(row["id"]) in liked_set
+            row["like_users"] = like_user_map.get(int(row["id"]), [])[:12]
             row["pinned"] = bool(row["pinned"])
             row["can_manage"] = can_manage
             row["can_save"] = can_manage
