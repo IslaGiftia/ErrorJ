@@ -1080,6 +1080,42 @@ class InteractionTests(unittest.TestCase):
             any(item.get("id") == "notify-map" for item in items)
         )
 
+    def test_deleting_place_cleans_interactions_and_notifications(self):
+        stamp = app.now_text()
+        place_id = app.execute(
+            """INSERT INTO map_places
+                   (name, lat, lng, created_by, created_at, updated_at)
+               VALUES (?, ?, ?, 0, ?, ?)""",
+            ("待删除标记", 34.34, 108.94, stamp, stamp),
+        )
+        app.execute(
+            """INSERT INTO map_place_interactions (place_id, user_id, kind, created_at)
+               VALUES (?, ?, 'like', ?)""",
+            (place_id, self.author_id, stamp),
+        )
+        app.add_user_notification(
+            0, "place_like", "map", place_id, "作者甲", "作者甲 点赞了你的标记点"
+        )
+        handler, responses = self.make_handler(0, kind="owner", username="owner")
+        handler.command = "DELETE"
+        handler.api_map_place_item(f"/api/map/places/{place_id}")
+        self.assertTrue(responses[-1][1]["ok"])
+        self.assertEqual(
+            app.query_one(
+                "SELECT COUNT(*) AS n FROM map_place_interactions WHERE place_id = ?",
+                (place_id,),
+            )["n"],
+            0,
+        )
+        self.assertEqual(
+            app.query_one(
+                """SELECT COUNT(*) AS n FROM user_notifications
+                   WHERE module = 'map' AND target_id = ?""",
+                (place_id,),
+            )["n"],
+            0,
+        )
+
     def test_message_filters_mark_like_and_reply_on_replies(self):
         stamp = app.now_text()
         reply_id = app.execute(

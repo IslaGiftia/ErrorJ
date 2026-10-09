@@ -1519,6 +1519,15 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             conn.execute(
                 "ALTER TABLE map_place_interactions ADD COLUMN active INTEGER NOT NULL DEFAULT 1"
             )
+        # 清理历史遗留：标记点删除后留下的互动记录和已失效提醒
+        conn.execute(
+            """DELETE FROM map_place_interactions
+               WHERE place_id NOT IN (SELECT id FROM map_places)"""
+        )
+        conn.execute(
+            """DELETE FROM user_notifications
+               WHERE module = 'map' AND target_id NOT IN (SELECT id FROM map_places)"""
+        )
         music_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(site_music)").fetchall()
         }
@@ -12486,6 +12495,14 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if self.command == "DELETE":
             photos = query(
                 "SELECT file_path FROM map_place_photos WHERE place_id = ?", (place_id,)
+            )
+            execute(
+                "DELETE FROM map_place_interactions WHERE place_id = ?", (place_id,)
+            )
+            execute(
+                """DELETE FROM user_notifications
+                   WHERE module = 'map' AND target_id = ?""",
+                (place_id,),
             )
             execute("DELETE FROM map_places WHERE id = ?", (place_id,))
             for photo in photos:
