@@ -866,7 +866,6 @@
       checkinLabel +
       "</span></button>";
     if (place.can_edit) {
-      html += '<span class="mp-actions-spacer"></span>';
       html +=
         '<button type="button" class="mp-link-btn mp-edit-btn" data-mp-action="edit" data-mp-id="' +
         place.id +

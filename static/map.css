@@ -992,11 +992,6 @@ body {
   border-top: 1px solid var(--mp-border);
 }
 
-.mp-actions-spacer {
-  flex: 1 1 0;
-  min-width: 0;
-}
-
 .mp-link-btn {
   display: inline-flex;
   align-items: center;

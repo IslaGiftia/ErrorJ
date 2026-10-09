@@ -1018,6 +1018,20 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(
             responses[-1][1], {"active": False, "count": 0, "kind": "like"}
         )
+        # 再点回来不会重复发提醒
+        handler.api_map_place_interact(
+            f"/api/map/places/{place_id}/interact", {"kind": "like"}
+        )
+        self.assertEqual(
+            responses[-1][1], {"active": True, "count": 1, "kind": "like"}
+        )
+        self.assertEqual(
+            app.query_one(
+                "SELECT COUNT(*) AS n FROM user_notifications WHERE user_id = ? AND kind = 'place_like'",
+                (self.author_id,),
+            )["n"],
+            1,
+        )
         author_handler, _ = self.make_handler(self.author_id, username="author1")
         author_handler.api_map_mark_seen({"notify_targets": [place_id]})
         self.assertEqual(

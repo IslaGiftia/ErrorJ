@@ -1511,6 +1511,14 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
                 """ALTER TABLE map_categories
                    ADD COLUMN parent_id INTEGER REFERENCES map_categories(id) ON DELETE CASCADE"""
             )
+        interaction_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(map_place_interactions)").fetchall()
+        }
+        if "active" not in interaction_columns:
+            conn.execute(
+                "ALTER TABLE map_place_interactions ADD COLUMN active INTEGER NOT NULL DEFAULT 1"
+            )
         music_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(site_music)").fetchall()
         }
@@ -11955,7 +11963,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         rows = query(
             f"""SELECT place_id, kind, COUNT(*) AS n
                 FROM map_place_interactions
-                WHERE place_id IN ({placeholders})
+                WHERE place_id IN ({placeholders}) AND active = 1
                 GROUP BY place_id, kind""",
             tuple(place_ids),
         )
@@ -11970,7 +11978,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
         placeholders = ",".join("?" for _ in place_ids)
         rows = query(
             f"""SELECT place_id, kind FROM map_place_interactions
-                WHERE user_id = ? AND place_id IN ({placeholders})""",
+                WHERE user_id = ? AND active = 1
+                  AND place_id IN ({placeholders})""",
             (int(user_id), *place_ids),
         )
         result = {}
@@ -12502,27 +12511,36 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 404, "标记不存在。")
             return
         existing = query_one(
-            """SELECT 1 AS ok FROM map_place_interactions
+            """SELECT active FROM map_place_interactions
                WHERE place_id = ? AND user_id = ? AND kind = ?""",
             (place_id, user_id, kind),
         )
-        if existing:
+        already_active = bool(existing and int(existing.get("active") or 0) == 1)
+        if already_active:
             execute(
-                """DELETE FROM map_place_interactions
+                """UPDATE map_place_interactions SET active = 0
                    WHERE place_id = ? AND user_id = ? AND kind = ?""",
                 (place_id, user_id, kind),
             )
             active = False
         else:
-            execute(
-                """INSERT OR IGNORE INTO map_place_interactions
-                       (place_id, user_id, kind, created_at)
-                   VALUES (?, ?, ?, ?)""",
-                (place_id, user_id, kind, now_text()),
-            )
+            if existing:
+                # 之前点过又取消：恢复为已选中，但不重复发提醒
+                execute(
+                    """UPDATE map_place_interactions SET active = 1
+                       WHERE place_id = ? AND user_id = ? AND kind = ?""",
+                    (place_id, user_id, kind),
+                )
+            else:
+                execute(
+                    """INSERT INTO map_place_interactions
+                           (place_id, user_id, kind, created_at, active)
+                       VALUES (?, ?, ?, ?, 1)""",
+                    (place_id, user_id, kind, now_text()),
+                )
             active = True
             creator_id = int(place.get("created_by") or 0)
-            if creator_id != user_id:
+            if not existing and creator_id != user_id:
                 actor = self.notification_actor_name(identity)
                 if kind == "like":
                     add_user_notification(
@@ -12557,7 +12575,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 )
         count = query_one(
             """SELECT COUNT(*) AS n FROM map_place_interactions
-               WHERE place_id = ? AND kind = ?""",
+               WHERE place_id = ? AND kind = ? AND active = 1""",
             (place_id, kind),
         )["n"]
         self.send_json(200, {"active": active, "count": int(count), "kind": kind})
