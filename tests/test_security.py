@@ -1080,6 +1080,88 @@ class InteractionTests(unittest.TestCase):
             any(item.get("id") == "notify-map" for item in items)
         )
 
+    def test_message_filters_mark_like_and_reply_on_replies(self):
+        stamp = app.now_text()
+        reply_id = app.execute(
+            """INSERT INTO site_messages
+                   (nickname, content, parent_id, user_id, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            ("作者乙", "一条回复", self.message_id, self.other_id, stamp),
+        )
+        app.execute(
+            """INSERT INTO content_likes (target_type, target_id, user_id, created_at)
+               VALUES ('message', ?, ?, ?)""",
+            (reply_id, self.author_id, stamp),
+        )
+        handler, responses = self.make_handler(self.author_id, username="author1")
+        handler.api_site_messages({})
+        root = [
+            row for row in responses[-1][1] if int(row["id"]) == self.message_id
+        ][0]
+        self.assertTrue(root["mine"])
+        self.assertTrue(root["liked_by_me"])
+        self.assertFalse(root["replied_by_me"])
+        self.assertFalse(root["replies"][0]["mine"])
+
+        handler.api_site_message_create(
+            {"content": "作者自己的回复", "parent_id": self.message_id, "files": []}
+        )
+        handler.api_site_messages({})
+        root = [
+            row for row in responses[-1][1] if int(row["id"]) == self.message_id
+        ][0]
+        self.assertTrue(root["replied_by_me"])
+        self.assertTrue(
+            any(reply.get("mine") for reply in root["replies"])
+        )
+
+        other_handler, other_responses = self.make_handler(
+            self.other_id, username="other1"
+        )
+        other_handler.api_site_messages({})
+        other_root = [
+            row
+            for row in other_responses[-1][1]
+            if int(row["id"]) == self.message_id
+        ][0]
+        self.assertFalse(other_root["mine"])
+        self.assertFalse(other_root["liked_by_me"])
+        self.assertTrue(other_root["replied_by_me"])
+        self.assertTrue(other_root["replies"][0]["mine"])
+
+    def test_moment_filters_mark_likes_and_comments(self):
+        stamp = app.now_text()
+        moment_id = app.execute(
+            "INSERT INTO moments (content, created_at) VALUES (?, ?)",
+            ("筛选测试动态", stamp),
+        )
+        comment_id = app.execute(
+            """INSERT INTO moment_comments
+                   (moment_id, parent_id, user_id, actor, content, created_at)
+               VALUES (?, NULL, ?, ?, ?, ?)""",
+            (moment_id, self.other_id, "作者乙", "评论一下", stamp),
+        )
+        app.execute(
+            """INSERT INTO content_likes (target_type, target_id, user_id, created_at)
+               VALUES ('comment', ?, ?, ?)""",
+            (comment_id, self.author_id, stamp),
+        )
+        handler, responses = self.make_handler(self.author_id, username="author1")
+        handler.api_moments({})
+        row = [item for item in responses[-1][1] if int(item["id"]) == moment_id][0]
+        self.assertTrue(row["liked_by_me"])
+        self.assertFalse(row["commented_by_me"])
+
+        other_handler, other_responses = self.make_handler(
+            self.other_id, username="other1"
+        )
+        other_handler.api_moments({})
+        other_row = [
+            item for item in other_responses[-1][1] if int(item["id"]) == moment_id
+        ][0]
+        self.assertTrue(other_row["commented_by_me"])
+        self.assertTrue(other_row["comments"][0]["mine"])
+
     def test_deleted_message_clears_notification(self):
         handler, _ = self.make_handler(self.other_id, username="other1")
         handler.api_site_like_toggle(

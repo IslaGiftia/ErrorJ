@@ -1228,3 +1228,22 @@ HTML 顺序        -> 添加者 + 导航行在动作行之前
 卡片按钮                  -> 删除 mp-actions-spacer，无多余留白
 自动化测试                -> 58 / 58 通过
 ```
+
+## 35. 2026-10-09 留言与动态筛选
+
+完成内容：
+
+- 后端在 `/api/site/messages` 返回里为每条留言补充 `mine`、`liked_by_me`（含点赞过的回复）、`replied_by_me`，回复也带 `mine`；`/api/moments` 为每条动态补充 `liked_by_me`（含点赞过的评论）、`commented_by_me`，评论带 `mine`。
+- 留言页顶部新增筛选标签：全部 / 我的留言 / 我点赞过 / 我评论过；动态页新增：全部 / 我点赞过 / 我评论过。只有登录账号可见，纯前端本地过滤，不增加请求。
+- 筛选结果为空时显示对应空状态文案；当前筛选写入网址（`?filter=...`），刷新和分享链接保持；「全部」会移除该参数。
+- README、参考项目页面（`static/references.html`）同步更新。
+
+验证结果：
+
+```text
+留言 root 标记      -> mine / liked_by_me / replied_by_me 正确（点赞、回复发生在子回复上也算）
+动态标记            -> liked_by_me / commented_by_me / 评论 mine 正确
+筛选状态            -> URL 参数持久化，空状态文案按筛选变化
+自动化测试          -> 60 / 60 通过
+语法检查            -> messages.js / moments.js 通过
+```

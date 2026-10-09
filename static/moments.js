@@ -825,29 +825,98 @@
           })
       : Promise.resolve([]);
     return Promise.all([api("/api/moments"), targetsRequest]).then(function (result) {
-      var rows = result[0];
+      latestMomentRows = result[0];
       freshTargets = {};
       (result[1] || []).forEach(function (id) {
         freshTargets[String(id)] = true;
       });
-      list.innerHTML = "";
-      $("momentCount").textContent = rows.length ? "共 " + rows.length + " 条" : "";
-      if (!rows.length) {
-        list.appendChild(el("div", "mo-empty", "还没有记录，写第一条吧。"));
-        return;
-      }
-      rows.forEach(function (row) {
-        list.appendChild(buildMoment(row));
-      });
-      refreshIcons();
-      updateJumpButton();
+      renderMomentRows();
     }).catch(function (err) {
       list.innerHTML = "";
       list.appendChild(el("div", "mo-empty", "加载失败：" + err.message));
     });
   }
 
+  // ---------- 筛选 ----------
+  var MOMENT_FILTER_VALUES = ["all", "liked", "commented"];
+  var MOMENT_FILTER_EMPTY_TEXT = {
+    liked: "还没有你点赞过的动态。",
+    commented: "还没有你评论过的动态。",
+  };
+  var currentMomentFilter = "all";
+  var latestMomentRows = [];
+
+  function momentMatchesFilter(row) {
+    if (currentMomentFilter === "liked") return Boolean(row.liked_by_me);
+    if (currentMomentFilter === "commented") return Boolean(row.commented_by_me);
+    return true;
+  }
+
+  function setMomentFilter(value) {
+    if (MOMENT_FILTER_VALUES.indexOf(value) < 0) value = "all";
+    currentMomentFilter = value;
+    var filterBox = $("momentFilters");
+    if (filterBox) {
+      filterBox.querySelectorAll("[data-mo-filter]").forEach(function (node) {
+        node.classList.toggle(
+          "is-active",
+          node.getAttribute("data-mo-filter") === value
+        );
+      });
+    }
+    var url = new URL(window.location.href);
+    if (value === "all") url.searchParams.delete("filter");
+    else url.searchParams.set("filter", value);
+    history.replaceState(null, "", url.toString());
+  }
+
+  function initMomentFilters() {
+    var filterBox = $("momentFilters");
+    if (!filterBox || !canInteract) return;
+    filterBox.hidden = false;
+    filterBox.addEventListener("click", function (event) {
+      var btn = event.target.closest("[data-mo-filter]");
+      if (!btn) return;
+      var value = btn.getAttribute("data-mo-filter");
+      if (value === currentMomentFilter) return;
+      setMomentFilter(value);
+      renderMomentRows();
+    });
+  }
+
+  function momentEmptyText() {
+    if (currentMomentFilter !== "all") {
+      return (
+        MOMENT_FILTER_EMPTY_TEXT[currentMomentFilter] ||
+        "没有符合条件的动态。"
+      );
+    }
+    return "还没有记录，写第一条吧。";
+  }
+
+  function renderMomentRows() {
+    var list = $("momentList");
+    if (!list) return;
+    var rows =
+      currentMomentFilter === "all"
+        ? latestMomentRows
+        : latestMomentRows.filter(momentMatchesFilter);
+    list.innerHTML = "";
+    $("momentCount").textContent = rows.length ? "共 " + rows.length + " 条" : "";
+    if (!rows.length) {
+      list.appendChild(el("div", "mo-empty", momentEmptyText()));
+      return;
+    }
+    rows.forEach(function (row) {
+      list.appendChild(buildMoment(row));
+    });
+    refreshIcons();
+    updateJumpButton();
+  }
+
   renderPending();
+  initMomentFilters();
+  setMomentFilter(new URLSearchParams(location.search).get("filter") || "all");
   $("momentShowRegion").checked = regionPreference();
   refreshIcons();
 

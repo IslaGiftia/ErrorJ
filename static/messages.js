@@ -795,7 +795,6 @@
   }
 
   function loadMessages() {
-    var list = $("messageList");
     var targetsRequest = canPost
       ? api("/api/site/messages/unread")
           .then(function (data) {
@@ -808,16 +807,13 @@
     return Promise.all([api("/api/site/messages"), targetsRequest]).then(function (
       result
     ) {
-      var rows = result[0];
+      latestMessageRows = result[0];
       freshTargets = {};
       (result[1] || []).forEach(function (id) {
         freshTargets[String(id)] = true;
       });
-      list.innerHTML = "";
-      var total = 0;
       var newest = 0;
-      rows.forEach(function (row) {
-        total += 1 + (row.replies || []).length;
+      latestMessageRows.forEach(function (row) {
         newest = Math.max(newest, Number(row.id) || 0);
         (row.replies || []).forEach(function (reply) {
           newest = Math.max(newest, Number(reply.id) || 0);
@@ -829,25 +825,101 @@
           body: JSON.stringify({}),
         }).catch(function () {});
       }
-      $("messageCount").textContent = rows.length ? "共 " + total + " 条" : "";
-      if (!rows.length) {
-        list.appendChild(
-          el("div", "mg-empty", canPost ? "还没有留言，来说点什么吧。" : "还没有留言。")
-        );
-        return;
-      }
-      rows.forEach(function (row) {
-        list.appendChild(buildMessage(row));
-      });
-      refreshIcons();
-      updateJumpButton();
+      renderRows();
     }).catch(function (err) {
       list.innerHTML = "";
       list.appendChild(el("div", "mg-empty", "加载失败：" + err.message));
     });
   }
 
+  // ---------- 筛选 ----------
+  var FILTER_VALUES = ["all", "mine", "liked", "replied"];
+  var FILTER_EMPTY_TEXT = {
+    mine: "你还没有发表过留言。",
+    liked: "还没有你点赞过的留言。",
+    replied: "还没有你评论过的留言。",
+  };
+  var currentMessageFilter = "all";
+  var latestMessageRows = [];
+
+  function messageEmptyText() {
+    if (currentMessageFilter !== "all") {
+      return (
+        FILTER_EMPTY_TEXT[currentMessageFilter] ||
+        "没有符合条件的留言。"
+      );
+    }
+    return canPost ? "还没有留言，来说点什么吧。" : "还没有留言。";
+  }
+
+  function messageMatchesFilter(row) {
+    if (currentMessageFilter === "mine") return Boolean(row.mine);
+    if (currentMessageFilter === "liked") return Boolean(row.liked_by_me);
+    if (currentMessageFilter === "replied") return Boolean(row.replied_by_me);
+    return true;
+  }
+
+  function filterRows(rows) {
+    if (currentMessageFilter === "all") return rows;
+    return rows.filter(messageMatchesFilter);
+  }
+
+  function setMessageFilter(value) {
+    if (FILTER_VALUES.indexOf(value) < 0) value = "all";
+    currentMessageFilter = value;
+    var filterBox = $("messageFilters");
+    if (filterBox) {
+      filterBox.querySelectorAll("[data-mg-filter]").forEach(function (node) {
+        node.classList.toggle(
+          "is-active",
+          node.getAttribute("data-mg-filter") === value
+        );
+      });
+    }
+    var url = new URL(window.location.href);
+    if (value === "all") url.searchParams.delete("filter");
+    else url.searchParams.set("filter", value);
+    history.replaceState(null, "", url.toString());
+  }
+
+  function initMessageFilters() {
+    var filterBox = $("messageFilters");
+    if (!filterBox || !canPost) return;
+    filterBox.hidden = false;
+    filterBox.addEventListener("click", function (event) {
+      var btn = event.target.closest("[data-mg-filter]");
+      if (!btn) return;
+      var value = btn.getAttribute("data-mg-filter");
+      if (value === currentMessageFilter) return;
+      setMessageFilter(value);
+      renderRows();
+    });
+  }
+
+  function renderRows() {
+    var list = $("messageList");
+    if (!list) return;
+    var rows = filterRows(latestMessageRows);
+    list.innerHTML = "";
+    var total = 0;
+    rows.forEach(function (row) {
+      total += 1 + (row.replies || []).length;
+    });
+    $("messageCount").textContent = rows.length ? "共 " + total + " 条" : "";
+    if (!rows.length) {
+      list.appendChild(el("div", "mg-empty", messageEmptyText()));
+      return;
+    }
+    rows.forEach(function (row) {
+      list.appendChild(buildMessage(row));
+    });
+    refreshIcons();
+    updateJumpButton();
+  }
+
   renderPending();
+  initMessageFilters();
+  setMessageFilter(new URLSearchParams(location.search).get("filter") || "all");
   $("msgShowRegion").checked = regionPreference();
   refreshIcons();
   if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);

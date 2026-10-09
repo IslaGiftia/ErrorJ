@@ -345,6 +345,41 @@ body {
   gap: 12px;
 }
 
+.mg-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.mg-filters[hidden] {
+  display: none;
+}
+
+.mg-filter {
+  height: 30px;
+  padding: 0 13px;
+  border: 1px solid var(--mg-border);
+  border-radius: 999px;
+  background: var(--mg-surface);
+  color: var(--mg-muted);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mg-filter:hover {
+  background: var(--mg-hover);
+  color: var(--mg-text);
+}
+
+.mg-filter.is-active {
+  border-color: color-mix(in srgb, var(--mg-accent) 55%, var(--mg-border));
+  background: var(--mg-accent-soft);
+  color: var(--mg-accent);
+  font-weight: 600;
+}
+
 .mg-item {
   background: var(--mg-surface);
   border: 1px solid var(--mg-border);

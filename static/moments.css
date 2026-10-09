@@ -284,6 +284,40 @@ body {
   gap: 14px;
 }
 
+.mo-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mo-filters[hidden] {
+  display: none;
+}
+
+.mo-filter {
+  height: 30px;
+  padding: 0 13px;
+  border: 1px solid var(--mo-border);
+  border-radius: 999px;
+  background: var(--mo-surface);
+  color: var(--mo-muted);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mo-filter:hover {
+  background: var(--mo-hover);
+  color: var(--mo-text);
+}
+
+.mo-filter.is-active {
+  border-color: color-mix(in srgb, var(--mo-accent) 55%, var(--mo-border));
+  background: var(--mo-accent-soft);
+  color: var(--mo-accent);
+  font-weight: 600;
+}
+
 .mo-item {
   display: grid;
   grid-template-columns: 40px minmax(0, 1fr);

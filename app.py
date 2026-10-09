@@ -9600,6 +9600,16 @@ class InventoryHandler(BaseHTTPRequestHandler):
         viewer_id = None
         if identity:
             viewer_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
+        my_ids = (
+            set(
+                int(row["id"])
+                for row in rows
+                if viewer_id is not None and int(row.get("user_id") or 0) == int(viewer_id)
+            )
+            if viewer_id is not None
+            else set()
+        )
+        liked_ids = liked_target_ids(viewer_id, "message", [row["id"] for row in rows])
         viewer_signed_in = identity is not None
         can_delete = self.is_admin()
         user_ids = sorted(
@@ -9694,10 +9704,18 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
         for root in roots:
             root["replies"] = []
+            root["mine"] = int(root["id"]) in my_ids
+            root["liked_by_me"] = int(root["id"]) in liked_ids
+            root["replied_by_me"] = False
         for reply in replies:
             root = thread_root(reply)
             if root and int(root.get("id") or 0) != int(reply.get("id") or 0):
                 root.setdefault("replies", []).append(reply)
+                if int(reply["id"]) in liked_ids:
+                    root["liked_by_me"] = True
+                if int(reply["id"]) in my_ids:
+                    root["replied_by_me"] = True
+            reply["mine"] = int(reply["id"]) in my_ids
         for root in roots:
             root["replies"] = sorted(
                 root.get("replies") or [], key=lambda item: int(item["id"])
@@ -9977,7 +9995,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def moment_comments_map(self, moment_ids, viewer_id, can_manage, viewer_signed_in):
         """按动态分组返回评论，并标出每一条能不能删。"""
         if not moment_ids:
-            return {}
+            return {}, set(), set()
         placeholders = ",".join("?" for _ in moment_ids)
         rows = query(
             f"""SELECT id, moment_id, parent_id, user_id, actor, content, created_at
@@ -9989,6 +10007,16 @@ class InventoryHandler(BaseHTTPRequestHandler):
         comment_ids = [int(row["id"]) for row in rows]
         like_count_map = like_counts("comment", comment_ids)
         liked_set = liked_target_ids(viewer_id, "comment", comment_ids)
+        viewer_commented_ids = (
+            set(
+                int(row["moment_id"])
+                for row in rows
+                if viewer_id is not None
+                and int(row.get("user_id") or 0) == int(viewer_id)
+            )
+            if viewer_id is not None
+            else set()
+        )
         like_user_map = {}
         if comment_ids:
             like_placeholders = ",".join("?" for _ in comment_ids)
@@ -10022,12 +10050,16 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "content": row["content"],
                     "created_at": row["created_at"],
                     "can_delete": can_delete,
+                    "mine": bool(
+                        viewer_id is not None
+                        and int(row.get("user_id") or 0) == int(viewer_id)
+                    ),
                     "like_count": like_count_map.get(int(row["id"]), 0),
                     "liked": int(row["id"]) in liked_set,
                     "like_users": like_user_map.get(int(row["id"]), [])[:12],
                 }
             )
-        return grouped
+        return grouped, viewer_commented_ids
 
     def api_moments(self, params):
         rows = query(
@@ -10044,7 +10076,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             )
         files = self.moment_files_map([row["id"] for row in rows])
         moment_ids = [int(row["id"]) for row in rows]
-        comments = self.moment_comments_map(
+        comments, comment_moment_ids = self.moment_comments_map(
             moment_ids, viewer_id, can_manage, identity is not None
         )
         share_ids = {}
@@ -10101,6 +10133,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
             )
             row["like_count"] = like_count_map.get(int(row["id"]), 0)
             row["liked"] = int(row["id"]) in liked_set
+            row["liked_by_me"] = row["liked"] or any(
+                comment.get("liked") for comment in row["comments"]
+            )
+            row["commented_by_me"] = int(row["id"]) in comment_moment_ids
             row["like_users"] = like_user_map.get(int(row["id"]), [])[:12]
             row["pinned"] = bool(row["pinned"])
             row["can_manage"] = can_manage

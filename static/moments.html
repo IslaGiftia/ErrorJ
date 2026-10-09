@@ -62,6 +62,11 @@
         <input type="file" id="imageInput" accept="image/*" multiple hidden>
       </form>
 
+      <nav class="mo-filters" id="momentFilters" hidden aria-label="动态筛选">
+        <button class="mo-filter" type="button" data-mo-filter="all">全部</button>
+        <button class="mo-filter" type="button" data-mo-filter="liked">我点赞过</button>
+        <button class="mo-filter" type="button" data-mo-filter="commented">我评论过</button>
+      </nav>
       <section class="mo-list" id="momentList"></section>
     </main>
   </div>
