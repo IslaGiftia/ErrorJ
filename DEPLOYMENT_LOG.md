@@ -1723,3 +1723,24 @@ Python / JS 语法检查     -> 通过
 自动化测试               -> 86 / 86 通过
 Python / JS 语法检查     -> 通过
 ```
+
+## 60. 2026-10-10 19:05:33 管理员入口取消 IP 白名单
+
+完成内容：
+- 管理员入口原来由 nginx 按 IP 白名单限制（只放行 `111.18.134.33` 和服务器本机），手机走别的出口 IP 时 `/api/login`、`/logout`、`/workbench`、`/api/workbench`、`/api/prompts`、`/api/admin`、`/api/register` 全部直接 403，表现为「管理员手机登录失败」，普通账号注册申请在非受信任网络也同样被挡。
+- 按确认的方案 A 取消这 7 处 IP 判断：管理员登录仍走密码校验 + `limit_req` 登录限速（每 IP 每分钟 6 次、突发 3），管理接口仍由应用自身的会话与权限校验保护；`/api/register` 恢复为对外可达的普通账号注册申请入口（应用内另有每 IP 每小时 5 次限速）。
+- `$errorjiang_real_ip`（真实客户端 IP）继续保留，访问日志不会记成代理对端 IP；`geo $errorjiang_admin_ok` 定义保留但不再被判断，恢复白名单只需把注释里的 if 判断加回各 location。
+- 仓库模板 `deploy/nginx-errorjiang.conf` 与 `deploy/nginx-errorjiang-http.conf` 同步更新，`nginx-errorjiang-admin-allow.conf` 补了说明。
+
+验证结果：
+```text
+POST /api/login          -> 401 {"error":"用户名或密码不正确。"}（修复前 nginx 403）
+POST /api/register       -> 400 参数校验错误（修复前 403）
+POST /api/member/login   -> 401（普通账号登录路径不变）
+GET  /workbench          -> 302 跳登录页（应用层，修复前 403）
+GET  /api/admin/users    -> 401 JSON（应用层鉴权）
+GET  /api/health         -> 200
+nginx 配置测试           -> nginx -t 通过，reload 生效（短暂无中断）
+线上首页 / 地图 / 笔记   -> 正常
+自动化测试               -> 86 / 86 通过
+```
