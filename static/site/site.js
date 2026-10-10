@@ -310,6 +310,17 @@
       extra.textContent = "+" + (count - 5);
       wrap.appendChild(extra);
     }
+    fillThumbsPlaceholder(wrap);
+  }
+
+  // 没有缩略图时留一个透明占位：普通账号和游客的四个模块入口
+  // 与管理员登录时大小一致，刷新或返回首页不会出现高度跳变。
+  function fillThumbsPlaceholder(wrap) {
+    if (!wrap || wrap.childElementCount) return;
+    var spacer = document.createElement("span");
+    spacer.className = "repo-thumb repo-thumb-placeholder";
+    spacer.setAttribute("aria-hidden", "true");
+    wrap.appendChild(spacer);
   }
 
   function renderBookmarkLanding(bookmarks) {
@@ -361,6 +372,7 @@
       extra.textContent = "+" + (bookmarks.length - 5);
       wrap.appendChild(extra);
     }
+    fillThumbsPlaceholder(wrap);
   }
 
   function renderNotesLanding(notes) {
@@ -383,6 +395,7 @@
       }
       wrap.appendChild(thumb);
     }
+    fillThumbsPlaceholder(wrap);
   }
 
   function renderWorkbenchLanding(workbench) {
@@ -392,7 +405,10 @@
     var wrap = document.getElementById("workbenchThumbs");
     if (!wrap) return;
     wrap.innerHTML = "";
-    if (!assets || !total) return;
+    if (!assets || !total) {
+      fillThumbsPlaceholder(wrap);
+      return;
+    }
     var badge = document.createElement("span");
     badge.className = "repo-thumb repo-count";
     badge.textContent = total > 99 ? "99+" : String(total);

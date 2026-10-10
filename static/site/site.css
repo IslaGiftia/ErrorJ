@@ -577,6 +577,14 @@ img {
   margin-left: 0;
 }
 
+/* 缩略图占位：普通账号 / 游客没有缩略图时也占住同样的位置，
+   四个模块入口的高度和宽度与管理员登录时完全一致，返回首页不再跳变。 */
+.repo-thumb-placeholder {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
 .repo-thumb-fallback {
   display: flex;
   align-items: center;
