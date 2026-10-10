@@ -254,6 +254,7 @@ netsh advfirewall firewall add rule name="Errorjiang 8000" dir=in action=allow p
 - 只监听回环的 Docker 方案：`docker-compose.prod.yml`
 - 管理员入口白名单脚本：`deploy/nginx-allow-ip.sh`（配合 `deploy/nginx-errorjiang-admin-allow.conf`）
 - 外出访问后台的 WireGuard 通道：服务端 `wg0`（`10.66.0.1/24`，监听 UDP 51820），VPN 网段 `10.66.0.0/24` 已在白名单内；客户端配置放在管理员本机桌面 `Error酱-VPN\` 目录
+- 手机应急 SSH：单独一把密钥 `phone-termius`（公钥在服务器 `/root/.ssh/authorized_keys`，私钥在管理员本机桌面 `Error酱-VPN\手机SSH\`），配 Termius 用，白名单把自己挡住时靠它进服务器放行 IP；丢手机就删掉 `authorized_keys` 里带 `phone-termius` 的那一行
 
 服务器上至少要做三件事：把 `INVENTORY_PASSWORD` 写进 `/etc/errorjiang.env`、让应用只监听 `127.0.0.1`、用 Nginx 转发并配置 HTTPS。完整的部署过程见 `DEPLOYMENT_LOG.md`，面向新手的服务器维护步骤见 `ERRORJIANG_MAINTENANCE.md`。
 

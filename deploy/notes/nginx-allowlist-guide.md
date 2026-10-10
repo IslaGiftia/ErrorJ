@@ -105,8 +105,8 @@ sudo bash /usr/local/bin/nginx-allow-ip.sh list
 
 **保底办法：SSH 进服务器改白名单**
 
-前提是手机上有一套能用的 SSH 客户端 + 服务器那把私钥。
-推荐 Termius（iOS / Android），把电脑上的 `C:\Users\Administrator\.ssh\id_ed25519` 导进去。
+前提是手机上有一套能用的 SSH 客户端 + 一把专门的私钥（下面第六节有喂饭步骤，
+密钥已经生成好了，放在电脑桌面 `Error酱-VPN\手机SSH\phone_termius`）。
 
 为什么这条路一定通：**SSH 不走白名单**（白名单只管网页入口），
 所以哪怕你被挡在登录页外面，手机 SSH 也永远进得去。
@@ -173,7 +173,74 @@ sudo bash /usr/local/bin/nginx-allow-ip.sh add 123.45.67.89 2h
 
 ---
 
-## 六、常用命令（复制就能用）
+## 六、手机 SSH（Termius）：喂饭版设置
+
+这一节做一次，之后出门在外就能用手机改白名单。
+
+**为什么单独给手机一把密钥**
+
+电脑上那把 `C:\Users\Administrator\.ssh\id_ed25519` 是主钥匙，不要往手机里搬。
+已经给手机单独生成了一把（`phone_termius`），公钥装在服务器上，
+万一手机丢了，把服务器上这一行删掉就废掉它，电脑那把不受影响。
+
+手机上的密钥文件在电脑桌面：`Error酱-VPN\手机SSH\phone_termius`
+
+**第一步：把密钥传到手机（三种选一种）**
+
+- **最好：USB 数据线**（不经过任何第三方）。手机插上电脑 → 解锁 → 下拉通知选「传输文件 / MTP」→
+  把 `phone_termius` 这个文件复制到手机的「下载 / Download」文件夹。
+- 或者：**在同一个 WiFi 下走局域网**（需要我在这边临时开个下载服务，联网前跟我说一声）。
+- 或者：用微信「文件传输助手」发给自己（方便，但文件会经过腾讯服务器，能不用尽量不用）。
+
+**第二步：手机装 Termius**
+
+应用商店搜 **Termius**（黑色图标，官方那个），装好打开。
+
+**第三步：把密钥导进 Termius**
+
+1. 底部导航点「**Keychain**」（钥匙串）
+2. 右上角「**+**」→ 选「**Import key**」/「导入密钥」
+3. 选「**File**」→ 找到刚才放进手机「下载」里的 `phone_termius` 文件
+4. 名字随便填（比如 `手机钥匙`），保存
+
+**第四步：新建一台主机**
+
+1. 底部导航点「**Hosts**」→ 右上角「**+**」
+2. 按这个填：
+   - Label / 名称：`Error酱服务器`
+   - Address / 地址：`47.108.86.201`
+   - Port / 端口：`22`
+   - Username / 用户名：`root`
+   - Key / 密钥：选第三步导入的那把
+3. 保存，回到列表点它
+4. 第一次连接会弹「未知主机 / 指纹」，点 **Trust / 信任并继续**，然后把指纹填进去确认：
+   `SHA256:+8qQb1+V61fYvBlhBGE+O8oFTW3mK0DcYylWr51VUr8`
+
+连上后看到 `root@iZxxxxx:~#` 就成了。
+
+**第五步：把常用命令存成快捷方式（推荐）**
+
+Termius 左下角「**Snippets**」→「+」，各存一条，以后点一下就执行：
+
+```bash
+bash /usr/local/bin/nginx-allow-ip.sh list          # 看当前状态
+bash /usr/local/bin/nginx-allow-ip.sh open 2h       # 临时全放开 2 小时（网吧用这个）
+bash /usr/local/bin/nginx-allow-ip.sh strict        # 立刻收回
+bash /usr/local/bin/nginx-allow-ip.sh add 1.2.3.4 2h  # 只放行某个 IP 2 小时
+```
+
+**安全提醒**
+
+- 手机上一定要设锁屏密码 / 指纹，密钥就存在手机里。
+- 手机丢了或换手机：让服务器执行下面这句就能作废这把钥匙（电脑上的主钥匙不受影响），
+  或者微信/QQ 上找我帮你弄：
+  ```bash
+  sed -i '/phone-termius/d' /root/.ssh/authorized_keys
+  ```
+
+---
+
+## 七、常用命令（复制就能用）
 
 看当前状态和名单：
 
@@ -221,7 +288,7 @@ sudo bash /usr/local/bin/nginx-allow-ip.sh remove 123.45.67.89
 
 ---
 
-## 七、改坏了怎么办
+## 八、改坏了怎么办
 
 **1）先自己检查一遍配置：**
 
@@ -246,7 +313,7 @@ nginx -t && systemctl reload nginx
 
 ---
 
-## 八、三个容易踩的坑
+## 九、三个容易踩的坑
 
 1. **白名单关着的时候，往名单里加 IP 是没用的** —— 必须先 `strict` 才会生效。
 2. **游客注册申请不受白名单影响**（2026-10-10 起已解耦）：`/api/register`、
@@ -258,7 +325,7 @@ nginx -t && systemctl reload nginx
 
 ---
 
-## 九、记不住？就记这三条
+## 十、记不住？就记这三条
 
 ```bash
 sudo bash /usr/local/bin/nginx-allow-ip.sh list     # 看现在什么状态

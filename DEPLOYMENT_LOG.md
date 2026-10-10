@@ -1994,3 +1994,30 @@ py_compile        -> app.py 语法通过
 node --check      -> static/workbench.js 语法通过
 bash -n           -> deploy/nginx-allow-ip.sh 语法通过（服务器上执行）
 ```
+
+## 67. 2026-10-10 21:44:01 手机应急 SSH：单独一把手机专用密钥
+
+背景：白名单开启后，出门在外（例如临时去网吧）需要一条不依赖服务器网页入口的后路。
+手机 SSH 是最可靠的那条，但直接把电脑上的主私钥搬进手机风险太高，因此单独签发一把手机专用密钥。
+
+完成内容：
+- 新建手机专用密钥对 `phone-termius`（ED25519，无口令）：
+  - 私钥放在管理员本机桌面 `Error酱-VPN\手机SSH\phone_termius`（不上服务器、不进 Git、不进聊天记录）；
+  - 公钥追加进服务器 `/root/.ssh/authorized_keys`（注释 `phone-termius`），
+    安装前备份到 `/data/errorjiang-backup/authorized_keys-20261010-214245`，`~/.ssh` 权限 700 / 文件 600；
+  - 脚本按注释先去重再追加，重复执行不会堆积；作废方式：`sed -i '/phone-termius/d' /root/.ssh/authorized_keys`。
+- 实测：用这把私钥从本机连服务器成功（`PHONE_KEY_OK`，并成功执行 `nginx-allow-ip.sh list`），
+  主密钥 `SHA256:fXEffwyOl...` 与手机密钥 `SHA256:uJA61SDv...` 两把并存、互不影响。
+- 笔记 #21 新增第六节《手机 SSH（Termius）：喂饭版设置》：为什么要单独一把钥匙、
+  密钥怎么传到手机（USB 优先，局域网 / 微信备选）、Termius 导入密钥、新建主机（含主机指纹
+  `SHA256:+8qQb1+V61fYvBlhBGE+O8oFTW3mK0DcYylWr51VUr8`）、把四条常用命令存成 Snippets、
+  以及手机丢失后的作废办法；原来的第六到第九节顺延为第七到第十节。
+- README 的部署清单补了一行说明这把手机密钥的位置与作废方式。
+
+验证结果：
+```text
+用手机密钥登录        -> PHONE_KEY_OK
+authorized_keys       -> 2 行（主密钥 + phone-termius）
+手机密钥执行白名单命令 -> 正常输出当前模式
+自动化测试            -> 未涉及代码改动，沿用上一轮的 107 / 107
+```
