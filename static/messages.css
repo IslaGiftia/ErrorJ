@@ -790,6 +790,8 @@ button.mg-file {
   overflow: auto;
   background: var(--mg-bg);
   text-align: center;
+  /* 双击交给下面的 image-zoom.js 处理，别让浏览器把整页双击放大 */
+  touch-action: manipulation;
 }
 
 .mg-viewer-body img {
@@ -800,6 +802,11 @@ button.mg-file {
   -webkit-user-drag: none;
   -webkit-touch-callout: none;
   user-select: none;
+  cursor: zoom-in;
+}
+
+.mg-viewer-body img.is-zoomed {
+  cursor: zoom-out;
 }
 
 .mg-viewer-body iframe {
@@ -861,6 +868,14 @@ button.mg-file {
 }
 
 @media (max-width: 640px) {
+  /* 手机上输入框 / 下拉小于 16px 时，iOS 聚焦会自动放大整页。
+     用 body 上的模块属性提高权重，压过组件自己的 font: inherit。 */
+  body[data-notify-module="messages"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  body[data-notify-module="messages"] textarea,
+  body[data-notify-module="messages"] select {
+    font-size: 16px;
+  }
+
   .mg-app {
     padding: 0 12px 48px;
   }
@@ -887,5 +902,19 @@ button.mg-file {
   .mg-actions .mg-btn {
     width: 100%;
     justify-content: center;
+  }
+}
+
+/* 平板竖屏 / 手机横屏（<=1024）也是触摸屏，输入框小于 16px 时 iOS 聚焦同样会放大整页 */
+@media (max-width: 1024px) {
+  body[data-notify-module="messages"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  body[data-notify-module="messages"] textarea,
+  body[data-notify-module="messages"] select {
+    font-size: 16px;
+  }
+
+  /* 手机上主按钮点起来大一点（原来约 38px） */
+  .mg-btn {
+    min-height: 44px;
   }
 }

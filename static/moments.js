@@ -324,13 +324,14 @@
     var body = $("momentViewerBody");
     var title = $("momentViewerTitle");
     if (!viewer || !body) return;
-    if (title) title.textContent = file.file_name || "查看图片";
+    if (title) title.textContent = "查看图片";
     body.innerHTML = "";
     var image = document.createElement("img");
     image.src = "/site-files/" + file.file_path;
     image.alt = file.file_name || "";
     image.draggable = false;
     body.appendChild(image);
+    if (window.ErrorImageZoom) window.ErrorImageZoom.bind(body, image);
     viewer.hidden = false;
   }
 

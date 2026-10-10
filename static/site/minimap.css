@@ -291,7 +291,12 @@
     right: 12px;
     bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     width: 92px;
-    font-size: 10px;
+    /* 原来是 10px，圆盘里的「314 个标记」算下来只有 8.5px，手机上看不清 */
+    font-size: 12px;
+  }
+
+  .map-dock-count {
+    font-size: 11px;
   }
 
   .dock-hud {

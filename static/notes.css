@@ -1202,6 +1202,27 @@ button:disabled {
     max-width: none;
   }
 
+  /* 手机：头部四个元素（品牌/搜索/导入/新建）横排会超过屏宽，
+     导致「新建笔记」被推到屏幕外。改成两行：第一行品牌 + 按钮，第二行独占搜索框。 */
+  .nt-header {
+    height: auto;
+    min-height: 56px;
+    flex-wrap: wrap;
+    row-gap: 8px;
+    padding: 8px 12px;
+  }
+
+  .nt-search {
+    order: 3;
+    flex: 1 0 100%;
+    min-width: 0;
+    height: 36px;
+  }
+
+  .nt-search input {
+    font-size: 16px; /* 小于 16px 时 iOS 聚焦会自动放大页面 */
+  }
+
   .nt-search kbd {
     display: none;
   }
@@ -1248,6 +1269,42 @@ button:disabled {
     padding: 7px 12px 5px;
   }
 
+  /* 手机：标题右侧挤了「分享 / 导出 HTML / 编辑 / 删除」四个按钮，
+     标题会被压到几乎零宽 → 中文变成一竖排。改成两行：
+     第一行返回按钮 + 可横向滚动的操作按钮，第二行标题独占整行。 */
+  .nt-title-row {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .nt-back {
+    order: 0;
+  }
+
+  .nt-doc-actions {
+    order: 1;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .nt-doc-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nt-doc-actions .nt-btn,
+  .nt-doc-actions .nt-ghost-btn {
+    flex: 0 0 auto;
+    white-space: nowrap; /* 按钮文字不许换行，更不许竖排 */
+  }
+
+  .nt-title-text,
+  .nt-title-input {
+    order: 2;
+    flex: 1 1 100%;
+  }
+
   .nt-title-input,
   .nt-title-text {
     font-size: 16.5px;
@@ -1269,5 +1326,56 @@ button:disabled {
 
   .nt-markdown {
     padding-top: 12px;
+  }
+
+  /*
+   * 手机上看笔记以「看」为主：
+   * 进入详情后收起 App 头部（品牌 / 搜索 / 导入 / 新建），顶部只留
+   * 「返回 + 操作」这一条细导航条，屏幕几乎全部让给正文；返回列表自动复原。
+   */
+  body.nt-detail-open .nt-header {
+    display: none;
+  }
+
+  /* 详情页上滑：只收起标题 / 标签 / 元信息，导航条留在原地不消失 */
+  .nt-doc.nt-head-hidden .nt-doc-head {
+    transform: none;
+    margin-top: 0;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .nt-doc.nt-head-hidden .nt-title-text,
+  .nt-doc.nt-head-hidden .nt-title-input,
+  .nt-doc.nt-head-hidden .nt-tags-input,
+  .nt-doc.nt-head-hidden .nt-doc-meta {
+    display: none;
+  }
+
+  /* 列表页上滑：收起上方功能区（品牌 / 搜索 / 导入 / 新建 + 排序 / 标签），下滑复原 */
+  .nt-header,
+  .nt-sidebar-head {
+    transition: transform 0.22s ease, margin-top 0.22s ease, opacity 0.16s ease;
+  }
+
+  .nt-app.nt-list-head-hidden .nt-header {
+    transform: translateY(-100%);
+    margin-top: calc(var(--nt-header-h, 96px) * -1);
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .nt-app.nt-list-head-hidden .nt-sidebar-head {
+    transform: translateY(-100%);
+    margin-top: calc(var(--nt-sidebar-head-h, 80px) * -1);
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+/* 平板竖屏 / 手机横屏（<=1024）也是触摸屏，输入框小于 16px 时 iOS 聚焦同样会放大整页 */
+@media (max-width: 1024px) {
+  .nt-search input {
+    font-size: 16px;
   }
 }

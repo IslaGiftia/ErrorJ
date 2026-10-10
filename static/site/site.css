@@ -432,6 +432,7 @@ img {
 
 .landing {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1444,6 +1445,15 @@ body[data-page] .under-construction {
   }
 }
 
+/* 手机上把浮动按钮 / 图标按钮放大到 44×44，方便手指点（原来 36px） */
+@media (max-width: 640px) {
+  .theme-float,
+  .icon-btn {
+    width: 44px;
+    height: 44px;
+  }
+}
+
 /* 大屏自适应：2K 及以上放大落地页内容，并让整块内容垂直居中，减少大片空白。 */
 @media (min-width: 1600px) {
   .landing-three {
@@ -1455,6 +1465,7 @@ body[data-page] .under-construction {
   .landing-three .landing-inner {
     max-width: 1560px;
     min-height: 100vh;
+    min-height: 100dvh;
   }
 
   .landing-three .landing-main {

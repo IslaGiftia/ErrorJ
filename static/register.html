@@ -127,6 +127,23 @@
       outline-offset: -1px;
     }
 
+    /* 手机上输入框小于 16px 时，iOS 聚焦会自动放大整页（注册页三个框原来都是 14px） */
+    .register-field input {
+      font-size: 16px;
+    }
+
+    /* 手机上把主按钮和返回链接的点击区做大一些 */
+    @media (max-width: 640px) {
+      .register-submit {
+        min-height: 44px;
+      }
+
+      .register-back {
+        display: inline-block;
+        padding: 10px 6px;
+      }
+    }
+
     [data-theme="dark"] .register-field input:focus,
     [data-theme="dark"] .register-submit:focus {
       outline-color: #a78bfa;

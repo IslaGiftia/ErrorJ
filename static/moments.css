@@ -913,6 +913,8 @@ button.mo-share:hover {
   overflow: auto;
   background: var(--mo-bg);
   text-align: center;
+  /* 双击交给下面的 image-zoom.js 处理，别让浏览器把整页双击放大 */
+  touch-action: manipulation;
 }
 
 .mo-viewer-body img {
@@ -923,6 +925,11 @@ button.mo-share:hover {
   -webkit-user-drag: none;
   -webkit-touch-callout: none;
   user-select: none;
+  cursor: zoom-in;
+}
+
+.mo-viewer-body img.is-zoomed {
+  cursor: zoom-out;
 }
 
 .mo-header-actions {
@@ -960,6 +967,14 @@ button.mo-share:hover {
 }
 
 @media (max-width: 640px) {
+  /* 手机上输入框 / 下拉小于 16px 时，iOS 聚焦会自动放大整页。
+     用 body 上的模块属性提高权重，压过组件自己的 font: inherit。 */
+  body[data-notify-module="moments"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  body[data-notify-module="moments"] textarea,
+  body[data-notify-module="moments"] select {
+    font-size: 16px;
+  }
+
   .mo-app {
     padding: 0 12px 48px;
   }
@@ -1010,4 +1025,18 @@ button.mo-share:hover {
 }
 [hidden] {
   display: none !important;
+}
+
+/* 平板竖屏 / 手机横屏（<=1024）也是触摸屏，输入框小于 16px 时 iOS 聚焦同样会放大整页 */
+@media (max-width: 1024px) {
+  body[data-notify-module="moments"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  body[data-notify-module="moments"] textarea,
+  body[data-notify-module="moments"] select {
+    font-size: 16px;
+  }
+
+  /* 手机上主按钮点起来大一点（原来约 38px） */
+  .mo-btn {
+    min-height: 44px;
+  }
 }

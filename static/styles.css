@@ -211,6 +211,7 @@ i {
   display: flex;
   align-items: stretch;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .app-sidebar {
@@ -223,6 +224,7 @@ i {
   top: 0;
   align-self: flex-start;
   height: 100vh;
+  height: 100dvh;
   overflow-y: auto;
 }
 

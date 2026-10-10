@@ -1669,8 +1669,8 @@ body {
 
 @media (max-width: 860px) {
   .mp-sidebar {
-    /* 从右上角三个按钮下方开始，停在底部操作栏上方 */
-    top: calc(12px + var(--mp-tools-h, 130px) + 8px);
+    /* 展开时占用整个上方（右上角三个按钮会让开并滑出），停在底部操作栏上方 */
+    top: 12px;
     left: 12px;
     right: 12px;
     bottom: calc(12px + env(safe-area-inset-bottom, 0px) + var(--mp-actions-h, 92px) + 8px);
@@ -1682,6 +1682,17 @@ body {
 
   .mp-sidebar.is-open {
     transform: translateY(0);
+  }
+
+  /* 清单展开时把右上角三个按钮向右滑出，收起时滑回 */
+  .mp-tools {
+    transition: transform 0.22s ease, opacity 0.18s ease;
+  }
+
+  .mp-app.is-panel-open .mp-tools {
+    transform: translateX(calc(100% + 24px));
+    opacity: 0;
+    pointer-events: none;
   }
 
   /* 搜索框、分类、标签等固定区域不参与压缩，只有结果列表滚动 */
@@ -1705,7 +1716,12 @@ body {
     width: auto;
     gap: 6px;
     padding: 8px;
+    grid-template-columns: 44px repeat(2, minmax(0, 1fr));
     transition: opacity 0.18s ease;
+  }
+
+  .mp-actions.one-action {
+    grid-template-columns: 44px minmax(0, 1fr);
   }
 
   /* 手机端整体收缩，保证右上角按钮以下能完整显示搜索区 */
@@ -1729,7 +1745,7 @@ body {
   .mp-search input {
     height: 32px;
     padding: 0 26px 0 30px;
-    font-size: 12.5px;
+    font-size: 16px; /* 原来是 12.5px，手机上聚焦会被 iOS 放大整页 */
   }
 
   .mp-search svg {
@@ -1783,6 +1799,24 @@ body {
   .mp-actions .mp-btn {
     height: 34px;
     font-size: 12.5px;
+  }
+
+  /* 左下角展开 / 收起按钮：撑满左侧两行，别只剩半截 */
+  .mp-actions .mp-actions-toggle {
+    width: 44px;
+    height: auto;
+    min-height: 44px;
+    padding: 0;
+  }
+
+  .mp-actions.is-solo .mp-actions-toggle,
+  .mp-actions.single-row .mp-actions-toggle {
+    min-height: 44px;
+  }
+
+  .mp-actions-toggle svg {
+    width: 20px;
+    height: 20px;
   }
 
   .mp-tools {
@@ -1849,5 +1883,12 @@ body {
 
   .mp-actions .mp-btn {
     padding: 0 10px;
+  }
+}
+
+/* 平板竖屏 / 手机横屏（<=1024）也是触摸屏，输入框小于 16px 时 iOS 聚焦同样会放大整页 */
+@media (max-width: 1024px) {
+  .mp-search input {
+    font-size: 16px;
   }
 }

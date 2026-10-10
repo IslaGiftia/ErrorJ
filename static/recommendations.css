@@ -1006,6 +1006,14 @@ a {
 }
 
 @media (max-width: 640px) {
+  /* 手机上输入框 / 下拉小于 16px 时，iOS 聚焦会自动放大整页。
+     用 body 上的模块属性提高权重，压过组件自己的 font: inherit。 */
+  body[data-notify-module="recommendations"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  body[data-notify-module="recommendations"] textarea,
+  body[data-notify-module="recommendations"] select {
+    font-size: 16px;
+  }
+
   .rec-header {
     padding: 9px 12px;
   }
@@ -1118,5 +1126,19 @@ a {
 @media (min-width: 3000px) {
   .rec-main {
     width: min(2200px, 100%);
+  }
+}
+
+/* 平板竖屏 / 手机横屏（<=1024）也是触摸屏，输入框小于 16px 时 iOS 聚焦同样会放大整页 */
+@media (max-width: 1024px) {
+  body[data-notify-module="recommendations"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  body[data-notify-module="recommendations"] textarea,
+  body[data-notify-module="recommendations"] select {
+    font-size: 16px;
+  }
+
+  /* 手机上按钮点起来大一点（原来 36px） */
+  .rec-btn {
+    min-height: 44px;
   }
 }

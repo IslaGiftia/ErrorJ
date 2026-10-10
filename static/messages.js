@@ -386,7 +386,8 @@
     var body = $("fileViewerBody");
     var title = $("fileViewerTitle");
     if (!viewer || !body) return;
-    if (title) title.textContent = file.file_name || "查看附件";
+    // 图片不显示文件名（一堆 Screenshot_xxx.jpg 没什么用），附件保留名字方便确认
+    if (title) title.textContent = file.is_image ? "查看图片" : file.file_name || "查看附件";
     body.innerHTML = "";
     if (file.is_image) {
       var image = document.createElement("img");
@@ -394,6 +395,7 @@
       image.alt = file.file_name || "";
       image.draggable = false;
       body.appendChild(image);
+      if (window.ErrorImageZoom) window.ErrorImageZoom.bind(body, image);
     } else {
       var frame = document.createElement("iframe");
       frame.src = file.url;

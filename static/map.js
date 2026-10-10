@@ -2495,10 +2495,16 @@
   }
   function openSidebar() {
     if (sidebar) sidebar.classList.add("is-open");
+    var app = $("mapApp");
+    if (app) app.classList.add("is-panel-open");
+    // 面板展开时右上角三个按钮会滑出去，别让底图选择面板孤零零留在上面
+    openBasePanel(false);
     updateToggleForViewport();
   }
   function closeSidebar() {
     if (sidebar) sidebar.classList.remove("is-open");
+    var app = $("mapApp");
+    if (app) app.classList.remove("is-panel-open");
     updateToggleForViewport();
   }
   function setActionsToggle(collapsed) {
@@ -2542,13 +2548,6 @@
       "--mp-actions-h",
       Math.round(actions.getBoundingClientRect().height) + "px"
     );
-    var tools = document.querySelector(".mp-tools");
-    if (tools) {
-      app.style.setProperty(
-        "--mp-tools-h",
-        Math.round(tools.getBoundingClientRect().height) + "px"
-      );
-    }
     updateToggleForViewport();
   }
   if (actionsToggle) {

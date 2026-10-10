@@ -15,3 +15,75 @@
 body {
   font-family: "vivo Sans SC", "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
 }
+
+/*
+ * 手机上（尤其国产浏览器）会把网页文字自动放大一大截，这叫 font boosting。
+ * 后果就是：工具栏按钮里的中文被挤成一竖排、列表标题被截成四五个字、
+ * 同一个页面在你的手机上看着比 PC 乱很多。
+ * 这里声明「不要自动调整字号」，页面就按 CSS 里写死的字号渲染，和 PC 保持一致；
+ * 用户仍可自己双指缩放。
+ */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/*
+ * 手机端按下反馈
+ *
+ * 安卓和国产浏览器默认的 tap highlight（点按高亮）是直接画一个矩形，
+ * 完全不管按钮自己的 border-radius，所以圆角按钮、圆形图标按钮点下去会
+ * 冒出一块突兀的直角方块。这里统一处理：
+ *   1) 关掉系统高亮（含 Leaflet 给容器内链接留的那条蓝色高亮）；
+ *   2) 用 :active + brightness 自绘反馈。brightness 作用在元素自身的渲染结果上，
+ *      高亮的形状天然跟着按钮的圆角走，不会压掉按钮本身的配色、边框和投影，
+ *      主色按钮 / 危险按钮 / 纯图标按钮都能通用。
+ * 只在触摸设备上启用，桌面端保持原样。
+ */
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:root a,
+:root button,
+:root [role="button"],
+:root summary,
+:root label,
+:root select,
+:root input,
+:root .chip {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (hover: none), (pointer: coarse) {
+  :root {
+    --tap-press-brightness: 0.9;
+  }
+
+  :root[data-theme="dark"] {
+    --tap-press-brightness: 1.18;
+  }
+
+  :root a:active,
+  :root button:active,
+  :root [role="button"]:active,
+  :root summary:active,
+  :root select:active,
+  :root input[type="checkbox"]:active,
+  :root input[type="radio"]:active,
+  :root input[type="submit"]:active,
+  :root input[type="button"]:active,
+  :root .chip:active {
+    filter: brightness(var(--tap-press-brightness));
+  }
+
+  /*
+   * label 单独处理：只有「当按钮用」的 label（里面没有文本输入框 / 下拉 / 多行框，
+   * 例如区域筛选、文件上传、勾选项）才给按下反馈。包着输入框的 label 点下去是
+   * 为了打字，整块闪一下反而奇怪。
+   * 不支持 :has() 的老浏览器会忽略这条规则，只是少一点反馈，不影响点击。
+   */
+  :root label:active:not(:has(input:not([type="checkbox"], [type="radio"]), select, textarea)) {
+    filter: brightness(var(--tap-press-brightness));
+  }
+}

@@ -90,6 +90,7 @@ svg {
 
 .pin-app {
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -497,7 +498,14 @@ svg {
   min-height: 48px;
   display: flex;
   align-items: center;
+  /*
+   * 窗口窄的时候（手机走「缩小版 PC」，实际宽度就是 1024）排序栏里的按钮
+   * 会被 flex 压缩到比文字还窄，「整理」「只看失效」的汉字直接换行溢出按钮。
+   * 这里让按钮不缩、文字不断行，实在放不下就整颗折到下一行。
+   */
+  flex-wrap: wrap;
   gap: 5px;
+  row-gap: 6px;
   flex-shrink: 0;
   padding: 8px 14px;
   background: var(--pin-surface);
@@ -505,6 +513,7 @@ svg {
 }
 
 .pin-sort-bar button {
+  flex: 0 0 auto;
   height: 30px;
   padding: 0 12px;
   border: 1px solid var(--pin-border);
@@ -512,6 +521,7 @@ svg {
   background: var(--pin-surface);
   color: var(--pin-muted);
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .pin-sort-bar button:hover {
@@ -1217,6 +1227,27 @@ svg {
     gap: 8px;
   }
 
+  /* 平板竖屏（768）时排序栏刚好差 2px 撑破文档宽度，收一点内边距即可 */
+  .pin-sort-bar {
+    padding-left: 10px;
+    padding-right: 10px;
+    /* 手机上按钮多、字又大，压缩会导致中文竖排 + 右侧被切；
+       改成不允许压缩、整条横向滚动 */
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .pin-sort-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .pin-sort-bar button {
+    padding: 0 9px;
+    flex: 0 0 auto;
+    white-space: nowrap; /* 按钮文字不许换行，更不许竖排 */
+  }
+
   .pin-header-actions .pin-header-btn span {
     display: none;
   }
@@ -1246,7 +1277,7 @@ svg {
 
   .pin-folder-panel {
     position: fixed;
-    top: 56px;
+    top: var(--pin-head-h, 56px);
     bottom: 0;
     left: 0;
     z-index: 70;
@@ -1281,6 +1312,17 @@ svg {
 @media (max-width: 560px) {
   .pin-header {
     padding: 8px;
+  }
+
+  .pin-search {
+    min-width: 0;
+  }
+
+  .pin-search input {
+    width: 100%;
+    min-width: 0;
+    padding-right: 12px; /* 手机上没有 Ctrl+F 提示，右侧 50px 留白收回来 */
+    font-size: 16px; /* 小于 16px 时 iOS 聚焦会自动放大页面 */
   }
 
   .pin-brand strong {
@@ -1322,5 +1364,25 @@ svg {
 
   .pin-list-title span {
     display: none;
+  }
+}
+
+/* 平板竖屏 / 手机横屏（<=1024）也是触摸屏，输入框小于 16px 时 iOS 聚焦同样会放大整页 */
+@media (max-width: 1024px) {
+  .pin-search input {
+    font-size: 16px;
+  }
+}
+
+/* 手机上把头部图标按钮和文件夹行做大到 44px 高，方便手指点（原来 34 / 36px） */
+@media (max-width: 760px) {
+  .pin-mobile-menu,
+  .pin-header-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .pin-folder-row {
+    min-height: 44px;
   }
 }

@@ -954,6 +954,20 @@ input[type="range"]:focus-visible {
 }
 
 @media (max-width: 720px) {
+  /* 手机上图标按钮放大到 44×44，原来 36px 手指不好点 */
+  .mu-icon-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  /* 手机上输入框 / 下拉小于 16px 时，iOS 聚焦会自动放大整页。
+     用 body 上的模块属性提高权重，压过组件自己的 font: inherit。 */
+  body[data-notify-module="music"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  body[data-notify-module="music"] textarea,
+  body[data-notify-module="music"] select {
+    font-size: 16px;
+  }
+
   .mu-bar-inner {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
@@ -1038,5 +1052,14 @@ input[type="range"]:focus-visible {
 
 .mu-volume-pop {
     transition: none;
+  }
+}
+
+/* 平板竖屏 / 手机横屏（<=1024）也是触摸屏，输入框小于 16px 时 iOS 聚焦同样会放大整页 */
+@media (max-width: 1024px) {
+  body[data-notify-module="music"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  body[data-notify-module="music"] textarea,
+  body[data-notify-module="music"] select {
+    font-size: 16px;
   }
 }

@@ -150,10 +150,19 @@ svg {
   color: var(--wb-muted);
 }
 
-.wb-nav button:hover,
 .wb-nav button.active {
   background: var(--wb-accent-soft);
   color: var(--wb-accent);
+}
+
+/* hover 只在真正的鼠标设备上生效。
+   手机点一下 = :hover 会被保留，页签切换又不刷新页面，
+   结果就是"点了维修台账之后紫色背景一直不消失"——这个 bug 就是这么来的。 */
+@media (hover: hover) {
+  .wb-nav button:hover {
+    background: var(--wb-accent-soft);
+    color: var(--wb-accent);
+  }
 }
 
 .wb-nav svg {

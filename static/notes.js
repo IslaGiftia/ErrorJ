@@ -14,6 +14,7 @@
     outlineOpen: false,
     outlineFrame: null,
     lastScrollTop: 0,
+    listScrollTop: 0,
     suppressAutoHide: false,
   };
 
@@ -916,6 +917,58 @@
     }
   }
 
+  /* ---------- 列表页：上滑收起上方功能区 ---------- */
+
+  const LIST_HIDE_OFFSET = 48;
+
+  function isNarrowNotes() {
+    return window.matchMedia("(max-width: 900px)").matches;
+  }
+
+  /* 收起时要用负 margin 把腾出来的高度吃掉，所以得知道头部实际有多高 */
+  function syncListHeadHeights() {
+    const header = document.querySelector(".nt-header");
+    const head = document.querySelector(".nt-sidebar-head");
+    if (header && header.offsetHeight) {
+      document.documentElement.style.setProperty("--nt-header-h", `${header.offsetHeight}px`);
+    }
+    if (head && head.offsetHeight) {
+      document.documentElement.style.setProperty(
+        "--nt-sidebar-head-h",
+        `${head.offsetHeight}px`
+      );
+    }
+  }
+
+  function setListHeadHidden(hidden) {
+    const app = document.querySelector(".nt-app");
+    if (!app) return;
+    app.classList.toggle("nt-list-head-hidden", Boolean(hidden) && isNarrowNotes());
+  }
+
+  function handleListScroll() {
+    const list = $("noteList");
+    if (!list) return;
+    const top = list.scrollTop;
+    const delta = top - state.listScrollTop;
+    state.listScrollTop = top;
+    // 正在搜索框里打字时不收头部，否则输入框会跑到屏幕外
+    const active = document.activeElement;
+    if (active && active.closest && active.closest(".nt-header")) {
+      setListHeadHidden(false);
+      return;
+    }
+    if (top <= 4) {
+      setListHeadHidden(false);
+      return;
+    }
+    if (delta > 2 && top > LIST_HIDE_OFFSET) {
+      setListHeadHidden(true);
+    } else if (delta < -2) {
+      setListHeadHidden(false);
+    }
+  }
+
   /* ---------- list ---------- */
 
   function visibleNotes() {
@@ -991,6 +1044,7 @@
     wrap.classList.toggle("is-expanded", expanded && canToggle);
     toggle.hidden = !canToggle;
     toggle.textContent = expanded ? "收起标签" : "展开标签";
+    syncListHeadHeights();
   }
 
   function renderTagFilter() {
@@ -1681,6 +1735,7 @@
 
     $("paneRead").addEventListener("scroll", scheduleOutlineUpdate, { passive: true });
     $("paneRead").addEventListener("scroll", handlePaneScroll, { passive: true });
+    $("noteList").addEventListener("scroll", handleListScroll, { passive: true });
 
     document.addEventListener("click", (event) => {
       if (!state.outlineOpen) return;
@@ -1690,6 +1745,8 @@
     window.addEventListener("resize", () => {
       updateTagToggle();
       syncHeadHeight();
+      syncListHeadHeights();
+      if (!isNarrowNotes()) setListHeadHidden(false);
       scheduleOutlineUpdate();
     });
 
@@ -1798,8 +1855,14 @@
     if (window.ResizeObserver) {
       const head = document.querySelector(".nt-doc-head");
       if (head) new ResizeObserver(syncHeadHeight).observe(head);
+      const listHeads = new ResizeObserver(syncListHeadHeights);
+      const header = document.querySelector(".nt-header");
+      const sidebarHead = document.querySelector(".nt-sidebar-head");
+      if (header) listHeads.observe(header);
+      if (sidebarHead) listHeads.observe(sidebarHead);
     }
     syncHeadHeight();
+    syncListHeadHeights();
     try {
       await loadNotes();
     } catch (err) {

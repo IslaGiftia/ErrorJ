@@ -41,6 +41,7 @@
 body {
   margin: 0;
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--bk-bg);
   color: var(--bk-text);
   font-family: "vivo Sans SC", "Microsoft YaHei", "PingFang SC", "Segoe UI", system-ui, sans-serif;
@@ -621,6 +622,14 @@ body {
 }
 
 @media (max-width: 640px) {
+  /* 手机上输入框 / 下拉小于 16px 时，iOS 聚焦会自动放大整页。
+     用 body 上的模块属性提高权重，压过组件自己的 font: inherit。 */
+  body[data-notify-module="books"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  body[data-notify-module="books"] textarea,
+  body[data-notify-module="books"] select {
+    font-size: 16px;
+  }
+
   .bk-grid {
     grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
     gap: 14px;
@@ -646,5 +655,14 @@ body {
 
   .bk-field-row {
     grid-template-columns: 1fr;
+  }
+}
+
+/* 平板竖屏 / 手机横屏（<=1024）也是触摸屏，输入框小于 16px 时 iOS 聚焦同样会放大整页 */
+@media (max-width: 1024px) {
+  body[data-notify-module="books"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  body[data-notify-module="books"] textarea,
+  body[data-notify-module="books"] select {
+    font-size: 16px;
   }
 }

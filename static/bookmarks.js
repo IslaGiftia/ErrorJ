@@ -66,11 +66,15 @@
 
   function faviconMarkup(item) {
     const letter = (hostnameOf(item.url).match(/[A-Za-z0-9\u4e00-\u9fff]/) || ["#"])[0].toUpperCase();
+    // 没有缓存的图标就别请求了，否则每个条目都会 404 一次（控制台刷红 + 白跑一趟请求）
+    const icon = item.favicon_path
+      ? `<img class="pin-favicon" src="/api/bookmarks/${item.id}/favicon?v=${encodeURIComponent(item.favicon_updated_at || "")}"
+             alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">`
+      : "";
     return `
       <span class="pin-favicon-wrap">
         <span class="pin-favicon-fallback">${escapeHtml(letter)}</span>
-        <img class="pin-favicon" src="/api/bookmarks/${item.id}/favicon?v=${encodeURIComponent(item.favicon_updated_at || "")}"
-             alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">
+        ${icon}
       </span>`;
   }
 
@@ -1635,9 +1639,26 @@
     });
   }
 
+  // 手机头部会换行（搜索框独占一行），高度不固定；把实际高度写进 CSS 变量，
+  // 让左侧文件夹抽屉的 top 跟着走，否则抽屉会压在头部上。
+  function syncHeaderHeight() {
+    const header = document.querySelector(".pin-header");
+    if (!header) return;
+    const apply = () => {
+      document.documentElement.style.setProperty(
+        "--pin-head-h",
+        header.offsetHeight + "px"
+      );
+    };
+    apply();
+    window.addEventListener("resize", apply);
+    if (window.ResizeObserver) new ResizeObserver(apply).observe(header);
+  }
+
   async function init() {
     bindEvents();
     applyTheme(themePreference, false);
+    syncHeaderHeight();
     try {
       let savedView = "nav";
       try {

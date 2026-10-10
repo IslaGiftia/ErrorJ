@@ -350,9 +350,12 @@
       icon.addEventListener("error", function () {
         icon.remove();
       });
-      icon.src = "/api/bookmarks/" + bookmark.id + "/favicon?v=" +
-        encodeURIComponent(bookmark.favicon_updated_at || "");
-      thumb.appendChild(icon);
+      // 没有缓存的图标就别请求，避免每个条目一次 404（控制台刷红 + 白跑请求）
+      if (bookmark.favicon_path) {
+        icon.src = "/api/bookmarks/" + bookmark.id + "/favicon?v=" +
+          encodeURIComponent(bookmark.favicon_updated_at || "");
+        thumb.appendChild(icon);
+      }
       wrap.appendChild(thumb);
     }
     if (bookmarks.length > 5) {

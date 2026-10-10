@@ -126,6 +126,7 @@
 .report-page {
   box-sizing: border-box;
   min-height: 100vh;
+  min-height: 100dvh;
   padding: 40px 20px;
   background: var(--report-page-bg, #f4f5fa);
   color: var(--report-text, #202337);
