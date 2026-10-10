@@ -1937,3 +1937,33 @@ py_compile        -> app.py 语法通过
 
 注意：这次部署会作废现有的管理员会话（包括手机上那条），需要重新登录一次；
 因为白名单开着，在非受信任网络下请先连上 `wg0` 再登录。
+
+### 65.1 2026-10-10 21:15:00 顺带修掉「重启即掉线」的会话密钥问题
+
+排查会话 IP 绑定的端到端验证时，发现一个更早埋下的问题：**应用根本读不到自己的会话密钥文件**。
+
+- `/opt/errorjiang/data/auth.json` 是 `root:root 600`（当初用 root 跑 `tools/set_password.py` 写的），
+  而服务以 `errorjiang` 用户运行 → `load_auth_state()` 读到 `OSError`、config 为空。
+- 密码来自 systemd 的 `INVENTORY_PASSWORD`，所以登录照常能用；但 `secret` 为空 →
+  应用**每次启动都重新随机生成一个签名密钥**，而且写不回那个文件（权限不足，异常被吞掉）。
+- 后果：每次重启 `errorjiang.service`，所有人的会话（包括「记住我 30 天」）都会失效，
+  只是表面上像「需要重新登录一次」，很容易被当成正常现象。
+
+修复：
+
+- 新增 `stored_auth_secret()`：密钥以数据库 `app_meta.auth_secret` 为稳定存放点。
+  优先级仍是 `INVENTORY_SECRET` 环境变量 > `data/auth.json` > 数据库；拿到权威值时镜像进数据库，
+  数据库也没有就生成一次并写库。数据库不可用时退化为「用传入值 / 临时生成」，不影响启动。
+- `load_auth_state()` 改为调用它，不再直接 `secrets.token_hex(32)`。
+- 运维侧同时把文件归属改回应用用户：`chown errorjiang:errorjiang /opt/errorjiang/data/auth.json`
+  （以后用 `tools/set_password.py` 改密码，建议用 `runuser -u errorjiang --` 跑，或改完再 chown 回去）。
+
+验证结果：
+```text
+自动化测试            -> 100 / 100 通过（新增 4 项密钥存放用例：
+                         首次生成并入库、已有值复用、权威值镜像、数据库异常时仍可用）
+重启后会话可复用      -> 先签一条会话 -> /api/auth/status authenticated=True
+                         -> systemctl restart errorjiang -> 同一 Cookie 仍然 authenticated=True
+管理员 IP 绑定        -> 同 IP 访问 authenticated=True；
+                         换个来源 IP 访问 authenticated=False，且该会话行被删除（审计写入 session_ip_mismatch）
+```

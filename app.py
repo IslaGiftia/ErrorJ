@@ -91,6 +91,8 @@ RECOMMEND_IMAGE_MAX_BYTES = 15 * 1024 * 1024
 MAX_REQUEST_BYTES = 84 * 1024 * 1024
 AUTH_PATH = DATA_DIR / "auth.json"
 AUTH_COOKIE = "errorjiang_session"
+# 会话签名密钥在数据库里的存放键（见 stored_auth_secret）
+AUTH_SECRET_KEY = "auth_secret"
 AUTH_SESSION_DAYS = 7
 AUTH_SESSION_DAYS_REMEMBER = 30
 AUTH_PBKDF2_ITERATIONS = 200_000
@@ -6128,6 +6130,38 @@ def notify_test(channel, url):
     return ok, detail
 
 
+def stored_auth_secret(existing=""):
+    """会话签名密钥的稳定存放点（数据库 app_meta）。
+
+    密钥原先只存在 data/auth.json。如果那个文件被别的用户（例如用 sudo 跑
+    tools/set_password.py）改成只有 root 能读，应用读不到就会在每次启动时
+    重新随机生成密钥，于是所有会话（含「记住我 30 天」）一重启就全部失效。
+    这里改成以数据库为准：应用自己写得进去，重启后密钥稳定。
+
+    existing 非空时表示从环境变量或 auth.json 拿到了权威值，把它镜像进数据库。
+    """
+    try:
+        row = query_one("SELECT value FROM app_meta WHERE key = ?", (AUTH_SECRET_KEY,))
+        saved = str((row or {}).get("value") or "").strip()
+        if existing:
+            if saved != existing:
+                execute(
+                    "INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)",
+                    (AUTH_SECRET_KEY, existing),
+                )
+            return existing
+        if saved:
+            return saved
+        fresh = secrets.token_hex(32)
+        execute(
+            "INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)",
+            (AUTH_SECRET_KEY, fresh),
+        )
+        return fresh
+    except sqlite3.Error:
+        return existing or secrets.token_hex(32)
+
+
 def load_auth_state():
     """密码来自环境变量 INVENTORY_PASSWORD，或 data/auth.json（tools/set_password.py 生成）。"""
     config = {}
@@ -6141,8 +6175,9 @@ def load_auth_state():
     if env_password:
         password_hash = hash_password(env_password)
     secret = os.environ.get("INVENTORY_SECRET") or str(config.get("secret") or "")
-    if password_hash and not secret:
-        secret = secrets.token_hex(32)
+    if password_hash:
+        secret = stored_auth_secret(secret)
+    if password_hash and not config.get("secret"):
         config["secret"] = secret
         try:
             AUTH_PATH.parent.mkdir(parents=True, exist_ok=True)

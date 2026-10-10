@@ -2254,5 +2254,38 @@ class AdminSessionIpBindingTests(unittest.TestCase):
         delete_session.assert_not_called()
 
 
+class AuthSecretStorageTests(unittest.TestCase):
+    """会话签名密钥要能稳定持久化，否则每次重启都会把所有人踢下线。"""
+
+    def test_secret_is_generated_and_saved_to_database(self):
+        saved = []
+        with patch.object(app, "query_one", return_value=None), patch.object(
+            app, "execute", side_effect=lambda sql, params=(): saved.append(params)
+        ):
+            secret = app.stored_auth_secret()
+        self.assertEqual(len(secret), 64)
+        self.assertEqual(saved, [(app.AUTH_SECRET_KEY, secret)])
+
+    def test_saved_secret_is_reused(self):
+        with patch.object(app, "query_one", return_value={"value": "saved-secret"}), patch.object(
+            app, "execute"
+        ) as execute:
+            self.assertEqual(app.stored_auth_secret(), "saved-secret")
+        execute.assert_not_called()
+
+    def test_authoritative_secret_is_mirrored_into_database(self):
+        saved = []
+        with patch.object(app, "query_one", return_value={"value": "old"}), patch.object(
+            app, "execute", side_effect=lambda sql, params=(): saved.append(params)
+        ):
+            secret = app.stored_auth_secret("from-file")
+        self.assertEqual(secret, "from-file")
+        self.assertEqual(saved, [(app.AUTH_SECRET_KEY, "from-file")])
+
+    def test_database_failure_still_returns_usable_secret(self):
+        with patch.object(app, "query_one", side_effect=app.sqlite3.Error("boom")):
+            self.assertEqual(len(app.stored_auth_secret("env-secret")), len("env-secret"))
+
+
 if __name__ == "__main__":
     unittest.main()
