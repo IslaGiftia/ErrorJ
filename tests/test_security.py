@@ -1,6 +1,7 @@
 import base64
 import json
 import tempfile
+import time
 import unittest
 import wave
 from pathlib import Path
@@ -2109,6 +2110,50 @@ class ComplianceWorkflowTests(unittest.TestCase):
         self.assertIn(".mo-composer-foot > .mo-btn-primary", css)
         self.assertIn(".mo-comment-submit", css)
         self.assertIn("scrollIntoView", script)
+
+
+class RegistrationLimitTests(unittest.TestCase):
+    def test_rate_allow_survives_large_key_space(self):
+        """大量不同 key 出现时不能把别人的限速计数一起清掉。"""
+        saved = {key: list(value) for key, value in app.RATE_LIMITS.items()}
+        try:
+            app.RATE_LIMITS.clear()
+            now = time.time()
+            for index in range(6000):
+                app.RATE_LIMITS[f"bulk:{index}"] = [now]
+            results = [app.rate_allow("register", "203.0.113.77", 3, 3600) for _ in range(4)]
+        finally:
+            app.RATE_LIMITS.clear()
+            app.RATE_LIMITS.update(saved)
+        self.assertEqual(results, [True, True, True, False])
+
+    def test_registration_block_reason_reports_daily_limit(self):
+        with patch.object(
+            app, "query_one", return_value={"n": app.REGISTRATION_LIMIT_PER_WINDOW}
+        ):
+            reason = app.registration_block_reason("203.0.113.9")
+        self.assertIn("24 小时", reason)
+
+    def test_registration_block_reason_reports_pending_request(self):
+        with patch.object(app, "query_one", side_effect=[{"n": 0}, {"n": 1}]):
+            reason = app.registration_block_reason("203.0.113.9")
+        self.assertIn("等待审核", reason)
+
+    def test_registration_block_reason_allows_when_clean(self):
+        with patch.object(app, "query_one", return_value={"n": 0}):
+            self.assertEqual("", app.registration_block_reason("203.0.113.9"))
+
+    def test_register_handler_returns_429_when_quota_reached(self):
+        handler = object.__new__(app.InventoryHandler)
+        handler.client_ip = lambda: "203.0.113.9"
+        message = "同一个网络 24 小时内最多提交 3 次注册申请，请明天再试。"
+        with patch.object(app, "rate_allow", return_value=True), patch.object(
+            app, "registration_block_reason", return_value=message
+        ), patch.object(app.InventoryHandler, "log_activity"), patch.object(
+            app, "api_error"
+        ) as api_error:
+            handler.api_register({"username": "someone", "password": "abcdefgh"})
+        api_error.assert_called_once_with(handler, 429, message)
 
 
 if __name__ == "__main__":

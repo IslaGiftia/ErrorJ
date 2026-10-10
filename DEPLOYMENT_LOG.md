@@ -1784,3 +1784,31 @@ nginx 配置测试           -> nginx -t 通过，reload 生效（短暂无中�
 线上首页 / 地图 / 笔记   -> 正常
 自动化测试               -> 86 / 86 通过
 ```
+
+## 63. 2026-10-10 20:11:39 注册申请限额持久化 + 管理员入口白名单开启
+
+完成内容：
+- 注册申请从「管理员入口」里彻底解耦：`/api/register` 不再受 IP 白名单限制，任何网络都能提交（nginx 里去掉该 location 的 `if ($errorjiang_admin_ok = 0)` 判断，换成独立的 `limit_req` 限速 `zone=errorjiang_register`，3 次/分钟、突发 2）。
+- 注册申请改为数据库持久化限额（`app.py` 的 `registration_block_reason`）：同一 IP 24 小时最多 3 次，且同一 IP 同时最多 1 条待审核申请；计数写在 `users.register_ip` 新列上，进程重启不清零。原来的内存限速退化为「10 分钟 5 次」的连点保护。
+- 修掉限速计数被整体清零的漏洞：`rate_allow` 原来在 key 数超过 5000 时直接 `RATE_LIMITS.clear()`，攻击者用大量不同来源打一轮即可清空全站限速（含登录失败锁定）；现在只回收超过 1 小时没动静的 key，并给极端情况加了 2 万条的内存上限。
+- 管理员入口白名单开启（`nginx-allow-ip.sh strict`）：先把当前出口 IP `111.19.28.219` 加入名单再收紧，名单里原本的 `111.18.134.33` 保留。游客浏览网页、普通账号登录（`/api/member/login`）不受影响。
+- `deploy/nginx-errorjiang.conf`、`deploy/nginx-errorjiang-http.conf` 两个模板同步更新；README 与《管理员入口白名单：喂饭版操作笔记》（`deploy/notes/nginx-allowlist-guide.md`，笔记 #21）一起改掉了「开白名单会连注册申请一起挡」的旧说法，并补上「出门在外怎么进后台」的三种办法。
+
+验证结果：
+```text
+本机（111.19.28.219，已在白名单）
+  GET /login             -> 200
+  GET /                  -> 200
+  GET /workbench         -> 302（应用层跳登录页）
+服务器出口（47.108.86.201，不在白名单）
+  GET  /login            -> 200（登录页本身不拦，提交时才 403）
+  GET  /api/login        -> 403（白名单拦截）
+  GET  /workbench        -> 403
+  GET  /api/workbench    -> 403
+  GET  /api/admin/users  -> 403
+  GET  /                 -> 200（公开页面不受影响）
+  GET  /api/health       -> 200
+  POST /api/register     -> 400（未被白名单拦截，已进业务层校验）
+nginx 配置测试           -> nginx -t 通过并 reload，备份 /data/errorjiang-backup/nginx-conf-20261010-201107.conf
+自动化测试               -> 91 / 91 通过（新增 5 项注册限额与限速回归）
+```

@@ -378,6 +378,15 @@ SENSITIVE_ALERT_SENT = {}
 SENSITIVE_ALERT_COOLDOWN_SECONDS = 600
 RATE_LIMITS = {}
 RATE_LOCK = threading.Lock()
+# 一个限速 key 最长多久没动静就认为过期（所有调用点的窗口都不超过 1 小时）
+RATE_KEY_TTL_SECONDS = 3600
+# 注册申请：同一 IP 24 小时最多 3 次，且同时只能有 1 条待审核申请
+REGISTRATION_WINDOW_SECONDS = 24 * 3600
+REGISTRATION_LIMIT_PER_WINDOW = 3
+REGISTRATION_PENDING_LIMIT = 1
+# 额外的短时突发保护，避免同一秒内反复提交
+REGISTRATION_BURST_LIMIT = 5
+REGISTRATION_BURST_WINDOW_SECONDS = 600
 TRUST_PROXY = os.environ.get("INVENTORY_TRUST_PROXY", "") not in ("", "0", "false")
 FORCE_SECURE_COOKIES = os.environ.get("INVENTORY_SECURE_COOKIES", "") not in ("", "0", "false")
 ACCESS_LOG = os.environ.get("INVENTORY_ACCESS_LOG", "") not in ("", "0", "false")
@@ -1128,7 +1137,8 @@ def init_db():
                 nickname_updated_at TEXT,
                 silenced_until TEXT,
                 message_daily_limit INTEGER,
-                last_login_at TEXT
+                last_login_at TEXT,
+                register_ip TEXT
             );
 
             CREATE TABLE IF NOT EXISTS user_permissions (
@@ -1531,6 +1541,10 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
         for column, definition in bookmark_migrations.items():
             if column not in bookmark_columns:
                 conn.execute(f"ALTER TABLE bookmarks ADD COLUMN {column} {definition}")
+        user_columns = [row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()]
+        if "register_ip" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN register_ip TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_users_register_ip ON users(register_ip)")
         recommendation_columns = [
             row[1] for row in conn.execute("PRAGMA table_info(recommendations)").fetchall()
         ]
@@ -6598,8 +6612,50 @@ def rate_allow(bucket, identifier, limit, window_seconds):
         stamps.append(now)
         RATE_LIMITS[key] = stamps
         if len(RATE_LIMITS) > 5000:
-            RATE_LIMITS.clear()
+            # 只回收过期计数。以前这里直接 clear()，攻击者用大量不同 key 打一轮
+            # 就能把所有限速（含登录失败计数）一次性清空，等于绕过限速。
+            stale = [
+                item
+                for item, values in RATE_LIMITS.items()
+                if not values or now - values[-1] >= RATE_KEY_TTL_SECONDS
+            ]
+            for item in stale:
+                RATE_LIMITS.pop(item, None)
+            if len(RATE_LIMITS) > 20000:
+                # 全是新鲜 key 的极端情况：丢掉最久没动的一批，保证内存有上限
+                oldest = sorted(RATE_LIMITS, key=lambda item: RATE_LIMITS[item][-1])[:10000]
+                for item in oldest:
+                    RATE_LIMITS.pop(item, None)
         return True
+
+
+def registration_block_reason(client_ip):
+    """注册申请的持久化限额：返回空串表示放行，否则返回给用户看的原因。
+
+    计数写在 users 表里（配合 register_ip 列），进程重启不会清零；
+    应用内存里的 rate_allow 只用来挡同一秒内的连点。
+    """
+    if not client_ip:
+        return ""
+    cutoff = (datetime.now() - timedelta(seconds=REGISTRATION_WINDOW_SECONDS)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    recent = query_one(
+        "SELECT COUNT(*) AS n FROM users WHERE register_ip = ? AND created_at >= ?",
+        (client_ip, cutoff),
+    )
+    if recent and int(recent.get("n") or 0) >= REGISTRATION_LIMIT_PER_WINDOW:
+        return (
+            f"同一个网络 {REGISTRATION_WINDOW_SECONDS // 3600} 小时内最多提交 "
+            f"{REGISTRATION_LIMIT_PER_WINDOW} 次注册申请，请明天再试。"
+        )
+    pending = query_one(
+        "SELECT COUNT(*) AS n FROM users WHERE register_ip = ? AND status = 'pending'",
+        (client_ip,),
+    )
+    if pending and int(pending.get("n") or 0) >= REGISTRATION_PENDING_LIMIT:
+        return "这个网络下已经有注册申请在等待审核，请等管理员处理后再提交。"
+    return ""
 
 
 def login_blocked(identifier):
@@ -7229,8 +7285,23 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )
 
     def api_register(self, payload):
-        if not rate_allow("register", self.client_ip(), 5, 3600):
+        client_ip = self.client_ip()
+        if not rate_allow(
+            "register",
+            client_ip,
+            REGISTRATION_BURST_LIMIT,
+            REGISTRATION_BURST_WINDOW_SECONDS,
+        ):
             api_error(self, 429, "注册请求太频繁，请稍后再试。")
+            return
+        blocked = registration_block_reason(client_ip)
+        if blocked:
+            self.log_activity(
+                "register_blocked",
+                f"注册申请被限额拦截：{blocked}",
+                actor={"kind": "guest", "username": str(payload.get("username") or "").strip()},
+            )
+            api_error(self, 429, blocked)
             return
         username = valid_username(payload.get("username"))
         nickname = str(payload.get("nickname") or "").strip()
@@ -7264,10 +7335,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
         execute(
             """
             INSERT INTO users
-                (username, nickname, password_hash, status, role, created_at, updated_at)
-            VALUES (?, ?, ?, 'pending', 'member', ?, ?)
+                (username, nickname, password_hash, status, role, created_at, updated_at,
+                 register_ip)
+            VALUES (?, ?, ?, 'pending', 'member', ?, ?, ?)
             """,
-            (username, nickname, hash_password(password), stamp, stamp),
+            (username, nickname, hash_password(password), stamp, stamp, client_ip or None),
         )
         write_audit(
             None,
