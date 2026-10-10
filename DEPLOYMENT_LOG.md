@@ -1873,3 +1873,37 @@ fail2ban 封禁实测        -> 连打 15 次 /api/register，4 次 400、11 次
 
 待办：等你在阿里云控制台给这台 ECS 的安全组加入方向规则（UDP 51820），
 放行后要再抓一次包确认握手成功，然后把「手机连 VPN 进后台」的步骤补进笔记 #21。
+
+### 64.1 2026-10-10 20:57:08 WireGuard 打通并实测登录成功
+
+完成内容：
+- 阿里云控制台加入方向规则（自定义 UDP `51820/51820`，源 `0.0.0.0/0`）后，从本机发的 5 个 UDP 包全部到达服务器
+  （`tcpdump` 在 eth0 上看到 `111.19.28.219 -> 172.25.72.186:51820`，5 packets captured）。
+- 手机导入 `phone.png` 二维码后握手成功，但打开网站一直转圈。定位到**阿里云公网 IP 不在服务器网卡上**
+  （`ip -4 addr` 只有 `172.25.72.186/20`，公网 `47.108.86.201` 是边缘 1:1 NAT）：
+  隧道里目标写公网 IP 的包到了服务器却没有本地地址匹配，被内核丢弃（当时 `wg show` 显示手机侧发来 13.61 KiB、服务器只回 812 B）。
+- 修复：在 `wg0.conf` 的 `[Interface]` 里加 `PostUp = ip addr add 47.108.86.201/32 dev %i` /
+  `PostDown = ip addr del 47.108.86.201/32 dev %i`，重启 `wg-quick@wg0` 生效；
+  配置备份 `/data/errorjiang-backup/wg0.conf-20261010-205224`。改完公网 `GET /` 仍为 200，正常访问不受影响。
+
+验证结果：
+```text
+手机（移动数据 117.136.51.57 + VPN）
+  访问来源                -> 10.66.0.2，nginx 访问日志共 144 条
+  POST /api/login         -> 200（20:54:46，管理员登录成功）
+  GET  /api/workbench/summary -> 200
+  wg 计数                 -> 手机侧 874.65 KiB 上传 / 25.19 MiB 下载
+服务器
+  ip -4 addr show wg0     -> 10.66.0.1/24 与 47.108.86.201/32 都在
+  systemctl               -> wg-quick@wg0 active + enabled（重启自动恢复）
+  公网 GET /              -> 200
+  zhexiyan.cc 解析        -> 只有 IPv4，无 AAAA 记录（不存在走 IPv6 绕过隧道的情况）
+```
+
+连带确认的行为（管理员在外面最容易被误判成 bug 的地方）：白名单只拦 `/api/login`、`/logout`、
+`/workbench`、`/api/workbench`、`/api/prompts`、`/api/admin`。浏览网页、普通账号登录注册不受影响；
+**已登录的管理员会话只认 Cookie、不绑 IP**，所以在外面刷新页面仍是登录状态、点退出登录（`POST /api/logout` 不在门禁内）
+也正常，只有重新登录管理员会被挡成 403。这一条已写进 README 与笔记 #21。
+
+文档更新：`deploy/notes/nginx-allowlist-guide.md` 第五节重写为「首选连 VPN + 保底用 SSH」，
+把安全组放行 UDP、公网地址认领这两个坑写成了排查步骤；笔记 #21 重新导入覆盖更新。
