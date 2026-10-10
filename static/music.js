@@ -276,10 +276,16 @@
     });
   }
 
+  // 有封面时隐藏占位图标：不能给 svg 设 .hidden（SVG 元素没有 hidden 属性，
+  // 设了也不会写进 HTML 属性），而且 lucide 每次都会重建这个节点，所以在容器上打 class
+  function setCoverFallback(hasCover) {
+    var wrap = $("playerCoverImg") && $("playerCoverImg").closest(".mu-now-cover");
+    if (wrap) wrap.classList.toggle("has-cover", Boolean(hasCover));
+  }
+
   function renderPlayer() {
     var track = currentTrack();
     var coverImg = $("playerCoverImg");
-    var fallback = $("playerCoverFallback");
     if (!track) {
       $("playerTitle").textContent = "还没有选择歌曲";
       $("playerMeta").textContent = state.tracks.length
@@ -289,7 +295,7 @@
           : "歌单还是空的";
       coverImg.hidden = true;
       coverImg.removeAttribute("src");
-      fallback.hidden = false;
+      setCoverFallback(false);
       $("playerCurrent").textContent = "0:00";
       $("playerDuration").textContent = "0:00";
       $("playerSeek").value = "0";
@@ -302,11 +308,11 @@
     if (track.cover_url) {
       coverImg.src = track.cover_url;
       coverImg.hidden = false;
-      fallback.hidden = true;
+      setCoverFallback(true);
     } else {
       coverImg.hidden = true;
       coverImg.removeAttribute("src");
-      fallback.hidden = false;
+      setCoverFallback(false);
     }
     $("playerDuration").textContent = formatTime(track.duration || audio.duration);
   }

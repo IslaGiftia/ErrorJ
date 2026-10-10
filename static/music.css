@@ -480,6 +480,12 @@ body {
   object-fit: cover;
 }
 
+/* 有封面时藏掉占位音符（lucide 会把 <i> 换成 svg，用容器 class 控制最稳） */
+.mu-now-cover.has-cover svg,
+.mu-now-cover.has-cover i {
+  display: none;
+}
+
 .mu-now-cover svg {
   width: 20px;
   height: 20px;
