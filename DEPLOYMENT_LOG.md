@@ -2045,3 +2045,26 @@ allow list             -> 同上
 allow bogus            -> 转发给原脚本并打印用法（说明参数透传正常）
 bash -n ea-allow.sh    -> 语法通过
 ```
+
+## 69. 2026-10-10 21:58:28 白名单脚本加时长校验（修掉自己引入的手滑隐患）
+
+暴露过程：写日志时为了看 `allow` 的用法，随手执行了 `allow open --help`。
+脚本的 `open [时长]` 分支只判断"第二个参数非空"，于是把 `--help` 当成长度参数：
+**先真的把白名单打开了**，之后才因为 `systemd-run --on-active=--help` 失败而报错。
+发现后立刻执行 `allow strict` 收回（mode 与 403 均已复核），敞开的窗口约 20 秒。
+
+修复：
+- `deploy/nginx-allow-ip.sh` 新增 `valid_ttl()`：只接受 `^[0-9]+[smhd]$`。
+- `cmd_mode`（open/strict）与 `cmd_add` 在**改动任何配置之前**先校验时长，
+  不合法直接 `die`，不再出现"先打开再报错"的顺序。
+- 笔记 #21 第六节补一句：时长写错脚本会拒绝执行、不会动白名单。
+
+验证结果：
+```text
+allow open --help      -> 错误：时长格式不对：--help   （且模式未变，仍是 strict）
+allow add 1.2.3.4 xyz  -> 错误：时长格式不对：xyz
+allow open 20s         -> 正常放开并安排 20 秒后自动收回
+20 秒后复查            -> 当前模式：白名单开启（default 0）；非白名单 IP 打 /api/login -> 403
+残留 systemd 单元       -> 无
+bash -n                -> 语法通过
+```

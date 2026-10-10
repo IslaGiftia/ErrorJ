@@ -27,6 +27,12 @@ EOF
 die() { echo "错误：$*" >&2; exit 1; }
 
 # 只接受 IPv4 / IPv4 掩码 / IPv6 / IPv6 掩码，避免把奇怪的字符串写进 nginx 配置
+valid_ttl() {
+  # 时长只认「数字 + s/m/h/d」。防手滑：写成 open --help 这类参数时直接拒绝，
+  # 否则会被当成"带时长的 open"而先把白名单打开、再因定时器失败而报错。
+  [[ "$1" =~ ^[0-9]+[smhd]$ ]]
+}
+
 valid_entry() {
   local value="$1" base mask octet
   if [[ "$value" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?$ ]]; then
@@ -100,6 +106,9 @@ cancel_revert() {
 
 cmd_mode() {
   local value="$1" label="$2" ttl="${3:-}" backup
+  if [[ -n "$ttl" ]] && ! valid_ttl "$ttl"; then
+    die "时长格式不对：$ttl（写法：数字 + s/m/h/d，例如 30m、2h、1d）"
+  fi
   cancel_revert
   backup="$(backup_conf)"
   sed -i -E "s|^([[:space:]]*default[[:space:]]+)[0-9]+;|\1${value};|" "$CONF"
@@ -118,6 +127,9 @@ cmd_add() {
   local entry="${1:-}" ttl="${2:-}" backup
   [[ -n "$entry" ]] || die "用法：add <IP|网段> [时长]"
   valid_entry "$entry" || die "IP / 网段格式不对：$entry"
+  if [[ -n "$ttl" ]] && ! valid_ttl "$ttl"; then
+    die "时长格式不对：$ttl（写法：数字 + s/m/h/d，例如 30m、2h、1d）"
+  fi
   if sed -n "/$BEGIN_MARK/,/$END_MARK/p" "$CONF" | grep -qE "^[[:space:]]*${entry}[[:space:]]"; then
     echo "$entry 已经在白名单里"
   else
