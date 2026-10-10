@@ -2156,5 +2156,103 @@ class RegistrationLimitTests(unittest.TestCase):
         api_error.assert_called_once_with(handler, 429, message)
 
 
+class AdminSessionIpBindingTests(unittest.TestCase):
+    """管理员会话绑定登录来源 IP：换网络就要求重新登录。"""
+
+    def _handler(self, ip):
+        handler = object.__new__(app.InventoryHandler)
+        handler.client_ip = lambda: ip
+        handler.cookies = lambda: {app.AUTH_COOKIE: "token"}
+        return handler
+
+    def _session(self, sid, kind, user_id, ip):
+        return {
+            "sid": sid,
+            "kind": kind,
+            "user_id": user_id,
+            "expires_at": time.time() + 600,
+            "ip": ip,
+        }
+
+    def test_owner_session_dropped_when_source_ip_changes(self):
+        handler = self._handler("10.9.9.9")
+        with patch.dict(app.AUTH_STATE, {"enabled": True}), patch.object(
+            app,
+            "verify_session_token",
+            return_value={"kind": "owner", "user_id": 0, "sid": "s1"},
+        ), patch.object(
+            app, "session_row", return_value=self._session("s1", "owner", 0, "1.2.3.4")
+        ), patch.object(app, "delete_session") as delete_session, patch.object(
+            app.InventoryHandler, "log_activity"
+        ):
+            self.assertIsNone(handler.session_identity())
+        delete_session.assert_called_once_with("s1")
+
+    def test_owner_session_kept_when_source_ip_matches(self):
+        handler = self._handler("1.2.3.4")
+        with patch.dict(app.AUTH_STATE, {"enabled": True}), patch.object(
+            app,
+            "verify_session_token",
+            return_value={"kind": "owner", "user_id": 0, "sid": "s1"},
+        ), patch.object(
+            app, "session_row", return_value=self._session("s1", "owner", 0, "1.2.3.4")
+        ), patch.object(app, "delete_session") as delete_session:
+            identity = handler.session_identity()
+        self.assertEqual(identity["kind"], "owner")
+        delete_session.assert_not_called()
+
+    def test_owner_session_without_recorded_ip_still_works(self):
+        handler = self._handler("10.9.9.9")
+        with patch.dict(app.AUTH_STATE, {"enabled": True}), patch.object(
+            app,
+            "verify_session_token",
+            return_value={"kind": "owner", "user_id": 0, "sid": "s1"},
+        ), patch.object(
+            app, "session_row", return_value=self._session("s1", "owner", 0, None)
+        ), patch.object(app, "delete_session") as delete_session:
+            identity = handler.session_identity()
+        self.assertEqual(identity["kind"], "owner")
+        delete_session.assert_not_called()
+
+    def test_member_user_with_admin_permission_is_ip_bound(self):
+        handler = self._handler("10.9.9.9")
+        with patch.dict(app.AUTH_STATE, {"enabled": True}), patch.object(
+            app,
+            "verify_session_token",
+            return_value={"kind": "member", "user_id": 7, "sid": "s2"},
+        ), patch.object(
+            app, "session_row", return_value=self._session("s2", "member", 7, "1.2.3.4")
+        ), patch.object(
+            app,
+            "query_one",
+            return_value={"id": 7, "username": "helper", "nickname": None, "status": "approved"},
+        ), patch.object(
+            app, "user_has_permission", return_value=True
+        ), patch.object(app, "delete_session") as delete_session, patch.object(
+            app.InventoryHandler, "log_activity"
+        ):
+            self.assertIsNone(handler.session_identity())
+        delete_session.assert_called_once_with("s2")
+
+    def test_plain_member_session_is_not_ip_bound(self):
+        handler = self._handler("10.9.9.9")
+        with patch.dict(app.AUTH_STATE, {"enabled": True}), patch.object(
+            app,
+            "verify_session_token",
+            return_value={"kind": "member", "user_id": 8, "sid": "s3"},
+        ), patch.object(
+            app, "session_row", return_value=self._session("s3", "member", 8, "1.2.3.4")
+        ), patch.object(
+            app,
+            "query_one",
+            return_value={"id": 8, "username": "guest1", "nickname": None, "status": "approved"},
+        ), patch.object(
+            app, "user_has_permission", return_value=False
+        ), patch.object(app, "delete_session") as delete_session:
+            identity = handler.session_identity()
+        self.assertEqual(identity["kind"], "member")
+        delete_session.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

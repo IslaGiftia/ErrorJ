@@ -1907,3 +1907,33 @@ fail2ban 封禁实测        -> 连打 15 次 /api/register，4 次 400、11 次
 
 文档更新：`deploy/notes/nginx-allowlist-guide.md` 第五节重写为「首选连 VPN + 保底用 SSH」，
 把安全组放行 UDP、公网地址认领这两个坑写成了排查步骤；笔记 #21 重新导入覆盖更新。
+
+## 65. 2026-10-10 21:03:17 管理员会话绑定来源 IP
+
+背景：白名单只拦了「进后台」这一步，而会话原先只认 Cookie、不绑 IP。
+也就是说管理员 Cookie 一旦泄露（XSS 或接触设备），虽然 `/workbench` 这类门禁内的路径会被 403 挡住，
+但一些不在门禁内的管理动作（例如删除留言 `/api/site/messages/<id>`）理论上仍能从任意网络发起。
+按确认的方案 A 收紧：管理员会话绑定登录时的来源 IP。
+
+完成内容：
+- `sessions` 表新增 `ip` 列（迁移时若该列不存在：`ALTER TABLE sessions ADD COLUMN ip TEXT`），
+  `issue_session_token` 记录签发时的客户端 IP（`self.client_ip()`，取自 nginx 透传的 X-Real-IP）。
+- `session_identity` 增加校验（新方法 `session_ip_matches`）：
+  站长会话（kind=owner）以及拥有「管理员」权限的账号会话，来源 IP 与签发时不一致就
+  **删除该会话**并写一条 `session_ip_mismatch` 审计（含登录时 IP 与当前 IP），本次请求按未登录处理；
+  普通账号会话不绑定，避免会员在手机流量 / 家里 WiFi 之间切换被踢下线。
+- 旧会话兼容：升级前签发的会话没有 `ip` 字段，迁移时直接作废管理员类会话
+  （`DELETE FROM sessions WHERE kind='owner' OR user_id IN (SELECT user_id FROM user_permissions
+  WHERE permission='system:admin')`），让人重新登录一次；普通账号会话保留。
+- 文档：README 的会话说明与白名单说明、笔记 #21 第五节「白名单到底管哪些东西」同步改写。
+
+验证结果：
+```text
+自动化测试        -> 96 / 96 通过（新增 5 项会话 IP 绑定用例：站长换网络被下线、
+                     同 IP 放行、老会话无 IP 放行、带管理员权限的会员账号被下线、
+                     普通会员不绑定）
+py_compile        -> app.py 语法通过
+```
+
+注意：这次部署会作废现有的管理员会话（包括手机上那条），需要重新登录一次；
+因为白名单开着，在非受信任网络下请先连上 `wg0` 再登录。

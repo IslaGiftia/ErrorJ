@@ -1164,7 +1164,8 @@ def init_db():
                 device TEXT NOT NULL DEFAULT 'desktop',
                 created_at TEXT NOT NULL,
                 last_seen_at TEXT NOT NULL,
-                expires_at INTEGER NOT NULL
+                expires_at INTEGER NOT NULL,
+                ip TEXT
             );
 
             CREATE TABLE IF NOT EXISTS message_views (
@@ -1545,6 +1546,18 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
         if "register_ip" not in user_columns:
             conn.execute("ALTER TABLE users ADD COLUMN register_ip TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_users_register_ip ON users(register_ip)")
+        session_columns = [
+            row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
+        ]
+        if "ip" not in session_columns:
+            conn.execute("ALTER TABLE sessions ADD COLUMN ip TEXT")
+            # 升级前签发的会话没有记录来源 IP，无法套用「管理员会话绑定 IP」的新规则，
+            # 统一作废掉，让人重新登录一次；普通账号的会话不受影响。
+            conn.execute(
+                "DELETE FROM sessions WHERE kind = 'owner' OR user_id IN "
+                "(SELECT user_id FROM user_permissions WHERE permission = ?)",
+                (ADMIN_PERMISSION,),
+            )
         recommendation_columns = [
             row[1] for row in conn.execute("PRAGMA table_info(recommendations)").fetchall()
         ]
@@ -6548,7 +6561,7 @@ def resource_is_shared(resource_type, resource_id):
     )
 
 
-def issue_session_token(days, identity, device=SESSION_DEVICE_DESKTOP):
+def issue_session_token(days, identity, device=SESSION_DEVICE_DESKTOP, client_ip=""):
     expires = int(time.time()) + int(days) * 86400
     kind = str(identity.get("kind") or "owner")
     if kind not in ("owner", "member"):
@@ -6560,9 +6573,9 @@ def issue_session_token(days, identity, device=SESSION_DEVICE_DESKTOP):
     stamp = now_text()
     execute(
         """INSERT INTO sessions
-               (sid, kind, user_id, device, created_at, last_seen_at, expires_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (sid, kind, user_id, device, stamp, stamp, expires),
+               (sid, kind, user_id, device, created_at, last_seen_at, expires_at, ip)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (sid, kind, user_id, device, stamp, stamp, expires, (client_ip or "").strip() or None),
     )
     payload = f"v2|{kind}|{user_id}|{sid}|{expires}"
     signature = hmac.new(
@@ -6771,6 +6784,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
         ):
             return None
         if claims["kind"] == "owner":
+            if not self.session_ip_matches(session):
+                return None
             return {
                 "kind": "owner",
                 "user_id": 0,
@@ -6784,6 +6799,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not row or row.get("status") != "approved":
             return None
         is_admin_user = user_has_permission(row["id"], ADMIN_PERMISSION)
+        if is_admin_user and not self.session_ip_matches(session):
+            return None
         return {
             "kind": "admin" if is_admin_user else "member",
             "user_id": row["id"],
@@ -6791,6 +6808,24 @@ class InventoryHandler(BaseHTTPRequestHandler):
             "nickname": row.get("nickname") or row["username"],
             "role": "admin" if is_admin_user else "member",
         }
+
+    def session_ip_matches(self, session):
+        """管理员会话绑定登录时的来源 IP：换了网络就必须重新登录。
+
+        普通账号不受影响（会员在手机 / 家里网络之间切换不会被踢下线）。
+        升级前签发的旧会话没有记录 IP，按「不拦」处理，下次登录时自动绑定。
+        """
+        bound = str((session or {}).get("ip") or "").strip()
+        current = self.client_ip()
+        if not bound or bound == current:
+            return True
+        delete_session((session or {}).get("sid"))
+        self.log_activity(
+            "session_ip_mismatch",
+            f"管理员会话因来源网络变化被下线（登录时 {bound}，当前 {current}）",
+            actor={"kind": "guest", "username": "管理员"},
+        )
+        return False
 
     def session_valid(self):
         return self.session_identity() is not None
@@ -7272,7 +7307,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         device = session_device_class(self.headers.get("User-Agent"))
         # 同一账号同一设备类型只保留一个会话：新登录生效，旧设备被踢下线
         clear_device_sessions(identity.get("kind") or "owner", identity.get("user_id") or 0, device)
-        token = issue_session_token(days, identity, device)
+        token = issue_session_token(days, identity, device, self.client_ip())
         self.send_json(
             200,
             {
