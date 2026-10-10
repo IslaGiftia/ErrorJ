@@ -179,6 +179,335 @@
       .trim();
   }
 
+  /* ---------- 智能排版 ---------- */
+  // 粘贴时做一次初步排版：剪贴板有 HTML 就先转 Markdown（选区优先，整页用 Readability
+  // 剥掉导航 / 广告 / 页脚），只有纯文本时走规则排版（统一列表符号、识别标题、
+  // 接回被硬换行切断的段落、中英文之间补空格）。不修改任何文字内容，排完可以手动再改。
+
+  const SMART_BULLET_RE = /^(?:[-*+•·▪◦‣●○]|[－—–])\s+/;
+  const SMART_ORDER_RE = /^\d{1,3}\s*[.、)）]\s+/;
+  const SMART_INDEX_RE = /^(?:第)?[一二三四五六七八九十百]{1,4}\s*[、.．)）]/;
+  const SMART_BLOCK_RE = /^(?:#{1,6}\s|>|\||```|<|\[\^)/;
+  const SMART_END_RE = /[。！？；：!?;:.…、,，]$/;
+  const SMART_PARTICLE_RE = /[啊吧呢吗哦呀嘛哈嗯]$/;
+  const SMART_OPENER_RE = /^(?:然后|接着|其次|另外|此外|因此|所以|但是|不过|最后|还有|以及|比如|例如|总之|另外)/;
+  const SMART_HEADING_MAX = 42;
+  const SMART_HEADING_WIDTH = 30;
+  // 折行的行宽阈值（按显示宽度算，一个汉字算 2）：够宽才认为是排版折行，
+  // 聊天那种一行一句话的短行不合并
+  const SMART_WRAP_WIDTH = 56;
+
+  function isCjkChar(ch) {
+    return /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/.test(ch);
+  }
+
+  function isWordChar(ch) {
+    return /[A-Za-z0-9]/.test(ch);
+  }
+
+  function smartWidth(text) {
+    let width = 0;
+    for (const ch of String(text || "")) {
+      width += isCjkChar(ch) ? 2 : 1;
+    }
+    return width;
+  }
+
+  // 盘古之白：中文和英文 / 数字之间补空格，行内代码与链接保持原样
+  function panguSpacing(text) {
+    return String(text || "")
+      .split(/(`[^`\n]*`)/g)
+      .map((part, index) => (index % 2 ? part : panguSegment(part)))
+      .join("");
+  }
+
+  function panguSegment(segment) {
+    return String(segment || "")
+      .split(/(https?:\/\/[^\s)】」>）]+)/g)
+      .map((part, index) => (index % 2 ? part : panguPlain(part)))
+      .join("");
+  }
+
+  function panguPlain(text) {
+    let out = "";
+    for (const ch of String(text || "")) {
+      const prev = out.slice(-1);
+      if (
+        prev &&
+        ch !== "\n" &&
+        prev !== "\n" &&
+        ((isCjkChar(prev) && isWordChar(ch)) || (isWordChar(prev) && isCjkChar(ch)))
+      ) {
+        out += " ";
+      }
+      out += ch;
+    }
+    return out;
+  }
+
+  function smartJoinLines(left, right) {
+    const tail = left.slice(-1);
+    const head = right.slice(0, 1);
+    const glue = isCjkChar(tail) && isCjkChar(head) ? "" : " ";
+    return left + glue + right;
+  }
+
+  function smartOrderMarker(match) {
+    const number = String(match).trim().replace(/[、)）]$/, ".");
+    return /\.$/.test(number) ? number + " " : number + ". ";
+  }
+
+  function smartHeadingCandidate(block) {
+    const text = String(block || "").trim();
+    if (!text || text.includes("\n")) return false;
+    if (text.length > SMART_HEADING_MAX) return false;
+    if (smartWidth(text) > SMART_HEADING_WIDTH) return false;
+    if (SMART_END_RE.test(text)) return false;
+    // 「兄弟们这个板子怎么烧录啊」这种口语句子不算标题
+    if (SMART_PARTICLE_RE.test(text)) return false;
+    if (SMART_OPENER_RE.test(text)) return false;
+    if (text.includes("，")) return false;
+    if (/^https?:/i.test(text)) return false;
+    if (!/[A-Za-z0-9\u3400-\u4dbf\u4e00-\u9fff]/.test(text)) return false;
+    return true;
+  }
+
+  function smartFormatText(raw, options) {
+    const opts = options || {};
+    const source = String(raw || "").replace(/\r\n?/g, "\n").replace(/\t/g, "  ");
+    const lines = source.split("\n");
+    const blocks = [];
+    let paragraph = "";
+    let lastWidth = 0;
+    let inFence = false;
+    let fence = [];
+
+    const flush = () => {
+      if (paragraph) {
+        blocks.push(paragraph);
+        paragraph = "";
+        lastWidth = 0;
+      }
+    };
+
+    for (const rawLine of lines) {
+      const line = rawLine.replace(/[ \t]+$/, "");
+      const trimmed = line.trim();
+
+      if (/^```/.test(trimmed)) {
+        flush();
+        fence.push(trimmed);
+        inFence = !inFence;
+        if (!inFence) {
+          blocks.push(fence.join("\n"));
+          fence = [];
+        }
+        continue;
+      }
+      if (inFence) {
+        fence.push(line);
+        continue;
+      }
+      if (!trimmed) {
+        flush();
+        continue;
+      }
+      if (SMART_BLOCK_RE.test(trimmed)) {
+        flush();
+        blocks.push(trimmed);
+        continue;
+      }
+      const bullet = trimmed.match(SMART_BULLET_RE);
+      if (bullet) {
+        flush();
+        blocks.push("- " + trimmed.replace(SMART_BULLET_RE, "").trim());
+        continue;
+      }
+      const order = trimmed.match(SMART_ORDER_RE);
+      if (order) {
+        flush();
+        blocks.push(smartOrderMarker(order[0]) + trimmed.slice(order[0].length).trim());
+        continue;
+      }
+      // 缩进（中文文档常用全角空格）、上一段已经收尾、上一行还不够长（聊天那种一行一句），
+      // 都算新段落；只有“长行且没有句末标点”才认为是折行，接回同一段
+      const indented = /^[ \u3000]{2,}/.test(line) || /^\u3000/.test(line);
+      const wrapped = lastWidth >= SMART_WRAP_WIDTH && !SMART_END_RE.test(paragraph);
+      if (paragraph && (indented || !wrapped)) flush();
+      paragraph = paragraph ? smartJoinLines(paragraph, trimmed) : trimmed;
+      lastWidth = smartWidth(trimmed);
+    }
+    flush();
+
+    const rendered = blocks
+      .map((block, index) => {
+        if (/^```/.test(block) || SMART_BLOCK_RE.test(block)) return block;
+        if (SMART_BULLET_RE.test(block) || SMART_ORDER_RE.test(block)) return block;
+        if (blocks.length < 2) return block;
+        if (SMART_INDEX_RE.test(block) && block.length <= SMART_HEADING_MAX + 8) {
+          return "### " + block;
+        }
+        if (!smartHeadingCandidate(block)) return block;
+        return (index === 0 && opts.titleForFirst ? "# " : "## ") + block;
+      })
+      .filter(Boolean);
+
+    // 连续的列表项之间不插空行，避免变成松散列表
+    let output = "";
+    let previousWasList = false;
+    rendered.forEach((block, index) => {
+      const isList = SMART_BULLET_RE.test(block) || SMART_ORDER_RE.test(block);
+      if (index === 0) {
+        output = block;
+      } else {
+        output += (isList && previousWasList ? "\n" : "\n\n") + block;
+      }
+      previousWasList = isList;
+    });
+
+    return normalizeMarkdown(panguSpacing(output));
+  }
+
+  function smartLooksLikeHtml(html) {
+    const source = String(html || "");
+    if (source.length < 40) return false;
+    return /<(p|div|h[1-6]|ul|ol|li|table|blockquote|pre|article|section)\b/i.test(source);
+  }
+
+  // 浏览器复制整页时会在注释里标出真正的选区
+  function smartClipFragment(doc) {
+    const root = doc.body || doc.documentElement;
+    if (!root) return null;
+    const walker = doc.createTreeWalker(root, NodeFilter.SHOW_COMMENT);
+    let start = null;
+    let node;
+    while ((node = walker.nextNode())) {
+      const value = String(node.nodeValue || "");
+      if (/^StartFragment/i.test(value)) {
+        start = node;
+        break;
+      }
+    }
+    if (!start) return null;
+    const holder = doc.createElement("div");
+    let current = start.nextSibling;
+    while (current) {
+      if (current.nodeType === Node.COMMENT_NODE && /^EndFragment/i.test(String(current.nodeValue || ""))) {
+        break;
+      }
+      const next = current.nextSibling;
+      holder.appendChild(current.cloneNode(true));
+      current = next;
+    }
+    return holder.childNodes.length ? holder : null;
+  }
+
+  function smartHtmlToMarkdown(html) {
+    const doc = new DOMParser().parseFromString(String(html || ""), "text/html");
+    return normalizeMarkdown(htmlChildrenBlock(doc.body || doc.documentElement));
+  }
+
+  // 整页复制：交给 Mozilla Readability 剥掉导航 / 广告 / 页脚
+  function smartReadableMarkdown(doc) {
+    if (typeof window.Readability !== "function") return "";
+    let article = null;
+    try {
+      article = new window.Readability(doc.cloneNode(true), {
+        charThreshold: 120,
+        keepClasses: false,
+      }).parse();
+    } catch (err) {
+      return "";
+    }
+    if (!article || !article.content) return "";
+    let markdown = smartHtmlToMarkdown(article.content);
+    if (!markdown) return "";
+    const title = String(article.title || "").trim();
+    if (title && !/^#{1,2}\s/.test(markdown)) {
+      markdown = `# ${title}\n\n${markdown}`;
+    }
+    return normalizeMarkdown(markdown);
+  }
+
+  function smartHtmlClipboardToMarkdown(html) {
+    const doc = new DOMParser().parseFromString(String(html || ""), "text/html");
+    const fragment = smartClipFragment(doc);
+    if (fragment) return normalizeMarkdown(htmlChildrenBlock(fragment));
+    const readable = smartReadableMarkdown(doc);
+    if (readable) return readable;
+    return normalizeMarkdown(htmlChildrenBlock(doc.body || doc.documentElement));
+  }
+
+  function smartReplaceSelection(text) {
+    const input = $("editorInput");
+    if (!input) return;
+    input.focus();
+    let inserted = false;
+    try {
+      inserted = document.execCommand("insertText", false, text);
+    } catch (err) {
+      inserted = false;
+    }
+    if (!inserted) {
+      input.setRangeText(text, input.selectionStart, input.selectionEnd, "end");
+    }
+    renderPreview();
+    scheduleOutlineUpdate();
+  }
+
+  function smartCaretInFence() {
+    const input = $("editorInput");
+    if (!input) return false;
+    const before = input.value.slice(0, input.selectionStart || 0);
+    const fences = before.match(/^```/gm);
+    return Boolean(fences && fences.length % 2 === 1);
+  }
+
+  // 太短的内容（一个词、一条链接）不排版，免得帮倒忙
+  function smartWorthFormatting(text) {
+    const value = String(text || "");
+    return value.length >= 24 || value.includes("\n");
+  }
+
+  function smartPasteMarkdown(clipboard) {
+    if (!clipboard || smartCaretInFence()) return "";
+    const html = String(clipboard.getData("text/html") || "");
+    const text = String(clipboard.getData("text/plain") || "");
+    const input = $("editorInput");
+    if (html && smartLooksLikeHtml(html)) {
+      const markdown = smartHtmlClipboardToMarkdown(html);
+      if (markdown && smartWorthFormatting(markdown)) return markdown;
+    }
+    if (!text.trim()) return "";
+    const formatted = smartFormatText(text, {
+      titleForFirst: Boolean(input && !input.value.trim()),
+    });
+    if (!formatted || !smartWorthFormatting(formatted)) return "";
+    // 纯文本本来就已经是排好的 Markdown，就别插一遍
+    if (formatted === normalizeMarkdown(text)) return "";
+    return formatted;
+  }
+
+  function smartFormatSelection() {
+    const input = $("editorInput");
+    if (!input) return;
+    const selection = input.value.slice(input.selectionStart, input.selectionEnd);
+    const wholeNote = !selection.trim();
+    const source = wholeNote ? input.value : selection;
+    if (!source.trim()) {
+      toast("先写点内容再排版");
+      return;
+    }
+    const formatted = smartFormatText(source, { titleForFirst: wholeNote });
+    if (!formatted.trim() || formatted === source) {
+      toast(wholeNote ? "整篇看起来已经排好了" : "这段看起来已经排好了");
+      return;
+    }
+    if (wholeNote) input.setSelectionRange(0, input.value.length);
+    smartReplaceSelection(formatted);
+    toast("已排版，Ctrl+Z 可撤销");
+  }
+
   function safeHtmlUrl(value, image) {
     const raw = String(value || "").trim();
     if (!raw) return "";
@@ -978,6 +1307,9 @@
       case "image":
         $("imageInput").click();
         break;
+      case "smart":
+        smartFormatSelection();
+        break;
       default:
         break;
     }
@@ -1365,9 +1697,16 @@
 
     $("editorInput").addEventListener("paste", (event) => {
       const files = Array.from(event.clipboardData?.files || []);
-      if (!files.some((file) => file.type.startsWith("image/"))) return;
+      if (files.some((file) => file.type.startsWith("image/"))) {
+        event.preventDefault();
+        uploadImages(files);
+        return;
+      }
+      const smart = smartPasteMarkdown(event.clipboardData);
+      if (!smart) return;
       event.preventDefault();
-      uploadImages(files);
+      smartReplaceSelection(smart);
+      toast("已自动排版，Ctrl+Z 可撤销");
     });
 
     $("editorInput").addEventListener("dragover", (event) => {
