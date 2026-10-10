@@ -133,6 +133,7 @@
     activeTop: new Set(),
     activeSubs: new Set(),
     activeTags: new Set(),
+    expandedTops: new Set(),
     keyword: "",
     ownerFilter: "",
     markers: {},
@@ -1054,6 +1055,10 @@
           state.activeSubs.delete(id);
         }
       });
+      state.expandedTops.forEach(function (id) {
+        var cat = categoryIds[id];
+        if (!cat || cat.parent_id) state.expandedTops.delete(id);
+      });
       var availableTags = {};
       state.places.forEach(function (place) {
         String(place.tags || "")
@@ -1456,15 +1461,39 @@
   }
 
   // ---------- category manager ----------
-  function categoryRowHtml(cat, isChild) {
+  function categoryToggleHtml(cat, childCount, expanded) {
+    if (!childCount) {
+      return '<span class="mp-cat-toggle is-empty" aria-hidden="true"></span>';
+    }
+    var label =
+      (expanded ? "折叠「" : "展开「") +
+      cat.name +
+      "」的 " +
+      childCount +
+      " 个下级分类";
+    return (
+      '<button type="button" class="mp-cat-toggle" data-cat-toggle="' +
+      cat.id +
+      '" aria-expanded="' +
+      (expanded ? "true" : "false") +
+      '" aria-label="' +
+      esc(label) +
+      '" title="' +
+      esc(label) +
+      '"><i data-lucide="chevron-down"></i></button>'
+    );
+  }
+
+  function categoryRowHtml(cat, isChild, childCount, expanded) {
     return (
       '<div class="mp-cat-row' +
-      (isChild ? " is-child" : "") +
+      (isChild ? " is-child" : " is-top") +
       '" data-cat-row="' +
       cat.id +
       '" data-cat-old-name="' +
       esc(cat.name) +
       '">' +
+      (isChild ? "" : categoryToggleHtml(cat, childCount, expanded)) +
       '<input class="mp-cat-glyph" type="text" maxlength="2" value="' +
       esc(cat.glyph || "·") +
       '" aria-label="分类字">' +
@@ -1498,8 +1527,15 @@
     }
     var html = "";
     tops.forEach(function (top) {
-      html += '<div class="mp-cat-group">' + categoryRowHtml(top, false);
-      childCategories(top.id).forEach(function (child) {
+      var kids = childCategories(top.id);
+      var expanded = !kids.length || state.expandedTops.has(top.id);
+      html +=
+        '<div class="mp-cat-group' +
+        (expanded ? "" : " is-collapsed") +
+        '">' +
+        categoryRowHtml(top, false, kids.length, expanded) +
+        '<div class="mp-cat-children">';
+      kids.forEach(function (child) {
         html += categoryRowHtml(child, true);
       });
       html +=
@@ -1507,10 +1543,42 @@
         top.id +
         '">+ 添加「' +
         esc(top.name) +
-        "」的下级分类</button></div>";
+        "」的下级分类</button></div></div>";
     });
     box.innerHTML = html;
     if (window.lucide && lucide.createIcons) lucide.createIcons();
+  }
+
+  // 把某一分类行滚到弹窗可视区内。弹窗顶部标题栏和底部操作栏都是 sticky 的，
+  // 只靠 focus() 的自动滚动会把行停在贴边栏底下，所以要按这两条栏的高度自己算位置。
+  function revealCategoryRow(id) {
+    var row = document.querySelector('.mp-cat-row[data-cat-row="' + id + '"]');
+    if (!row) return;
+    var input = row.querySelector(".mp-cat-name");
+    if (input) {
+      try {
+        input.focus({ preventScroll: true });
+      } catch (err) {
+        input.focus();
+      }
+    }
+    var dialog = row.closest ? row.closest(".mp-dialog") : null;
+    if (!dialog) {
+      if (row.scrollIntoView) row.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    var gap = 10;
+    var box = dialog.getBoundingClientRect();
+    var head = dialog.querySelector(".mp-dialog-head");
+    var foot = dialog.querySelector(".mp-dialog-actions");
+    var top = box.top + (head ? head.getBoundingClientRect().height : 0) + gap;
+    var bottom = box.bottom - (foot ? foot.getBoundingClientRect().height : 0) - gap;
+    var rowBox = row.getBoundingClientRect();
+    if (rowBox.top < top) {
+      dialog.scrollTop -= top - rowBox.top;
+    } else if (rowBox.bottom > bottom) {
+      dialog.scrollTop += rowBox.bottom - bottom;
+    }
   }
 
   function createCategoryUnder(parentId) {
@@ -1525,18 +1593,12 @@
         parent_id: parentId
       })
     })
-      .then(function () {
+      .then(function (created) {
         toast("已添加下级分类，改好后点对勾保存");
+        state.expandedTops.add(parentId);
         return loadData(false).then(function () {
           renderCatRows();
-          var rows = document.querySelectorAll(".mp-cat-row.is-child");
-          var last = rows[rows.length - 1];
-          if (last) {
-            var input = last.querySelector(".mp-cat-name");
-            if (input) {
-              input.focus();
-            }
-          }
+          revealCategoryRow(created.id);
         });
       })
       .catch(function (err) {
@@ -2193,6 +2255,7 @@
   var catsBtn = $("mapCatsBtn");
   if (catsBtn) {
     catsBtn.addEventListener("click", function () {
+      state.expandedTops.clear();
       renderCatRows();
       openModal("mapCatsModal");
     });
@@ -2211,6 +2274,14 @@
   var catRows = $("mapCatRows");
   if (catRows) {
     catRows.addEventListener("click", function (event) {
+      var toggle = event.target.closest("[data-cat-toggle]");
+      if (toggle) {
+        var toggleId = Number(toggle.getAttribute("data-cat-toggle"));
+        if (state.expandedTops.has(toggleId)) state.expandedTops.delete(toggleId);
+        else state.expandedTops.add(toggleId);
+        renderCatRows();
+        return;
+      }
       var addChild = event.target.closest("[data-add-child]");
       if (addChild) {
         createCategoryUnder(Number(addChild.getAttribute("data-add-child")));
@@ -2245,13 +2316,11 @@
         method: "POST",
         body: JSON.stringify({ name: "新分类", glyph: "新", color: "#7b68ee" })
       })
-        .then(function () {
+        .then(function (created) {
           toast("已新增分类，改好后点对勾保存");
           return loadData(false).then(function () {
             renderCatRows();
-            var rows = document.querySelectorAll(".mp-cat-row");
-            var last = rows[rows.length - 1];
-            if (last) last.querySelector(".mp-cat-name").focus();
+            revealCategoryRow(created.id);
           });
         })
         .catch(function (err) {

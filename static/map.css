@@ -1498,6 +1498,53 @@ body {
   gap: 8px;
 }
 
+.mp-cat-row.is-top {
+  grid-template-columns: 26px 52px 52px minmax(120px, 1fr) minmax(150px, 1.4fr) auto;
+}
+
+.mp-cat-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mp-muted);
+  cursor: pointer;
+}
+
+.mp-cat-toggle:hover {
+  background: color-mix(in srgb, var(--mp-accent) 14%, transparent);
+  color: var(--mp-accent);
+}
+
+.mp-cat-toggle.is-empty {
+  pointer-events: none;
+}
+
+.mp-cat-toggle svg {
+  width: 18px;
+  height: 18px;
+  transition: transform 0.18s ease;
+}
+
+.mp-cat-group.is-collapsed .mp-cat-toggle svg {
+  transform: rotate(-90deg);
+}
+
+.mp-cat-children {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mp-cat-group.is-collapsed .mp-cat-children {
+  display: none;
+}
+
 .mp-cat-addchild {
   align-self: flex-start;
   margin-left: 26px;
@@ -1702,6 +1749,10 @@ body {
 
   .mp-cat-row {
     grid-template-columns: 46px 46px 1fr auto;
+  }
+
+  .mp-cat-row.is-top {
+    grid-template-columns: 26px 46px 46px 1fr auto;
   }
 
   .mp-cat-row .mp-cat-note {
