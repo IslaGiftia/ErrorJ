@@ -2084,3 +2084,24 @@ bash -n                -> 语法通过
 Identity 的兜底做法），并加了一句「对不上就截图问 Codex」，避免以后再被界面改版带偏。
 
 验证结果：笔记重新导入覆盖更新（笔记总数仍为 12，未新建重复笔记）。
+
+## 71. 2026-10-10 22:27:31 新增笔记 #22《白名单开关命令速查》
+
+需求：用户要求把「Termius / 阿里云云助手 开关白名单的命令清单」原样导入站内笔记。
+
+完成内容：
+- 源文件 `deploy/notes/allowlist-commands-quickref.md`，内容与聊天里给出的速查清单逐字一致
+  （Termius 侧 5 条 `allow` 命令 + 阿里云云助手侧 4 条完整路径命令 + 三句口诀 + 两条提醒）。
+- 用 `tools/import_doc_note.py` 导入为**新建**笔记 #22《白名单开关命令速查（Termius / 阿里云云助手）》，
+  标签 `Error酱,白名单,Nginx,速查,运维`；导入前备份 `inventory.db` 到
+  `/data/errorjiang-backup/quickref-20261010-2215/`。
+
+验证结果：
+```text
+逐字比对          -> True（数据库正文 == 导入工具首行标注 + 源文件内容，长度 1043 字）
+首行标注          -> > 导入自 allowlist-commands-quickref.md · 2026-10-10
+笔记编号/总数     -> #22（新建），笔记总数 12 → 13
+关键片段抽查      -> allow remove 1.2.3.4 / bash .../nginx-allow-ip.sh strict /
+                     只要记住三句 / 不会动白名单 / 打开 ip138 查出口 IP 全部命中
+分享状态          -> learning_notes 表没有分享字段，笔记模块本身仅管理员可见（含服务器 IP 也安全）
+```
