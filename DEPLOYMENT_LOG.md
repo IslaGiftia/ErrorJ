@@ -2105,3 +2105,30 @@ Identity 的兜底做法），并加了一句「对不上就截图问 Codex」�
                      只要记住三句 / 不会动白名单 / 打开 ip138 查出口 IP 全部命中
 分享状态          -> learning_notes 表没有分享字段，笔记模块本身仅管理员可见（含服务器 IP 也安全）
 ```
+
+## 72. 2026-10-10 22:38:32 手机 SSH 首次连接失败的排查与复盘
+
+现象：手机 Termius 首次连服务器报 `Connection failed`，进度条停在
+`Executing command: [Detect HostOS Script]` 附近，最后一句是
+`Connection to "47.108.86.201" closed with error: software caused connection abort`。用户重进一次之后恢复正常。
+
+排查结论（服务器无关）：
+- `journalctl -u ssh` / `auth.log` 显示手机密钥 `SHA256:uJA61SDv...` **认证成功过 5 次**
+  （21:42、22:12、22:14、22:18×2），来源是家庭公网 IP 111.19.28.219（说明当时没走 VPN）；
+  Termius 主机条目里能显示 `ubuntu`，也正是成功跑完检测脚本后才会留下的结果。
+- fail2ban 的 sshd jail：0 封禁、0 失败，排除被服务器封禁。
+- 从本机用**同一把手机密钥**模拟 Termius 动作（PTY + 登录 shell + 读 `.bash_history`）全部正常；
+  检查 `/etc/profile.d/*`、`/root/.bashrc`、`/root/.profile` 也没有会让 shell 退出的语句。
+- 因此判定为手机侧把已建立的连接掐断（安卓后台管理或网络链路切换）。
+
+处理与沉淀：笔记 #21 第六节末尾新增《连不上怎么办》小节，写清这个报错的判断方法
+（认证过了 = 地址/密钥都没问题）、三条客户端侧处置（单一网络、给 Termius 后台特权、删主机重加）、
+两个备选（ServerBox / 阿里云云助手），以及服务器侧的自查命令。
+
+复核状态：
+```text
+白名单            -> default 0（开启），三条不变
+非白名单 IP 访问  -> /api/login 403
+服务              -> errorjiang / nginx / fail2ban / wg-quick@wg0 全部 active，/api/health = {"ok": true}
+手机密钥认证次数  -> 8 次（用户重试后又能正常使用）
+```

@@ -265,6 +265,23 @@ allow add 1.2.3.4 2h  # 只放行某个 IP 2 小时
   sed -i '/phone-termius/d' /root/.ssh/authorized_keys
   ```
 
+**连不上怎么办（2026-10-10 实际踩过一次）**
+
+如果 Termius 报 `Connection failed`，进度条走到「Executing command: [Detect HostOS Script]」
+附近就断，提示 `software caused connection abort`，**这不是服务器的问题**：
+现象是「认证已经通过」，说明地址、端口、用户名、密钥全都是对的，是手机把连接掐断了。按顺序试：
+
+1. 关掉手机的「WiFi 助理 / 智能网络切换 / 双通道网络加速」，只留 WiFi 或只留流量；
+   连之前先把 VPN 开关关掉。
+2. 给 Termius 后台特权：设置 → 应用 → Termius → 电池 → 允许后台（vivo 还要加进
+   「自启动 / 后台高耗电」白名单）。
+3. 删掉这台主机重新加一次，再连。
+4. 还不行就换 ServerBox（中文界面）用同一把密钥试，或者直接用阿里云云助手（第七节命令）。
+
+服务器侧怎么自查：登录一次电脑上的终端，执行
+`grep 'Accepted publickey' /var/log/auth.log | tail -5`，
+能看到你这把密钥（`SHA256:uJA61SDv...`）认证成功就说明服务器和密钥没问题。
+
 ---
 
 ## 七、常用命令（复制就能用）
