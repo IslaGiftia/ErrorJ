@@ -2021,3 +2021,27 @@ authorized_keys       -> 2 行（主密钥 + phone-termius）
 手机密钥执行白名单命令 -> 正常输出当前模式
 自动化测试            -> 未涉及代码改动，沿用上一轮的 107 / 107
 ```
+
+## 68. 2026-10-10 21:55:56 手机短命令 allow + Termius 免费版说明
+
+背景：用户问 Termius 是否收费。查了官网定价页（termius.com/pricing）确认：
+Starter（免费）含 SSH / SFTP / 本地密钥库 / 端口转发 / 自动补全，允许商用；
+Pro US$10/月（按年付）才有跨设备同步、会话日志和 **Snippets 自动化**；Team US$20/席位、Business US$30/席位。
+也就是说笔记里"把命令存成 Snippets"这一步在免费版做不到，于是补一条短命令兜底。
+
+完成内容：
+- 新增 `deploy/ea-allow.sh`，安装为 `/usr/local/bin/allow`：
+  不带参数等价于 `list`，其余参数原样转发给 `nginx-allow-ip.sh`；
+  装之前先 `bash -n` 检查语法，用 `install -m 0755` 落位。
+- 笔记 #21 第六节第五步改写：明确 Termius 免费版够用、Snippets 属于 Pro，
+  给出四条短命令 `allow` / `allow open 2h` / `allow strict` / `allow add 1.2.3.4 2h`，
+  并说明以后若开了 Pro 可以照原样存成 Snippets。
+- README 部署清单补一行短命令说明。
+
+验证结果：
+```text
+allow（不带参数）      -> 输出当前模式与白名单
+allow list             -> 同上
+allow bogus            -> 转发给原脚本并打印用法（说明参数透传正常）
+bash -n ea-allow.sh    -> 语法通过
+```

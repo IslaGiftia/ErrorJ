@@ -218,16 +218,27 @@ sudo bash /usr/local/bin/nginx-allow-ip.sh add 123.45.67.89 2h
 
 连上后看到 `root@iZxxxxx:~#` 就成了。
 
-**第五步：把常用命令存成快捷方式（推荐）**
+**第五步：记住四条短命令（免费版也能用）**
 
-Termius 左下角「**Snippets**」→「+」，各存一条，以后点一下就执行：
+**Termius 免费版够用**：SSH、SFTP、本地密钥库、端口转发都免费（免费版叫 Starter）。
+收费的是 Pro（US$10/月），主要是跨设备同步、会话日志和 **Snippets 自动化**——
+所以下面这套不需要花钱，直接在终端里手打几个字母就行。
+
+服务器上已经装好一条短命令 `allow`，手机上只需要敲：
 
 ```bash
-bash /usr/local/bin/nginx-allow-ip.sh list          # 看当前状态
-bash /usr/local/bin/nginx-allow-ip.sh open 2h       # 临时全放开 2 小时（网吧用这个）
-bash /usr/local/bin/nginx-allow-ip.sh strict        # 立刻收回
-bash /usr/local/bin/nginx-allow-ip.sh add 1.2.3.4 2h  # 只放行某个 IP 2 小时
+allow                 # 看当前状态和名单（等于 list）
+allow open 2h         # 临时全放开 2 小时，到期自动收回（网吧用这个）
+allow strict          # 立刻收回白名单
+allow add 1.2.3.4 2h  # 只放行某个 IP 2 小时
 ```
+
+命令都很短，手打不费劲。如果嫌记不住，把它们抄在手机备忘录里，
+或者直接打开站内笔记 #21 复制（`/` 后面接 `notes` 那个页面，登录后能看到）。
+
+（如果你以后自己开了 Termius Pro，也可以把它们存成 Snippets 一键执行，
+命令内容就是上面这四条，或者把 `allow` 换成完整路径
+`bash /usr/local/bin/nginx-allow-ip.sh` 一样能用。）
 
 **安全提醒**
 
