@@ -1812,3 +1812,27 @@ nginx 配置测试           -> nginx -t 通过，reload 生效（短暂无中�
 nginx 配置测试           -> nginx -t 通过并 reload，备份 /data/errorjiang-backup/nginx-conf-20261010-201107.conf
 自动化测试               -> 91 / 91 通过（新增 5 项注册限额与限速回归）
 ```
+
+线上注册限额实测（用 `X-Real-IP` 伪造来源 IP，测试数据跑完即删）：
+```text
+干净 IP 首次提交          -> {"ok": true, "status": "pending"}（正常入库，测试账号随后删除）
+同一 IP 已有待审核申请    -> {"error": "这个网络下已经有注册申请在等待审核，请等管理员处理后再提交。"}
+同一 IP 24 小时内已 3 次  -> {"error": "同一个网络 24 小时内最多提交 3 次注册申请，请明天再试。"}
+应用层突发保护            -> {"error": "注册请求太频繁，请稍后再试。"}（10 分钟 5 次）
+清理结果                  -> 残留测试账号 0 个
+数据库迁移                -> users.register_ip 列已建立
+动态条目                  -> id 267「2026-10-10 20:11:39 注册申请限额与后台入口加固」，2026-10-10 共 14 条
+```
+
+补充调整：nginx 自身产生的 429 原来是默认 HTML 报错页，改成返回 JSON
+`{"error":"提交太频繁，请过一会儿再试。"}`（`error_page 429 = @errorjiang_register_limit`），
+并把注册入口的 `limit_req` 放宽到 6 次/分钟、突发 3，和登录入口一致；
+因为 `proxy_intercept_errors` 默认关闭，应用自己返回的「24 小时内最多 3 次」等 JSON 会原样透传。
+重新 `nginx -t` + reload 通过，备份 `/data/errorjiang-backup/nginx-conf-20261010-201346.conf`。
+
+笔记 #21 同步：改动后的 `deploy/notes/nginx-allowlist-guide.md` 用
+`tools/import_doc_note.py` 重新导入，覆盖更新笔记 #21（3171 字 → 3754 字，笔记总数仍是 12，
+没有新建重复笔记），导入前备份 `inventory-before-note-20261010-201505.db`。
+
+注意：验证过程中第一次「干净 IP 首次提交」确实写库成功，因此触发了一条
+「新的注册申请」Webhook 推送（20:14:34，状态 ok），手机或群里如果收到属于测试噪音，可以忽略。
