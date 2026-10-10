@@ -9,7 +9,7 @@
 更新日期：
 
 ```text
-2026-10-08
+2026-10-11
 ```
 
 公网访问：
@@ -41,7 +41,7 @@ http://<服务器公网IP>
 Web 服务：Nginx 1.28.3
 Python：3.14.4
 Git 仓库：git@github.com:IslaGiftia/ErrorJ.git
-当前提交：57ff940
+当前提交：99d75c4
 Nginx 上传上限：client_max_body_size 84m
 公网端口：80 已开放
 HTTPS：未配置，443 未开放
@@ -2131,4 +2131,55 @@ Identity 的兜底做法），并加了一句「对不上就截图问 Codex」�
 非白名单 IP 访问  -> /api/login 403
 服务              -> errorjiang / nginx / fail2ban / wg-quick@wg0 全部 active，/api/health = {"ok": true}
 手机密钥认证次数  -> 8 次（用户重试后又能正常使用）
+```
+
+## 73. 2026-10-11 02:21:44 手机端体验第二轮（地图 / 点按反馈 / 笔记阅读 / 图片查看）上线
+
+需求：站长按移动端审查报告提出第二轮改造，顺序为
+A 移动端地图 → B 全局按下反馈 → C 笔记移动端「以便查看为主」→ D 留言 / 动态图片查看（手机 + PC），
+并要求全部自测通过后一次性发布；同时把上一轮已完成但未提交的移动端审查修复一起上线。
+
+完成内容（一次提交 `99d75c4 feat:mobile-ui-round2-map-notes-and-image-zoom`，32 个文件）：
+- **A 地图**（`static/map.{css,js}`）：左下角展开 / 收起按钮从「34px 高、只占两行网格的上半截」改成 44×74
+  撑满两行；清单展开时面板从 12px 起算（高度 653 → 791px），右上角图层 / 定位 / 全览三个按钮向右滑出让位、
+  收起滑回；箭头保持「收起朝上、展开朝下」。
+- **B 按下反馈**（`static/fonts.css`，全站加载）：关掉浏览器默认的矩形 tap highlight，
+  改用 `:active` + `filter: brightness()`（浅色压暗 0.9 / 深色提亮 1.18），反馈形状跟随按钮圆角。
+- **C 笔记**（`static/notes.{css,js}`）：手机进入单篇笔记后收起 App 头部，只留 47px「返回 + 操作」细导航条；
+  正文上滑收起标题 / 标签 / 元信息；列表上滑收起搜索、导入 / 新建、排序和标签，搜索框聚焦时不收。
+- **D 图片查看**（新增 `static/site/image-zoom.js`，`static/messages.*`、`static/moments.*`）：
+  图片查看器不再显示文件名，支持双击（手机双点）放大 2 倍、再双击还原，放大后交给容器滚动。
+- 附带：审查脚本 `scripts/mobile-audit.mjs` 的换行行数改用 Range 实测（修掉固定高度按钮的误报）；
+  书签页排序栏在 1024 宽度下不再把「整理」「只看失效」挤成竖排；README 与 `MOBILE_AUDIT.md` 同步更新。
+- 上一轮未提交内容一并上线：笔记详情标题两行布局、书签排序栏、仓库 / 书签改「缩小版 PC」（viewport `width=1024`）、
+  工作台页签 sticky hover 修复、`text-size-adjust` 防字体放大、输入框 16px、favicon 不再空请求等。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py / python -m unittest discover -s tests（107 项全过）
+      node --check（books / messages / moments / notes / map / site/activity / site/image-zoom）全过
+      git diff --check 干净；提交 → fetch origin → pull --rebase → push origin main
+      本地 HEAD = origin/main = 99d75c47437cae52042a18d342bd5fe574d0e276
+备份：/data/errorjiang-backup/mobile-ui-round2-20261011-0224/
+      inventory.db（3211264 字节）+ changelog-seed.json；停服后复制，无 WAL / SHM
+服务器：git pull --ff-only → eacfd56..99d75c4（32 files changed, 1746 insertions）
+      SCP changelog-seed.json 到 /tmp 后 install 覆盖，SHA256 与本机一致
+      import_changelog_moments.py --date 2026-10-11 --force -> 完成：新增 1 条，覆盖 0 条，跳过 0 条
+```
+
+验证结果：
+```text
+服务              -> errorjiang / nginx 全部 active，curl http://127.0.0.1:8000/api/health = {"ok": true}
+服务器 HEAD       -> 99d75c4（与本地、origin/main 一致）
+站内动态          -> 新条目 moment id=268，created_at 2026-10-11 02:21:44（与 seed 时间一致）
+公开地址          -> 站点已挂在域名 https://zhexiyan.cc（纯 IP 访问 nginx 返回 404，属预期）
+静态资源          -> /static/site/image-zoom.js、fonts.css、map.css、notes.css 均 200 且包含新代码标记
+线上页面          -> 412×915 首页按下圆形主题按钮实测 filter=brightness(1.18)、半径 50%（按下反馈生效）；
+                     线上冒烟（首页 / 登录 / 注册 × 412×915 + 1440×900）无水平溢出
+本地全量审查      -> 16 页 × 7 视口 = 112 组合：horizontal-overflow 0、控制台 / 网络异常 0、
+                     bottom-bar-occlusion 0、媒体 / 弹窗溢出 0；桌面 1440×900 全量回归通过
+已知遗留          -> /references 的 32px「编辑」按钮文字换行（本轮未动）；
+                     游客首页仍会请求一次 /api/map?dock=1 并拿到 401（前端已有游客兜底，仅控制台一条红字，
+                     与本次改动无关，属既有行为）
+真机未覆盖        -> 软键盘遮挡、100dvh、微信内置浏览器、双击放大手感
 ```
