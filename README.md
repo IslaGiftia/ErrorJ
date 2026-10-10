@@ -168,6 +168,7 @@ Error酱 是一个自托管的个人工作与学习站点。最开始它只是�
 - 有待审核注册时，首页工作台入口会显示紫色呼吸高亮和数量角标，审核完自动消失（不需要邮件系统）。
 - 工作台「账号权限 → 通知设置」可以配置 Webhook 推送，把「新注册申请 / 新待审附件 / 新留言 / 新的标记点 / 安全提醒」推送到手机或群里：安全提醒包含登录失败（同一 IP 5 分钟内失败 5 次，30 分钟内不重复）和敏感词拦截（同一场景 10 分钟内不重复）。支持企业微信、钉钉、飞书群机器人、Bark（iOS）、Server酱（微信）和通用 JSON Webhook；可以发送测试通知，最近的推送成功/失败记录也会保留在页面里。没有配置时只有站内呼吸提醒，不影响使用。
 - 密码只保存 PBKDF2-SHA256 哈希；会话使用 HMAC 签名 Cookie（HttpOnly + SameSite=Lax，默认 7 天，勾选“记住我”为 30 天）。同一账号最多同时保持 1 个电脑端 + 1 个手机端（平板算手机端）会话：同类型设备再次登录会让旧会话立刻下线；退出登录、重置密码、停用账号都会立即失效。管理员（站长和具有「管理员」权限的账号）的会话还绑定登录时的来源 IP：换了网络，下一次请求就会被下线并要求重新登录（普通账号不受影响，可以在手机和家里网络之间自由切换）。升级到这套会话机制后，旧会话需要重新登录一次。
+- 管理员密码可以在站内自助修改：工作台「账号权限 → 登录密码」输入当前密码和新密码即可，改动写进 `data/auth.json`（PBKDF2-SHA256 哈希，8-128 位）并**立即生效、不需要重启服务**；改完其它设备上的管理员会话会失效。`INVENTORY_PASSWORD` 环境变量只在 `data/auth.json` 还没有密码哈希时充当初始密码，站内改过一次之后就由 `auth.json` 接管（想回到环境变量模式，删掉 `auth.json` 里的 `password_hash` 即可）。会话签名密钥同样以数据库 `app_meta.auth_secret` 为准，重启不会掉线。
 - 登录失败 5 次会锁定 5 分钟（按 IP 统计，不会因为大量新 IP 出现被整体清零）；停用账号后已有会话立即失效。
 - 服务器侧用 fail2ban 自动封禁：同一 IP 10 分钟内触发 10 次接口限速就封 2 小时（`/etc/fail2ban/jail.local`，站点日志走 `/var/log/nginx/errorjiang.error.log`），管理员的常用出口和 VPN 网段写在 `ignoreip` 里永不误封。
 - 写接口按 IP 限速，留言限制为每 IP 每分钟 5 条；游客不能查看留言内容，也无法触发留言写入。
@@ -256,7 +257,7 @@ netsh advfirewall firewall add rule name="Errorjiang 8000" dir=in action=allow p
 
 服务器上至少要做三件事：把 `INVENTORY_PASSWORD` 写进 `/etc/errorjiang.env`、让应用只监听 `127.0.0.1`、用 Nginx 转发并配置 HTTPS。完整的部署过程见 `DEPLOYMENT_LOG.md`，面向新手的服务器维护步骤见 `ERRORJIANG_MAINTENANCE.md`。
 
-管理员入口的 IP 白名单是「可开关」的：当前处于**开启**状态（只有名单内的 IP / 网段能进 `/login`、`/logout`、`/workbench`、`/api/workbench`、`/api/prompts`、`/api/admin`），用 `sudo bash deploy/nginx-allow-ip.sh strict` 收紧、`open` 放开；`add 1.2.3.4 2h` 可以临时放行某个 IP（到期由 systemd 定时器自动移除，`remove` 也能手动撤销），脚本每次改动都会先备份、`nginx -t` 通过才 reload，失败自动回滚。游客注册申请（`/api/register`）和普通账号登录（`/api/member/login`）**不在**白名单管辖范围内，任何网络都能用，只受各自的接口限速约束。
+管理员入口的 IP 白名单是「可开关」的：当前处于**开启**状态（只有名单内的 IP / 网段能进 `/login`、`/logout`、`/workbench`、`/api/workbench`、`/api/prompts`、`/api/admin`），用 `sudo bash deploy/nginx-allow-ip.sh strict` 收紧、`open` 放开；`add 1.2.3.4 2h` 可以临时放行某个 IP，`open 2h` 可以「临时全部放开，到点自动切回 strict」（去网吧、借别人电脑时的应急用法），到期由 systemd 定时器自动执行、`remove` 也能手动撤销，脚本每次改动都会先备份、`nginx -t` 通过才 reload，失败自动回滚。游客注册申请（`/api/register`）和普通账号登录（`/api/member/login`）**不在**白名单管辖范围内，任何网络都能用，只受各自的接口限速约束。
 
 注意白名单只拦「进后台」这一步：浏览网页、普通账号登录注册都不受影响，普通账号的会话也不绑 IP。**管理员会话额外绑定登录来源 IP**（2026-10-10 起）：来源网络一变，下一次请求就会被判定失效、需要重新登录；而重新登录本身要过白名单，所以在外面的正确做法是先连 `wg0` 那条 WireGuard 隧道（VPN 网段在白名单里，连上就等于在受信任网络），完整步骤见站内笔记《Error酱管理员入口白名单：喂饭版操作笔记》第五节。
 

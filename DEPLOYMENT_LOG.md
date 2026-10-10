@@ -1967,3 +1967,30 @@ py_compile        -> app.py 语法通过
 管理员 IP 绑定        -> 同 IP 访问 authenticated=True；
                          换个来源 IP 访问 authenticated=False，且该会话行被删除（审计写入 session_ip_mismatch）
 ```
+
+## 66. 2026-10-10 21:20:51 站内自助改管理员密码 + 白名单「临时放开 N 小时」
+
+需求来源：用户想换成自己记得住的密码（现在是记不住的长随机串），另外问「临时去网吧怎么进后台、哪个更快」。
+
+完成内容：
+- **站内自助改密码**（新功能）
+  - 后端新增 `POST /api/admin/password`（`api_admin_password`）：仅站长可用，校验当前密码 →
+    校验新密码 8-128 位且不与当前相同 → `save_auth_password()` 写入 `data/auth.json`（PBKDF2-SHA256）
+    → **立即在内存生效，不需要重启服务** → 其它设备上的 owner 会话作废（当前会话保留）→ 写审计与活动日志。
+  - 调整 `load_auth_state()` 优先级：`data/auth.json` 的密码哈希优先于 `INVENTORY_PASSWORD` 环境变量；
+    环境变量退居「还没设置过密码时的初始值」。这样站内改密码才有效果（原先环境变量永远覆盖文件）。
+    线上 `auth.json` 目前没有密码哈希，所以现有密码继续有效，改过一次后由 `auth.json` 接管。
+  - 前端：工作台「账号权限」新增「登录密码」标签页（当前密码 / 新密码 / 再输一次 + 修改按钮）。
+- **白名单 `open [时长]`**：`nginx-allow-ip.sh open 2h` 临时全部放开，到期由 `systemd-run --on-active`
+  自动切回 `strict`（固定单元名 `errorjiang-allow-revert`，重复执行会替换上一个计划；`strict` 也会取消它）。
+  这是「临时去网吧」的推荐用法：一条命令，不用惦记着收回；想更稳就用 `add <网吧IP> 2h` 只放行那一台。
+- 文档：README（密码来源与自助修改、`open 时长` 用法）、笔记 #21（新增「办法 B+ / B++」与「管理员密码怎么改」）同步更新。
+
+验证结果：
+```text
+自动化测试        -> 107 / 107 通过（新增 7 项：auth.json 写盘与内存生效、优先级、
+                     环境变量兜底、非站长 403、当前密码错误 401、新密码过短 400、
+                     成功路径写库并踢掉其它 owner 会话）
+node --check      -> static/workbench.js 语法通过
+bash -n           -> deploy/nginx-allow-ip.sh 语法通过（服务器上执行）
+```

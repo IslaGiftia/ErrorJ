@@ -872,6 +872,8 @@
       const data = await api("/api/admin/notify");
       state.notifySettings = data;
       panel.innerHTML = notifyHtml(data);
+    } else if (tab === "password") {
+      panel.innerHTML = passwordHtml();
     } else {
       const data = await api("/api/admin/audit?limit=200");
       state.auditRows = Array.isArray(data) ? data : data.items || [];
@@ -1232,6 +1234,36 @@
       </div>`;
   }
 
+  function passwordHtml() {
+    return `
+      <div class="wb-panel">
+        <div class="wb-panel-head">
+          <h2>管理员登录密码</h2>
+          <span class="wb-chip">仅站长</span>
+        </div>
+        <div class="wb-panel-body">
+          <p class="wb-hint">改完立即生效，不用重启服务；同一账号在其它设备上的登录会被下线，需要重新登录。</p>
+          <div class="wb-notify-grid">
+            <label class="wb-field"><span>当前密码</span>
+              <input id="passwordCurrent" type="password" autocomplete="current-password" maxlength="128">
+            </label>
+            <label class="wb-field"><span>新密码（8-128 位）</span>
+              <input id="passwordNew" type="password" autocomplete="new-password" maxlength="128">
+            </label>
+            <label class="wb-field"><span>再输一次新密码</span>
+              <input id="passwordConfirm" type="password" autocomplete="new-password" maxlength="128">
+            </label>
+          </div>
+          <div class="wb-inline">
+            <button class="wb-btn wb-btn-primary" type="button" id="passwordSave">
+              <i data-lucide="key-round"></i><span>修改密码</span>
+            </button>
+            <span class="wb-hint" id="passwordResult"></span>
+          </div>
+        </div>
+      </div>`;
+  }
+
   function notifyFormPayload() {
     const panel = $("accountPanel");
     const enabled = panel.querySelector("#notifyEnabled");
@@ -1456,6 +1488,44 @@
           }
         } catch (err) {
           if (result) result.textContent = err.message;
+        }
+        return;
+      }
+      const passwordSave = event.target.closest("#passwordSave");
+      if (passwordSave) {
+        const result = $("passwordResult");
+        const current = panel.querySelector("#passwordCurrent");
+        const fresh = panel.querySelector("#passwordNew");
+        const confirm = panel.querySelector("#passwordConfirm");
+        if (!current || !current.value) {
+          toast("请先输入当前密码");
+          return;
+        }
+        if (!fresh || fresh.value.length < 8) {
+          toast("新密码至少 8 位");
+          return;
+        }
+        if (fresh.value !== (confirm ? confirm.value : "")) {
+          toast("两次输入的新密码不一致");
+          return;
+        }
+        if (result) result.textContent = "正在保存…";
+        try {
+          await api("/api/admin/password", {
+            method: "POST",
+            body: JSON.stringify({
+              current_password: current.value,
+              new_password: fresh.value,
+            }),
+          });
+          current.value = "";
+          fresh.value = "";
+          if (confirm) confirm.value = "";
+          if (result) result.textContent = "密码已更新";
+          toast("管理员密码已更新");
+        } catch (err) {
+          if (result) result.textContent = err.message;
+          toast(err.message);
         }
         return;
       }

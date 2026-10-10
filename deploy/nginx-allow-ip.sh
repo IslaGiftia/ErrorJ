@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Error酱：管理员入口 IP 白名单管理
-#   list / open / strict / add <IP|网段> [时长] / remove <IP|网段>
+#   list / open [时长] / strict / add <IP|网段> [时长] / remove <IP|网段>
 # 每次改动都会先备份、再 nginx -t，失败自动回滚并 reload。
 set -euo pipefail
 
@@ -14,7 +14,8 @@ usage() {
 用法：nginx-allow-ip.sh <命令> [参数]
 
   list                      查看当前模式与白名单
-  open                      关闭白名单（任意网络都能访问管理员入口）
+  open [时长]               关闭白名单（任意网络都能访问管理员入口）；
+                            带时长则到期自动恢复成 strict，适合临时去网吧等场景
   strict                    开启白名单（只允许名单内的 IP / 网段）
   add <IP|网段> [时长]      加白名单；带时长则到期自动移除
   remove <IP|网段>          从白名单移除，并取消它的自动移除任务
@@ -90,12 +91,27 @@ cmd_list() {
     grep -v "$BEGIN_MARK" | grep -v "$END_MARK" | sed 's/^[[:space:]]*/  /'
 }
 
+REVERT_UNIT="errorjiang-allow-revert"
+
+# open / strict 都先取消上一个「到期自动收回」任务，避免互相打架
+cancel_revert() {
+  systemctl stop "${REVERT_UNIT}.timer" 2>/dev/null || true
+}
+
 cmd_mode() {
-  local value="$1" label="$2" backup
+  local value="$1" label="$2" ttl="${3:-}" backup
+  cancel_revert
   backup="$(backup_conf)"
-  sed -i -E "s|^([[:space:]]*default[[:space:]]+)[0-9]+;|\1${value};|" "$CONF"
+  sed -i -E "s|^([[:space:]]*default[[:space:]]+)[0-9]+;|\1${value};" "$CONF"
   echo "$label"
   reload_nginx "$backup"
+  if [[ -n "$ttl" ]]; then
+    local action
+    if [[ "$value" == "1" ]]; then action="strict"; else action="open"; fi
+    systemd-run --collect --on-active="$ttl" --unit="$REVERT_UNIT" \
+      /usr/bin/env bash "$0" "$action" >/dev/null
+    echo "已安排 $ttl 后自动切回「$action」（systemd 单元：$REVERT_UNIT）"
+  fi
 }
 
 cmd_add() {
@@ -133,7 +149,7 @@ cmd_remove() {
 
 case "${1:-}" in
   list) cmd_list ;;
-  open) cmd_mode 1 "白名单已关闭：任意 IP 都能访问管理员入口" ;;
+  open) shift; cmd_mode 1 "白名单已关闭：任意 IP 都能访问管理员入口" "${1:-}" ;;
   strict) cmd_mode 0 "白名单已开启：只允许名单内的 IP / 网段" ;;
   add) shift; cmd_add "${1:-}" "${2:-}" ;;
   remove) shift; cmd_remove "${1:-}" ;;

@@ -1,5 +1,6 @@
 import base64
 import json
+import os
 import tempfile
 import time
 import unittest
@@ -2285,6 +2286,114 @@ class AuthSecretStorageTests(unittest.TestCase):
     def test_database_failure_still_returns_usable_secret(self):
         with patch.object(app, "query_one", side_effect=app.sqlite3.Error("boom")):
             self.assertEqual(len(app.stored_auth_secret("env-secret")), len("env-secret"))
+
+
+class AdminPasswordChangeTests(unittest.TestCase):
+    """站内改管理员密码：写进 auth.json、立即生效、只允许站长操作。"""
+
+    def _handler(self):
+        handler = object.__new__(app.InventoryHandler)
+        handler.client_ip = lambda: "111.19.28.219"
+        handler.cookies = lambda: {}
+        return handler
+
+    def test_save_auth_password_writes_hash_and_updates_memory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "auth.json"
+            with patch.object(app, "AUTH_PATH", path), patch.dict(
+                app.AUTH_STATE, {"enabled": False, "password_hash": "", "secret": ""}
+            ):
+                app.save_auth_password("brand-new-pass")
+                saved = json.loads(path.read_text(encoding="utf-8"))
+                self.assertTrue(
+                    app.verify_password_hash("brand-new-pass", saved["password_hash"])
+                )
+                self.assertTrue(app.AUTH_STATE["enabled"])
+                self.assertEqual(app.AUTH_STATE["password_hash"], saved["password_hash"])
+                self.assertEqual(len(saved.get("secret") or ""), 64)
+
+    def test_auth_json_password_wins_over_env_password(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "auth.json"
+            path.write_text(
+                json.dumps(
+                    {"password_hash": app.hash_password("from-file"), "secret": "x" * 64},
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            with patch.object(app, "AUTH_PATH", path), patch.dict(
+                app.AUTH_STATE, {}, clear=True
+            ), patch.dict(os.environ, {"INVENTORY_PASSWORD": "from-env"}, clear=False), patch.object(
+                app, "stored_auth_secret", side_effect=lambda existing="": existing or "x" * 64
+            ):
+                state = dict(app.load_auth_state())
+        self.assertTrue(app.verify_password_hash("from-file", state["password_hash"]))
+        self.assertFalse(app.verify_password_hash("from-env", state["password_hash"]))
+
+    def test_env_password_is_used_when_auth_json_has_no_hash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "auth.json"
+            path.write_text(json.dumps({"secret": "x" * 64}), encoding="utf-8")
+            with patch.object(app, "AUTH_PATH", path), patch.dict(
+                app.AUTH_STATE, {}, clear=True
+            ), patch.dict(os.environ, {"INVENTORY_PASSWORD": "bootstrap-pass"}, clear=False), patch.object(
+                app, "stored_auth_secret", side_effect=lambda existing="": existing or "x" * 64
+            ):
+                state = dict(app.load_auth_state())
+        self.assertTrue(app.verify_password_hash("bootstrap-pass", state["password_hash"]))
+
+    def test_password_change_rejects_non_owner(self):
+        handler = self._handler()
+        with patch.object(handler, "is_owner", return_value=False), patch.object(
+            app, "api_error"
+        ) as api_error:
+            handler.api_admin_password({"current_password": "a", "new_password": "bbbbbbbb"})
+        api_error.assert_called_once_with(handler, 403, "只有站长账号可以修改管理员登录密码。")
+
+    def test_password_change_rejects_wrong_current_password(self):
+        handler = self._handler()
+        with patch.object(handler, "is_owner", return_value=True), patch.object(
+            app, "verify_password", return_value=False
+        ), patch.object(app, "save_auth_password") as save, patch.object(
+            app.InventoryHandler, "log_activity"
+        ), patch.object(app, "api_error") as api_error:
+            handler.api_admin_password({"current_password": "bad", "new_password": "bbbbbbbb"})
+        api_error.assert_called_once_with(handler, 401, "当前密码不正确。")
+        save.assert_not_called()
+
+    def test_password_change_rejects_short_password(self):
+        handler = self._handler()
+        with patch.object(handler, "is_owner", return_value=True), patch.object(
+            app, "verify_password", return_value=True
+        ), patch.object(app, "save_auth_password") as save, patch.object(
+            app, "api_error"
+        ) as api_error:
+            handler.api_admin_password({"current_password": "old", "new_password": "1234567"})
+        api_error.assert_called_once_with(handler, 400, "新密码长度需为 8-128 位。")
+        save.assert_not_called()
+
+    def test_password_change_saves_and_kicks_other_owner_sessions(self):
+        handler = self._handler()
+        with patch.object(handler, "is_owner", return_value=True), patch.object(
+            app, "verify_password", return_value=True
+        ), patch.object(app, "save_auth_password") as save, patch.object(
+            app,
+            "verify_session_token",
+            return_value={"sid": "keep-me", "kind": "owner", "user_id": 0},
+        ), patch.object(app, "execute") as execute, patch.object(
+            app, "write_audit"
+        ), patch.object(app.InventoryHandler, "log_activity"), patch.object(
+            app.InventoryHandler, "send_json"
+        ) as send_json:
+            handler.api_admin_password(
+                {"current_password": "old", "new_password": "brand-new-pass"}
+            )
+        save.assert_called_once_with("brand-new-pass")
+        execute.assert_called_once_with(
+            "DELETE FROM sessions WHERE kind = 'owner' AND sid <> ?", ("keep-me",)
+        )
+        send_json.assert_called_once_with(200, {"ok": True})
 
 
 if __name__ == "__main__":

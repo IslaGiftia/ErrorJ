@@ -6162,6 +6162,32 @@ def stored_auth_secret(existing=""):
         return existing or secrets.token_hex(32)
 
 
+def save_auth_password(password):
+    """把新的管理员密码写进 data/auth.json，并立刻在内存里生效（不用重启服务）。
+
+    环境变量 INVENTORY_PASSWORD 只在 auth.json 还没有密码哈希时当引导值，
+    所以这里写下的密码会真正接管登录校验（见 load_auth_state 的优先级说明）。
+    """
+    config = {}
+    if AUTH_PATH.is_file():
+        try:
+            config = json.loads(AUTH_PATH.read_text(encoding="utf-8")) or {}
+        except (OSError, json.JSONDecodeError):
+            config = {}
+    config["password_hash"] = hash_password(password)
+    config.setdefault("secret", str(AUTH_STATE.get("secret") or "") or secrets.token_hex(32))
+    AUTH_PATH.parent.mkdir(parents=True, exist_ok=True)
+    AUTH_PATH.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        os.chmod(AUTH_PATH, 0o600)
+    except OSError:
+        pass
+    AUTH_STATE["enabled"] = True
+    AUTH_STATE["password_hash"] = config["password_hash"]
+    if config.get("secret"):
+        AUTH_STATE["secret"] = config["secret"]
+
+
 def load_auth_state():
     """密码来自环境变量 INVENTORY_PASSWORD，或 data/auth.json（tools/set_password.py 生成）。"""
     config = {}
@@ -6172,7 +6198,9 @@ def load_auth_state():
             config = {}
     password_hash = str(config.get("password_hash") or "")
     env_password = os.environ.get("INVENTORY_PASSWORD") or ""
-    if env_password:
+    # auth.json 里有密码哈希就优先用它：站内「修改管理员密码」写的就是这里，
+    # 这样改完立即生效、不需要重启服务。环境变量只在还没设置过密码时当引导值。
+    if not password_hash and env_password:
         password_hash = hash_password(env_password)
     secret = os.environ.get("INVENTORY_SECRET") or str(config.get("secret") or "")
     if password_hash:
@@ -8313,6 +8341,46 @@ class InventoryHandler(BaseHTTPRequestHandler):
             },
         )
 
+    # ---------- 管理员登录密码（仅站长） ----------
+    def api_admin_password(self, payload):
+        if not self.is_owner():
+            api_error(self, 403, "只有站长账号可以修改管理员登录密码。")
+            return
+        current = str(payload.get("current_password") or "")
+        new_password = str(payload.get("new_password") or "")
+        if not verify_password(current):
+            self.log_activity(
+                "password_change_fail",
+                "修改管理员密码：当前密码不正确",
+                actor={"kind": "guest", "username": "管理员"},
+            )
+            api_error(self, 401, "当前密码不正确。")
+            return
+        if len(new_password) < 8 or len(new_password) > 128:
+            api_error(self, 400, "新密码长度需为 8-128 位。")
+            return
+        if new_password == current:
+            api_error(self, 400, "新密码不能和当前密码相同。")
+            return
+        save_auth_password(new_password)
+        # 同一账号其它设备上的管理员会话作废，当前这台继续用
+        claims = verify_session_token(self.cookies().get(AUTH_COOKIE, "")) or {}
+        execute(
+            "DELETE FROM sessions WHERE kind = 'owner' AND sid <> ?",
+            (str(claims.get("sid") or ""),),
+        )
+        write_audit(
+            {"kind": "owner", "user_id": 0, "username": "管理员"},
+            "password_change",
+            f"管理员登录密码已修改（来源 {self.client_ip()}）",
+        )
+        self.log_activity(
+            "password_change",
+            "管理员登录密码已修改",
+            actor={"kind": "owner", "username": "管理员"},
+        )
+        self.send_json(200, {"ok": True})
+
     # ---------- 通知设置（管理员） ----------
     def api_admin_notify(self, params):
         if not self.is_admin():
@@ -8828,6 +8896,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_admin_sensitive_test(payload)
             elif path == "/api/admin/notify":
                 self.api_admin_notify_save(payload)
+            elif path == "/api/admin/password":
+                self.api_admin_password(payload)
             elif path == "/api/admin/upload-limits":
                 self.api_admin_upload_limits_save(payload)
             elif path == "/api/admin/notify/test":
