@@ -7266,6 +7266,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "permissions": permissions,
                 "guest_pages": [] if identity else sorted(guest_permission_set()),
                 "map_allowed": self.map_view_allowed(identity) if identity else False,
+                # 首页左下角的圆形小地图入口会无条件请求一次 /api/map?dock=1。
+                # 游客在「地图不公开」的站点上这次请求必然 401，先把这个结果告诉前端，
+                # 让它别白跑一次请求（浏览器会在控制台留一条红色报错）。
+                "map_dock_allowed": bool(identity) or bool(MAP_PUBLIC),
                 "pending_users": pending_users,
                 "pending_attachments": pending_attachments,
                 "pending_reports": pending_reports,

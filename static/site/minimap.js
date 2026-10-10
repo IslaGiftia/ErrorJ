@@ -286,8 +286,36 @@
   });
 
   var mapRequestSerial = 0;
+  // /api/auth/status 回来之前先别发请求：游客在「地图不公开」的站点上必然 401，
+  // 白跑一次请求还会在控制台留一条红字。auth 事件一定会来，另加 2 秒兜底。
+  var authKnown = false;
+  var guestMapDenied = false;
+
+  function applyDockBlocked(status) {
+    dock.classList.add("is-guest");
+    if (tiles) {
+      mini.removeLayer(tiles);
+      tiles = null;
+    }
+    dots.clearLayers();
+    if (status) {
+      // 入口和 HUD 保留；点击入口时给出注册 / 权限提示
+      dockBlocked = status;
+      dock.classList.remove("has-pending");
+      dock.href = "/map";
+      serverNotifyIds = [];
+      serverNotifyCount = 0;
+    }
+    if (countEl) countEl.hidden = true;
+    if (badgeEl) badgeEl.hidden = true;
+  }
 
   function loadMapData() {
+    if (!authKnown) return;
+    if (guestMapDenied) {
+      applyDockBlocked(401);
+      return;
+    }
     var requestId = ++mapRequestSerial;
     fetch("/api/map?dock=1", { cache: "no-store" })
       .then(function (response) {
@@ -323,26 +351,16 @@
       })
       .catch(function (err) {
         if (requestId !== mapRequestSerial) return;
-        dock.classList.add("is-guest");
-        if (tiles) {
-          mini.removeLayer(tiles);
-          tiles = null;
-        }
-        dots.clearLayers();
-        if (err && (err.status === 401 || err.status === 403)) {
-          // 入口和 HUD 保留；点击入口时给出注册 / 权限提示
-          dockBlocked = err.status;
-          dock.classList.remove("has-pending");
-          dock.href = "/map";
-          serverNotifyIds = [];
-          serverNotifyCount = 0;
-        }
-        if (countEl) countEl.hidden = true;
-        if (badgeEl) badgeEl.hidden = true;
+        applyDockBlocked(err && (err.status === 401 || err.status === 403) ? err.status : 0);
       });
   }
 
-  window.addEventListener("errorauthchange", loadMapData);
+  window.addEventListener("errorauthchange", function (event) {
+    var detail = (event && event.detail) || {};
+    authKnown = true;
+    guestMapDenied = !detail.authenticated && detail.mapDockAllowed === false;
+    loadMapData();
+  });
   window.addEventListener("pageshow", loadMapData);
   window.addEventListener("storage", function (event) {
     if (event.key === "errorMapDockRefresh") loadMapData();
@@ -350,5 +368,12 @@
   document.addEventListener("visibilitychange", function () {
     if (!document.hidden) loadMapData();
   });
+  window.setTimeout(function () {
+    // 登录状态接口没回来（异常 / 老版本）时也要能加载，别把圆盘卡死
+    if (authKnown) return;
+    authKnown = true;
+    loadMapData();
+  }, 2000);
+  // 正常情况下这次调用什么都不做（要等 auth 结果），留着是为了脚本顺序变化时也能自愈
   loadMapData();
 })();

@@ -250,7 +250,12 @@
     }
     window.dispatchEvent(
       new CustomEvent("errorauthchange", {
-        detail: { authenticated: authState.authenticated, role: authState.role },
+        detail: {
+          authenticated: authState.authenticated,
+          role: authState.role,
+          // 老版本服务端没有这个字段时按原来的方式照常请求
+          mapDockAllowed: status.map_dock_allowed !== false,
+        },
       })
     );
   }

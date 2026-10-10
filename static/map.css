@@ -1797,7 +1797,8 @@ body {
   }
 
   .mp-actions .mp-btn {
-    height: 34px;
+    /* 和左下角展开 / 收起按钮同高（它是 44px），否则同一排按钮会一高一矮 */
+    height: 44px;
     font-size: 12.5px;
   }
 

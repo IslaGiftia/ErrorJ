@@ -42,7 +42,8 @@ width: min(980px, 100%);
     .reference-item {
       display: grid;
       grid-template-columns: minmax(180px, 0.34fr) minmax(0, 1fr);
-      gap: 22px;
+      column-gap: 22px;
+      row-gap: 8px;
       padding: 20px 22px;
       border: 1px solid var(--line);
       border-radius: 12px;
@@ -105,22 +106,24 @@ width: min(980px, 100%);
       color: #fff;
     }
 
-    .reference-item {
-      position: relative;
-    }
-
+    /*
+     * 编辑 / 删除原来固定在卡片右上角、按钮只有 32px 宽，
+     * 「编辑」「删除」两个汉字被挤成上下两行，还压在标题和正文上。
+     * 改成卡片顶部独占一行、右对齐，按钮按文字宽度撑开。
+     */
     .reference-item-actions {
-      position: absolute;
-      top: 12px;
-      right: 12px;
+      grid-column: 1 / -1;
       display: flex;
+      justify-content: flex-end;
       gap: 5px;
     }
 
     .reference-item-actions button {
-      width: 32px;
+      width: auto;
+      min-width: 52px;
       min-height: 32px;
-      padding: 0;
+      padding: 0 10px;
+      white-space: nowrap;
     }
 
     .reference-editor-overlay {
