@@ -102,7 +102,7 @@ cmd_mode() {
   local value="$1" label="$2" ttl="${3:-}" backup
   cancel_revert
   backup="$(backup_conf)"
-  sed -i -E "s|^([[:space:]]*default[[:space:]]+)[0-9]+;|\1${value};" "$CONF"
+  sed -i -E "s|^([[:space:]]*default[[:space:]]+)[0-9]+;|\1${value};|" "$CONF"
   echo "$label"
   reload_nginx "$backup"
   if [[ -n "$ttl" ]]; then
