@@ -1058,6 +1058,21 @@
     if (window.lucide) lucide.createIcons();
   });
   $("uploadFiles").addEventListener("change", updateUploadLabel);
+
+  // 点击 / 拖拽 / 拖文件夹上传，Chromium 下会记住上次打开的目录
+  var uploadField = $("uploadFiles").closest(".mu-file-field");
+  if (window.ErrorDropZone && uploadField) {
+    window.ErrorDropZone.attach(uploadField, {
+      input: $("uploadFiles"),
+      accept: [".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus", "audio/*"],
+      maxCount: function () {
+        return MAX_MUSIC_COUNT;
+      },
+      multiple: true,
+      pickerId: "errorjiang-music",
+      toast: toast
+    });
+  }
   $("uploadSubmit").addEventListener("click", submitUpload);
   $("uploadClose").addEventListener("click", function () {
     if (uploadBusy.active) return;

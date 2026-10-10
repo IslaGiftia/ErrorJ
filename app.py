@@ -13729,7 +13729,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
     # ---------- 首页公开动态 ----------
     def api_site_activity(self):
         identity = self.session_identity()
-        viewer_signed_in = identity is not None
+        if identity is None:
+            # 游客不显示首页左下角动态区，也不返回任何动态数据
+            self.send_json(200, {"items": [], "admin": False, "signed_in": False})
+            return
+        viewer_signed_in = True
         is_admin = self.is_admin()
         cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
         actions = tuple(PUBLIC_ACTIVITY_LABELS)
@@ -13984,7 +13988,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     }
                 )
         strip_internal_fields()
-        self.send_json(200, {"items": items[:60], "admin": is_admin})
+        self.send_json(
+            200, {"items": items[:60], "admin": is_admin, "signed_in": True}
+        )
 
     def api_site_game_play(self, payload):
         game = str(payload.get("game") or "").strip()[:20]

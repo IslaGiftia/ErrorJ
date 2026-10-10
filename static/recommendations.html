@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/static/site/rain.css">
   <link rel="stylesheet" href="/static/site/report.css">
   <link rel="stylesheet" href="/static/site/fresh-cards.css">
+  <link rel="stylesheet" href="/static/site/dropzone.css">
   <script>
     (function () {
       try {
@@ -211,8 +212,10 @@
         <i data-lucide="search"></i>
         <input id="recBookmarkSearch" type="search" placeholder="搜索收藏标题、网址或说明">
       </label>
-      <div class="rec-bookmark-list" id="recBookmarkList"></div>
-      <div class="rec-empty rec-bookmark-empty" id="recBookmarkEmpty" hidden>没有匹配的书签。</div>
+      <div class="rec-bookmark-body">
+        <div class="rec-bookmark-list" id="recBookmarkList"></div>
+        <div class="rec-empty rec-bookmark-empty" id="recBookmarkEmpty" hidden>没有匹配的书签。</div>
+      </div>
     </div>
   </div>
 
@@ -225,6 +228,8 @@
   <script src="/static/site/report.js"></script>
   <script src="/static/site/back-to-top.js"></script>
   <script src="/static/site/fresh-cards.js"></script>
+  <script src="/static/site/dropzone.js"></script>
+  <script src="/static/site/notify-seen.js"></script>
   <script src="/static/recommendations.js"></script>
 
 </body>

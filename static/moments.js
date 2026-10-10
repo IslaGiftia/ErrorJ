@@ -192,14 +192,29 @@
     }
   }
 
-  $("pickImageBtn").addEventListener("click", function () {
-    $("imageInput").click();
-  });
-
   $("imageInput").addEventListener("change", function () {
     addImages($("imageInput").files);
     $("imageInput").value = "";
   });
+
+  // 配图：点击 / 拖到发布框 / 拖文件夹（按动态图片上限取前几张）
+  if (window.ErrorDropZone) {
+    window.ErrorDropZone.attach($("pickImageBtn"), {
+      input: $("imageInput"),
+      dropTarget: $("momentForm"),
+      accept: ["image/*", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"],
+      maxCount: function () {
+        return Math.max(1, MAX_IMAGES - pendingImages.length);
+      },
+      multiple: true,
+      pickerId: "errorjiang-moment-image",
+      toast: toast
+    });
+  } else {
+    $("pickImageBtn").addEventListener("click", function () {
+      $("imageInput").click();
+    });
+  }
 
   $("momentContent").addEventListener("paste", function (event) {
     var pasted = (event.clipboardData && event.clipboardData.files) || [];

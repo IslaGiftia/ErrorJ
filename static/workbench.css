@@ -361,6 +361,20 @@ svg {
   white-space: nowrap;
 }
 
+/* 卡片上的备注：最多两行，超出省略，鼠标悬浮看全文 */
+.wb-card-note {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-top: 6px;
+  color: var(--wb-faint);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .wb-toolbar {
   display: flex;
   gap: 10px;

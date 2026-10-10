@@ -379,12 +379,39 @@ a {
     linear-gradient(135deg, color-mix(in srgb, var(--rec-accent) 12%, var(--rec-panel-soft)), color-mix(in srgb, var(--rec-accent-2) 10%, var(--rec-panel-soft)));
 }
 
+/* 三档卡片：网站 / 工具最小，站内资源居中，电影动漫保持大封面。
+   同一类型的卡片封面高度和正文高度都固定，保证同类卡片大小完全一致。 */
+.rec-web-card,
+.rec-resource-card,
+.rec-media-card {
+  --rec-body-h: 196px;
+}
+
+.rec-web-card {
+  --rec-cover-h: 88px;
+}
+
+.rec-resource-card {
+  --rec-cover-h: 148px;
+}
+
 .rec-web-card .rec-card-cover {
-  aspect-ratio: 16 / 9;
+  height: var(--rec-cover-h);
+}
+
+.rec-resource-card .rec-card-cover {
+  height: var(--rec-cover-h);
 }
 
 .rec-media-card .rec-card-cover {
   aspect-ratio: 2 / 3;
+}
+
+/* 网站缩略图和电子书 / 音乐封面用 contain，尽量完整显示不裁切 */
+.rec-web-card .rec-card-cover img,
+.rec-resource-card .rec-card-cover img {
+  padding: 10px;
+  object-fit: contain;
 }
 
 .rec-card-cover img {
@@ -470,7 +497,10 @@ a {
 }
 
 .rec-card-body {
-  padding: 15px;
+  display: flex;
+  height: var(--rec-body-h, 214px);
+  padding: 13px 15px 15px;
+  flex-direction: column;
 }
 
 .rec-card-title-row {
@@ -496,34 +526,49 @@ a {
   overflow: hidden;
   font-size: 17px;
   line-height: 1.35;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .rec-subtitle {
   margin: 5px 0 0;
+  overflow: hidden;
   color: var(--rec-muted);
   font-size: 12px;
+  white-space: nowrap;
+}
+
+/* 只有真正放不下时才让右侧渐隐（由 markOverflow 打标记），短文字保持完整 */
+.rec-card h2.is-overflow,
+.rec-subtitle.is-overflow,
+.rec-meta.is-overflow,
+.rec-tag-row.is-overflow {
+  mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent);
 }
 
 .rec-description {
   display: -webkit-box;
+  /* 描述区吸收固定高度里多出来的空间，卡片不会被撑破，底部按钮仍然对齐 */
+  flex: 1 1 auto;
+  min-height: 0;
   margin: 10px 0 0;
   overflow: hidden;
   color: var(--rec-muted);
   font-size: 13px;
   line-height: 1.65;
+  overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 3;
 }
 
 .rec-meta {
   display: flex;
-  flex-wrap: wrap;
+  overflow: hidden;
   gap: 7px;
   margin-top: 10px;
   color: var(--rec-muted);
   font-size: 11px;
+  flex-wrap: nowrap;
 }
 
 .rec-meta span {
@@ -539,14 +584,16 @@ a {
 
 .rec-tag-row {
   display: flex;
-  flex-wrap: wrap;
+  overflow: hidden;
   gap: 5px;
   margin-top: 10px;
+  flex-wrap: nowrap;
 }
 
 .rec-tag-row span {
   color: var(--rec-muted);
   font-size: 11px;
+  white-space: nowrap;
 }
 
 .rec-tag-row span::before {
@@ -557,7 +604,9 @@ a {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 13px;
+  /* 固定高度的正文里，按钮始终贴在卡片底部 */
+  margin-top: auto;
+  padding-top: 12px;
 }
 
 .rec-link-row a {
@@ -868,10 +917,17 @@ a {
 
 .rec-bookmark-list {
   display: flex;
-  max-height: 520px;
+  height: 100%;
   overflow-y: auto;
   flex-direction: column;
   gap: 7px;
+  scrollbar-gutter: stable;
+}
+
+/* 固定高度：搜索结果数量变化时弹窗尺寸不跟着变，避免弹窗上下跳 */
+.rec-bookmark-body {
+  position: relative;
+  height: min(58vh, 520px);
 }
 
 .rec-bookmark-option {
@@ -920,7 +976,11 @@ a {
 }
 
 .rec-bookmark-empty {
-  padding: 32px 12px;
+  position: absolute;
+  inset: 0;
+  display: grid;
+  padding: 0;
+  place-items: center;
 }
 
 @keyframes rec-aurora {

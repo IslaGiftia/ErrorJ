@@ -2121,6 +2121,21 @@
       photoInput.value = "";
       renderPhotoEditor(place);
     });
+
+    // 足迹照片：点击 / 拖拽 / 拖文件夹（只挑图片）
+    if (window.ErrorDropZone) {
+      window.ErrorDropZone.attach(photoInput, {
+        input: photoInput,
+        dropTarget: photoInput.closest(".mp-field") || photoInput,
+        accept: ["image/*", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"],
+        maxCount: function () {
+          return mapPhotoLimit.max_count;
+        },
+        multiple: true,
+        pickerId: "errorjiang-map-photo",
+        toast: toast
+      });
+    }
   }
 
   var photoBox = $("placePhotos");
@@ -2375,6 +2390,19 @@
       importFileName = file.name;
       reader.readAsText(file);
     });
+
+    // 导入文件：点击 / 拖拽（拖文件夹无用，单文件即可）
+    if (window.ErrorDropZone) {
+      window.ErrorDropZone.attach(importFile, {
+        input: importFile,
+        dropTarget: importFile.closest(".mp-field") || importFile,
+        accept: [".geojson", ".json", ".kml", ".gpx", ".csv", ".tsv", ".txt"],
+        multiple: false,
+        folder: false,
+        pickerId: "errorjiang-map-import",
+        toast: toast
+      });
+    }
   }
 
   var importSubmit = $("mapImportSubmit");

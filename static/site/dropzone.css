@@ -1,0 +1,8 @@
+/* 通用拖拽上传区的高亮样式，颜色可用 --ej-drop-color 覆盖 */
+
+.ej-dropzone.is-dragover {
+  border-radius: 8px;
+  outline: 2px dashed var(--ej-drop-color, #7b68ee);
+  outline-offset: 3px;
+  background-color: color-mix(in srgb, var(--ej-drop-color, #7b68ee) 9%, transparent);
+}

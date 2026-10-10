@@ -610,6 +610,21 @@
     if (window.lucide) lucide.createIcons();
   });
   $("uploadFiles").addEventListener("change", updateUploadLabel);
+
+  // 点击 / 拖拽 / 拖文件夹上传，Chromium 下会记住上次打开的目录
+  var bookUploadField = $("uploadFiles").closest(".bk-file-field");
+  if (window.ErrorDropZone && bookUploadField) {
+    window.ErrorDropZone.attach(bookUploadField, {
+      input: $("uploadFiles"),
+      accept: [".epub", ".mobi", ".azw", ".azw3", ".fb2", ".cbz", ".pdf", ".txt", ".md", ".markdown"],
+      maxCount: function () {
+        return MAX_BOOK_COUNT;
+      },
+      multiple: true,
+      pickerId: "errorjiang-books",
+      toast: toast
+    });
+  }
   $("uploadSubmit").addEventListener("click", submitUpload);
   $("uploadClose").addEventListener("click", function () {
     if (state.uploading) return;

@@ -253,14 +253,29 @@
     });
   }
 
-  $("pickFileBtn").addEventListener("click", function () {
-    $("fileInput").click();
-  });
-
   $("fileInput").addEventListener("change", function () {
     addFiles($("fileInput").files);
     $("fileInput").value = "";
   });
+
+  // 附件：点击 / 拖到留言框 / 拖文件夹（按留言附件上限取前几个）
+  if (window.ErrorDropZone) {
+    var messageForm = $("messageForm");
+    window.ErrorDropZone.attach($("pickFileBtn"), {
+      input: $("fileInput"),
+      dropTarget: messageForm || $("fileInput"),
+      maxCount: function () {
+        return Math.max(1, MAX_FILES - pendingFiles.length);
+      },
+      multiple: true,
+      pickerId: "errorjiang-message-file",
+      toast: toast
+    });
+  } else {
+    $("pickFileBtn").addEventListener("click", function () {
+      $("fileInput").click();
+    });
+  }
 
   $("msgContent").addEventListener("paste", function (event) {
     var pasted = (event.clipboardData && event.clipboardData.files) || [];

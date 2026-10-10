@@ -263,6 +263,7 @@
             <span>${formatBytes(row.size_bytes)}</span>
             <span>${formatTime(row.created_at)}</span>
           </div>
+          ${row.notes ? `<div class="wb-card-note" title="${escapeHtml(row.notes)}">备注：${escapeHtml(row.notes)}</div>` : ""}
         </div>
         <div class="wb-card-actions">
           ${row.flash_url ? `<a href="${escapeHtml(row.flash_url)}" target="_blank" rel="noopener" title="打开烧录链接"><button type="button"><i data-lucide="external-link"></i></button></a>` : ""}
@@ -295,6 +296,7 @@
             <span>更新 ${formatTime(row.updated_at)}</span>
           </div>
           ${row.fault ? `<div class="wb-recent-meta">故障：${escapeHtml(row.fault)}</div>` : ""}
+          ${row.notes ? `<div class="wb-card-note" title="${escapeHtml(row.notes)}">备注：${escapeHtml(row.notes)}</div>` : ""}
         </div>
         <div class="wb-card-actions">
           <button type="button" data-edit-repair="${row.id}" title="编辑"><i data-lucide="pencil"></i></button>
@@ -597,6 +599,17 @@
         $("assetTitle").value = file.name.replace(/\.[^.]+$/, "");
       }
     });
+    // 文件：点击 / 拖拽（单个文件，拖文件夹没用）
+    if (window.ErrorDropZone) {
+      window.ErrorDropZone.attach($("assetFileField"), {
+        input: $("assetFile"),
+        dropTarget: $("assetFileField"),
+        multiple: false,
+        folder: false,
+        pickerId: "errorjiang-workbench-asset",
+        toast: toast
+      });
+    }
     ["assetSearch", "assetCategory", "assetProject"].forEach((id) => {
       $(id).addEventListener(id === "assetSearch" ? "input" : "change", loadAssets);
     });

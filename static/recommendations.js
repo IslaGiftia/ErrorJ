@@ -305,10 +305,8 @@
   }
 
   function buildCard(item) {
-    var card = el(
-      "article",
-      "rec-card " + (isMedia(item) ? "rec-media-card" : "rec-web-card") + (item.pinned ? " is-pinned" : "")
-    );
+    var tier = isMedia(item) ? "rec-media-card" : item.kind === "resource" ? "rec-resource-card" : "rec-web-card";
+    var card = el("article", "rec-card " + tier + (item.pinned ? " is-pinned" : ""));
     card.appendChild(coverNode(item));
     card.appendChild(cardBody(item));
     if (window.ErrorFreshCards) {
@@ -338,6 +336,17 @@
     var cards = rows.map(buildCard);
     renderColumns(cards);
     $("recEmpty").hidden = rows.length > 0;
+    markOverflow($("recGrid"));
+  }
+
+  // 标题 / 说明 / 标签放不下时才加右侧渐隐，避免短文字也被裁掉
+  function markOverflow(root) {
+    Array.prototype.forEach.call(
+      root.querySelectorAll(".rec-card h2, .rec-subtitle, .rec-meta, .rec-tag-row"),
+      function (node) {
+        node.classList.toggle("is-overflow", node.scrollWidth > node.clientWidth + 1);
+      }
+    );
   }
 
   function loadRecommendations() {
@@ -693,7 +702,20 @@
   $("recBookmarkPicker").addEventListener("click", function (event) {
     if (event.target === $("recBookmarkPicker")) closeBookmarkPicker();
   });
-  $("recPickCover").addEventListener("click", function () { $("recCoverInput").click(); });
+  // 封面：点击 / 拖拽（拖文件夹没用，只取第一张图片）
+  if (window.ErrorDropZone) {
+    window.ErrorDropZone.attach($("recPickCover"), {
+      input: $("recCoverInput"),
+      dropTarget: $("recCoverInput").closest(".rec-cover-field") || $("recPickCover"),
+      accept: ["image/*", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"],
+      multiple: false,
+      folder: false,
+      pickerId: "errorjiang-rec-cover",
+      toast: toast
+    });
+  } else {
+    $("recPickCover").addEventListener("click", function () { $("recCoverInput").click(); });
+  }
   $("recCoverInput").addEventListener("change", function (event) {
     var file = event.target.files && event.target.files[0];
     if (!file) return;
@@ -724,9 +746,18 @@
   });
 
   window.addEventListener("resize", function () {
-    if (columnCount() === state.lastColumnCount) return;
+    if (columnCount() === state.lastColumnCount) {
+      markOverflow($("recGrid"));
+      return;
+    }
     renderCards();
   });
+
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(function () {
+      if (state.items.length) markOverflow($("recGrid"));
+    });
+  }
 
   state.lastColumnCount = columnCount();
   if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);

@@ -1464,7 +1464,8 @@ class HomeActivityAlertTests(unittest.TestCase):
                 items = responses[0][1]["items"]
                 self.assertFalse(any(item.get("alert") for item in items))
 
-    def test_guest_activity_includes_generic_moment_event(self):
+    def test_guest_activity_is_not_returned(self):
+        """游客看不到首页左下角动态区：接口直接返回空，不泄露任何动态。"""
         with tempfile.TemporaryDirectory() as temp_dir:
             with patch.object(app, "DB_PATH", Path(temp_dir) / "inventory.db"):
                 app.init_db()
@@ -1483,23 +1484,32 @@ class HomeActivityAlertTests(unittest.TestCase):
                     (status, payload)
                 )
                 handler.api_site_activity()
-                items = responses[0][1]["items"]
-                matching = [
-                    item
-                    for item in items
-                    if item.get("text") == app.PUBLIC_ACTIVITY_LABELS["moment_create"]
-                ]
-                self.assertEqual(len(matching), 1)
-                self.assertEqual(matching[0]["actor"], "管理员")
-                self.assertFalse(matching[0]["alert"])
-                self.assertNotIn("不应公开的正文", str(items))
-                self.assertFalse(
-                    any(
-                        key in item
-                        for item in items
-                        for key in ("_action", "_target_type", "_target_id")
-                    )
+                payload = responses[0][1]
+                self.assertEqual(payload["items"], [])
+                self.assertFalse(payload["signed_in"])
+                self.assertFalse(payload["admin"])
+
+    def test_member_activity_reports_signed_in(self):
+        """登录账号的接口带上身份标记，前端据此决定默认只看未读提醒。"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.object(app, "DB_PATH", Path(temp_dir) / "inventory.db"):
+                app.init_db()
+                handler = object.__new__(app.InventoryHandler)
+                handler.session_identity = lambda: {
+                    "kind": "member",
+                    "user_id": 1,
+                    "username": "member1",
+                    "nickname": "member1",
+                }
+                handler.is_admin = lambda: False
+                responses = []
+                handler.send_json = lambda status, payload: responses.append(
+                    (status, payload)
                 )
+                handler.api_site_activity()
+                payload = responses[-1][1]
+                self.assertTrue(payload["signed_in"])
+                self.assertFalse(payload["admin"])
 
 
 class UploadLimitTests(unittest.TestCase):
