@@ -1511,6 +1511,85 @@ class HomeActivityAlertTests(unittest.TestCase):
                 self.assertTrue(payload["signed_in"])
                 self.assertFalse(payload["admin"])
 
+    def test_map_like_alert_survives_log_truncation(self):
+        """公开动态超过 60 条时，地图点赞这类提醒也必须返回给被点赞的人。"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.object(app, "DB_PATH", Path(temp_dir) / "inventory.db"):
+                app.init_db()
+                for _ in range(70):
+                    app.write_activity(
+                        {"kind": "owner", "user_id": 0, "username": "管理员"},
+                        "game_play",
+                        "玩了一局2048",
+                        target_type="game",
+                    )
+                app.add_user_notification(
+                    2, "place_like", "map", 999, "牛大能", "牛大能 点赞了你的标记点"
+                )
+                handler = object.__new__(app.InventoryHandler)
+                handler.session_identity = lambda: {
+                    "kind": "member",
+                    "user_id": 2,
+                    "username": "member2",
+                    "nickname": "member2",
+                }
+                handler.is_admin = lambda: False
+                responses = []
+                handler.send_json = lambda status, payload: responses.append(
+                    (status, payload)
+                )
+                handler.api_site_activity()
+                payload = responses[-1][1]
+                self.assertLessEqual(len(payload["items"]), 60)
+                alerts = [item for item in payload["items"] if item.get("alert")]
+                self.assertTrue(any(item.get("id") == "notify-map" for item in alerts))
+                matching = [
+                    item for item in alerts if item.get("text") == "点赞了你的标记点"
+                ]
+                self.assertEqual(len(matching), 1)
+
+    def test_admin_alert_survives_log_truncation(self):
+        """管理员的待办提醒同样不能被日志截断。"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.object(app, "DB_PATH", Path(temp_dir) / "inventory.db"):
+                app.init_db()
+                for _ in range(70):
+                    app.write_activity(
+                        {"kind": "owner", "user_id": 0, "username": "管理员"},
+                        "game_play",
+                        "玩了一局2048",
+                        target_type="game",
+                    )
+                stamp = app.now_text()
+                app.execute(
+                    """INSERT INTO users
+                           (username, nickname, password_hash, status, role,
+                            created_at, updated_at)
+                       VALUES (?, ?, ?, 'pending', 'member', ?, ?)""",
+                    ("pending9", "待审", "hash", stamp, stamp),
+                )
+                handler = object.__new__(app.InventoryHandler)
+                handler.session_identity = lambda: {
+                    "kind": "owner",
+                    "user_id": 0,
+                    "username": "owner",
+                    "nickname": "owner",
+                }
+                handler.is_admin = lambda: True
+                responses = []
+                handler.send_json = lambda status, payload: responses.append(
+                    (status, payload)
+                )
+                handler.api_site_activity()
+                payload = responses[-1][1]
+                self.assertLessEqual(len(payload["items"]), 60)
+                self.assertTrue(
+                    any(
+                        item.get("id") == "pending-user-alert"
+                        for item in payload["items"]
+                    )
+                )
+
 
 class UploadLimitTests(unittest.TestCase):
     def test_defaults_cover_every_schema_key(self):

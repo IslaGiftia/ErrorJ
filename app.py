@@ -13750,6 +13750,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
             (cutoff, *actions),
         )
         items = []
+        # 提醒单独收集：公开动态可能有上百条，提醒必须保证不被截断
+        alerts = []
         for row in rows:
             kind = str(row.get("actor_kind") or "guest")
             user_id = int(row.get("user_id") or 0)
@@ -13856,7 +13858,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "SELECT COUNT(*) AS n FROM site_messages WHERE id > ?",
                     (last_seen,),
                 )["n"]
-                items.append(
+                alerts.append(
                     {
                         "id": "message-alert",
                         "created_at": newest_message["created_at"],
@@ -13873,7 +13875,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     """SELECT created_at FROM users
                        WHERE status = 'pending' ORDER BY id DESC LIMIT 1"""
                 )
-                items.append(
+                alerts.append(
                     {
                         "id": "pending-user-alert",
                         "created_at": (newest_user or {}).get("created_at") or now_text(),
@@ -13899,7 +13901,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                        WHERE parent_id IS NULL AND status = 'pending'
                        ORDER BY id DESC LIMIT 1"""
                 )
-                items.append(
+                alerts.append(
                     {
                         "id": "message-review-alert",
                         "created_at": (newest_pending or {}).get("created_at") or now_text(),
@@ -13916,7 +13918,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     """SELECT created_at FROM content_reports
                        WHERE status = 'pending' ORDER BY id DESC LIMIT 1"""
                 )
-                items.append(
+                alerts.append(
                     {
                         "id": "report-alert",
                         "created_at": (newest_report or {}).get("created_at") or now_text(),
@@ -13933,7 +13935,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     """SELECT updated_at AS created_at FROM download_requests
                        WHERE status = 'pending' ORDER BY id DESC LIMIT 1"""
                 )
-                items.append(
+                alerts.append(
                     {
                         "id": "download-request-alert",
                         "created_at": (newest_download or {}).get("created_at") or now_text(),
@@ -13956,7 +13958,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     continue
                 info = notification_info(remaining)
                 alert_actor = "提醒" if module == "map" else info.get("actor") or "提醒"
-                items.append(
+                alerts.append(
                     {
                         "id": f"notify-{module}",
                         "created_at": info.get("created_at") or now_text(),
@@ -13978,7 +13980,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 if not remaining:
                     continue
                 info = notification_info(remaining)
-                items.append(
+                alerts.append(
                     {
                         "id": f"notify-{module}",
                         "created_at": info.get("created_at") or now_text(),
@@ -13988,8 +13990,14 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     }
                 )
         strip_internal_fields()
+        budget = max(0, 60 - len(alerts))
         self.send_json(
-            200, {"items": items[:60], "admin": is_admin, "signed_in": True}
+            200,
+            {
+                "items": alerts + items[:budget],
+                "admin": is_admin,
+                "signed_in": True,
+            },
         )
 
     def api_site_game_play(self, payload):

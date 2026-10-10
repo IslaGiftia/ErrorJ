@@ -234,10 +234,29 @@
     var multiple = opts.multiple !== undefined ? Boolean(opts.multiple) : Boolean(input && input.multiple);
     var zone = { destroy: destroy, open: open };
     var depth = { depth: Number(opts.depth || DEFAULT_DEPTH) };
+    // 文件选择器在个别浏览器里会被静默拦掉（既不打不开也不报错），
+    // 连续失败两次就彻底回退到原生 input，保证点击一定有效。
+    var pickerFailures = 0;
+    var usePicker = Boolean(PICKER);
+    // 自己触发的 input.click() 会冒泡回上传区，必须跳过，
+    // 否则会被自己的 preventDefault 把系统文件框取消掉（表现就是点击没反应）。
+    var suppressClick = false;
 
     // 上限可能被「工作台 → 上传限制」改掉，所以支持传函数实时取值
     function limit() {
       return Number(typeof opts.maxCount === "function" ? opts.maxCount() : opts.maxCount) || 0;
+    }
+
+    // 走系统文件框兜底：这次 input.click() 会冒泡回上传区自己的处理器，
+    // 必须跳过，否则会被自己的 preventDefault 取消掉（表现就是点击没反应）
+    function openNativePicker() {
+      if (!input) return;
+      suppressClick = true;
+      try {
+        input.click();
+      } finally {
+        suppressClick = false;
+      }
     }
 
     if (dropTarget && dropTarget.classList) dropTarget.classList.add("ej-dropzone");
@@ -279,22 +298,34 @@
     }
 
     function open() {
-      if (opts.picker === false || !input) {
-        if (input) input.click();
+      if (opts.picker === false || !input || !usePicker) {
+        openNativePicker();
         return;
       }
-      if (PICKER) {
+      var startedAt = Date.now();
+
+      function giveUp() {
+        pickerFailures += 1;
+        if (pickerFailures >= 2) usePicker = false;
+        openNativePicker();
+      }
+
+      try {
         pickWithDialog({ pickerId: opts.pickerId, accept: accept, multiple: multiple })
           .then(function (files) {
+            pickerFailures = 0;
             acceptFiles(files);
           })
           .catch(function (err) {
-            if (err && err.name === "AbortError") return;
-            input.click();
+            // 真取消（选择器确实弹出来过再关掉）就什么都不做；
+            // 秒回 AbortError 说明根本没弹出来，立刻回退原生选择框。
+            var dismissed = err && err.name === "AbortError" && Date.now() - startedAt > 250;
+            if (dismissed) return;
+            giveUp();
           });
-        return;
+      } catch (err) {
+        giveUp();
       }
-      input.click();
     }
 
     zone.openFolder = function () {
@@ -345,6 +376,7 @@
     }
     if (target) {
       target.addEventListener("click", function (event) {
+        if (suppressClick) return;
         if (event.target.closest && event.target.closest("[data-dropzone-skip]")) return;
         event.preventDefault();
         open();
