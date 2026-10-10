@@ -370,19 +370,48 @@
     wrap.innerHTML = "";
     var shown = Math.min(5, notes.length);
     for (var i = 0; i < shown; i++) {
+      var note = notes[i];
       var thumb = document.createElement("span");
       thumb.className = "repo-thumb";
-      if (notes[i].cover_path) {
+      var title = String(note.title || "").trim();
+      if (title) thumb.title = title;
+      var initial = noteInitial(note);
+      if (note.cover_path) {
+        // 图片加载出来之前先显示首字，加载失败也保留首字，不会留下空圈
+        var noteFallback = document.createElement("span");
+        noteFallback.className = "repo-thumb-fallback";
+        noteFallback.textContent = initial;
+        thumb.appendChild(noteFallback);
         var image = document.createElement("img");
-        image.src = "/site-files/" + notes[i].cover_path;
+        image.src = "/site-files/" + note.cover_path;
         image.alt = "";
         image.loading = "lazy";
+        image.addEventListener("load", function () {
+          this.parentNode.classList.add("has-icon");
+        });
+        image.addEventListener("error", function () {
+          this.remove();
+        });
         thumb.appendChild(image);
       } else {
-        thumb.textContent = (String(notes[i].title || "笔").match(/[A-Za-z0-9\u4e00-\u9fff]/) || ["笔"])[0];
+        thumb.textContent = initial;
       }
       wrap.appendChild(thumb);
     }
+    if (notes.length > shown) {
+      var extra = document.createElement("span");
+      extra.className = "repo-thumb repo-count";
+      extra.textContent = "+" + (notes.length - shown);
+      extra.title = "共 " + notes.length + " 篇笔记";
+      wrap.appendChild(extra);
+    }
+  }
+
+  // 取标题里首个字母 / 数字 / 汉字；和书签、工作台入口的兜底规则保持一致
+  function noteInitial(note) {
+    var source = String((note && note.title) || "");
+    var match = source.match(/[A-Za-z0-9\u4e00-\u9fff]/);
+    return (match ? match[0] : "笔").toUpperCase();
   }
 
   function renderWorkbenchLanding(workbench) {
@@ -393,11 +422,41 @@
     if (!wrap) return;
     wrap.innerHTML = "";
     if (!assets || !total) return;
-    var badge = document.createElement("span");
-    badge.className = "repo-thumb repo-count";
-    badge.textContent = total > 99 ? "99+" : String(total);
-    badge.title = "共 " + total + " 份资料";
-    wrap.appendChild(badge);
+    // 资料没有图片封面，和笔记入口一样用标题 / 文件名的首字母当圆形缩略图
+    var rows = Array.isArray(workbench.recent_assets)
+      ? workbench.recent_assets.slice(0, 5)
+      : [];
+    rows.forEach(function (asset) {
+      var thumb = document.createElement("span");
+      thumb.className = "repo-thumb";
+      thumb.textContent = assetInitial(asset);
+      var label = String((asset && (asset.title || asset.original_name)) || "").trim();
+      if (label) thumb.title = label;
+      wrap.appendChild(thumb);
+    });
+    if (!rows.length) {
+      // 拿不到资料明细时退回原来的数量圆点，至少不空着
+      var badge = document.createElement("span");
+      badge.className = "repo-thumb repo-count";
+      badge.textContent = total > 99 ? "99+" : String(total);
+      badge.title = "共 " + total + " 份资料";
+      wrap.appendChild(badge);
+      return;
+    }
+    if (total > rows.length) {
+      var extra = document.createElement("span");
+      extra.className = "repo-thumb repo-count";
+      extra.textContent = "+" + (total - rows.length);
+      extra.title = "共 " + total + " 份资料";
+      wrap.appendChild(extra);
+    }
+  }
+
+  // 取首个字母 / 数字 / 汉字，和笔记、书签入口的兜底规则保持一致
+  function assetInitial(asset) {
+    var source = String((asset && (asset.title || asset.original_name)) || "");
+    var match = source.match(/[A-Za-z0-9\u4e00-\u9fff]/);
+    return (match ? match[0] : "文").toUpperCase();
   }
 
   function loadPrivateLandingData() {
