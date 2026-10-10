@@ -138,7 +138,6 @@
   margin: 0 0 14px;
   border: 1px solid var(--nt-border);
   border-radius: 10px;
-  transition: top 0.22s ease;
 }
 
 .nt-read-doc .nt-markdown h1,

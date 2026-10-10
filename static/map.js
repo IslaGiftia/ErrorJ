@@ -699,9 +699,29 @@
       .join("");
   }
 
+  var ownerGroups = [];
+
+  function ownerLabel(key) {
+    if (!key) return "全部添加者";
+    var hit = null;
+    ownerGroups.forEach(function (item) {
+      if (String(item.key) === String(key)) hit = item;
+    });
+    return hit ? hit.name + "（" + hit.count + "）" : "全部添加者";
+  }
+
+  function closeOwnerPicker() {
+    var modal = $("mapOwnerModal");
+    if (modal) modal.hidden = true;
+    var button = $("mapOwnerFilter");
+    if (button) button.setAttribute("aria-expanded", "false");
+  }
+
+  // 添加者选择：手机上原生 select 弹的是系统选择器，和站内风格不一致，改成站内弹窗
   function renderOwnerFilter() {
-    var select = $("mapOwnerFilter");
-    if (!select) return;
+    var button = $("mapOwnerFilter");
+    var list = $("mapOwnerOptions");
+    if (!button || !list) return;
     var groups = {};
     state.places.forEach(function (place) {
       var key = String(place.created_by == null ? "" : place.created_by);
@@ -715,29 +735,38 @@
       }
       groups[key].count += 1;
     });
-    var list = Object.keys(groups)
+    ownerGroups = Object.keys(groups)
       .map(function (key) {
         return groups[key];
       })
       .sort(function (a, b) {
         return String(a.name).localeCompare(String(b.name), "zh-CN");
       });
-    var html = '<option value="">全部添加者</option>';
-    list.forEach(function (item) {
-      html +=
-        '<option value="' +
-        esc(item.key) +
-        '">' +
-        esc(item.name) +
-        "（" +
-        item.count +
-        "）</option>";
-    });
-    select.innerHTML = html;
     if (state.ownerFilter && !groups[state.ownerFilter]) {
       state.ownerFilter = "";
     }
-    select.value = state.ownerFilter;
+    var value = $("mapOwnerValue");
+    if (value) value.textContent = ownerLabel(state.ownerFilter);
+    var current = String(state.ownerFilter || "");
+    var html =
+      '<button type="button" class="mp-owner-option' +
+      (current ? "" : " is-active") +
+      '" data-owner=""><span>全部添加者</span><em>' +
+      state.places.length +
+      " 个标记</em></button>";
+    ownerGroups.forEach(function (item) {
+      html +=
+        '<button type="button" class="mp-owner-option' +
+        (current === String(item.key) ? " is-active" : "") +
+        '" data-owner="' +
+        esc(item.key) +
+        '"><span>' +
+        esc(item.name) +
+        "</span><em>" +
+        item.count +
+        " 个标记</em></button>";
+    });
+    list.innerHTML = html;
   }
 
   function popupHtml(place) {
@@ -2061,10 +2090,24 @@
     });
   }
 
-  var ownerSelect = $("mapOwnerFilter");
-  if (ownerSelect) {
-    ownerSelect.addEventListener("change", function () {
-      state.ownerFilter = ownerSelect.value;
+  var ownerButton = $("mapOwnerFilter");
+  if (ownerButton) {
+    ownerButton.addEventListener("click", function () {
+      renderOwnerFilter();
+      var modal = $("mapOwnerModal");
+      if (modal) modal.hidden = false;
+      ownerButton.setAttribute("aria-expanded", "true");
+      if (window.lucide && lucide.createIcons) lucide.createIcons();
+    });
+  }
+
+  var ownerOptions = $("mapOwnerOptions");
+  if (ownerOptions) {
+    ownerOptions.addEventListener("click", function (event) {
+      var option = event.target.closest("[data-owner]");
+      if (!option) return;
+      state.ownerFilter = option.getAttribute("data-owner") || "";
+      closeOwnerPicker();
       renderAll();
     });
   }
@@ -2421,14 +2464,15 @@
     });
   }
 
-  [["mapPlaceClose", "mapPlaceModal"], ["mapPlaceCancel", "mapPlaceModal"],
-   ["mapCatsClose", "mapCatsModal"], ["mapCatsDone", "mapCatsModal"],
+   [["mapPlaceClose", "mapPlaceModal"], ["mapPlaceCancel", "mapPlaceModal"],
+    ["mapCatsClose", "mapCatsModal"], ["mapCatsDone", "mapCatsModal"],
+    ["mapOwnerClose", "mapOwnerModal"],
    ["mapImportClose", "mapImportModal"], ["mapImportCancel", "mapImportModal"]].forEach(function (pair) {
     var btn = $(pair[0]);
     if (btn) btn.addEventListener("click", function () { closeModal(pair[1]); });
   });
 
-  ["mapPlaceModal", "mapCatsModal", "mapImportModal"].forEach(function (id) {
+   ["mapPlaceModal", "mapCatsModal", "mapImportModal", "mapOwnerModal"].forEach(function (id) {
     var modal = $(id);
     if (!modal) return;
     modal.addEventListener("click", function (event) {
@@ -2534,6 +2578,7 @@
       closeModal("mapPlaceModal");
       closeModal("mapCatsModal");
       closeModal("mapImportModal");
+      closeModal("mapOwnerModal");
       resolveConfirm(false);
       openBasePanel(false);
       closeSidebar();

@@ -1289,6 +1289,19 @@ body[data-page] .under-construction {
   border-radius: 16px;
 }
 
+/* 手机点按：用自带圆角背景做反馈，别用浏览器默认的矩形高亮 */
+.repo-grid .repo-entry,
+.landing-module-btn {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.repo-grid .repo-entry:active,
+.repo-entry:active,
+.landing-module-btn:active {
+  border-color: rgba(148, 163, 184, 0.62);
+  background: rgba(148, 163, 184, 0.3);
+}
+
 .repo-grid .repo-entry-label {
   min-width: 0;
   font-size: 19px;

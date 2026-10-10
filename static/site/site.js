@@ -531,6 +531,15 @@
 
   var authForm = document.getElementById("authForm");
   if (authForm) {
+    // 服务端（含 nginx 白名单）返回的不是 JSON 时，也要把真实原因显示出来
+    var authError = function (response, text, data) {
+      if (data && data.error) return data.error;
+      if (response.status === 403) {
+        var hint = String(text || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+        return hint.slice(0, 80) || "管理员登录仅限受信任的网络，换到常用网络再试。";
+      }
+      return "登录失败（" + response.status + "）";
+    };
     authForm.addEventListener("submit", function (event) {
       event.preventDefault();
       var submit = document.getElementById("authSubmit");
@@ -549,8 +558,12 @@
           remember: document.getElementById("authRemember").checked,
         }),
       }).then(function (response) {
-        return response.json().catch(function () { return {}; }).then(function (data) {
-          if (!response.ok) throw new Error(data.error || "登录失败");
+        return response.text().then(function (text) {
+          var data = {};
+          try {
+            data = JSON.parse(text);
+          } catch (err) {}
+          if (!response.ok) throw new Error(authError(response, text, data));
           return data;
         });
       }).then(function (data) {

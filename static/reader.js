@@ -931,20 +931,20 @@ $("rdSettingsBtn").addEventListener("click", () => {
 });
 
 // 沉浸阅读：隐藏顶部功能区与底部进度条，进入时顺便尝试全屏
-// 点击分页：左侧 32% 上一页，右侧 32% 下一页，中间切换上下栏（滚动模式只切换上下栏）
+// 点击分页：左侧 1/3 上一页，右侧 1/3 下一页，中间切换上下栏。
+// 翻页模式下 goLeft/goRight 翻页，滚动模式下它们滚动一屏，所以两种模式都直接调用。
 function zoneNavigate(clientX, width) {
   if (!state.view || !width) return;
   // 侧栏 / 设置还开着的时候，先收起来再按分区动作
   if (hasOverlayOpen()) closeOverlays();
   const ratio = clientX / width;
-  const scrolled = state.settings.flow !== "paginated";
   // 整屏三等分：左 1/3 上一页、右 1/3 下一页、中间 1/3 切换上下栏
   if (ratio < 1 / 3) {
-    if (!scrolled) state.view.goLeft();
+    state.view.goLeft();
     return;
   }
   if (ratio > 2 / 3) {
-    if (!scrolled) state.view.goRight();
+    state.view.goRight();
     return;
   }
   // 中间 1/3：隐藏 / 显示上下功能区和进度条（排版区域不变，不会跳页）

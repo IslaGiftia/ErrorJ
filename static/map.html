@@ -51,8 +51,11 @@
       <div class="mp-cats mp-subcats" id="mapSubcats" hidden></div>
       <div class="mp-tags" id="mapTags" hidden></div>
       <div class="mp-owner">
-        <label for="mapOwnerFilter">添加者</label>
-        <select id="mapOwnerFilter"></select>
+        <span class="mp-owner-label">添加者</span>
+        <button class="mp-owner-btn" id="mapOwnerFilter" type="button" aria-haspopup="dialog" aria-expanded="false">
+          <span id="mapOwnerValue">全部添加者</span>
+          <i data-lucide="chevron-down"></i>
+        </button>
       </div>
       <div class="mp-list" id="mapList"></div>
     </aside>
@@ -252,6 +255,19 @@
         <button class="mp-btn" id="mapImportCancel" type="button">取消</button>
         <button class="mp-btn mp-btn-primary" id="mapImportSubmit" type="button">导入</button>
       </div>
+    </div>
+  </div>
+
+  <div class="mp-modal" id="mapOwnerModal" hidden>
+    <div class="mp-dialog mp-dialog-small" role="dialog" aria-modal="true" aria-labelledby="mapOwnerTitle">
+      <header class="mp-dialog-head">
+        <h2 id="mapOwnerTitle">选择添加者</h2>
+        <button class="mp-icon-btn" id="mapOwnerClose" type="button" aria-label="关闭">
+          <i data-lucide="x"></i>
+        </button>
+      </header>
+      <p class="mp-dialog-note">只显示某位添加者标记的地方。</p>
+      <div class="mp-owner-options" id="mapOwnerOptions"></div>
     </div>
   </div>
 
