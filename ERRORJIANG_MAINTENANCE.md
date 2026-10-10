@@ -832,6 +832,28 @@ sleep 1
 systemctl status nginx --no-pager
 ```
 
+### 10.5 管理员入口白名单（收紧 / 临时放行某个 IP）
+
+管理员入口默认对任意网络开放（登录接口有每 IP 每分钟 6 次限速 + 密码校验）。
+如果想让"只有指定 IP 才能访问后台"，用仓库里的 `deploy/nginx-allow-ip.sh`：
+
+```bash
+sudo bash /usr/local/bin/nginx-allow-ip.sh list          # 看当前模式和名单
+sudo bash /usr/local/bin/nginx-allow-ip.sh strict        # 开启白名单（只放行名单内的 IP）
+sudo bash /usr/local/bin/nginx-allow-ip.sh open          # 关闭白名单（任意网络可登录）
+sudo bash /usr/local/bin/nginx-allow-ip.sh add 1.2.3.4        # 加一个 IP / 网段
+sudo bash /usr/local/bin/nginx-allow-ip.sh add 1.2.3.0/24 2h  # 临时加 2 小时，到期自动移除
+sudo bash /usr/local/bin/nginx-allow-ip.sh remove 1.2.3.4     # 手动移除，并取消自动移除任务
+```
+
+脚本每次改动都会：备份到 `/data/errorjiang-backup/allow-<时间戳>/` → `nginx -t` → 通过才 `systemctl reload nginx`，失败自动把备份拷回去，所以不会把站点改挂。
+
+注意两点：
+
+1. 白名单只在"开启"（`default 0`）时生效；关闭时往名单里加 IP 不会有任何影响。
+2. 开启后 `/api/register`（普通账号注册申请）也在限制范围内，非名单网络提交注册申请会被 403 挡掉；如果希望注册始终对公网开放，就保持"关闭"状态。
+
+
 ## 11. 安全组和公网访问
 
 当前可访问地址：

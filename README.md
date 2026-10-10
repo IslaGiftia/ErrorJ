@@ -249,8 +249,11 @@ netsh advfirewall firewall add rule name="Errorjiang 8000" dir=in action=allow p
 - 反向代理示例：`deploy/nginx-errorjiang.conf`
 - systemd 单元：`deploy/errorjiang.service`
 - 只监听回环的 Docker 方案：`docker-compose.prod.yml`
+- 管理员入口白名单脚本：`deploy/nginx-allow-ip.sh`（配合 `deploy/nginx-errorjiang-admin-allow.conf`）
 
 服务器上至少要做三件事：把 `INVENTORY_PASSWORD` 写进 `/etc/errorjiang.env`、让应用只监听 `127.0.0.1`、用 Nginx 转发并配置 HTTPS。完整的部署过程见 `DEPLOYMENT_LOG.md`，面向新手的服务器维护步骤见 `ERRORJIANG_MAINTENANCE.md`。
+
+管理员入口的 IP 白名单是「可开关」的：默认关闭（任意网络都能登录后台，登录接口保留每 IP 每分钟 6 次限速 + 密码校验），需要收紧时在服务器上执行 `sudo bash deploy/nginx-allow-ip.sh strict` 只放行名单内的 IP / 网段，`open` 恢复开放；`add 1.2.3.4 2h` 可以临时放行某个 IP（到期由 systemd 定时器自动移除，`remove` 也能手动撤销），脚本每次改动都会先备份、`nginx -t` 通过才 reload，失败自动回滚。
 
 ## 数据与备份
 

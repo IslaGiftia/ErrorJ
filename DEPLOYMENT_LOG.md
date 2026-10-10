@@ -1724,6 +1724,28 @@ Python / JS 语法检查     -> 通过
 Python / JS 语法检查     -> 通过
 ```
 
+## 61. 2026-10-10 19:27:30 管理员入口白名单改成可开关 + 临时放行 IP
+
+完成内容：
+- 把管理员入口的 IP 白名单从「写死」改成「可开关」：`geo $errorjiang_admin_ok` 的 `default` 为 1 时各 location 里的判断不触发（任意网络都能访问后台，当前状态），改成 0 才只放行名单内的 IP / 网段；判断本身按原样装回了 `/api/login`、`/logout`、`/workbench`、`/api/workbench`、`/api/prompts`、`/api/admin`、`/api/register` 七个 location。
+- 新增 `deploy/nginx-allow-ip.sh`（安装到 `/usr/local/bin/nginx-allow-ip.sh`）：`list` / `open` / `strict` / `add <IP|网段> [时长]` / `remove`；白名单条目放在 `# errorjiang-allow-begin` / `# errorjiang-allow-end` 之间的标记区，支持 IPv4、IPv4 掩码、IPv6、IPv6 掩码，其他输入直接拒绝（避免把任意字符串写进 nginx 配置）。
+- 临时放行：`add 1.2.3.4 2h` 会写入名单并注册一个 `systemd-run --on-active=2h` 的一次性定时器，到期自动调用 `remove` 把自己摘掉；`remove` 也会顺手取消对应定时器。
+- 脚本每次改动都是「先备份到 `/data/errorjiang-backup/allow-<时间戳>/` → `nginx -t` → 通过才 `reload`」，`nginx -t` 失败自动回滚，不会把站点改挂。
+- 文档：README 部署小节、`ERRORJIANG_MAINTENANCE.md` 新增 10.5 节（含常用命令与两条注意事项）。
+
+验证结果：
+```text
+安装（真实服务器）       -> nginx -t 通过 + reload 成功
+open 模式                -> POST /api/login = 401 {"error":"用户名或密码不正确。"}
+strict 模式              -> POST /api/login = 403（nginx 返回「管理员入口仅限受信任的 IP 访问。」）
+strict 模式 /workbench   -> 403（同一套判断生效）
+临时放行（单元测试 2m）  -> 条目入库 + systemd 定时器出现，2 分钟后自动移除且定时器清空
+非法输入 203.0.113.7/x   -> 拒绝，不写入配置
+误操作回滚               -> 安装时曾用错模板（占位域名导致证书路径不存在），nginx -t 失败自动回滚，站点全程未中断
+当前状态                 -> 白名单关闭（default 1），服务与 nginx active，/api/health 200
+自动化测试               -> 86 / 86 通过
+```
+
 ## 60. 2026-10-10 19:05:33 管理员入口取消 IP 白名单
 
 完成内容：
