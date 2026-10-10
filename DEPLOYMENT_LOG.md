@@ -1836,3 +1836,40 @@ nginx 配置测试           -> nginx -t 通过并 reload，备份 /data/errorji
 
 注意：验证过程中第一次「干净 IP 首次提交」确实写库成功，因此触发了一条
 「新的注册申请」Webhook 推送（20:14:34，状态 ok），手机或群里如果收到属于测试噪音，可以忽略。
+
+## 64. 2026-10-10 20:27:33 服务器加装 WireGuard 与 fail2ban
+
+背景：管理员入口白名单开启后，出门换网络会被挡在后台外面，需要一条「不用临时改白名单」的常通路子；
+同时给 Web 侧补上自动封禁。两样都是纯运维加固，不涉及站点代码，也不发站内动态。
+
+完成内容：
+- 安装并启用 WireGuard（`wireguard` / `wireguard-tools` 1.0.20250521）：
+  - 服务端 `wg0` = `10.66.0.1/24`，监听 UDP `51820`，配置在 `/etc/wireguard/wg0.conf`（600），
+    `systemctl enable --now wg-quick@wg0`，重启会自动起。
+  - 生成两个客户端：`phone`（10.66.0.2）和 `laptop`（10.66.0.3），走**分流模式**
+    （`AllowedIPs = 10.66.0.0/24, 47.108.86.201/32`），只有访问本服务器的流量走隧道，
+    手机其它上网行为不受影响，因此服务端不需要开 NAT / 转发。
+  - 客户端配置、二维码和明文私钥拷到本机 `C:\Users\Administrator\Desktop\Error酱-VPN\`
+    （`phone.conf` / `phone.png` 等），随后把服务器 `/tmp` 里的私钥副本全部删除，只留在你的电脑上。
+  - 白名单加入 VPN 网段 `10.66.0.0/24`，手机连上 VPN 后出口就是 `10.66.0.x`，直接能进后台。
+- 安装并配置 fail2ban（1.1.0）：`/etc/fail2ban/jail.local`
+  - `ignoreip` 放行本机回环、VPN 网段、管理员常用出口（自家 IP 永不被封）。
+  - `[sshd]` 沿用系统默认（服务端本来就是纯密钥登录）。
+  - 新增 `[nginx-limit-req]`：盯的是站点自己的日志 `/var/log/nginx/errorjiang.error.log`
+    （不是默认 `error.log`，站点日志在独立文件里），10 分钟内触发 10 次 `limit_req` 限速就封 2 小时。
+
+验证结果：
+```text
+WireGuard 接口           -> wg0 已监听 51820，两个 peer（10.66.0.2 / 10.66.0.3）已加载
+wg-quick@wg0             -> enabled + active（重启后自动恢复）
+外网 UDP 连通性          -> udp 51820 / 443 / 53 / 1194 / 3478 全部收不到包
+                            （阿里云安全组未放行任何 UDP，需要控制台加入方向规则）
+fail2ban 服务            -> active + enabled，jail 列表：nginx-limit-req、sshd
+fail2ban 封禁实测        -> 连打 15 次 /api/register，4 次 400、11 次 429
+                            -> jail 统计 Total failed 11、Banned IP 47.108.86.201
+                            -> nft 规则：tcp dport {80,443} ip saddr @addr-set-nginx-limit-req reject
+                            -> 测试完已 unbanip，Banned IP list 为空
+```
+
+待办：等你在阿里云控制台给这台 ECS 的安全组加入方向规则（UDP 51820），
+放行后要再抓一次包确认握手成功，然后把「手机连 VPN 进后台」的步骤补进笔记 #21。
