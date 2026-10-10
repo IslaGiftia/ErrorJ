@@ -320,6 +320,37 @@ body {
   cursor: pointer;
 }
 
+/* 操作按钮挪到封面右下角：下载排在最右边，作者 / 大小等信息留在封面下方 */
+.bk-cover-actions {
+  position: absolute;
+  right: 8px;
+  bottom: 11px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 9px;
+  background: rgba(16, 18, 24, 0.58);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(7px);
+}
+
+.bk-cover-actions .bk-card-edit {
+  margin-left: 0;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.bk-cover-actions .bk-card-edit:hover {
+  background: rgba(255, 255, 255, 0.24);
+  color: #fff;
+}
+
+.bk-cover-actions .bk-card-edit:disabled,
+.bk-cover-actions .bk-card-edit.is-pending {
+  color: rgba(255, 255, 255, 0.6);
+}
+
 .bk-card-edit:hover {
   background: var(--bk-hover);
   color: var(--bk-text);

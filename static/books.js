@@ -172,23 +172,26 @@
         var size = state.authenticated
           ? "<span>" + formatSize(book.file_size) + "</span>"
           : "";
+        // 卡片右下角（封面右下角）放操作按钮，下载排在最右边
         var edit = state.canManage
           ? '<button class="bk-card-edit" type="button" data-book-edit="' +
             book.id +
             '" title="编辑"><i data-lucide="pencil"></i></button>'
           : "";
-        var download = "";
         var report =
           '<button class="bk-card-edit" type="button" data-report-type="book" data-report-key="' +
           book.id +
           '" data-report-title="' +
           esc(book.title || "电子书") +
           '" title="举报"><i data-lucide="flag"></i></button>';
+        var share = state.canManage
+          ? '<button class="bk-card-edit" type="button" data-book-share="' +
+            book.id +
+            '" title="分享"><i data-lucide="share-2"></i></button>'
+          : "";
+        var download = "";
         if (state.canManage) {
           download =
-            '<button class="bk-card-edit" type="button" data-book-share="' +
-            book.id +
-            '" title="分享"><i data-lucide="share-2"></i></button>' +
             '<button class="bk-card-edit" type="button" data-book-download="' +
             book.id +
             '" title="下载原文件"><i data-lucide="download"></i></button>';
@@ -208,6 +211,9 @@
               '" title="申请下载"><i data-lucide="download"></i></button>';
           }
         }
+        var coverActions = edit + report + share + download
+          ? '<div class="bk-cover-actions">' + edit + report + share + download + "</div>"
+          : "";
         return (
           '<article class="bk-card" data-book-open="' +
           book.id +
@@ -226,6 +232,7 @@
           (percent > 0
             ? '<span class="bk-progress" title="已读 ' + percent + '%"><i style="width:' + percent + '%"></i></span>'
             : "") +
+          coverActions +
           "</div>" +
           '<div class="bk-card-title">' +
           esc(book.title) +
@@ -234,9 +241,6 @@
           esc(book.author || "未知作者") +
           "</span>" +
           size +
-          download +
-          report +
-          edit +
           "</div>" +
           "</article>"
         );
