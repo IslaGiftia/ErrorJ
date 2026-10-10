@@ -577,12 +577,23 @@ img {
   margin-left: 0;
 }
 
-/* 缩略图占位：普通账号 / 游客没有缩略图时也占住同样的位置，
-   四个模块入口的高度和宽度与管理员登录时完全一致，返回首页不再跳变。 */
-.repo-thumb-placeholder {
-  border-color: transparent;
+/* 缩略图占位放在标题里：普通账号 / 游客没有缩略图时用它撑住入口高度，
+   宽度归零、不吃 flex gap，文字仍然在按钮正中间。 */
+.repo-grid .repo-entry-label > .repo-thumb.repo-thumb-placeholder,
+.repo-entry .repo-entry-label > .repo-thumb.repo-thumb-placeholder {
+  flex: 0 0 0;
+  width: 0;
+  min-width: 0;
+  margin: 0 -2px 0 0;
+  border-width: 0;
   background: transparent;
   box-shadow: none;
+}
+
+/* 没有缩略图时整块收起，避免留下一个 gap 把文字挤偏 */
+.repo-grid .repo-thumbs:empty,
+.repo-entry .repo-thumbs:empty {
+  display: none;
 }
 
 .repo-thumb-fallback {
