@@ -39,20 +39,40 @@
         <span class="mp-count" id="mapCount"></span>
       </header>
 
-      <div class="mp-search">
-        <i data-lucide="search"></i>
-        <input id="mapSearch" type="search" autocomplete="off" placeholder="搜索名称、地址、备注">
+      <!-- 手机上这一行是「搜索框 + 高级筛选入口」；桌面端 .mp-search-row 是 display: contents，布局不变 -->
+      <div class="mp-search-row">
+        <div class="mp-search">
+          <i data-lucide="search"></i>
+          <input id="mapSearch" type="search" autocomplete="off" placeholder="搜索名称、地址、备注">
+        </div>
+        <button class="mp-filter-btn" id="mapFilterBtn" type="button" aria-label="高级筛选" title="高级筛选"
+                aria-expanded="false" aria-controls="mapFilters">
+          <i data-lucide="funnel"></i>
+          <span class="mp-filter-badge" id="mapFilterBadge" hidden>0</span>
+        </button>
       </div>
 
-      <div class="mp-cats" id="mapCategories"></div>
-      <div class="mp-cats mp-subcats" id="mapSubcats" hidden></div>
-      <div class="mp-tags" id="mapTags" hidden></div>
-      <div class="mp-owner">
-        <span class="mp-owner-label">添加者</span>
-        <button class="mp-owner-btn" id="mapOwnerFilter" type="button" aria-haspopup="dialog" aria-expanded="false">
-          <span id="mapOwnerValue">全部添加者</span>
-          <i data-lucide="chevron-down"></i>
-        </button>
+      <!-- 手机上主分类与二级分类合成一条横滑轨道；桌面端 .mp-chips-row 是 display: contents，两行仍按原样换行 -->
+      <div class="mp-chips-row">
+        <div class="mp-cats" id="mapCategories"></div>
+        <div class="mp-cats mp-subcats" id="mapSubcats" hidden></div>
+      </div>
+
+      <div class="mp-filters-mask" id="mapFiltersMask" hidden></div>
+      <!-- 手机上是被「高级筛选」按钮拉起的底部弹出层；桌面端 .mp-filters 是 display: contents，标签与添加者原地不动 -->
+      <div class="mp-filters" id="mapFilters">
+        <div class="mp-filters-head">
+          <strong>高级筛选</strong>
+          <button class="mp-icon-btn" id="mapFiltersClose" type="button" aria-label="关闭">×</button>
+        </div>
+        <div class="mp-tags" id="mapTags" hidden></div>
+        <div class="mp-owner">
+          <span class="mp-owner-label">添加者</span>
+          <button class="mp-owner-btn" id="mapOwnerFilter" type="button" aria-haspopup="dialog" aria-expanded="false">
+            <span id="mapOwnerValue">全部添加者</span>
+            <i data-lucide="chevron-down"></i>
+          </button>
+        </div>
       </div>
       <div class="mp-list" id="mapList"></div>
     </aside>
@@ -61,6 +81,11 @@
     <div class="mp-actions is-pending" id="mapActions">
       <button class="mp-btn mp-actions-toggle" id="mapActionsToggle" type="button" aria-label="隐藏标记清单" title="隐藏标记清单">
         <i data-lucide="chevron-left"></i>
+      </button>
+      <!-- 手机上操作栏收成右下角悬浮组，这个按钮负责展开/收起「分类 / 导入 / 导出」；桌面端保持 hidden 不参与布局 -->
+      <button class="mp-btn mp-actions-more" id="mapMoreToggle" type="button" aria-label="更多操作" title="更多操作"
+              aria-expanded="false" hidden>
+        <i data-lucide="ellipsis"></i>
       </button>
       <button class="mp-btn mp-btn-primary" id="mapAddBtn" type="button" hidden>
         <i data-lucide="plus"></i><span>添加标记</span>

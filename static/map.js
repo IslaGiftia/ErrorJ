@@ -129,6 +129,8 @@
     places: [],
     canManage: false,
     canAdd: false,
+    canFilterOwner: false,
+    myUserId: "",
     signedIn: false,
     activeTop: new Set(),
     activeSubs: new Set(),
@@ -702,6 +704,8 @@
   var ownerGroups = [];
 
   function ownerLabel(key) {
+    // 普通账户不能挑别人，按钮就两态：全部 / 只看自己添加的
+    if (!state.canFilterOwner) return key ? "只看我添加的" : "全部标记";
     if (!key) return "全部添加者";
     var hit = null;
     ownerGroups.forEach(function (item) {
@@ -1008,6 +1012,7 @@
     renderChips();
     renderSubcats();
     renderTags();
+    updateFilterBadge();
     renderList();
     renderMarkers();
   }
@@ -1066,6 +1071,8 @@
       state.canImport = Boolean(data.can_import);
       state.canExport = Boolean(data.can_export);
       state.canManageCategories = Boolean(data.can_manage_categories);
+      state.canFilterOwner = Boolean(data.can_filter_owner);
+      state.myUserId = data.user_id == null ? "" : String(data.user_id);
       var addBtn = $("mapAddBtn");
       var catsBtn = $("mapCatsBtn");
       var importBtn = $("mapImportBtn");
@@ -1074,6 +1081,11 @@
       if (catsBtn) catsBtn.hidden = !state.canManageCategories;
       if (importBtn) importBtn.hidden = !state.canImport;
       if (exportLink) exportLink.hidden = !state.canExport;
+      // 普通账户（没有挑人权限）时，添加者按钮是个开关：只显示「全部标记 / 只看我添加的」，
+      // 引导语里的下拉箭头也就没意义了，隐藏掉
+      var ownerBtn = $("mapOwnerFilter");
+      if (ownerBtn) ownerBtn.classList.toggle("is-simple", !state.canFilterOwner);
+      syncOwnerLabel();
       syncMapActions();
       var categoryIds = {};
       state.categories.forEach(function (cat) {
@@ -2110,6 +2122,17 @@
   var ownerButton = $("mapOwnerFilter");
   if (ownerButton) {
     ownerButton.addEventListener("click", function () {
+      /*
+       * 普通账户没有「按添加者挑人」的权限：不再弹出选人弹窗，
+       * 直接把筛选在「全部」和「只看我添加的」之间切换。
+       * 复用的是同一个 state.ownerFilter（存 created_by），筛选逻辑不变。
+       */
+      if (!state.canFilterOwner) {
+        state.ownerFilter = state.ownerFilter ? "" : state.myUserId;
+        syncOwnerLabel();
+        renderAll();
+        return;
+      }
       renderOwnerFilter();
       var modal = $("mapOwnerModal");
       if (modal) modal.hidden = false;
@@ -2565,6 +2588,17 @@
     actions.classList.toggle("is-solo", visible === 0);
     actions.classList.toggle("one-action", visible === 1);
     actions.classList.toggle("single-row", visible <= 2);
+    // 手机上「分类 / 导入 / 导出」收进「···」：只有真的至少有一项可用时才显示这个按钮
+    var moreBtn = $("mapMoreToggle");
+    if (moreBtn) {
+      var lowFreq = ["mapCatsBtn", "mapImportBtn", "mapExportLink"].filter(function (id) {
+        var el = $(id);
+        return el && !el.hidden;
+      }).length;
+      var showMore = isNarrowMap() && lowFreq > 0;
+      moreBtn.hidden = !showMore;
+      if (!showMore) actions.classList.remove("is-more-open");
+    }
     app.style.setProperty(
       "--mp-actions-h",
       Math.round(actions.getBoundingClientRect().height) + "px"
@@ -2584,6 +2618,63 @@
     });
   }
   window.addEventListener("resize", syncMapActions);
+
+  /* ---------- 移动端：高级筛选弹出层 + 右下角悬浮操作组 ---------- */
+  var filterBtn = $("mapFilterBtn");
+  var filterSheet = $("mapFilters");
+  var filterMask = $("mapFiltersMask");
+  var filterClose = $("mapFiltersClose");
+
+  function setFilterSheet(open) {
+    if (!filterSheet || !filterBtn) return;
+    filterSheet.classList.toggle("is-open", open);
+    filterBtn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (filterMask) filterMask.hidden = !open;
+    // 抽屉要盖在右下角悬浮组之上：给 app 打个标记，由 CSS 抬高侧栏层级
+    var app = $("mapApp");
+    if (app) app.classList.toggle("filters-open", open);
+  }
+
+  if (filterBtn && filterSheet) {
+    filterBtn.addEventListener("click", function () {
+      setFilterSheet(!filterSheet.classList.contains("is-open"));
+    });
+    if (filterMask) {
+      filterMask.addEventListener("click", function () {
+        setFilterSheet(false);
+      });
+    }
+    if (filterClose) {
+      filterClose.addEventListener("click", function () {
+        setFilterSheet(false);
+      });
+    }
+  }
+
+  var moreToggle = $("mapMoreToggle");
+  if (moreToggle) {
+    moreToggle.addEventListener("click", function () {
+      var actions = $("mapActions");
+      if (!actions) return;
+      var open = !actions.classList.contains("is-more-open");
+      actions.classList.toggle("is-more-open", open);
+      moreToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+  }
+
+  /*
+   * 生效中的次要筛选条件数量（标签 + 添加者），给漏斗按钮点灯与角标用。
+   * 只读 state，不参与筛选逻辑本身。
+   */
+  function updateFilterBadge() {
+    var badge = $("mapFilterBadge");
+    if (!badge || !filterBtn) return;
+    var count = state.activeTags.size + (state.ownerFilter ? 1 : 0);
+    badge.hidden = count === 0;
+    badge.textContent = String(count);
+    filterBtn.classList.toggle("is-active", count > 0);
+  }
+
   var listBoxMobile = $("mapList");
   if (listBoxMobile) {
     listBoxMobile.addEventListener("click", function () {
@@ -2601,6 +2692,7 @@
       resolveConfirm(false);
       openBasePanel(false);
       closeSidebar();
+      setFilterSheet(false);
     }
   });
 

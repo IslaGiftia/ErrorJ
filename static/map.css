@@ -265,6 +265,11 @@ body {
   white-space: nowrap;
 }
 
+/* 普通账户拿到的这个按钮是开关而不是选择器，去掉下拉箭头（见 map.js 的 is-simple） */
+.mp-owner-btn.is-simple svg {
+  display: none;
+}
+
 .mp-owner-btn svg {
   width: 15px;
   height: 15px;
@@ -1687,6 +1692,24 @@ body {
   height: 15px;
 }
 
+/*
+ * 移动端改造用的包装层与专用元素。
+ * 桌面端：包装层一律 display: contents「透明化」，子元素仍按原样参与布局，
+ * 因此 PC 端的尺寸、间距、换行与改版前完全一致；专用元素全部不显示。
+ */
+.mp-filters,
+.mp-search-row,
+.mp-chips-row {
+  display: contents;
+}
+
+.mp-filter-btn,
+.mp-filters-mask,
+.mp-filters-head,
+.mp-actions-more {
+  display: none;
+}
+
 /* ---------- responsive ---------- */
 
 @media (max-width: 860px) {
@@ -1942,6 +1965,309 @@ body {
 
   .mp-cat-row .mp-cat-note {
     grid-column: 1 / -1;
+  }
+
+  /* ---------- 移动端：顶部压缩、高级筛选抽屉、右下角悬浮操作 ---------- */
+
+  /* 搜索框与「高级筛选」入口同一行 */
+  .mp-search-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 10px;
+  }
+
+  .mp-search-row .mp-search {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 6px 0 5px;
+  }
+
+  .mp-filter-btn {
+    position: relative;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 32px;
+    margin: 6px 0 5px;
+    border: 1px solid var(--mp-border);
+    border-radius: 8px;
+    background: var(--mp-surface);
+    color: var(--mp-text);
+  }
+
+  .mp-filter-btn svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  /* 有生效中的筛选条件时，漏斗按钮点亮 */
+  .mp-filter-btn.is-active {
+    border-color: var(--mp-accent);
+    color: var(--mp-accent);
+  }
+
+  .mp-filter-badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    min-width: 15px;
+    height: 15px;
+    padding: 0 3px;
+    border-radius: 999px;
+    background: var(--mp-accent);
+    color: #fff;
+    font-size: 10px;
+    line-height: 15px;
+    text-align: center;
+  }
+
+  /* 主分类 + 二级分类合成一条横滑轨道，隐藏滚动条 */
+  .mp-chips-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px 5px;
+    border-bottom: 1px solid var(--mp-border);
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .mp-chips-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mp-chips-row .mp-cats {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    gap: 4px;
+    max-height: none;
+    padding: 0;
+    border-bottom: 0;
+    overflow: visible;
+  }
+
+  .mp-chips-row .mp-subcats {
+    padding-left: 0;
+    background: none;
+  }
+
+  /* 高级筛选：标签与添加者收进底部弹出层 */
+  /* 抽屉在 .mp-sidebar 的层叠上下文里，打开时把侧栏整体抬高，才能盖住右下角悬浮组 */
+  .mp-app.filters-open .mp-sidebar {
+    z-index: 70;
+  }
+
+  .mp-filters-mask {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    background: rgba(10, 12, 22, 0.42);
+  }
+
+  .mp-filters {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 61;
+    max-height: 64vh;
+    overflow-y: auto;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    border-radius: 14px 14px 0 0;
+    background: var(--mp-surface);
+    box-shadow: 0 -14px 40px rgba(0, 0, 0, 0.28);
+    /* 收起时 visibility: hidden：既不能被 Tab 聚焦，也不会被 scrollIntoView 拖出来 */
+    visibility: hidden;
+    transform: translateY(105%);
+    transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1), visibility 0s linear 0.22s;
+  }
+
+  .mp-filters.is-open {
+    visibility: visible;
+    transform: translateY(0);
+    transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1), visibility 0s;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mp-filters {
+      transition: none;
+    }
+  }
+
+  .mp-filters-head {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--mp-border);
+    background: var(--mp-surface);
+  }
+
+  .mp-filters-head strong {
+    font-size: 14px;
+  }
+
+  .mp-filters .mp-tags,
+  .mp-filters .mp-owner {
+    max-height: none;
+    overflow: visible;
+    padding: 10px 14px;
+    border-bottom: 0;
+  }
+
+  /* 底部操作区：整条收成右下角悬浮组，列表因此能往下多顶一截 */
+  .mp-sidebar {
+    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+    transform: translateY(calc(100% + 140px));
+  }
+
+  .mp-actions {
+    left: auto;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    width: auto;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    backdrop-filter: none;
+    grid-template-columns: none;
+  }
+
+  .mp-actions .mp-btn {
+    padding: 0;
+    border-radius: 999px;
+    justify-content: center;
+  }
+
+  /* 悬浮组自下而上：添加（FAB）→ 清单开合 → 更多 → 展开出来的低频操作 */
+  .mp-actions #mapAddBtn {
+    order: 10;
+  }
+
+  .mp-actions-toggle {
+    order: 8;
+  }
+
+  .mp-actions-more {
+    order: 6;
+  }
+
+  .mp-actions #mapCatsBtn,
+  .mp-actions #mapImportBtn,
+  .mp-actions #mapExportLink {
+    order: 4;
+  }
+
+  .mp-actions-toggle,
+  .mp-actions-more {
+    display: flex;
+    grid-row: auto;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--mp-surface) 96%, transparent);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+  }
+
+  .mp-actions-toggle svg,
+  .mp-actions-more svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* 低频操作默认收进「···」，展开后才出现 */
+  .mp-actions:not(.is-more-open) #mapCatsBtn,
+  .mp-actions:not(.is-more-open) #mapImportBtn,
+  .mp-actions:not(.is-more-open) #mapExportLink {
+    display: none;
+  }
+
+  .mp-actions.is-more-open #mapCatsBtn,
+  .mp-actions.is-more-open #mapImportBtn,
+  .mp-actions.is-more-open #mapExportLink {
+    display: flex;
+    min-height: 38px;
+    padding: 0 14px;
+  }
+
+  /* 添加标记：圆形 FAB，只留图标 */
+  .mp-actions #mapAddBtn {
+    width: 56px;
+    height: 56px;
+    min-width: 0;
+    border-radius: 999px;
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.26);
+  }
+
+  .mp-actions #mapAddBtn span {
+    display: none;
+  }
+
+  .mp-actions #mapAddBtn svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  /* 悬浮组会盖住列表最后几条，留出滚动余量 */
+  .mp-list {
+    padding-bottom: 84px;
+  }
+
+  /*
+   * 列表项：继续压扁行高、缩小左侧色点，用一条极浅的分割线分隔。
+   * 条目本身是整块按钮，min-height 保在 46px（站点约定的触控下限是 44px，不再往下压）。
+   */
+  .mp-item {
+    gap: 9px;
+    min-height: 46px;
+    padding: 4px 8px;
+    border-radius: 6px;
+  }
+
+  /* 用 inset 阴影画发丝线：不参与布局，所以整列高度不会被撑高一像素 */
+  .mp-item + .mp-item {
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--mp-border) 55%, transparent);
+  }
+
+  .mp-item-dot {
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    font-size: 11px;
+  }
+
+  .mp-item-title {
+    gap: 5px;
+    font-size: 13.5px;
+  }
+
+  /* 副标题（“早市”这类）靠右当标签用：复用现有节点，不新增 DOM */
+  .mp-item-sub {
+    margin-left: auto;
+    flex: 0 0 auto;
+    padding-left: 6px;
+  }
+
+  .mp-item-desc {
+    line-height: 1.35;
   }
 }
 

@@ -12951,6 +12951,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "can_import": is_admin,
                 "can_export": self.can("map:export"),
                 "can_manage_categories": self.can("map:manage_categories"),
+                # 只有管理员能按「添加者」挑人；普通账户只能看「全部」或「只看自己添加的」
+                "can_filter_owner": is_admin,
+                "user_id": user_id,
                 "signed_in": identity is not None,
                 "map_public": MAP_PUBLIC,
                 "unseen_count": len(unseen_ids),
