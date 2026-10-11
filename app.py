@@ -7125,6 +7125,22 @@ class InventoryHandler(BaseHTTPRequestHandler):
             for key in MAP_VIEW_PERMISSIONS
         )
 
+    def map_dock_allowed(self, identity=None):
+        """/api/map 这次请求有没有可能成功（首页圆盘据此决定要不要发请求）。"""
+        identity = identity if identity is not None else self.session_identity()
+        if not identity:
+            # 游客没有身份，can() 恒为 False，请求必然 401
+            return False
+        if identity.get("kind") in ("owner", "admin"):
+            return True
+        if not MAP_PUBLIC:
+            # 地图整体关掉时 /api/map 变成管理员专属
+            return False
+        return any(
+            user_has_permission(identity.get("user_id"), key)
+            for key in MAP_VIEW_PERMISSIONS
+        )
+
     def guest_request_allowed(self, path, method, identity):
         """游客（以及未登录请求）能访问的页面、接口和数据文件。"""
         if self.base_public_allowed(path, method):
@@ -7266,10 +7282,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "permissions": permissions,
                 "guest_pages": [] if identity else sorted(guest_permission_set()),
                 "map_allowed": self.map_view_allowed(identity) if identity else False,
-                # 首页左下角的圆形小地图入口会无条件请求一次 /api/map?dock=1。
-                # 游客在「地图不公开」的站点上这次请求必然 401，先把这个结果告诉前端，
-                # 让它别白跑一次请求（浏览器会在控制台留一条红色报错）。
-                "map_dock_allowed": bool(identity) or bool(MAP_PUBLIC),
+                # 首页左下角的圆形小地图入口会无条件请求一次 /api/map?dock=1；
+                # 地图接口要地图类权限，游客和没有权限的账号必然 401。
+                # 先把结果告诉前端，让它别白跑这次注定失败的请求（浏览器会在控制台留红字）。
+                "map_dock_allowed": self.map_dock_allowed(identity),
                 "pending_users": pending_users,
                 "pending_attachments": pending_attachments,
                 "pending_reports": pending_reports,
