@@ -2489,7 +2489,6 @@
 
   var sidebar = $("mapSidebar");
   var actionsToggle = $("mapActionsToggle");
-  var sidebarClose = $("mapSidebarClose");
   function isNarrowMap() {
     return window.matchMedia("(max-width: 860px)").matches;
   }
@@ -2562,7 +2561,6 @@
       setActionsToggle(app.classList.toggle("is-sidebar-collapsed"));
     });
   }
-  if (sidebarClose) sidebarClose.addEventListener("click", closeSidebar);
   window.addEventListener("resize", syncMapActions);
   var listBoxMobile = $("mapList");
   if (listBoxMobile) {

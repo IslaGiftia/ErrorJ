@@ -39,6 +39,9 @@ const PAGES = [
   { name: "notes-detail", path: "/notes", click: ".nt-card" },
   { name: "bookmarks", path: "/bookmarks" },
   { name: "map", path: "/map" },
+  // 手机端标记清单是要手动展开的，单独跑一遍带展开状态的组合，
+  // 免得「展开后才出现的横向溢出」被漏掉
+  { name: "map-panel", path: "/map", click: "#mapActionsToggle" },
   { name: "references", path: "/references" },
   { name: "workbench", path: "/workbench" },
 ];

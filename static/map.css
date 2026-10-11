@@ -65,6 +65,17 @@ body {
   inset: 0;
 }
 
+/*
+ * 自己裁掉超出应用范围的元素。
+ * body 上的 overflow: hidden 会传播到视口、body 本身反而不裁剪，
+ * 于是收起来的清单（向下平移）和滑出去的右上角按钮都算进文档滚动宽度：
+ * 手机 Chrome 会因此把布局视口撑大（412 → 462），position: fixed 的弹窗
+ * 就会按放大后的视口排版、右侧被切掉。这一行同时解决「弹窗超屏」和文档高度虚高。
+ */
+.mp-app {
+  overflow: hidden;
+}
+
 .mp-map {
   background: var(--mp-bg);
   z-index: 0;
@@ -588,11 +599,6 @@ body {
 .mp-icon-btn svg {
   width: 17px;
   height: 17px;
-}
-
-.mp-sidebar-close {
-  display: none;
-  margin-left: 2px;
 }
 
 .mp-tools {
@@ -1705,10 +1711,6 @@ body {
     min-height: 0;
   }
 
-  .mp-sidebar-close {
-    display: inline-flex;
-  }
-
   .mp-actions {
     left: 12px;
     right: 12px;
@@ -1724,22 +1726,35 @@ body {
     grid-template-columns: 44px minmax(0, 1fr);
   }
 
-  /* 手机端整体收缩，保证右上角按钮以下能完整显示搜索区 */
+  /*
+   * 手机端顶部整体压缩：标题行、搜索框、添加者、分类 / 标签都用更小的字号和间距，
+   * 腾出来的高度全部给下面的标记点列表。触控高度不低于 32px（搜索框仍然是 16px 字号，
+   * 避免 iOS 聚焦时把整页放大）。
+   */
   .mp-sidebar-head {
-    padding: 8px 10px;
-    gap: 8px;
+    padding: 5px 10px;
+    gap: 6px;
+  }
+
+  .mp-brand {
+    gap: 6px;
+  }
+
+  .mp-brand svg {
+    width: 15px;
+    height: 15px;
   }
 
   .mp-brand strong {
-    font-size: 13.5px;
+    font-size: 13px;
   }
 
   .mp-count {
-    font-size: 11px;
+    font-size: 10.5px;
   }
 
   .mp-search {
-    margin: 8px 10px 6px;
+    margin: 6px 10px 5px;
   }
 
   .mp-search input {
@@ -1750,33 +1765,87 @@ body {
 
   .mp-search svg {
     left: 9px;
-    width: 14px;
-    height: 14px;
+    width: 13px;
+    height: 13px;
   }
 
   .mp-cats {
-    padding: 4px 10px 8px;
+    padding: 3px 10px 5px;
     gap: 4px;
-    max-height: 64px;
+    max-height: 54px;
   }
 
   .mp-tags {
-    padding: 6px 10px;
+    padding: 4px 10px 5px;
     gap: 4px;
-    max-height: 52px;
+    max-height: 44px;
   }
 
   .mp-owner {
-    padding: 6px 10px 8px;
+    padding: 4px 10px 5px;
+    gap: 6px;
   }
 
-  .mp-owner label {
-    font-size: 11.5px;
+  .mp-owner-label {
+    font-size: 11px;
   }
 
-  .mp-owner select {
-    height: 28px;
-    font-size: 12px;
+  /* 添加者筛选按钮压到 32px，仍然保证好点 */
+  .mp-owner-btn {
+    height: 32px;
+    font-size: 12.5px;
+  }
+
+  /*
+   * 分类 / 标签胶囊只有 24–26px 高，不打算把视觉高度改大（否则省下的高度又还回去了），
+   * 改成用透明伪元素把上下各外扩 4px，点按热区变成 32px，看起来还是紧凑的一行胶囊。
+   */
+  .mp-cats .mp-chip,
+  .mp-tags .mp-tag-chip {
+    position: relative;
+  }
+
+  .mp-cats .mp-chip::after,
+  .mp-tags .mp-tag-chip::after {
+    content: "";
+    position: absolute;
+    inset: -4px 0;
+    border-radius: inherit;
+  }
+
+  /*
+   * 弹窗（含「选择添加者」）：手机上限定在屏幕内，宽度一律「屏宽 - 24px」，
+   * 并允许名字省略、数字靠右不换行，避免长昵称把弹窗撑出屏幕。
+   */
+  .mp-modal {
+    padding: 12px;
+  }
+
+  .mp-dialog,
+  .mp-dialog-wide,
+  .mp-dialog-small {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .mp-owner-options {
+    min-width: 0;
+  }
+
+  .mp-owner-option {
+    gap: 8px;
+    padding: 9px 10px;
+  }
+
+  .mp-owner-option > span {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .mp-owner-option > em {
+    flex: 0 0 auto;
+    white-space: nowrap;
   }
 
   .mp-list {
