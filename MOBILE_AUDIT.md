@@ -202,3 +202,28 @@ text-clipped         -> 36 处，全部是设计内的省略号截断
 | 26 | 右上角向下的箭头与左下角按钮重复 | `#mapSidebarClose` 只是另一个「收起清单」，还占着标题行右侧 | 删掉 DOM、JS 绑定（`closeSidebar` 监听）和对应 CSS，收起只留左下角那个按钮 | `static/map.html`、`static/map.js`、`static/map.css` | 412 面板截图确认只剩左下角一个收起按钮；控制台无 404 / 无异常 |
 | 27 | 「选择添加者」弹窗超出屏幕、右侧被切 | **根因不在弹窗**：清单展开时右上角三个按钮 `translateX` 滑出屏幕，而 `body{overflow:hidden}` 会传播到视口、body 自己不再裁剪，文档被撑到 462px，手机 Chrome 顺势把**布局视口**也放大到 462，`position: fixed` 的弹窗就按 462 排版 → 412 屏上右侧被切 | ① `.mp-app` 加 `overflow: hidden`，从根上裁掉滑出 / 下移的元素；② 手机端弹窗宽度统一「屏宽 − 24px」（`width:100%; max-width:100%; min-width:0`）；③ 昵称超长省略号、数字 `nowrap` 靠右 | `static/map.css` | 展开面板后 `innerWidth` 恢复 **412**（原 462）、文档宽 412、文档高 **915**（原 1718）；弹窗 412 下 12…400、360 下 12…348，长昵称省略、数字不换行 |
 | 28 | 审查脚本漏掉「清单展开态」 | 手机端清单要手动点开，之前的组合只测收起状态，第 27 条这类问题看不见 | 页面清单增加 `map-panel`（`/map` + 点击展开） | `scripts/mobile-audit.mjs` | `map-panel` × 360 / 412 / 768 / 1440：水平溢出 0、控制台异常 0；1440 下等价于「桌面收起侧栏」状态 |
+
+---
+
+# 第五轮：权限按钮闪现（地图「导出」）（2026-10-11）
+
+站长反馈：移动端普通账户进入地图后，下方功能区会先闪出「向左的箭头 + 导出」再跳成正常按钮。
+
+| # | 项目 | 现象 / 原因 | 修复 | 文件 | 验证 |
+| --- | --- | --- | --- | --- | --- |
+| 29 | 普通账户进地图先闪一下「左箭头 + 导出」 | 「导出」是管理员权限，但 `#mapExportLink` 在 HTML 里没写 `hidden`，而切换按钮的图标又写死成 `chevron-left`；`syncMapActions()` 要等地图数据回来才知道权限，于是首帧就是错的 | ① 导出按钮默认 `hidden`，权限确定后再由 JS 打开；② 操作栏加 `is-pending`：权限没回来之前不显示，另带 1.2s CSS 兜底（脚本没跑到也会自己出现）；③ 首帧就调用 `updateToggleForViewport()` 把箭头摆正；④ 请求失败也立即揭晓操作栏 | `static/map.html`、`static/map.css`、`static/map.js` | 用注入脚本模拟普通账户（接口延迟 1.2s 与正常速度各跑一遍），逐帧记录状态：**从未出现** `chevron-left`，导出按钮也从未露过面；正常速度下第一帧就是最终形态 `[^][+ 添加标记]`，只有一次状态变化 |
+| 30 | 顺带排查其它页面有没有同类问题 | 需要确认「按权限显隐的控件」不会先显示再隐藏 | 逐页比对 HTML 默认值与 JS 的 `.hidden = !canX`：留言 / 动态发布框、歌单上传与播放条、书架上传、推荐新增、提示词新增、参考项目管理员栏、笔记里的管理员按钮**都已经默认 hidden**，只有地图导出漏了；仓库 / 书签页没有权限级显隐 | —（只排查） | 见下表 |
+
+排查明细：
+
+| 页面 | 权限控件 | HTML 默认 | 结论 |
+| --- | --- | --- | --- |
+| 地图 | `#mapAddBtn` / `#mapCatsBtn` / `#mapImportBtn` / `#mapExportLink` | hidden / hidden / hidden / **漏了** | 本轮修复 |
+| 留言 | `#messageComposerPanel`（能否发帖） | hidden | 正常 |
+| 动态 | `#momentForm`（能否发布） | hidden | 正常 |
+| 歌单 | `#musicUploadBtn` / `#playerBar` | hidden / hidden | 正常 |
+| 书架 | `#bookUploadBtn` | hidden | 正常 |
+| 推荐 | `#recAddBtn` | hidden | 正常 |
+| 工作台 | `#promptAddBtn` 等 | hidden | 正常 |
+| 参考项目 | `#referenceAdminBar` | hidden | 正常 |
+| 首页 | `[data-guest-page]` 模块入口 | 默认显示，按游客权限即时隐藏 | 默认全部开放，只有站长关掉某个游客模块时，游客才会看到该入口闪一下；影响比按钮闪现小，本轮未改 |

@@ -499,6 +499,22 @@ body {
   backdrop-filter: blur(10px);
 }
 
+/*
+ * 权限（能不能添加 / 导入 / 导出）要等地图数据回来才知道，在那之前先把操作栏藏起来，
+ * 否则手机上会先闪一下「向左箭头 + 导出」，再跳成普通账户真正该有的按钮。
+ * 这里带一个 1.2s 的 CSS 兜底：万一脚本没跑到，操作栏也会自己出现，不会一直空着。
+ */
+.mp-actions.is-pending {
+  visibility: hidden;
+  animation: mp-actions-reveal 0s linear 1.2s forwards;
+}
+
+@keyframes mp-actions-reveal {
+  to {
+    visibility: visible;
+  }
+}
+
 .mp-actions .mp-btn {
   min-width: 0;
   padding: 0 10px;

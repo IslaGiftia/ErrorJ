@@ -2537,6 +2537,8 @@
     var app = $("mapApp");
     var actions = $("mapActions");
     if (!app || !actions) return;
+    // 权限已经确定（或请求失败兜底），操作栏可以现身了
+    actions.classList.remove("is-pending");
     var visible = Array.prototype.filter.call(actions.children, function (child) {
       return !child.hidden && !child.classList.contains("mp-actions-toggle");
     }).length;
@@ -2585,6 +2587,10 @@
   if (window.lucide && lucide.createIcons) lucide.createIcons();
   if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);
 
+  // 第一帧就按视口把切换按钮的箭头摆正（手机上收起状态是向上箭头），
+  // 不用等地图数据回来才纠正，避免先闪一个「向左箭头」
+  updateToggleForViewport();
+
   loadData(true)
     .then(function () {
       var placeId = Number(
@@ -2599,6 +2605,8 @@
       }
     })
     .catch(function (err) {
+      // 数据没回来也要让操作栏现身（CSS 兜底是 1.2s，这里更快）
+      syncMapActions();
       toast(err.message || "地图数据加载失败");
     });
 })();

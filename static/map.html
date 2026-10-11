@@ -57,7 +57,8 @@
       <div class="mp-list" id="mapList"></div>
     </aside>
 
-    <div class="mp-actions" id="mapActions">
+    <!-- is-pending：权限还没回来之前先不显示操作栏，避免先闪出「导出」和管理员按钮 -->
+    <div class="mp-actions is-pending" id="mapActions">
       <button class="mp-btn mp-actions-toggle" id="mapActionsToggle" type="button" aria-label="隐藏标记清单" title="隐藏标记清单">
         <i data-lucide="chevron-left"></i>
       </button>
@@ -70,7 +71,7 @@
       <button class="mp-btn" id="mapImportBtn" type="button" hidden>
         <i data-lucide="upload"></i><span>导入</span>
       </button>
-      <a class="mp-btn" id="mapExportLink" href="/api/map/export" download>
+      <a class="mp-btn" id="mapExportLink" href="/api/map/export" download hidden>
         <i data-lucide="download"></i><span>导出</span>
       </a>
     </div>
