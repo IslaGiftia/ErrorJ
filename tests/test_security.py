@@ -984,74 +984,15 @@ class InteractionTests(unittest.TestCase):
             )["seen_at"]
         )
 
-    def test_map_place_interact_toggles_and_notifies_creator(self):
-        stamp = app.now_text()
-        place_id = app.execute(
-            """INSERT INTO map_places
-                   (name, lat, lng, created_by, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            ("测试地点", 34.34, 108.94, self.author_id, stamp, stamp),
-        )
-        handler, responses = self.make_handler(self.other_id, username="other1")
-        handler.request_base_url = lambda: "https://zhexiyan.cc"
-        handler.api_map_place_interact(
-            f"/api/map/places/{place_id}/interact", {"kind": "like"}
-        )
-        self.assertEqual(
-            responses[-1][1], {"active": True, "count": 1, "kind": "like"}
-        )
-        handler.api_map_place_interact(
-            f"/api/map/places/{place_id}/interact", {"kind": "checkin"}
-        )
-        self.assertEqual(
-            responses[-1][1], {"active": True, "count": 1, "kind": "checkin"}
-        )
-        rows = app.query(
-            """SELECT kind, module, target_id, text FROM user_notifications
-               WHERE user_id = ? AND module = 'map' ORDER BY id""",
-            (self.author_id,),
-        )
-        self.assertEqual(
-            [row["kind"] for row in rows], ["place_like", "place_checkin"]
-        )
-        self.assertEqual({int(row["target_id"]) for row in rows}, {place_id})
-        self.assertTrue(rows[0]["text"].endswith("点赞了你的标记点"))
-        self.assertTrue(rows[1]["text"].endswith("打卡了你的标记点"))
-
-        handler.api_map_place_interact(
-            f"/api/map/places/{place_id}/interact", {"kind": "like"}
-        )
-        self.assertEqual(
-            responses[-1][1], {"active": False, "count": 0, "kind": "like"}
-        )
-        # 再点回来不会重复发提醒
-        handler.api_map_place_interact(
-            f"/api/map/places/{place_id}/interact", {"kind": "like"}
-        )
-        self.assertEqual(
-            responses[-1][1], {"active": True, "count": 1, "kind": "like"}
-        )
-        self.assertEqual(
-            app.query_one(
-                "SELECT COUNT(*) AS n FROM user_notifications WHERE user_id = ? AND kind = 'place_like'",
-                (self.author_id,),
-            )["n"],
-            1,
-        )
-        author_handler, _ = self.make_handler(self.author_id, username="author1")
-        author_handler.api_map_mark_seen({"notify_targets": [place_id]})
-        self.assertEqual(
-            (app.unseen_notifications(self.author_id).get("map") or {}).get("count", 0),
-            0,
-        )
-        self.assertEqual(
-            app.query_one(
-                "SELECT COUNT(*) AS n FROM map_place_interactions WHERE kind = 'checkin'"
-            )["n"],
-            1,
+    def test_map_interaction_feature_is_offline(self):
+        """标记点的点赞 / 打卡整体下线：接口与互动字段都不再存在。"""
+        self.assertFalse(hasattr(app.InventoryHandler, "api_map_place_interact"))
+        self.assertNotIn(
+            "map_interaction", {item["key"] for item in app.NOTIFY_EVENTS}
         )
 
-    def test_map_api_exposes_interaction_state(self):
+    def test_map_api_hides_interaction_state(self):
+        """历史互动行与未读提醒留在库里，但接口不再下发互动字段。"""
         stamp = app.now_text()
         place_id = app.execute(
             """INSERT INTO map_places
@@ -1073,8 +1014,8 @@ class InteractionTests(unittest.TestCase):
         target = [
             row for row in payload["places"] if int(row["id"]) == place_id
         ][0]
-        self.assertEqual(target["checkin_count"], 1)
-        self.assertFalse(target["checked_in"])
+        for field in ("like_count", "checkin_count", "liked", "checked_in"):
+            self.assertNotIn(field, target)
         self.assertTrue(target["fresh"])
         self.assertEqual(payload["notify_targets"], [place_id])
 
@@ -1514,8 +1455,8 @@ class HomeActivityAlertTests(unittest.TestCase):
                 self.assertTrue(payload["signed_in"])
                 self.assertFalse(payload["admin"])
 
-    def test_map_like_alert_survives_log_truncation(self):
-        """公开动态超过 60 条时，地图点赞这类提醒也必须返回给被点赞的人。"""
+    def test_map_alert_survives_log_truncation(self):
+        """公开动态超过 60 条时，历史遗留的地图提醒也必须返回给本人。"""
         with tempfile.TemporaryDirectory() as temp_dir:
             with patch.object(app, "DB_PATH", Path(temp_dir) / "inventory.db"):
                 app.init_db()
@@ -1547,7 +1488,9 @@ class HomeActivityAlertTests(unittest.TestCase):
                 alerts = [item for item in payload["items"] if item.get("alert")]
                 self.assertTrue(any(item.get("id") == "notify-map" for item in alerts))
                 matching = [
-                    item for item in alerts if item.get("text") == "点赞了你的标记点"
+                    item
+                    for item in alerts
+                    if item.get("text") == "牛大能 点赞了你的标记点"
                 ]
                 self.assertEqual(len(matching), 1)
 

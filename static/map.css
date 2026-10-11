@@ -1217,57 +1217,6 @@ body {
   min-width: 46px;
 }
 
-.mp-react-btn {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--mp-border);
-  border-radius: 8px;
-  background: var(--mp-surface);
-  color: var(--mp-text);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.mp-react-label {
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.mp-react-icon {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  flex: 0 0 auto;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  line-height: 1;
-}
-
-.mp-react-btn:hover {
-  background: var(--mp-hover);
-}
-
-.mp-react-btn.is-on {
-  border-color: color-mix(in srgb, var(--primary, #7b68ee) 55%, var(--mp-border));
-  background: color-mix(in srgb, var(--primary, #7b68ee) 12%, var(--mp-surface));
-  color: var(--primary, #7b68ee);
-}
-
-.mp-react-btn:disabled {
-  cursor: default;
-  opacity: 0.7;
-}
-
 /* ---------- leaflet controls ---------- */
 
 .leaflet-bar {

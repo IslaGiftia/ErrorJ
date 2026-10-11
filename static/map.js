@@ -733,7 +733,6 @@
     var cat = categoryById(place.category_id);
     var color = placeColor(place);
     var gcj = Geo.toGcj(place.lat, place.lng);
-    var bd = Geo.gcjToBd(gcj[0], gcj[1]);
     var tags = String(place.tags || "")
       .split(",")
       .map(function (tag) {
@@ -806,55 +805,23 @@
       }
       html += "</div>";
     }
+    // 只保留高德导航
     var nav =
-      '<a class="mp-link-btn" target="_blank" rel="noopener" href="https://uri.amap.com/marker?position=' +
+      '<a class="mp-link-btn mp-edit-btn" target="_blank" rel="noopener" href="https://uri.amap.com/marker?position=' +
       gcj[1].toFixed(6) +
       "," +
       gcj[0].toFixed(6) +
       "&name=" +
       encodeURIComponent(place.name) +
-      '">高德导航</a>' +
-      '<a class="mp-link-btn" target="_blank" rel="noopener" href="https://api.map.baidu.com/marker?location=' +
-      bd[0].toFixed(6) +
-      "," +
-      bd[1].toFixed(6) +
-      "&title=" +
-      encodeURIComponent(place.name) +
-      "&content=" +
-      encodeURIComponent(place.name) +
-      "&output=html&src=webapp.errorjiang.map" +
-      '">百度导航</a>';
+      '">导航</a>';
     html += '<div class="mp-popup-foot">';
     if (place.created_by_name) {
       html +=
         '<p class="mp-popup-by">添加者：' + esc(place.created_by_name) + "</p>";
     }
-    html += '<div class="mp-popup-nav">' + nav + "</div></div>";
+    html += "</div>";
     html += '<div class="mp-popup-actions">';
-    var likeLabel =
-      place.like_count > 0 ? "点赞 · " + place.like_count : "点赞";
-    var checkinLabel =
-      place.checkin_count > 0 ? "打卡 · " + place.checkin_count : "打卡";
-    html +=
-      '<button type="button" class="mp-react-btn' +
-      (place.liked ? " is-on" : "") +
-      '" data-mp-react="like" data-mp-id="' +
-      place.id +
-      '" aria-pressed="' +
-      (place.liked ? "true" : "false") +
-      '" title="点赞这个标记点"><svg class="mp-react-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.3l-1.1-1C6.1 15 3 12.2 3 8.7 3 6 5 4 7.6 4c1.5 0 2.9.7 3.8 1.8l.6.7.6-.7C13.5 4.7 14.9 4 16.4 4 19 4 21 6 21 8.7c0 3.5-3.1 6.3-7.9 10.6l-1.1 1z"/></svg><span class="mp-react-label">' +
-      likeLabel +
-      "</span></button>";
-    html +=
-      '<button type="button" class="mp-react-btn' +
-      (place.checked_in ? " is-on" : "") +
-      '" data-mp-react="checkin" data-mp-id="' +
-      place.id +
-      '" aria-pressed="' +
-      (place.checked_in ? "true" : "false") +
-      '" title="标记为已去过"><svg class="mp-react-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12.5l4.5 4.5L19.5 6.5"/></svg><span class="mp-react-label">' +
-      checkinLabel +
-      "</span></button>";
+    html += nav;
     if (place.can_edit) {
       html +=
         '<button type="button" class="mp-link-btn mp-edit-btn" data-mp-action="edit" data-mp-id="' +
@@ -2305,44 +2272,6 @@
   }
 
   mapEl.addEventListener("click", function (event) {
-    var reactEl = event.target.closest("[data-mp-react]");
-    if (reactEl) {
-      var reactPlace = placeById(Number(reactEl.getAttribute("data-mp-id")));
-      var reactKind = reactEl.getAttribute("data-mp-react");
-      if (!reactPlace || reactEl.disabled) return;
-      reactEl.disabled = true;
-      api("/api/map/places/" + reactPlace.id + "/interact", {
-        method: "POST",
-        body: JSON.stringify({ kind: reactKind })
-      })
-        .then(function (data) {
-          var count = Number(data && data.count) || 0;
-          var base = reactKind === "like" ? "点赞" : "打卡";
-          var label = count > 0 ? base + " · " + count : base;
-          reactEl.classList.toggle("is-on", Boolean(data && data.active));
-          reactEl.setAttribute(
-            "aria-pressed",
-            data && data.active ? "true" : "false"
-          );
-          var textEl = reactEl.querySelector(".mp-react-label");
-          if (textEl) textEl.textContent = label;
-          if (reactKind === "like") {
-            reactPlace.liked = Boolean(data && data.active);
-            reactPlace.like_count = count;
-          } else {
-            reactPlace.checked_in = Boolean(data && data.active);
-            reactPlace.checkin_count = count;
-          }
-          notifyDockRefresh();
-        })
-        .catch(function (err) {
-          toast(err.message || "操作失败");
-        })
-        .then(function () {
-          reactEl.disabled = false;
-        });
-      return;
-    }
     var actionEl = event.target.closest("[data-mp-action]");
     if (!actionEl) return;
     var place = placeById(Number(actionEl.getAttribute("data-mp-id")));
