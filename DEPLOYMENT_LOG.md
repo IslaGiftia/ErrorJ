@@ -41,7 +41,7 @@ http://<服务器公网IP>
 Web 服务：Nginx 1.28.3
 Python：3.14.4
 Git 仓库：git@github.com:IslaGiftia/ErrorJ.git
-当前提交：e633cfe
+当前提交：bb94b4e
 Nginx 上传上限：client_max_body_size 84m
 公网端口：80 已开放
 HTTPS：未配置，443 未开放
@@ -2225,4 +2225,47 @@ A 移动端地图 → B 全局按下反馈 → C 笔记移动端「以便查看�
 游客状态    -> /api/auth/status 返回 map_dock_allowed=false
 线上首页    -> 412×915 与 1440×900 冒烟：控制台 / 网络异常 10 条 → 0 条；圆盘保持静态游客底图
 本地审查    -> home / map / references × 412 / 768 / 1440：水平溢出 0、控制台异常 0、text-wrapped 0
+```
+
+## 75. 2026-10-11 08:56:12 手机地图顶部紧凑化、弹窗适配与去掉重复收起键
+
+需求：站长看手机截图后提出三条——顶部区域（标题行 / 搜索框 / 添加者 / 分类 / 标签）整体紧凑化、
+删掉右上角那个向下的收起箭头、「选择添加者」弹窗没有适配手机端（超出屏幕、内容被切）。
+
+完成内容（`bb94b4e fix:compact-mobile-map-panel-and-fix-owner-dialog-overflow`）：
+- **顶部紧凑化**（`static/map.css`，只在 ≤860px 生效）：
+  标题行 44 → 32、搜索块 46 → 42、分类 64 → 54、标签 52 → 44、添加者 48 → 42；
+  搜索框仍是 32px 高 + 16px 字号（避免 iOS 聚焦放大），添加者按钮 34 → 32px。
+  分类 / 标签胶囊视觉高度不动，改用透明伪元素把点按热区从 24px 撑到 32px。
+  412×915 实测：顶部功能区 261 → 216px，标记点列表 529 → 554px。
+- **删掉重复的收起键**：`#mapSidebarClose`（右上角向下箭头）的 DOM、JS 绑定和 CSS 一起删除，
+  收起清单只保留左下角那一个按钮。
+- **修好「选择添加者」弹窗超屏**（`static/map.css`）：根因不是弹窗本身，而是清单展开时
+  右上角三个按钮 `translateX` 滑出屏幕，`body{overflow:hidden}` 传播到视口后 body 自己不再裁剪，
+  文档被撑到 462px，手机 Chrome 顺势把布局视口也放大到 462，`position: fixed` 的弹窗于是按 462 排版。
+  修法是给 `.mp-app` 加 `overflow: hidden` 从根上裁掉溢出，再给手机端弹窗加上
+  「屏宽 − 24px」的宽度约束，昵称过长省略、标记数靠右不换行。
+- 审查脚本新增 `map-panel` 组合（`/map` + 展开清单），补上「只有展开后才出现」的溢出检查。
+
+部署步骤：
+```text
+本地：python -m unittest discover -s tests（107 项全过）；node --check static/map.js / scripts/mobile-audit.mjs
+      python -m json.tool config/changelog-seed.json；git diff --check 干净
+      提交 → fetch → pull --rebase → push origin main
+备份：/data/errorjiang-backup/map-mobile-polish-20261011-0858/（停服后复制 inventory.db + changelog-seed.json）
+服务器：git pull --ff-only → a0c4368..bb94b4e
+      changelog-seed.json 经 SCP + install 覆盖（SHA256 与本机一致）
+      import_changelog_moments.py --date 2026-10-11 --force -> 完成：新增 3 条
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，/api/health = {"ok": true}
+服务器 HEAD -> bb94b4e（与本地、origin/main 一致）
+站内动态    -> 2026-10-11 三条：02:21:44（id 273）、07:49:42（id 274）、08:56:12（id 275）
+布局视口    -> 展开清单后 innerWidth 412（修复前 462），文档宽 412、文档高 915（修复前 1718）
+弹窗        -> 412 下 12…400（宽 388）、360 下 12…348（宽 336），长昵称省略、数字不换行
+本地审查    -> map / map-panel × 360 / 412 / 768 / 1440：水平溢出 0、控制台异常 0
+线上静态    -> https://zhexiyan.cc/static/map.css 已含 .mp-app{overflow:hidden}，不再含 mp-sidebar-close
+线上冒烟    -> 首页 / 登录页 × 412 / 1440 控制台异常 0（地图页对游客是登录跳转，面板与弹窗在本地管理员视角核对）
 ```
