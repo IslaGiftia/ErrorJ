@@ -2432,3 +2432,54 @@ OCR 全量扫描（115 个文件）的结论修真问题，再做视觉 / 动效
 也不想在生产库临时建号）；线上通过「代码已部署 + 静态资源哈希一致 + 权限边界未松动」确认。
 另外本轮只改了 `/api/map` 的返回字段，没有改动服务端对标记的可见性，普通账户本来也只能看到
 全部公开标记——收回的是「挑人看」这个能力，不是数据权限。
+
+## 79. 2026-10-11 20:02:35 动态分栏：我的动态与开发日志拆开
+
+需求：站长反馈「动态」页被 Error酱 推的更新日志淹没（当时 79 条动态里 70 条是日志），要求增加
+分类标识、拆成两个标签页（默认看我的动态）、日志改用更紧凑的排版（按日期分组、无卡片无阴影、
+git commit 节点图标）、手机端标签吸顶；顺带把地图悬浮组「更多」展开时的列表让位补上。
+
+完成内容（`d800f54 feat:moment-tabs-and-compact-changelog-log`）：
+- 数据模型：`moments` 新增 `kind` 列（`post` = 手动发布 / `log` = 更新日志），建表语句与老库
+  迁移都补上；迁移只在加列那一次按内容前缀（`【更新日志】%`）回填旧数据，之后由导入脚本自己写
+  `kind='log'`。`/api/moments` 在登录与游客两种返回里都带上 `kind`。
+- 页面：「动态」顶部新增两个标签页（我的动态 / 开发日志，各带条数），默认停在「我的动态」，
+  切换只在前端分流（不发新请求、不刷新页面），地址栏记 `?kind=post|log` 便于分享；发布框与
+  「我点赞过 / 我评论过」筛选只在「我的动态」里出现。
+- 日志排版：按日期分组，小字灰字、无卡片无阴影，每行只有 git commit 节点图标 + 时间 + 标题，
+  点开才展开当日条目（`aria-expanded` 同步）。手机端标签吸顶在页面标题下方（top: 57px，
+  标签与日志行触控高度 44px）。游客在两栏看到的仍是只有时间的锁定占位。
+- 地图：右下角悬浮组统一 44px 并与缩放控件错开（bottom 12 → 94px），展开「更多」时列表动态
+  增加内边距让位。
+- 测试：游客 `/api/moments` 的字段白名单断言原本写死 `{id, pinned, created_at}`，本次按新契约
+  更新为 `{id, pinned, kind, created_at}`（只多了分类标识，正文/图片/点赞仍不返回）。
+- 发布 skill 同步更新：runbook 的线上校验改用域名（Nginx 绑定 `zhexiyan.cc`，裸 IP 一律 404），
+  并补上「改动数据库结构时必须在 git pull 后先跑一次 `app.init_db()` 再执行导入脚本」——
+  导入脚本走裸 sqlite3，不会自己跑迁移。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py tools/import_changelog_moments.py；python -m unittest discover -s tests -> 107 项全过
+      node --check static/moments.js static/map.js；python -m json.tool config/changelog-seed.json；git diff --check 干净
+      真机验证：PC 默认「我的动态」2 条 / 切「开发日志」17 条 14 个日期组（首条 2026-10-07 20:55「日志系统补充与按小时记录」，
+      节点图标 lucide-git-commit-vertical，点开 aria-expanded=true）；手机 ?kind=log 直达、标签 position: sticky top 57px、
+      滚 600px 后仍贴标题下方、标签高 44px；切回「我的动态」恢复 2 条；全程零页面异常
+提交：d800f54（10 个文件，+561/-67），fetch/rebase 后 push，本地 == origin/main
+备份：/data/errorjiang-backup/moment-tabs-20261011-2007/（停服后复制 inventory.db 与 changelog-seed.json）
+服务器：git pull --ff-only 40d3af4 -> d800f54 -> runuser -u errorjiang -- python3 -c "import app; app.init_db()"（migration-ok）
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 = b99b06aa…e3ff）
+      import_changelog_moments.py --date 2026-10-11 --force -> 完成：新增 7 条，覆盖 0 条
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，/api/health = {"ok": true}，服务器 HEAD = d800f54
+数据分类    -> 线上 moments 按 kind 分组：log 70 / post 9；今天 8 条里 id 298 是本轮日志（20:02:35），
+              id 285「再也不受羁绊辣」被正确归为 post
+静态资源    -> https://zhexiyan.cc 上的 static/moments.js、moments.css、moments.html、map.js
+              与本机文件 SHA256 逐一相同（59bb94ab / b8b67a48 / 7f53e1a0 / f4ab8d74）
+公开接口    -> /api/moments 给游客返回 79 条、字段恰为 {created_at, id, kind, pinned}，新条目 id 298 在列
+```
+
+备注：游客（以及未登录状态）在两栏看到的仍是只含时间的锁定占位，日志正文不因为分栏而对外可见；
+线上没有普通账号，所以「登录后分栏」的表现是本地用同一提交的代码验证的。
