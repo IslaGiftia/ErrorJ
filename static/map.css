@@ -1812,7 +1812,9 @@ body {
 .mp-filter-btn,
 .mp-filters-mask,
 .mp-filters-head,
-.mp-actions-more {
+.mp-actions-more,
+.mp-cats-toggle,
+.mp-owner-caret {
   display: none;
 }
 
@@ -2344,6 +2346,11 @@ body {
     height: 19px;
   }
 
+  /* 移动端是纯图标按钮：按钮里的文字不显示（桌面端才露出来） */
+  .mp-actions .mp-btn-text {
+    display: none;
+  }
+
   /* 悬浮组会盖住列表最后几条，留出滚动余量 */
   .mp-list {
     padding-bottom: 84px;
@@ -2425,5 +2432,266 @@ body {
 @media (max-width: 1024px) {
   .mp-search input {
     font-size: 16px;
+  }
+}
+
+/* ============================================================
+ * 桌面端检索区重构（只在 >=861px 生效，移动端完全不受影响）
+ * 追加在文件末尾：基础规则在前，这里用同优先级按级联顺序覆盖。
+ * ============================================================ */
+
+@media (min-width: 861px) {
+  /* ---------- 两张独立卡片：上面检索、下面操作，中间留间距 ---------- */
+  .mp-sidebar {
+    bottom: calc(16px + var(--mp-actions-h, 98px) + 10px);
+    transition: transform 0.26s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s ease-out;
+  }
+
+  /* 收起：整张卡片向下滑出（上下滑动，不再左右横移） */
+  .mp-app.is-sidebar-collapsed .mp-sidebar {
+    transform: translateY(calc(100% + var(--mp-actions-h, 98px) + 40px));
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  /* 去掉原先「两张卡拼成一张」的处理，各自恢复完整的圆角与描边 */
+  .mp-app:not(.is-sidebar-collapsed) .mp-sidebar {
+    border-bottom-width: 1px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+  }
+
+  .mp-app:not(.is-sidebar-collapsed) .mp-actions {
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+  }
+
+  /* ---------- 卡片内顺序：搜索框 → 添加者 → 分类 → 列表 ---------- */
+  .mp-sidebar > .mp-sidebar-head {
+    order: 0;
+  }
+
+  .mp-search {
+    order: 1;
+  }
+
+  .mp-owner {
+    order: 2;
+  }
+
+  .mp-chips-row {
+    order: 3;
+  }
+
+  .mp-list {
+    order: 10;
+  }
+
+  /* 桌面端不要备注标签（#街道级、#精确 这类） */
+  .mp-tags {
+    display: none;
+  }
+
+  /* ---------- 添加者：紧凑下拉样式的整行控件，紧跟搜索框 ---------- */
+  .mp-owner {
+    position: relative;
+    align-items: center;
+    gap: 8px;
+    margin: 0 12px 8px;
+    padding: 0 10px;
+    height: 34px;
+    border: 1px solid var(--mp-border);
+    border-radius: 8px;
+    background: var(--mp-surface-2);
+  }
+
+  .mp-owner:hover {
+    border-color: var(--mp-muted);
+  }
+
+  .mp-owner-label {
+    font-size: 12px;
+    color: var(--mp-muted);
+  }
+
+  .mp-owner-state {
+    display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--mp-text);
+    font-size: 12.5px;
+  }
+
+  /* 按钮铺满整行当点击热区，视觉交给上面的行样式 */
+  .mp-owner-btn {
+    position: absolute;
+    inset: 0;
+    width: auto;
+    height: auto;
+    border: 0;
+    background: none;
+    border-radius: 8px;
+  }
+
+  .mp-owner-btn svg {
+    display: none;
+  }
+
+  /* 行里已经有文字，悬停提示就多余了 */
+  .mp-owner .mp-tip::after {
+    display: none;
+  }
+
+  .mp-owner-caret {
+    display: inline-flex;
+    margin-left: auto;
+    color: var(--mp-muted);
+  }
+
+  .mp-owner-caret svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  /* ---------- 分类：默认 1-2 行 + 底部渐隐 + 右下角展开按钮 ---------- */
+  .mp-chips-row {
+    display: block;
+    position: relative;
+    margin: 0 12px 8px;
+    max-height: 76px;
+    overflow: hidden;
+    transition: max-height 0.26s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .mp-chips-row.is-expanded {
+    max-height: 320px;
+  }
+
+  .mp-chips-row .mp-cats {
+    max-height: none;
+    overflow: visible;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  /* 折叠时底部 40% 渐隐，暗示下面还有 */
+  .mp-chips-row:not(.is-expanded) .mp-cats {
+    mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+  }
+
+  .mp-cats-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--mp-border);
+    border-radius: 6px;
+    background: var(--mp-surface);
+    color: var(--mp-muted);
+    cursor: pointer;
+  }
+
+  .mp-cats-toggle:hover {
+    color: var(--mp-text);
+    border-color: var(--mp-muted);
+  }
+
+  .mp-cats-toggle svg {
+    width: 15px;
+    height: 15px;
+    transition: transform 0.2s ease-out;
+  }
+
+  .mp-chips-row.is-expanded .mp-cats-toggle svg {
+    transform: rotate(180deg);
+  }
+
+  /* ---------- 列表：更紧凑，副标题靠右当标签 ---------- */
+  .mp-item {
+    gap: 8px;
+    min-height: 40px;
+    padding: 5px 8px;
+    border-radius: 6px;
+  }
+
+  .mp-item + .mp-item {
+    border-top: 1px solid color-mix(in srgb, var(--mp-border) 55%, transparent);
+  }
+
+  .mp-item-dot {
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    font-size: 11px;
+  }
+
+  .mp-item-title {
+    gap: 5px;
+    font-size: 13px;
+  }
+
+  .mp-item-sub {
+    flex: 0 0 auto;
+    margin-left: auto;
+    padding-left: 6px;
+    font-size: 12px;
+  }
+
+  .mp-item-desc {
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  /* 常驻的操作卡片不覆盖列表，底部再留一点余量更好读 */
+  .mp-list {
+    padding-bottom: 10px;
+  }
+
+  /* ---------- 操作卡片：与检索卡片同宽、按钮均分、带文字 ---------- */
+  .mp-actions {
+    width: min(340px, calc(100vw - 32px));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .mp-actions .mp-btn {
+    width: auto;
+    height: 40px;
+    min-height: 40px;
+    padding: 0 10px;
+    border-radius: 8px;
+  }
+
+  .mp-actions .mp-btn svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .mp-actions .mp-btn-text {
+    display: inline;
+    font-size: 12.5px;
+  }
+
+  /* 开合按钮固定在卡片第一行右侧，只占一小格 */
+  .mp-actions .mp-actions-toggle {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    justify-self: end;
+    width: 30px;
+    height: 26px;
+    min-height: 26px;
+    padding: 0;
+  }
+
+  .mp-actions.one-action,
+  .mp-actions.is-solo,
+  .mp-actions.single-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

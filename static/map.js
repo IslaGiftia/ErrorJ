@@ -1022,8 +1022,35 @@
     renderSubcats();
     renderTags();
     updateFilterBadge();
+    updateCatsToggle();
     renderList();
     renderMarkers();
+  }
+
+  /*
+   * 桌面端分类默认只露 1-2 行（CSS 里 max-height: 76px），装不下才显示展开按钮；
+   * 移动端整块是横向滚动，不需要这个按钮。
+   */
+  function updateCatsToggle() {
+    var row = document.querySelector(".mp-chips-row");
+    var button = $("mapCatsToggle");
+    if (!row || !button) return;
+    if (isNarrowMap()) {
+      button.hidden = true;
+      row.classList.remove("is-expanded");
+      return;
+    }
+    var collapsed = 76;
+    if (row.scrollHeight <= collapsed + 4) {
+      button.hidden = true;
+      row.classList.remove("is-expanded");
+      button.setAttribute("aria-expanded", "false");
+      return;
+    }
+    button.hidden = false;
+    var expanded = row.classList.contains("is-expanded");
+    button.setAttribute("aria-expanded", expanded ? "true" : "false");
+    button.setAttribute("aria-label", expanded ? "收起分类" : "展开全部分类");
   }
 
   function fitAll() {
@@ -2094,6 +2121,17 @@
     });
   }
 
+  // 桌面端分类的展开 / 收起（移动端整块横滑，用不到）
+  var catsToggle = $("mapCatsToggle");
+  if (catsToggle) {
+    catsToggle.addEventListener("click", function () {
+      var row = document.querySelector(".mp-chips-row");
+      if (!row) return;
+      row.classList.toggle("is-expanded");
+      updateCatsToggle();
+    });
+  }
+
   var subcatsBox = $("mapSubcats");
   if (subcatsBox) {
     subcatsBox.addEventListener("click", function (event) {
@@ -2563,9 +2601,9 @@
   function setActionsToggle(collapsed) {
     if (!actionsToggle) return;
     actionsToggle.innerHTML = collapsed
-      ? '<i data-lucide="chevron-right"></i>'
-      : '<i data-lucide="chevron-left"></i>';
-    var label = collapsed ? "展开标记清单" : "隐藏标记清单";
+      ? '<i data-lucide="chevron-up"></i>'
+      : '<i data-lucide="chevron-down"></i>';
+    var label = collapsed ? "展开检索区" : "收起检索区";
     actionsToggle.setAttribute("aria-label", label);
     actionsToggle.setAttribute("data-tip", label);
     if (window.lucide && lucide.createIcons) lucide.createIcons();

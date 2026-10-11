@@ -1045,8 +1045,26 @@
     return { title: (matched ? matched[2] : head).trim() || "更新", items: items };
   }
 
-  /* 开发日志：按日期分组的紧凑列表，行内只有时间与标题，点开才展开条目 */
-  function buildLogList(list, rows) {
+  /*
+   * 开发日志：按「月份」手风琴分组。
+   * - 默认只展开日志里最新的那个月（也就是「最近 1 个月」；若本月没有日志，
+   *   天然落到上一个有日志的月份）。
+   * - 折叠的月份只渲染标题，正文等到第一次展开时才建 DOM（懒渲染），
+   *   所以日志再多也不会一次性堆出几千个节点。
+   * - 展开状态存在 logMonthOpen 里，切栏、刷新列表都不会丢。
+   */
+  var logMonthOpen = {};
+
+  function logMonthKey(row) {
+    return String(row.created_at || "").slice(0, 7);
+  }
+
+  function logMonthLabel(key) {
+    var parts = String(key).split("-");
+    return parts[0] + "年" + parts[1] + "月";
+  }
+
+  function buildLogMonthBody(body, rows) {
     var order = [];
     var byDate = {};
     rows.forEach(function (row) {
@@ -1058,8 +1076,7 @@
       byDate[date].push(row);
     });
     order.forEach(function (date) {
-      var section = el("section", "mo-log-group");
-      section.appendChild(el("h3", "mo-log-date", date));
+      body.appendChild(el("h4", "mo-log-date", date));
       var ol = el("ol", "mo-log-rows");
       byDate[date].forEach(function (row) {
         var parsed = parseLogRow(row);
@@ -1074,24 +1091,98 @@
         var caret = el("span", "mo-log-caret");
         caret.innerHTML = '<i data-lucide="chevron-down"></i>';
         btn.append(node, time, title, caret);
-        var body = el("div", "mo-log-body");
-        body.hidden = true;
+        var detail = el("div", "mo-log-body");
+        detail.hidden = true;
         var ul = el("ul", "mo-log-items");
         parsed.items.forEach(function (item) {
           ul.appendChild(el("li", "", item));
         });
-        body.appendChild(ul);
-        li.append(btn, body);
+        detail.appendChild(ul);
+        li.append(btn, detail);
         btn.addEventListener("click", function () {
           var open = !li.classList.contains("is-open");
           li.classList.toggle("is-open", open);
-          body.hidden = !open;
+          detail.hidden = !open;
           btn.setAttribute("aria-expanded", open ? "true" : "false");
         });
         ol.appendChild(li);
       });
-      section.appendChild(ol);
+      body.appendChild(ol);
+    });
+  }
+
+  function applyLogMonth(panel, open) {
+    if (open && !panel.built) {
+      buildLogMonthBody(panel.body, panel.rows);
+      panel.built = true;
+      refreshIcons();
+    }
+    panel.section.classList.toggle("is-open", open);
+    panel.body.hidden = !open;
+    panel.header.setAttribute("aria-expanded", open ? "true" : "false");
+    logMonthOpen[panel.key] = open;
+  }
+
+  function buildLogList(list, rows) {
+    var order = [];
+    var byMonth = {};
+    rows.forEach(function (row) {
+      var key = logMonthKey(row);
+      if (!byMonth[key]) {
+        byMonth[key] = [];
+        order.push(key);
+      }
+      byMonth[key].push(row);
+    });
+    if (!order.length) return;
+    // 默认展开最近 1 个月；用户手动开合过就沿用他的选择
+    if (!Object.keys(logMonthOpen).length) logMonthOpen[order[0]] = true;
+
+    var tools = el("div", "mo-log-tools");
+    var expandAll = el("button", "mo-log-tool", "展开全部");
+    expandAll.type = "button";
+    var collapseAll = el("button", "mo-log-tool", "收起全部");
+    collapseAll.type = "button";
+    tools.append(expandAll, collapseAll);
+    list.appendChild(tools);
+
+    var panels = [];
+    order.forEach(function (key) {
+      var section = el("section", "mo-log-month-group");
+      var header = el("button", "mo-log-month");
+      header.type = "button";
+      header.append(
+        el("span", "mo-log-month-label", logMonthLabel(key)),
+        el("em", "mo-log-month-num", "共 " + byMonth[key].length + " 条")
+      );
+      var caret = el("span", "mo-log-caret");
+      caret.innerHTML = '<i data-lucide="chevron-down"></i>';
+      header.appendChild(caret);
+      var body = el("div", "mo-log-month-body");
+      body.id = "mo-log-month-" + key;
+      header.setAttribute("aria-controls", body.id);
+      section.append(header, body);
       list.appendChild(section);
+
+      var panel = { key: key, section: section, header: header, body: body, rows: byMonth[key], built: false };
+      panels.push(panel);
+      header.addEventListener("click", function () {
+        applyLogMonth(panel, !section.classList.contains("is-open"));
+      });
+    });
+
+    panels.forEach(function (panel) {
+      applyLogMonth(panel, Boolean(logMonthOpen[panel.key]));
+    });
+    expandAll.addEventListener("click", function () {
+      panels.forEach(function (panel) {
+        applyLogMonth(panel, true);
+      });
+    });
+    collapseAll.addEventListener("click", function () {
+      panels.forEach(function (panel) {
+        applyLogMonth(panel, false);
+      });
     });
   }
 

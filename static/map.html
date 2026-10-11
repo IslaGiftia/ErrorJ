@@ -56,6 +56,10 @@
       <div class="mp-chips-row">
         <div class="mp-cats" id="mapCategories"></div>
         <div class="mp-cats mp-subcats" id="mapSubcats" hidden></div>
+        <!-- 桌面端：分类默认只显示 1-2 行，这个按钮负责展开/收起（移动端不显示） -->
+        <button class="mp-cats-toggle" id="mapCatsToggle" type="button" aria-label="展开全部分类" aria-expanded="false" hidden>
+          <i data-lucide="chevron-down"></i>
+        </button>
       </div>
 
       <div class="mp-filters-mask" id="mapFiltersMask" hidden></div>
@@ -73,6 +77,7 @@
           </button>
           <!-- 当前筛选项：桌面端靠按钮上的悬停提示显示，手机端在高级筛选抽屉里直接显示这行文字 -->
           <span class="mp-owner-state" id="mapOwnerValue">全部添加者</span>
+          <i class="mp-owner-caret" data-lucide="chevron-down"></i>
         </div>
       </div>
       <div class="mp-list" id="mapList"></div>
@@ -90,16 +95,16 @@
       </button>
       <!-- 纯图标按钮：文字说明走 data-tip（悬停提示）+ aria-label（读屏），不再显示文字 -->
       <button class="mp-btn mp-btn-primary mp-tip" id="mapAddBtn" type="button" aria-label="添加标记" data-tip="添加标记" hidden>
-        <i data-lucide="plus"></i>
+        <i data-lucide="plus"></i><span class="mp-btn-text">添加标记</span>
       </button>
       <button class="mp-btn mp-tip" id="mapCatsBtn" type="button" aria-label="分类管理" data-tip="分类管理" hidden>
-        <i data-lucide="tags"></i>
+        <i data-lucide="tags"></i><span class="mp-btn-text">分类</span>
       </button>
       <button class="mp-btn mp-tip" id="mapImportBtn" type="button" aria-label="导入标记" data-tip="导入标记" hidden>
-        <i data-lucide="upload"></i>
+        <i data-lucide="upload"></i><span class="mp-btn-text">导入</span>
       </button>
       <a class="mp-btn mp-tip" id="mapExportLink" href="/api/map/export" download aria-label="导出标记" data-tip="导出标记" hidden>
-        <i data-lucide="download"></i>
+        <i data-lucide="download"></i><span class="mp-btn-text">导出</span>
       </a>
     </div>
 

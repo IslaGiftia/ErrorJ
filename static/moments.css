@@ -1088,10 +1088,87 @@ button.mo-share:hover {
   opacity: 0.7;
 }
 
-/* ---------- 开发日志：按日期分组、无卡片无阴影的紧凑列表 ---------- */
+/* ---------- 开发日志：按月份折叠的紧凑列表（无卡片无阴影） ---------- */
 
-.mo-log-group {
-  margin: 0 0 12px;
+.mo-log-tools {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+
+.mo-log-tool {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--mo-border);
+  border-radius: 8px;
+  background: var(--mo-surface);
+  color: var(--mo-muted);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.mo-log-tool:hover {
+  color: var(--mo-text);
+  border-color: var(--mo-muted);
+}
+
+.mo-log-month-group + .mo-log-month-group {
+  margin-top: 2px;
+}
+
+/* 月份就是一个手风琴面板：标题一行，正文懒渲染 */
+.mo-log-month {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 2px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--mo-border) 70%, transparent);
+  background: none;
+  color: var(--mo-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mo-log-month-num {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 11.5px;
+  color: var(--mo-faint);
+}
+
+.mo-log-month .mo-log-caret {
+  margin-left: auto;
+}
+
+.mo-log-month-group.is-open .mo-log-month .mo-log-caret svg {
+  transform: rotate(180deg);
+}
+
+/* 正文左侧一条竖线，把每行的 commit 节点串成时间轴 */
+.mo-log-month-body {
+  position: relative;
+  padding: 2px 0 6px;
+}
+
+.mo-log-month-body[hidden] {
+  display: none;
+}
+
+.mo-log-month-body::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 0;
+  bottom: 8px;
+  width: 1px;
+  background: color-mix(in srgb, var(--mo-border) 70%, transparent);
 }
 
 .mo-log-date {
@@ -1209,6 +1286,18 @@ button.mo-share:hover {
   }
 
   .mo-kind {
+    min-height: 44px;
+  }
+
+  /* 月份标题吸在分栏下方（分栏 bottom = 57 + 60），展开区够大 */
+  .mo-log-month {
+    position: sticky;
+    top: 117px;
+    z-index: 4;
+    background: var(--mo-bg);
+  }
+
+  .mo-log-tool {
     min-height: 44px;
   }
 
