@@ -41,7 +41,7 @@ http://<服务器公网IP>
 Web 服务：Nginx 1.28.3
 Python：3.14.4
 Git 仓库：git@github.com:IslaGiftia/ErrorJ.git
-当前提交：bb94b4e
+当前提交：ca56460
 Nginx 上传上限：client_max_body_size 84m
 公网端口：80 已开放
 HTTPS：未配置，443 未开放
@@ -2268,4 +2268,45 @@ A 移动端地图 → B 全局按下反馈 → C 笔记移动端「以便查看�
 本地审查    -> map / map-panel × 360 / 412 / 768 / 1440：水平溢出 0、控制台异常 0
 线上静态    -> https://zhexiyan.cc/static/map.css 已含 .mp-app{overflow:hidden}，不再含 mp-sidebar-close
 线上冒烟    -> 首页 / 登录页 × 412 / 1440 控制台异常 0（地图页对游客是登录跳转，面板与弹窗在本地管理员视角核对）
+```
+
+## 76. 2026-10-11 10:45:45 修掉普通账户进地图时的按钮闪现
+
+需求：站长反馈移动端普通账户进入地图后，下方功能区会先闪出「向左的箭头 + 导出」再跳成正常按钮；
+并要求顺带检查其它页面有没有同类问题，改完执行发布流程。
+
+根因：`#mapExportLink`（导出是管理员权限）在 HTML 里没有默认 `hidden`，而操作栏切换按钮的图标又写死成
+`chevron-left`；`syncMapActions()` 要等 `/api/map` 回来才知道权限，于是首帧渲染出的就是普通账户不该看到的状态。
+
+完成内容（`ca56460 fix:stop-map-action-bar-flash-for-normal-accounts`）：
+- `static/map.html`：导出链接默认 `hidden`；操作栏加 `is-pending` 类。
+- `static/map.css`：`.mp-actions.is-pending` 先不显示，另加 1.2s 的 CSS 兜底动画——万一脚本没跑到，
+  操作栏也会自己出现，不会一直空着。
+- `static/map.js`：`syncMapActions()` 里移除 `is-pending`（权限确定后一次性现身）；首帧就调用
+  `updateToggleForViewport()` 把箭头按视口摆正；数据请求失败也立刻揭晓操作栏。
+- 顺带排查其它页面：留言 / 动态发布框、歌单上传与播放条、书架上传、推荐新增、提示词新增、
+  参考项目管理员栏、笔记里的管理员按钮在 HTML 里都已经是默认 `hidden`，没有同类问题；
+  仓库 / 书签页没有权限级显隐。唯一同类但影响更小的是首页游客模块入口（默认全开，
+  站长关掉某个游客模块时游客会看到该入口闪一下），本轮未改并已记进 `MOBILE_AUDIT.md`。
+
+部署步骤：
+```text
+本地：python -m unittest discover -s tests（107 项全过）；node --check static/map.js；git diff --check 干净
+      全量审查 112 个组合：水平溢出 0；控制台异常 1 条（768x1024/music 样式表 ERR_ABORTED，
+      单页重跑不复现，判定为 headless 抓取时的偶发中断）
+备份：/data/errorjiang-backup/map-action-flash-20261011-1049/（停服后复制 inventory.db + changelog-seed.json）
+服务器：git pull --ff-only → f24c4d4..ca56460
+      changelog-seed.json 经 SCP + install 覆盖（SHA256 与本机一致）
+      import_changelog_moments.py --date 2026-10-11 --force -> 完成：新增 4 条
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，/api/health = {"ok": true}
+服务器 HEAD -> ca56460（与本地、origin/main 一致）
+站内动态    -> 2026-10-11 四条：02:21:44 / 07:49:42 / 08:56:12 / 10:45:45（id 276–279）
+逐帧验证    -> 注入脚本模拟普通账户（接口延迟 1.2s 与正常速度各一次）：记录的每一帧都**没有**出现
+               chevron-left，也没有出现过可见的「导出」；正常速度下第一帧就是最终形态 [^][+ 添加标记]
+线上静态    -> /static/map.html 已带 hidden 的导出链接与 is-pending 操作栏
+线上冒烟    -> 首页 / 登录页 × 412 / 1440：控制台 / 网络异常 0
 ```
