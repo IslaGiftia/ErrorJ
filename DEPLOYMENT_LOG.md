@@ -41,7 +41,7 @@ http://<服务器公网IP>
 Web 服务：Nginx 1.28.3
 Python：3.14.4
 Git 仓库：git@github.com:IslaGiftia/ErrorJ.git
-当前提交：99d75c4
+当前提交：e633cfe
 Nginx 上传上限：client_max_body_size 84m
 公网端口：80 已开放
 HTTPS：未配置，443 未开放
@@ -2182,4 +2182,47 @@ A 移动端地图 → B 全局按下反馈 → C 笔记移动端「以便查看�
                      游客首页仍会请求一次 /api/map?dock=1 并拿到 401（前端已有游客兜底，仅控制台一条红字，
                      与本次改动无关，属既有行为）
 真机未覆盖        -> 软键盘遮挡、100dvh、微信内置浏览器、双击放大手感
+```
+
+## 74. 2026-10-11 07:49:42 手机地图按钮对齐、参考项目卡片收尾与首页游客请求收敛
+
+需求：站长看完第二轮上线结果后提出三条收尾——手机地图左下角「添加标记」要和展开 / 收起按钮同高、
+`/references` 的「编辑 / 删除」按钮要收拾干净、游客首页那次注定失败的 `/api/map?dock=1` 请求要消掉。
+
+完成内容（`d1ca7c3 fix:align-mobile-map-actions-and-tidy-reference-card` +
+`e633cfe fix:gate-map-dock-request-on-real-map-permission`）：
+- **地图按钮对齐**（`static/map.css`）：手机上操作栏按钮由 34px 统一到 44px，和左下角展开 / 收起按钮同高。
+  普通账号实测 44 / 44 / 44；管理员侧展开按钮跨两行 94px，两行按钮各 44px，操作栏 92 → 112px，
+  搜索面板高度由 `--mp-actions-h` 自动让位。
+- **参考项目卡片**（`static/references.html`）：编辑 / 删除按钮原来固定在卡片右上角、宽度写死 32px，
+  两个汉字被挤成上下两行还压住标题正文；改成按文字撑开的 54×32 胶囊，在卡片顶部独占一行右对齐。
+  审查脚本的 `text-wrapped` 由 8 处降为 **0 处**。
+- **游客首页请求收敛**（`app.py`、`static/site/site.js`、`static/site/minimap.js`）：
+  `/api/auth/status` 新增 `map_dock_allowed`（按真实地图权限判定：游客恒 False，管理员恒 True，
+  普通账号看是否持有地图类权限）；圆盘先等登录状态回来再决定是否请求，明确拿不到就直接进游客态，
+  不再发那次必然 401 的请求。第一版按 `MAP_PUBLIC` 判断是不对的（地图接口走的是权限点，
+  游客即便 `MAP_PUBLIC=1` 也必然被拒），已改为按权限判定并重新部署。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py / python -m unittest discover -s tests（107 项全过）
+      node --check static/site/{site,minimap}.js；git diff --check 干净
+      两次提交 → fetch → pull --rebase → push origin main，本地 = origin/main
+备份：/data/errorjiang-backup/mobile-map-polish-20261011-0752/（首次）
+      /data/errorjiang-backup/mobile-map-polish-20261011-0805/（补权限判定后）
+      两个目录各含停服后的 inventory.db + changelog-seed.json
+服务器：git pull --ff-only → e1372a9..d1ca7c3..e633cfe
+      changelog-seed.json 经 SCP + install 覆盖，SHA256 与本机一致
+      import_changelog_moments.py --date 2026-10-11 --force -> 完成：新增 2 条
+      （--force 会先删除该日期再重建，所以两条都计为「新增」，实际每个时间戳各一条）
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，/api/health = {"ok": true}
+服务器 HEAD -> e633cfe（与本地、origin/main 一致）
+站内动态    -> 2026-10-11 02:21:44（id 271）与 07:49:42（id 272）各一条，无重复
+游客状态    -> /api/auth/status 返回 map_dock_allowed=false
+线上首页    -> 412×915 与 1440×900 冒烟：控制台 / 网络异常 10 条 → 0 条；圆盘保持静态游客底图
+本地审查    -> home / map / references × 412 / 768 / 1440：水平溢出 0、控制台异常 0、text-wrapped 0
 ```
