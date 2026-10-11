@@ -74,7 +74,7 @@ function makeMove(index, symbol) {
     boardState[index] = symbol;
     board.children[index].innerHTML = symbol;
 
-    if (checkWin(index, symbol)) {
+    if (checkWin(index, symbol, WIN_LENGTH, true)) {
         isGameOver = true;
         results.innerHTML = `${symbol} wins!`;
         playAgainBtn.style.display = "inline";
@@ -91,7 +91,10 @@ function changeTurn() {
 }
 
 // --- Winning Condition Logic ---
-function checkWin(index, symbol, requiredLength = WIN_LENGTH) {
+// highlight 只在「真落子」时传 true：findBestMove 也会拿临时棋盘调这个函数试算，
+// 之前用 board 上的 board-locked 类来挡，结果 CPU 真的赢棋时代码里那个类还在，
+// 于是只有人类赢才会亮线。
+function checkWin(index, symbol, requiredLength = WIN_LENGTH, highlight = false) {
     const col = index % BOARD_SIZE;
     const row = Math.floor(index / BOARD_SIZE);
     const directions = [ {x:1, y:0}, {x:0, y:1}, {x:1, y:1}, {x:1, y:-1} ];
@@ -110,7 +113,7 @@ function checkWin(index, symbol, requiredLength = WIN_LENGTH) {
         }
 
         if (count >= requiredLength) {
-            if (requiredLength === WIN_LENGTH && !board.classList.contains("board-locked")) {
+            if (highlight && requiredLength === WIN_LENGTH) {
                 highlightWinningCells(row, col, dir, symbol, requiredLength);
             }
             return true;

@@ -51,7 +51,10 @@ try {
             Copy-Item -Destination $staging -Recurse -Force
 
         $srcDb = Join-Path $ProjectData "inventory.db"
-        $stageDb = Join-Path $staging "inventory.db"
+        # 必须落在 staging\data\ 下：上面递归复制出来的 data\inventory.db 是热拷贝，
+        # 如果一致性快照写到 staging 根目录，打包出来的 zip 里 data\inventory.db
+        # 仍是那份不一致的热拷贝，快照则丢在压缩包根目录，恢复时用不上。
+        $stageDb = Join-Path (Join-Path $staging "data") "inventory.db"
         $python = Get-PythonPath
         $dbBackedUp = $false
 
@@ -70,6 +73,15 @@ try {
         }
 
         Compress-Archive -Path (Join-Path $staging "*") -DestinationPath $zipPath -CompressionLevel Optimal
+
+        # 先确认归档真的写出来了再往下走：下面会按保留期删旧备份，
+        # 如果这次压缩静默失败，旧的又删了，等于只剩一个坏包。
+        if (-not (Test-Path -LiteralPath $zipPath)) {
+            throw "备份归档未生成：$zipPath"
+        }
+        if ((Get-Item -LiteralPath $zipPath).Length -eq 0) {
+            throw "备份归档为空：$zipPath"
+        }
     }
     finally {
         if (Test-Path -LiteralPath $staging) {
@@ -91,6 +103,16 @@ try {
     exit 0
 }
 catch {
-    Write-Log "备份失败：$($_.Exception.Message)"
+    # 日志目录可能还没建起来（例如 $ProjectData 缺失时在 try 里更早就抛了），
+    # 这里再写日志如果也失败，会把真正的错误盖掉，所以兜一层。
+    if (-not (Test-Path -LiteralPath $BackupRoot)) {
+        try { New-Item -ItemType Directory -Path $BackupRoot -Force | Out-Null } catch { }
+    }
+    try {
+        Write-Log "备份失败：$($_.Exception.Message)"
+    }
+    catch {
+        Write-Host "备份失败：$($_.Exception.Message)"
+    }
     exit 1
 }

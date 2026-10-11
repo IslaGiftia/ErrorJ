@@ -75,7 +75,14 @@ def create_user(username_text, password=None, approved=True):
         raise SystemExit("用户名需为 3-32 位，只能包含文字、字母、数字、点、下划线或短横线。")
     if find_user(username):
         raise SystemExit(f"用户名已存在：{username}")
-    password = password or prompt_password()
+    if password:
+        # --password 以前直接绕过 prompt_password 里的长度校验，
+        # 而且明文密码会留在进程列表和 shell 历史里，所以这里补校验并提示。
+        if len(password) < 8 or len(password) > 128:
+            raise SystemExit("密码长度需为 8-128 位。")
+        print("提示：命令行明文密码会出现在进程列表与 shell 历史里，建议改用交互输入。")
+    else:
+        password = prompt_password()
     stamp = app.now_text()
     user_id = app.execute(
         """

@@ -14,7 +14,11 @@
     } catch (err) {}
     var glyph = document.getElementById("themeGlyph");
     if (glyph) {
-      glyph.textContent = pref === "dark" ? "☾" : "☀";
+      // 有 morphicons 就渲染成太阳/月亮图标并做形变；没有则保留原来的文字字形兜底
+      var iconName = pref === "dark" ? "moon" : "sun";
+      if (!(window.ErrorMorph && window.ErrorMorph.morph(glyph, iconName))) {
+        glyph.textContent = pref === "dark" ? "☾" : "☀";
+      }
     }
     var toggle = document.getElementById("themeToggle");
     if (toggle) {

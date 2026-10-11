@@ -65,10 +65,22 @@ if [ -d "$DATA_DIR" ]; then
 fi
 
 echo "清理旧备份（保留最近 $KEEP 份）"
-ls -1dt "$BACKUP_DIR"/*/ 2>/dev/null | tail -n +$((KEEP + 1)) | while read -r old; do
-  rm -rf -- "$old"
-  echo "  删除 $old"
-done
+case "$BACKUP_DIR" in
+  ""|"/"|"/."|".")
+    echo "  备份目录异常（$BACKUP_DIR），跳过清理" ;;
+  *)
+    if [ -d "$BACKUP_DIR" ]; then
+      # 只挑本脚本自己生成的「时间戳目录」：别的目录既不参与计数也不会被删，
+      # 万一 BACKUP_DIR 指错了地方，也不会顺手把别的东西 rm -rf 掉。
+      find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d \
+        -name '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]' \
+        -printf '%T@ %p\n' 2>/dev/null \
+        | sort -rn | tail -n +$((KEEP + 1)) | cut -d' ' -f2- | while read -r old; do
+          rm -rf -- "$old"
+          echo "  删除 $old"
+        done
+    fi ;;
+esac
 
 echo "完成：$TARGET"
 du -sh "$TARGET" 2>/dev/null || true

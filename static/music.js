@@ -323,8 +323,11 @@
     var icon = playing ? "pause" : "play";
     if (btn.getAttribute("data-icon") !== icon) {
       btn.setAttribute("data-icon", icon);
-      btn.innerHTML = '<i data-lucide="' + icon + '"></i>';
-      if (window.lucide) lucide.createIcons();
+      // 有 morphicons 就做形变（play↔pause），没有就退回原来的硬切
+      if (!(window.ErrorMorph && window.ErrorMorph.morph(btn, icon))) {
+        btn.innerHTML = '<i data-lucide="' + icon + '"></i>';
+        if (window.lucide) lucide.createIcons();
+      }
     }
     btn.title = playing ? "暂停" : "播放";
     btn.setAttribute("aria-label", playing ? "暂停" : "播放");
@@ -461,8 +464,11 @@
     btn.setAttribute("aria-label", btn.title);
     if (btn.getAttribute("data-icon") !== icon) {
       btn.setAttribute("data-icon", icon);
-      btn.innerHTML = '<i data-lucide="' + icon + '"></i>';
-      if (window.lucide) lucide.createIcons();
+      // 循环列表 ↔ 单曲（单曲那个带 “1” 角标，形变比硬切更能说明状态变了）
+      if (!(window.ErrorMorph && window.ErrorMorph.morph(btn, icon))) {
+        btn.innerHTML = '<i data-lucide="' + icon + '"></i>';
+        if (window.lucide) lucide.createIcons();
+      }
     }
   }
 
@@ -498,8 +504,11 @@
     var btn = $("btnMute");
     if (btn.getAttribute("data-icon") !== icon) {
       btn.setAttribute("data-icon", icon);
-      btn.innerHTML = '<i data-lucide="' + icon + '"></i>';
-      if (window.lucide) lucide.createIcons();
+      // 音量三态 morph：volume-2 ↔ volume-1 ↔ volume-x
+      if (!(window.ErrorMorph && window.ErrorMorph.morph(btn, icon))) {
+        btn.innerHTML = '<i data-lucide="' + icon + '"></i>';
+        if (window.lucide) lucide.createIcons();
+      }
     }
     btn.classList.toggle("is-on", muted);
     btn.title = muted
@@ -737,13 +746,29 @@
     });
   }
 
+  /*
+   * 「删除 → 再点一次确认」按钮是图标 + 文字：
+   * 图标交给 morphicons 形变（trash-2 → alert-triangle），文字照旧直接改；
+   * 没有 morphicons 时退回原来的整体重建。label 都是写死的字面量，不涉及用户输入。
+   */
+  function setDeleteButton(icon, label) {
+    var btn = $("editDelete");
+    if (window.ErrorMorph && window.ErrorMorph.morph(btn, icon)) {
+      var text = btn.querySelector("span");
+      if (text) text.textContent = label;
+      return;
+    }
+    btn.innerHTML = '<i data-lucide="' + icon + '"></i><span>' + label + "</span>";
+    if (window.lucide) lucide.createIcons();
+  }
+
   function openEdit(track) {
     state.editingId = track.id;
     state.deleteArmed = false;
     $("editTitleInput").value = track.title || "";
     $("editArtistInput").value = track.artist || "";
     $("editAlbumInput").value = track.album || "";
-    $("editDelete").innerHTML = '<i data-lucide="trash-2"></i><span>删除</span>';
+    setDeleteButton("trash-2", "删除");
     $("editError").hidden = true;
     $("editModal").hidden = false;
     if (window.lucide) lucide.createIcons();
@@ -784,8 +809,7 @@
     if (!id) return;
     if (!state.deleteArmed) {
       state.deleteArmed = true;
-      $("editDelete").innerHTML = '<i data-lucide="alert-triangle"></i><span>再点一次确认删除</span>';
-      if (window.lucide) lucide.createIcons();
+      setDeleteButton("alert-triangle", "再点一次确认删除");
       return;
     }
     api("/api/site/music/" + id, { method: "DELETE" })

@@ -56,6 +56,16 @@
     return node;
   }
 
+  // 只放行 http/https，挡掉 javascript: / data: 这类会在点击时执行的地址。
+  function safeHref(value) {
+    try {
+      var url = new URL(String(value == null ? "" : value), window.location.origin);
+      return url.protocol === "http:" || url.protocol === "https:" ? url.href : "";
+    } catch (err) {
+      return "";
+    }
+  }
+
   function refreshIcons() {
     if (window.lucide) window.lucide.createIcons();
   }
@@ -201,7 +211,7 @@
 
   function coverNode(item) {
     var cover = el("div", "rec-card-cover");
-    var source = coverUrl(item.cover_path) || item.icon_url || "";
+    var source = coverUrl(item.cover_path) || safeHref(item.icon_url) || "";
     if (source) {
       var image = document.createElement("img");
       image.src = source;
@@ -228,7 +238,7 @@
     if ((item.kind === "site" || item.kind === "tool") && item.icon_url) {
       var icon = document.createElement("img");
       icon.className = "rec-site-icon";
-      icon.src = item.icon_url;
+      icon.src = safeHref(item.icon_url);
       icon.alt = "";
       icon.loading = "lazy";
       icon.addEventListener("error", function () { icon.remove(); });
@@ -265,7 +275,7 @@
           "primary",
           resource.type === "music" ? "去歌单" : "阅读"
         );
-        openResource.href = resource.page_url;
+        openResource.href = safeHref(resource.page_url);
         openResource.target = "_blank";
         openResource.rel = "noopener noreferrer";
         links.appendChild(openResource);
@@ -274,14 +284,14 @@
       }
     } else if (item.url) {
       var open = el("a", isMedia(item) ? "" : "primary", isMedia(item) ? "查看详情" : "访问");
-      open.href = item.url;
+      open.href = safeHref(item.url);
       open.target = "_blank";
       open.rel = "noopener noreferrer";
       links.appendChild(open);
     }
     if (item.download_url) {
       var download = el("a", "", "下载");
-      download.href = item.download_url;
+      download.href = safeHref(item.download_url);
       download.target = "_blank";
       download.rel = "noopener noreferrer";
       links.appendChild(download);

@@ -94,20 +94,27 @@
   <script src="/static/site/back-to-top.js"></script>
   <script>
     if (window.lucide) window.lucide.createIcons();
+    function gateSubGames() {
+      document.querySelectorAll(".game-card-main").forEach(function (link) {
+        link.addEventListener("click", function (event) {
+          event.preventDefault();
+          window.ErrorDialog.alert("登录后可以进入游戏。", {
+            title: "请先登录",
+          }).catch(function () {});
+        });
+      });
+    }
     fetch("/api/auth/status", { cache: "no-store" })
-      .then(function (response) { return response.json(); })
+      .then(function (response) {
+        if (!response.ok) throw new Error("auth status request failed");
+        return response.json();
+      })
       .then(function (status) {
         if (status.authenticated) return;
-        document.querySelectorAll(".game-card-main").forEach(function (link) {
-          link.addEventListener("click", function (event) {
-            event.preventDefault();
-            window.ErrorDialog.alert("登录后可以进入游戏。", {
-              title: "请先登录",
-            }).catch(function () {});
-          });
-        });
+        gateSubGames();
       })
-      .catch(function () {});
+      // 状态问不到时按「没登录」处理：闸门宁可多关一次，也别敞开
+      .catch(function () { gateSubGames(); });
   </script>
 
 </body>

@@ -260,6 +260,7 @@
     (function () {
       var form = document.getElementById("registerForm");
       var submit = document.getElementById("registerSubmit");
+      var submitting = false;
       var message = document.getElementById("registerMessage");
 
       function showMessage(text, error) {
@@ -277,6 +278,10 @@
           showMessage("两次输入的密码不一致。", true);
           return;
         }
+        // 只禁按钮挡不住重入：在输入框里按 Enter 会触发隐式提交，
+        // 第一次请求还在飞的时候会再 POST 一次 /api/register。
+        if (submitting) return;
+        submitting = true;
         submit.disabled = true;
         fetch("/api/register", {
           method: "POST",
@@ -294,6 +299,7 @@
           showMessage("申请已提交，请等待管理员在服务器审核。", false);
         }).catch(function (err) {
           showMessage(err.message || "注册失败", true);
+          submitting = false;
           submit.disabled = false;
         });
       });

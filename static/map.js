@@ -710,6 +710,11 @@
     return hit ? hit.name + "（" + hit.count + "）" : "全部添加者";
   }
 
+  function syncOwnerLabel() {
+    var value = $("mapOwnerValue");
+    if (value) value.textContent = ownerLabel(state.ownerFilter);
+  }
+
   function closeOwnerPicker() {
     var modal = $("mapOwnerModal");
     if (modal) modal.hidden = true;
@@ -745,8 +750,7 @@
     if (state.ownerFilter && !groups[state.ownerFilter]) {
       state.ownerFilter = "";
     }
-    var value = $("mapOwnerValue");
-    if (value) value.textContent = ownerLabel(state.ownerFilter);
+    syncOwnerLabel();
     var current = String(state.ownerFilter || "");
     var html =
       '<button type="button" class="mp-owner-option' +
@@ -2021,12 +2025,25 @@
     setHint("");
   }
 
-  map.on("click", function (event) {
-    if (!state.placing) return;
-    stopPlacing();
-    var wgs = dataLatLng(event.latlng.lat, event.latlng.lng);
-    openPlaceModal(null, wgs);
-  });
+  // 落点统一走这里：标记点和聚合点默认不把点击冒泡出去（Leaflet 的
+  // bubblingMouseEvents 默认关闭），如果只监听 map 的 click，点在它们身上会一点反应都没有。
+  // 捕获阶段接管容器上的点击后，落点模式下点哪儿都能落点，同时也避免顺手把
+  // 标记的弹窗带出来；因为这一层已经 stopPropagation，冒泡阶段的 map click 收不到事件，
+  // 所以落点逻辑只保留这一处，不再另设 map.on("click")。
+  map.getContainer().addEventListener(
+    "click",
+    function (event) {
+      if (!state.placing) return;
+      if (event.target.closest && event.target.closest(".leaflet-control-container")) return;
+      event.stopPropagation();
+      event.preventDefault();
+      var latlng = map.containerPointToLatLng(map.mouseEventToContainerPoint(event));
+      stopPlacing();
+      map.closePopup();
+      openPlaceModal(null, dataLatLng(latlng.lat, latlng.lng));
+    },
+    true
+  );
 
   // ---------- events ----------
   var chips = $("mapCategories");
@@ -2108,6 +2125,9 @@
       if (!option) return;
       state.ownerFilter = option.getAttribute("data-owner") || "";
       closeOwnerPicker();
+      // 按钮上的文字只在 renderOwnerFilter 里更新，选完要顺手同步一次，
+      // 否则会一直停在上一个添加者的名字上，直到重新打开弹窗
+      syncOwnerLabel();
       renderAll();
     });
   }

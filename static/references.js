@@ -22,6 +22,16 @@
     });
   }
 
+  // 只放行 http/https：esc() 只处理引号，挡不住 javascript: / data: 这类地址。
+  function safeHref(value) {
+    try {
+      var url = new URL(String(value == null ? "" : value), window.location.origin);
+      return url.protocol === "http:" || url.protocol === "https:" ? url.href : "";
+    } catch (err) {
+      return "";
+    }
+  }
+
   async function api(path, options) {
     var response = await fetch(path, {
       headers: { "Content-Type": "application/json" },
@@ -58,7 +68,7 @@
           '">' +
           actions +
           '<a href="' +
-          esc(item.url) +
+          esc(safeHref(item.url)) +
           '" target="_blank" rel="noopener noreferrer">' +
           esc(item.title) +
           "</a><p>" +

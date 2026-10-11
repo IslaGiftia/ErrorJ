@@ -8,6 +8,9 @@ CONF="${ERRORJIANG_ALLOW_CONF:-/etc/nginx/conf.d/errorjiang-admin-allow.conf}"
 BACKUP_ROOT="${ERRORJIANG_ALLOW_BACKUP:-/data/errorjiang-backup}"
 BEGIN_MARK="# errorjiang-allow-begin"
 END_MARK="# errorjiang-allow-end"
+# systemd-run 起的定时任务是脱离当前 shell 跑的，$0 可能是相对路径（./nginx-allow-ip.sh），
+# 到点执行时找不到脚本，所以这里先定成绝对路径。
+SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 
 usage() {
   cat <<'EOF'
@@ -59,7 +62,8 @@ valid_entry() {
 
 backup_conf() {
   local stamp dir
-  stamp="$(date +%Y%m%d-%H%M%S)"
+  # 带上 pid：同一秒里跑两次（比如脚本调用脚本）不会撞进同一个备份目录互相覆盖
+  stamp="$(date +%Y%m%d-%H%M%S)-$$"
   dir="$BACKUP_ROOT/allow-$stamp"
   mkdir -p "$dir"
   cp -a "$CONF" "$dir/errorjiang-admin-allow.conf"
@@ -85,7 +89,9 @@ unit_name() {
 
 cmd_list() {
   local mode
-  mode="$(grep -E '^[[:space:]]*default[[:space:]]+' "$CONF" | head -n1 | awk '{print $2}' | tr -d ';')"
+  # 末尾 || true：set -e 下如果配置里没有 default 行，grep 非零退出会让整个脚本中断，
+  # 原本该打印的「未知」就走不到了
+  mode="$(grep -E '^[[:space:]]*default[[:space:]]+' "$CONF" 2>/dev/null | head -n1 | awk '{print $2}' | tr -d ';' || true)"
   echo "配置文件：$CONF"
   case "$mode" in
     1) echo "当前模式：白名单关闭（default 1，任意 IP 都能访问管理员入口）" ;;
@@ -112,6 +118,11 @@ cmd_mode() {
   cancel_revert
   backup="$(backup_conf)"
   sed -i -E "s|^([[:space:]]*default[[:space:]]+)[0-9]+;|\1${value};|" "$CONF"
+  # sed 找不到匹配时会「成功但什么也没改」，这里必须确认真的改了，
+  # 否则会一边报「已切换」一边 reload 一份没变过的配置。
+  if ! grep -qE "^[[:space:]]*default[[:space:]]+${value};" "$CONF"; then
+    die "配置里没找到 default 指令，模式没有改动（备份在 $backup，请检查 $CONF）"
+  fi
   echo "$label"
   reload_nginx "$backup"
   if [[ -n "$ttl" ]]; then
@@ -124,13 +135,16 @@ cmd_mode() {
 }
 
 cmd_add() {
-  local entry="${1:-}" ttl="${2:-}" backup
+  local entry="${1:-}" ttl="${2:-}" backup escaped
   [[ -n "$entry" ]] || die "用法：add <IP|网段> [时长]"
   valid_entry "$entry" || die "IP / 网段格式不对：$entry"
   if [[ -n "$ttl" ]] && ! valid_ttl "$ttl"; then
     die "时长格式不对：$ttl（写法：数字 + s/m/h/d，例如 30m、2h、1d）"
   fi
-  if sed -n "/$BEGIN_MARK/,/$END_MARK/p" "$CONF" | grep -qE "^[[:space:]]*${entry}[[:space:]]"; then
+  # 把 . 转义：IP 里的点如果按正则通配符解释，
+  # 想删/查 2.3.4.5 会连带命中 12.3.4.5 这种条目
+  escaped="${entry//./\\.}"
+  if sed -n "/$BEGIN_MARK/,/$END_MARK/p" "$CONF" | grep -qE "^[[:space:]]*${escaped}[[:space:]]"; then
     echo "$entry 已经在白名单里"
   else
     backup="$(backup_conf)"
@@ -142,19 +156,20 @@ cmd_add() {
     local unit
     unit="$(unit_name "$entry")"
     systemd-run --collect --on-active="$ttl" --unit="$unit" \
-      /usr/bin/env bash "$0" remove "$entry" >/dev/null
+      /usr/bin/env bash "$SELF" remove "$entry" >/dev/null
     echo "已安排 $ttl 后自动移除（systemd 单元：$unit）"
   fi
 }
 
 cmd_remove() {
-  local entry="${1:-}" backup unit
+  local entry="${1:-}" backup unit escaped
   [[ -n "$entry" ]] || die "用法：remove <IP|网段>"
   valid_entry "$entry" || die "IP / 网段格式不对：$entry"
+  escaped="${entry//./\\.}"
   unit="$(unit_name "$entry")"
   systemctl stop "${unit}.timer" 2>/dev/null || true
   backup="$(backup_conf)"
-  sed -i "\|^[[:space:]]*${entry}[[:space:]]\+1;|d" "$CONF"
+  sed -i "\|^[[:space:]]*${escaped}[[:space:]]\+1;|d" "$CONF"
   echo "已从白名单移除：$entry"
   reload_nginx "$backup"
 }

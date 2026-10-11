@@ -102,7 +102,11 @@ def save_image(raw, alt, slug, index):
         print(f"  跳过第 {index} 张图：类型无法识别")
         return None
     extension = app.NOTE_IMAGE_EXTENSIONS[mime_type]
-    name = f"{int(time.time() * 1000)}_{uuid.uuid4().hex[:4]}_{slug}-{index:02d}{extension}"
+    # slug 来自 --slug 参数，直接拼进文件名会让 "../../x" 逃出 note_images/。
+    # 只保留字母数字和 -_ .，再清掉首尾的点/横线，保证它一定是个普通文件名。
+    safe_slug = "".join(ch if (ch.isalnum() or ch in "-_.") else "-" for ch in str(slug))
+    safe_slug = safe_slug.strip("-._") or "note"
+    name = f"{int(time.time() * 1000)}_{uuid.uuid4().hex[:4]}_{safe_slug}-{index:02d}{extension}"
     relative = f"note_images/{name}"
     app.NOTE_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     (app.DATA_DIR / relative).write_bytes(raw)

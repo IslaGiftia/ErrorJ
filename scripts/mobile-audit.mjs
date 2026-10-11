@@ -600,6 +600,9 @@ async function run() {
       for (const page of pagesToRun) {
         events = [];
         const url = BASE + page.path;
+        // 单页出错不能带走整轮：异常一旦冒泡出去，report.json 根本写不出来，
+        // 前面所有视口/页面的结果都白跑了。
+        try {
         await cdp.send("Page.navigate", { url }, sessionId);
         await sleep(1400);
         if (page.click) {
@@ -639,6 +642,17 @@ async function run() {
             (issueKinds ? ` issues=${issueKinds}` : " issues=-") +
             (events.length ? ` events=${events.length}` : "")
         );
+        } catch (err) {
+          const message = err && err.message ? err.message : String(err);
+          report.runs.push({
+            viewport: viewport.name,
+            page: page.name,
+            url,
+            failed: message,
+            events: events.slice(0, 20),
+          });
+          console.log(`[${viewport.name}/${page.name}] 失败：${message}`);
+        }
       }
     }
     await writeFile(path.join(OUT_DIR, "report.json"), JSON.stringify(report, null, 2));
@@ -649,8 +663,16 @@ async function run() {
 
   // ---- 汇总 ----
   console.log("\n================ 汇总 ================");
+  const failedRuns = report.runs.filter((run) => run.failed);
+  if (failedRuns.length) {
+    console.log(`有 ${failedRuns.length} 个页面没跑成功：`);
+    for (const run of failedRuns.slice(0, 8)) {
+      console.log(`  - ${run.viewport}/${run.page}: ${run.failed}`);
+    }
+  }
   const byKind = new Map();
   for (const run of report.runs) {
+    if (!run.metrics) continue;
     for (const issue of run.metrics.issues) {
       const key = issue.kind;
       if (!byKind.has(key)) byKind.set(key, []);

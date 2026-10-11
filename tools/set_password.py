@@ -26,8 +26,14 @@ def load_config():
     if errorjiang.AUTH_PATH.is_file():
         try:
             return json.loads(errorjiang.AUTH_PATH.read_text(encoding="utf-8")) or {}
-        except (OSError, json.JSONDecodeError):
-            return {}
+        except json.JSONDecodeError:
+            # 以前这里返回 {}，调用方随后会把空字典写回去，
+            # 等于把现有 password_hash 和会话密钥一起抹掉。损坏时宁可停下。
+            raise SystemExit(
+                f"auth.json 内容损坏，已中止以免覆盖现有密码哈希与会话密钥：{errorjiang.AUTH_PATH}"
+            )
+        except OSError as exc:
+            raise SystemExit(f"无法读取 auth.json（{exc}），已中止。")
     return {}
 
 

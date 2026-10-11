@@ -12,6 +12,20 @@
   font-display: swap;
 }
 
+/*
+ * 全局动效 token：曲线和时长集中放这儿，别再各页手写。
+ * 入场（弹窗、面板出现）用强 ease-out，屏幕内的位移/收起用强 ease-in-out，
+ * 内置的 ease / ease-in 对刻意的 UI 动效偏软：ease-in 起步慢，正好卡在用户盯着看的那一刻。
+ */
+:root {
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 160ms;
+  --dur-base: 220ms;
+  --dur-slow: 320ms;
+}
+
 body {
   font-family: "vivo Sans SC", "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
 }
@@ -81,9 +95,15 @@ html {
    * label 单独处理：只有「当按钮用」的 label（里面没有文本输入框 / 下拉 / 多行框，
    * 例如区域筛选、文件上传、勾选项）才给按下反馈。包着输入框的 label 点下去是
    * 为了打字，整块闪一下反而奇怪。
+   * 这里逐个列出「打字类」控件，而不是反着写 input:not([type=checkbox],[type=radio])——
+   * 后者会把 input[type=file] 也当成输入框，于是文件上传的 label 反而没有按下反馈。
    * 不支持 :has() 的老浏览器会忽略这条规则，只是少一点反馈，不影响点击。
    */
-  :root label:active:not(:has(input:not([type="checkbox"], [type="radio"]), select, textarea)) {
+  :root label:active:not(:has(
+      input[type="text"], input[type="search"], input[type="email"], input[type="password"],
+      input[type="number"], input[type="tel"], input[type="url"], input[type="date"],
+      input[type="time"], input[type="datetime-local"], input[type="month"], input[type="week"],
+      input:not([type]), select, textarea)) {
     filter: brightness(var(--tap-press-brightness));
   }
 }

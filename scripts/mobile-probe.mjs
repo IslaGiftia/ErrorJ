@@ -98,18 +98,38 @@ ws.addEventListener("message", (event) => {
   }
 });
 const send = (method, params = {}, sessionId) =>
-  new Promise((resolve) => {
+  new Promise((resolve, reject) => {
     const key = ++id;
-    pending.set(key, resolve);
+    // 以前只 resolve：CDP 报错被吞掉，响应不来就永远 pending，脚本直接挂住。
+    // 现在把 error 变成 reject，并加一个超时兜底。
+    const timer = setTimeout(() => {
+      pending.delete(key);
+      reject(new Error(`CDP 请求超时：${method}`));
+    }, 30000);
+    pending.set(key, (msg) => {
+      clearTimeout(timer);
+      if (msg.error) reject(new Error(`CDP 报错（${method}）：${JSON.stringify(msg.error)}`));
+      else resolve(msg);
+    });
     ws.send(JSON.stringify({ id: key, method, params, ...(sessionId ? { sessionId } : {}) }));
   });
 
 const { result: t } = await send("Target.createTarget", { url: "about:blank" });
+if (!t || !t.targetId) {
+  console.error("createTarget 失败:", JSON.stringify(t));
+  chrome.kill();
+  process.exit(1);
+}
 const { result: attached } = await send("Target.attachToTarget", {
   targetId: t.targetId,
   flatten: true,
 });
-const sid = attached.sessionId;
+const sid = attached && attached.sessionId;
+if (!sid) {
+  console.error("attachToTarget 失败:", JSON.stringify(attached));
+  chrome.kill();
+  process.exit(1);
+}
 await send("Page.enable", {}, sid);
 await send("Runtime.enable", {}, sid);
 await send(
@@ -132,6 +152,7 @@ const evaluated = await send(
   { expression: PROBE, returnByValue: true },
   sid
 );
+let failed = false;
 const selector = process.argv[4];
 if (selector) {
   const styleProbe = await send(
@@ -168,13 +189,24 @@ if (selector) {
     },
     sid
   );
-  console.log("选择器探针:", JSON.stringify(styleProbe.result.result.value));
+  // 取不到 value 时以前会直接 TypeError 崩在最后一步，这里改成标记失败并打印原始返回
+  const styleValue = styleProbe && styleProbe.result && styleProbe.result.result
+    ? styleProbe.result.result.value
+    : undefined;
+  if (styleValue === undefined) {
+    failed = true;
+    console.log("选择器探针失败:", JSON.stringify(styleProbe, null, 1).slice(0, 800));
+  } else {
+    console.log("选择器探针:", JSON.stringify(styleValue));
+  }
 }
 if (!evaluated.result || evaluated.result.exceptionDetails) {
+  failed = true;
   console.log("求值失败:", JSON.stringify(evaluated, null, 1).slice(0, 1200));
 } else {
   console.log(JSON.stringify(evaluated.result.result.value, null, 1));
 }
 ws.close();
 chrome.kill();
-process.exit(0);
+// 以前无论探针成功失败都 exit 0，CI / 自动化分不出这次跑成功没有
+process.exit(failed ? 1 : 0);

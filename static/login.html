@@ -236,7 +236,24 @@
               data = JSON.parse(text);
             } catch (err) {}
             if (!response.ok) throw new Error(loginError(response, text, data));
-            location.href = next.startsWith("/") && !next.startsWith("//") ? next : "/";
+            /*
+             * ?next= 只允许跳站内。前缀判断不够：浏览器对 http(s) 会把反斜杠规范化成斜杠，
+             * '/\evil.com' 这种值能通过 startsWith("/") && !startsWith("//")，
+             * 赋值给 location.href 后却会跑到 //evil.com 去（登录后的钓鱼跳板）。
+             * 解析成绝对地址比 origin，然后用绝对地址跳转：如果只取 pathname，
+             * '/..//evil.com' 解析出来的 pathname 正好是 '//evil.com'，
+             * 再赋给 location.href 又会被当成协议相对地址。
+             */
+            var target = "/";
+            try {
+              var parsed = new URL(next, location.origin);
+              if (parsed.origin === location.origin) {
+                target = parsed.href;
+              }
+            } catch (err) {
+              target = "/";
+            }
+            location.href = target;
           });
         }).catch(function (err) {
           errorBox.textContent = err.message;

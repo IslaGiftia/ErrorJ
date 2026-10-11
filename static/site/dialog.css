@@ -13,6 +13,44 @@
   backdrop-filter: blur(8px);
 }
 
+/*
+ * 入场：以前是「啪」一下出现，这里补 220ms 的强 ease-out。
+ * - 只做入场不给退场：overlay 的显隐是 JS 直接切 hidden，做退场要留白再移除节点、
+ *   属于改交互流程，不在这次范围内。
+ * - 从 scale(0.96) + opacity:0 起，不走 scale(0)：真实世界的东西不会从「无」里长出来。
+ * - 对话框居中弹出，transform-origin 保持 center，不放触发点。
+ */
+.site-dialog-overlay:not([hidden]) {
+  animation: site-dialog-overlay-in var(--dur-base, 220ms)
+    var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1));
+}
+
+.site-dialog-overlay:not([hidden]) .site-dialog {
+  animation: site-dialog-panel-in var(--dur-base, 220ms)
+    var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1));
+}
+
+@keyframes site-dialog-overlay-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes site-dialog-panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+/* 减弱动效时保留淡入（帮助理解状态切换），但去掉缩放这类位移 */
+@media (prefers-reduced-motion: reduce) {
+  .site-dialog-overlay:not([hidden]),
+  .site-dialog-overlay:not([hidden]) .site-dialog {
+    animation: site-dialog-overlay-in var(--dur-fast, 160ms) ease;
+  }
+}
+
 .site-dialog {
   width: min(440px, 100%);
   max-height: min(680px, 92vh);
@@ -54,6 +92,16 @@
   color: var(--site-dialog-muted, #68708b);
   line-height: 1.7;
   white-space: pre-wrap;
+}
+
+/*
+ * dialog.js 用 hidden 属性切换输入框（alert / confirm 模式下 inputWrap.hidden = true），
+ * 但下面 .site-dialog-input 的 display: block 属于作者样式，会盖掉浏览器默认的
+ * [hidden] { display: none }，结果「提示 / 确认」弹窗里也漏出一个 116px 高的空输入框，
+ * 看着像要你填东西。这里把那件事说清楚。
+ */
+.site-dialog-input[hidden] {
+  display: none;
 }
 
 .site-dialog-input {

@@ -1573,6 +1573,19 @@ function bindStaticEvents() {
   });
   $("drawerClose").addEventListener("click", closeDrawer);
   $("drawerBackdrop").addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (!$("imageZoom").hidden) {
+      hideImageZoom();
+      return;
+    }
+    const openModal = [...document.querySelectorAll(".modal-overlay")].find((modal) => !modal.hidden);
+    if (openModal) {
+      closeModal(openModal.id);
+      return;
+    }
+    if (!$("drawer").hidden) closeDrawer();
+  });
   document.addEventListener("mouseover", (event) => {
     const img = event.target.closest(".part-thumb, .part-cell img");
     if (img && img.src) showImageZoom(img, event);

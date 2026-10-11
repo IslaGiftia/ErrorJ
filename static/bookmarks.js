@@ -52,6 +52,17 @@
       .replace(/'/g, "&#39;");
   }
 
+  // 只放行 http/https：书签地址可能是导入进来的，escapeHtml 只管引号，
+  // 挡不住 javascript:/data: 这类会在点击时执行的值。
+  function safeHref(value) {
+    try {
+      const url = new URL(String(value ?? ""), window.location.origin);
+      return url.protocol === "http:" || url.protocol === "https:" ? url.href : "";
+    } catch (err) {
+      return "";
+    }
+  }
+
   function shortDate(value) {
     return value ? String(value).slice(0, 10) : "—";
   }
@@ -390,7 +401,7 @@
       <div class="pin-bookmark-card ${item.link_status === "broken" ? "link-broken" : ""}"
            data-bookmark-card="${item.id}" draggable="true">
         ${faviconMarkup(item)}
-        <a class="pin-bookmark-title" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" draggable="false" title="${escapeHtml(item.title || item.url)}">${escapeHtml(item.title || item.url)}</a>
+        <a class="pin-bookmark-title" href="${escapeHtml(safeHref(item.url))}" target="_blank" rel="noopener noreferrer" draggable="false" title="${escapeHtml(item.title || item.url)}">${escapeHtml(item.title || item.url)}</a>
         ${status}
         ${noteChipMarkup(item)}
       </div>
@@ -470,7 +481,7 @@
            data-list-row="${item.id}" draggable="true">
         <input class="pin-list-check" type="checkbox" data-select-bookmark="${item.id}" ${selected ? "checked" : ""}>
         ${faviconMarkup(item)}
-        <a class="pin-list-title-link" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" draggable="false">${escapeHtml(item.title || item.url)}</a>
+        <a class="pin-list-title-link" href="${escapeHtml(safeHref(item.url))}" target="_blank" rel="noopener noreferrer" draggable="false">${escapeHtml(item.title || item.url)}</a>
         <span class="pin-list-url" title="${escapeHtml(item.url)}">${escapeHtml(item.url)}</span>
         <span class="pin-list-date">${escapeHtml(shortDate(item.created_at))}</span>
         ${linkStatusMarkup(item)}
