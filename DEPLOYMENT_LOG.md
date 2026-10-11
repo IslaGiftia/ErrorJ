@@ -2374,3 +2374,61 @@ OCR 全量扫描（115 个文件）的结论修真问题，再做视觉 / 动效
 
 备注：站点的 Nginx `server_name` 是 `zhexiyan.cc`，裸 IP 访问会 404，线上验证一律走域名
 （HTTPS 已由 Certbot 配好）；游客看不到动态正文属于设计，内容以服务端库核对为准。
+
+## 78. 2026-10-11 19:02:03 手机地图改版与「添加者」筛选权限收回
+
+需求：先按站长给的四条要求优化移动端「足迹 / 检索模块」（顶部横滑分类、次要筛选收进抽屉、
+列表压缩、底部操作区改悬浮），PC 端保持现状；随后要求收回普通账户「选择添加者」的权限，
+改成点击只能看自己添加的标记，改完走完整发布流程。
+
+完成内容（`876cc36 feat:mobile-map-sheet-fab-and-owner-filter-permission`）：
+- 移动端顶部压缩（全部包在 `@media (max-width: 860px)` 内）：
+  主分类与二级分类合并成一条横向滚动轨道（隐藏滚动条）；「备注标签」与「添加者」移入
+  搜索框右侧漏斗按钮拉起的「高级筛选」弹出层（遮罩 / 关闭按钮 / ESC 均可关，有筛选生效时
+  漏斗点亮并显示数量角标）。实测 412 宽下顶部固定区 216 → 111px，列表可视高度 554 → 771px。
+- 移动端列表：条目 54 → 46px（padding 7 → 4、色点 24 → 20、标题 13 → 13.5），副标题移到
+  标题行右侧当标签（复用现有节点、不新增 DOM），条目间改用发丝分割线（inset 阴影，不占布局）。
+  实测首屏可见标记 10 → 16 条。
+- 移动端底部操作区：原来的 2×2 网格整条撤掉，改成右下角悬浮组——圆形「添加标记」FAB（56px）、
+  常驻的「清单开合」与「更多（···）」；「分类 / 导入 / 导出」默认收进「···」，权限不足时
+  整个按钮不出现。为悬浮组给列表留了 84px 底部余量。
+- 权限收回：`/api/map` 新增 `can_filter_owner`（仅管理员为 true）与 `user_id`；普通账户点
+  「添加者」不再弹出选人弹窗，改为在「全部标记 / 只看我添加的」之间切换（复用同一个
+  `state.ownerFilter`，筛选逻辑未改），按钮上的下拉箭头隐藏。前端对该字段 fail-closed：
+  拿不到就按普通账户处理。
+- PC 端不变：新增的三个包装层（`.mp-search-row` / `.mp-chips-row` / `.mp-filters`）在宽屏下
+  是 `display: contents`，不产生盒子。逐项对比改动前后 17 项几何数据（侧栏、搜索、分类换行、
+  标签位置、添加者行、列表、操作栏 388×98、条目 60px、色点 24px、字号）**完全一致**。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 107 项全过
+      node --check（map.js / app.js / music.js）；python -m json.tool changelog-seed.json；git diff --check 干净
+      真机验证：普通账户（临时账号 + 独立鉴权实例）登录地图 -> 服务端返回 can_filter_owner=false、
+      user_id=8；按钮为「全部标记」且无下拉箭头；新增一条标记后点按钮 -> 标签变「只看我添加的」、
+      列表恰好 1 条且是自己的那条、选人弹窗始终未出现；再点回「全部标记」。管理员（独立实例）
+      对照 -> can_filter_owner=true、选人弹窗正常列出「全部添加者 / 管理员」并可切换。
+      验证用的临时账号与测试标记点均已删除（标记数回到 314、users 为空）
+提交：876cc36（5 个文件，+464/-16），fetch/rebase 后 push，本地 == origin/main
+备份：/data/errorjiang-backup/map-mobile-20261011-1903/（停服后复制 inventory.db 与 changelog-seed.json）
+服务器：git pull --ff-only c60dab9 -> 876cc36
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 = ea7a2bf6…5c8c）
+      import_changelog_moments.py --date 2026-10-11 --force -> 完成：新增 6 条，覆盖 0 条
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，/api/health = {"ok": true}
+服务器 HEAD -> 876cc36（与本地、origin/main 一致；工作区只有已知的 data.before-upload-* 未跟踪）
+服务端代码  -> /opt/errorjiang/app.py 含 can_filter_owner（第 12955 行）
+静态资源    -> https://zhexiyan.cc 上的 static/map.js、map.css、map.html 与本机文件 SHA256 逐一相同
+              （ed5b3af7 / 18d92666 / 96e2d02f），说明新前端已上线
+站内动态    -> 2026-10-11 七条，最新一条 id 291「手机地图改版：顶部压缩、高级筛选与悬浮操作，普」
+              时间戳 19:02:03；公开接口 /api/moments 也给游客列出了 id 291 与同一时间戳
+权限边界    -> 游客请求 /api/map 仍返回 401（地图对游客关闭，权限模型未被改动）
+```
+
+备注：普通账户的行为是在本地用临时账号 + 独立鉴权实例端到端验证的（服务端没有可用的普通账号，
+也不想在生产库临时建号）；线上通过「代码已部署 + 静态资源哈希一致 + 权限边界未松动」确认。
+另外本轮只改了 `/api/map` 的返回字段，没有改动服务端对标记的可见性，普通账户本来也只能看到
+全部公开标记——收回的是「挑人看」这个能力，不是数据权限。
