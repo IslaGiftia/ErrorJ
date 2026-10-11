@@ -2310,3 +2310,67 @@ A 移动端地图 → B 全局按下反馈 → C 笔记移动端「以便查看�
 线上静态    -> /static/map.html 已带 hidden 的导出链接与 is-pending 操作栏
 线上冒烟    -> 首页 / 登录页 × 412 / 1440：控制台 / 网络异常 0
 ```
+
+## 77. 2026-10-11 17:34:27 弹窗动效、图标形变与一批交互修复
+
+需求：站长要求把这一轮的审查结果全部落地——先按 UI 逻辑审查（Playwright 逐页交互）与
+OCR 全量扫描（115 个文件）的结论修真问题，再做视觉 / 动效抛光，最后接入 morphicons
+做图标形变，然后走完整发布流程。
+
+完成内容（`ea458fa feat:icon-morphs-dialog-motion-and-interaction-fixes`）：
+- 交互真 bug：
+  - 仓库页弹窗与元件详情抽屉支持 ESC 关闭（其它页面早就有，只有仓库页漏了）。
+  - 地图「添加者」筛选选完后按钮文字立即刷新（原先停在旧名字上直到重开弹窗）。
+  - 落点模式下点已有标记 / 聚合点也能落点（Leaflet 标记默认不冒泡，原先点了没反应），
+    同时放行 `.leaflet-control-container`，落点中仍能用缩放按钮。
+  - 小屋原型页 `?tab=` 缺失或非法时整页不显示（`const` 被重新赋值抛错中断 IIFE）。
+  - 小屋上传音乐时标题 / 歌手恒为空（在 `readAsDataURL` 之后就把输入框清空了，
+    而请求体是在异步回调里拼的）。
+  - 五子棋 CPU 赢棋不亮连线（亮线判断挂在 `board-locked` 表现层 class 上，改成显式传参）。
+  - 游戏大厅登录状态查询失败时会把闸门敞开（补 `response.ok` 校验并改为失败即关闭）。
+  - 注册页快速重复提交会重复申请（补重入标志，不只依赖按钮 disabled）。
+- 安全与运维加固：登录后跳转按同源校验（原先 `'/\evil.com'` 可绕成协议相对地址跳站外）；
+  书签 / 推荐 / 参考项目的外部链接只放行 http(s)（`safeHref()`，四处渲染点）；
+  `backup.ps1` 一致快照路径修正到 `staging\data\`、归档先校验再按保留期清理、catch 分支
+  写日志兜底；`tools/backup_linux.sh` 只清理自己生成的时间戳目录；`nginx-allow-ip.sh`
+  补 `set -e` 下的中断保护、`sed` 改完校验、备份目录名加 pid、systemd-run 用绝对路径、
+  IP 里的 `.` 转义；`set_password.py` 遇到损坏的 `auth.json` 中止而不是覆盖；
+  `manage_users.py --password` 补长度校验；`import_doc_note.py` 的 `--slug` 净化文件名。
+- 动效与视觉：站内对话框加入场动效（220ms 强 ease-out，`scale(0.96) → 1` + 淡入，
+  减弱动效时降为纯淡入），并修掉 `[hidden]` 被作者样式 `display: block` 盖掉导致的
+  空输入框（alert / confirm 里一直挂着约 116px 空白）；新增全局动效 token
+  （`--ease-out-strong` / `--ease-in-out-strong` / `--dur-*`，放在全站都会加载的 `fonts.css`）。
+- 图标形变：新增 `static/site/morph-icons.js` 适配层与 vendored 的
+  `static/vendor/morphicons/`（MIT，v1.7.1）；歌单的播放 / 音量 / 循环、编辑页的
+  删除（垃圾桶 ↔ 警告三角，保留文字标签）以及首页主题按钮（`◑` 文字字形换成太阳 / 月亮图标）
+  改为形变过渡；模块加载失败或图标数据缺失时自动退回原来的 lucide 硬切。
+
+部署步骤：
+```text
+本地：python -m py_compile（app.py + 4 个 tools）；python -m unittest discover -s tests -> 107 项全过
+      node --check（全部改动的 JS/MJS + 既有基线）；bash -n（两个 shell 脚本）；git diff --check 干净
+      真机 Chrome 验证：形变有中间帧、尺寸 21×21 与 lucide 一致、主题按钮盒子无位移、
+      prefers-reduced-motion 下直切、模块被拦时降级正常；mobile-audit（home+music × 2 视口）异常 0
+提交：ea458fa（32 个文件，+1942/-67），fetch/rebase 后 push，本地 == origin/main
+备份：/data/errorjiang-backup/ui-motion-20261011-1735/（停服后复制 inventory.db 与 changelog-seed.json）
+服务器：git pull --ff-only e2d2ef7 -> ea458fa
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 = be7d3e5b…c2cb5）
+      import_changelog_moments.py --date 2026-10-11 --force -> 完成：新增 5 条，覆盖 0 条
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，/api/health = {"ok": true}
+服务器 HEAD -> ea458fa（与本地、origin/main 一致；工作区只有已知的 data.before-upload-* 未跟踪）
+站内动态    -> 2026-10-11 五条：02:21:44 / 07:49:42 / 08:56:12 / 10:45:45 / 17:34:27
+              （id 280–284；最新一条 id 284「弹窗动效、图标形变与一批交互修复」）
+公开接口    -> https://zhexiyan.cc/api/moments 给游客列出 id 284 与 17:34:27 时间戳（正文按设计锁定）
+线上 UI     -> 桌面 1440×900 与手机 412×915 各一轮：主题按钮渲染成 lucide-sun（24×24），
+              点击后 class 变 lucide-moon、主题切深色、title 变「外观：深色」，
+              点击 80ms 时 path 的 d 长度 6387/6299（静止态 318）说明正在逐帧形变；
+              游戏大厅游客弹窗 animationName = site-dialog-overlay-in / 0.22s，
+              输入框 hidden + display:none + 高度 0；两个视口页面异常均为 0
+```
+
+备注：站点的 Nginx `server_name` 是 `zhexiyan.cc`，裸 IP 访问会 404，线上验证一律走域名
+（HTTPS 已由 Certbot 配好）；游客看不到动态正文属于设计，内容以服务端库核对为准。
