@@ -39,17 +39,9 @@
         <span class="mp-count" id="mapCount"></span>
       </header>
 
-      <!-- 手机上这一行是「搜索框 + 高级筛选入口」；桌面端 .mp-search-row 是 display: contents，布局不变 -->
-      <div class="mp-search-row">
-        <div class="mp-search">
-          <i data-lucide="search"></i>
-          <input id="mapSearch" type="search" autocomplete="off" placeholder="搜索名称、地址、备注">
-        </div>
-        <button class="mp-filter-btn mp-tip" id="mapFilterBtn" type="button" aria-label="高级筛选" data-tip="高级筛选"
-                aria-expanded="false" aria-controls="mapFilters">
-          <i data-lucide="funnel"></i>
-          <span class="mp-filter-badge" id="mapFilterBadge" hidden>0</span>
-        </button>
+      <div class="mp-search">
+        <i data-lucide="search"></i>
+        <input id="mapSearch" type="search" autocomplete="off" placeholder="搜索名称、地址、备注">
       </div>
 
       <!-- 手机上主分类与二级分类合成一条横滑轨道；桌面端 .mp-chips-row 是 display: contents，两行仍按原样换行 -->
@@ -62,23 +54,6 @@
         </button>
       </div>
 
-      <div class="mp-filters-mask" id="mapFiltersMask" hidden></div>
-      <!-- 手机上是被「高级筛选」按钮拉起的底部弹出层；桌面端 .mp-filters 是 display: contents，标签与添加者原地不动 -->
-      <div class="mp-filters" id="mapFilters">
-        <div class="mp-filters-head">
-          <strong>高级筛选</strong>
-          <button class="mp-icon-btn" id="mapFiltersClose" type="button" aria-label="关闭">×</button>
-        </div>
-        <div class="mp-tags" id="mapTags" hidden></div>
-        <div class="mp-owner">
-          <span class="mp-owner-label">添加者</span>
-          <button class="mp-owner-btn mp-tip" id="mapOwnerFilter" type="button" aria-haspopup="dialog" aria-expanded="false">
-            <i data-lucide="users"></i>
-          </button>
-          <!-- 当前筛选项：桌面端靠按钮上的悬停提示显示，手机端在高级筛选抽屉里直接显示这行文字 -->
-          <span class="mp-owner-state" id="mapOwnerValue">全部添加者</span>
-        </div>
-      </div>
       <div class="mp-list" id="mapList"></div>
     </aside>
 
@@ -87,26 +62,23 @@
       <button class="mp-btn mp-actions-toggle mp-tip" id="mapActionsToggle" type="button" aria-label="隐藏标记清单" data-tip="隐藏标记清单">
         <i data-lucide="chevron-left"></i>
       </button>
-      <!--
-        桌面端操作卡片里排在最左的「添加者」，点开的是卡片上方的气泡浮层；
-        手机上这个筛选在高级筛选抽屉里，这一整块在手机端隐藏（见 .mp-owner-entry）。
-      -->
+      <!-- 操作卡片里排在最左的「添加者」，PC 与手机点开的都是卡片上方的气泡浮层 -->
       <button class="mp-btn mp-owner-entry mp-tip" id="mapOwnerBtn" type="button" aria-label="添加者筛选：全部添加者"
               data-tip="全部添加者" aria-haspopup="true" aria-controls="mapOwnerPop" aria-expanded="false">
         <i data-lucide="users"></i>
       </button>
-      <!-- 桌面端添加者浮层：锚在操作卡片正上方，宽度跟卡片一致，高度按内容自适应 -->
+      <!-- 添加者浮层：锚在操作卡片正上方，宽度跟卡片一致，高度按内容自适应 -->
       <div class="mp-owner-pop" id="mapOwnerPop" hidden>
         <div class="mp-owner-options" id="mapOwnerPopList"></div>
       </div>
       <!-- 纯图标按钮：文字说明走 data-tip（悬停提示）+ aria-label（读屏），按钮里不再放文字 -->
-      <button class="mp-btn mp-btn-primary mp-tip" id="mapAddBtn" type="button" aria-label="添加标记" data-tip="添加标记" hidden>
+      <button class="mp-btn mp-btn-primary mp-tip" id="mapAddBtn" type="button" aria-label="添加标记" data-tip="添加标记">
         <i data-lucide="plus"></i>
       </button>
-      <button class="mp-btn mp-tip" id="mapCatsBtn" type="button" aria-label="分类管理" data-tip="分类管理" hidden>
+      <button class="mp-btn mp-tip" id="mapCatsBtn" type="button" aria-label="分类管理" data-tip="分类管理">
         <i data-lucide="tags"></i>
       </button>
-      <button class="mp-btn mp-tip" id="mapImportBtn" type="button" aria-label="导入标记" data-tip="导入标记" hidden>
+      <button class="mp-btn mp-tip" id="mapImportBtn" type="button" aria-label="导入标记" data-tip="导入标记">
         <i data-lucide="upload"></i>
       </button>
     </div>
@@ -305,19 +277,6 @@
         <button class="mp-btn" id="mapImportCancel" type="button">取消</button>
         <button class="mp-btn mp-btn-primary" id="mapImportSubmit" type="button">导入</button>
       </div>
-    </div>
-  </div>
-
-  <div class="mp-modal" id="mapOwnerModal" hidden>
-    <div class="mp-dialog mp-dialog-small" role="dialog" aria-modal="true" aria-labelledby="mapOwnerTitle">
-      <header class="mp-dialog-head">
-        <h2 id="mapOwnerTitle">选择添加者</h2>
-        <button class="mp-icon-btn" id="mapOwnerClose" type="button" aria-label="关闭">
-          <i data-lucide="x"></i>
-        </button>
-      </header>
-      <p class="mp-dialog-note">只显示某位添加者标记的地方。</p>
-      <div class="mp-owner-options" id="mapOwnerOptions"></div>
     </div>
   </div>
 

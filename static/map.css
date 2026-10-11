@@ -203,16 +203,6 @@ body {
   overflow-y: auto;
 }
 
-.mp-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--mp-border);
-  max-height: 96px;
-  overflow-y: auto;
-}
-
 .mp-subcats {
   padding-left: 22px;
   background: color-mix(in srgb, var(--mp-surface-2) 70%, transparent);
@@ -220,63 +210,6 @@ body {
 
 .mp-subcats[hidden] {
   display: none;
-}
-
-.mp-tags[hidden] {
-  display: none;
-}
-
-.mp-owner {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px 10px;
-  border-bottom: 1px solid var(--mp-border);
-}
-
-.mp-owner-label {
-  flex: none;
-  color: var(--mp-muted);
-  font-size: 12.5px;
-}
-
-.mp-owner-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 0;
-  height: 34px;
-  padding: 0 10px;
-  border: 1px solid var(--mp-border);
-  border-radius: 8px;
-  background: var(--mp-surface-2);
-  color: var(--mp-text);
-  font: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-  text-align: left;
-}
-
-.mp-owner-btn > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mp-owner-btn svg {
-  width: 15px;
-  height: 15px;
-  flex: none;
-  margin-left: auto;
-  color: var(--mp-muted);
-}
-
-.mp-owner-btn:hover,
-.mp-owner-btn:focus-visible {
-  border-color: var(--mp-accent);
-  background: var(--mp-surface);
 }
 
 .mp-owner-options {
@@ -322,40 +255,6 @@ body {
 .mp-owner-option.is-active {
   border-color: var(--mp-accent);
   background: var(--mp-accent-soft);
-}
-
-.mp-tag-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 24px;
-  padding: 0 9px;
-  border: 1px dashed var(--mp-border);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--mp-muted);
-  font: inherit;
-  font-size: 11.5px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.mp-tag-chip:hover {
-  background: var(--mp-hover);
-  color: var(--mp-text);
-}
-
-.mp-tag-chip.is-on {
-  border-style: solid;
-  border-color: var(--mp-accent);
-  background: var(--mp-accent-soft);
-  color: var(--mp-accent);
-  font-weight: 700;
-}
-
-.mp-tag-chip em {
-  font-style: normal;
-  opacity: 0.7;
 }
 
 .mp-chip {
@@ -501,8 +400,7 @@ body {
 }
 
 /*
- * 权限（能不能添加 / 导入 / 导出）要等地图数据回来才知道，在那之前先把操作栏藏起来，
- * 否则手机上会先闪一下「向左箭头 + 导出」，再跳成普通账户真正该有的按钮。
+ * 权限要等地图数据回来才知道，在那之前先把操作栏藏起来，避免首帧闪出不该有的按钮。
  * 这里带一个 1.2s 的 CSS 兜底：万一脚本没跑到，操作栏也会自己出现，不会一直空着。
  */
 .mp-actions.is-pending {
@@ -521,6 +419,30 @@ body {
   height: 36px;
   min-width: 0;
   padding: 0;
+}
+
+/*
+ * 操作卡片里从左到右：添加者、导入、分类、开合检索区、添加标记。
+ * PC 与手机共用同一套顺序（PC 端五枚全显示，手机端按权限隐藏其中几枚）。
+ */
+.mp-actions #mapOwnerBtn {
+  order: 1;
+}
+
+.mp-actions #mapImportBtn {
+  order: 2;
+}
+
+.mp-actions #mapCatsBtn {
+  order: 3;
+}
+
+.mp-actions .mp-actions-toggle {
+  order: 4;
+}
+
+.mp-actions #mapAddBtn {
+  order: 5;
 }
 
 /* 开合键在桌面上竖跨两行，做成与整栏同高的把手（height: auto + span 2） */
@@ -637,52 +559,10 @@ body {
   transform: translateY(-50%) translateX(0);
 }
 
-/* 侧栏里的提示放到按钮下方：侧栏是 overflow: hidden，提示不能越出它的盒子 */
-.mp-owner .mp-tip::after,
-.mp-filter-btn.mp-tip::after {
-  top: calc(100% + 8px);
-  bottom: auto;
-  transform: translateX(-50%) translateY(-2px);
-}
-
-.mp-owner .mp-tip:hover::after,
-.mp-owner .mp-tip:focus-visible::after,
-.mp-filter-btn.mp-tip:hover::after,
-.mp-filter-btn.mp-tip:focus-visible::after {
-  transform: translateX(-50%) translateY(0);
-}
-
 @media (hover: none) {
   .mp-tip::after {
     display: none;
   }
-}
-
-/*
- * 「添加者」按钮：纯图标（users），当前筛选项通过 data-tip 提示；
- * 手机端在高级筛选抽屉里另外显示一行状态文字（.mp-owner-state），因为抽屉里没有悬停。
- */
-.mp-owner-btn {
-  flex: 0 0 auto;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  justify-content: center;
-}
-
-.mp-owner-btn.is-active {
-  border-color: var(--mp-accent);
-  color: var(--mp-accent);
-}
-
-.mp-owner-state {
-  display: none;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--mp-muted);
-  font-size: 12.5px;
 }
 
 .mp-btn-primary {
@@ -868,6 +748,42 @@ body {
 }
 
 /* ---------- 中心选点（PC / 移动端共用）：水滴尖端 = 地图正中心 ---------- */
+
+/*
+ * 添加者浮层：锚在操作卡片正上方（PC 与手机同一套）。
+ * left/right 都贴住卡片，所以宽度天然不会超过卡片；高度由内容决定，
+ * 项数多的时候才卷起来。
+ */
+.mp-owner-pop {
+  display: block;
+  position: absolute;
+  z-index: 70;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 8px);
+  max-height: min(46vh, 320px);
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--mp-border);
+  border-radius: 8px;
+  background: var(--mp-surface);
+  box-shadow: var(--mp-shadow);
+}
+
+.mp-owner-pop .mp-owner-options {
+  max-height: none;
+  overflow: visible;
+}
+
+.mp-owner-entry.is-active {
+  border-color: var(--mp-accent);
+  color: var(--mp-accent);
+}
+
+/* 浮层开着的时候别再叠一个悬停气泡上去 */
+.mp-owner-entry[aria-expanded="true"]::after {
+  display: none;
+}
 
 .mp-pin-mode {
   position: absolute;
@@ -1879,18 +1795,11 @@ body {
  * 桌面端：包装层一律 display: contents「透明化」，子元素仍按原样参与布局，
  * 因此 PC 端的尺寸、间距、换行与改版前完全一致；专用元素全部不显示。
  */
-.mp-filters,
-.mp-search-row,
 .mp-chips-row {
   display: contents;
 }
 
-.mp-filter-btn,
-.mp-filters-mask,
-.mp-filters-head,
-.mp-cats-toggle,
-.mp-owner-entry,
-.mp-owner-pop {
+.mp-cats-toggle {
   display: none;
 }
 
@@ -1998,49 +1907,22 @@ body {
     max-height: 54px;
   }
 
-  .mp-tags {
-    padding: 4px 10px 5px;
-    gap: 4px;
-    max-height: 44px;
-  }
-
-  .mp-owner {
-    padding: 4px 10px 5px;
-    gap: 6px;
-  }
-
-  .mp-owner-label {
-    font-size: 11px;
-  }
-
-  /* 添加者筛选按钮压到 32px，仍然保证好点 */
-  .mp-owner-btn {
-    width: 44px;
-    height: 44px;
-    font-size: 12.5px;
-  }
-
   /*
-   * 分类 / 标签胶囊只有 24–26px 高，不打算把视觉高度改大（否则省下的高度又还回去了），
+   * 分类胶囊只有 24–26px 高，不打算把视觉高度改大（否则省下的高度又还回去了），
    * 改成用透明伪元素把上下各外扩 4px，点按热区变成 32px，看起来还是紧凑的一行胶囊。
    */
-  .mp-cats .mp-chip,
-  .mp-tags .mp-tag-chip {
+  .mp-cats .mp-chip {
     position: relative;
   }
 
-  .mp-cats .mp-chip::after,
-  .mp-tags .mp-tag-chip::after {
+  .mp-cats .mp-chip::after {
     content: "";
     position: absolute;
     inset: -4px 0;
     border-radius: inherit;
   }
 
-  /*
-   * 弹窗（含「选择添加者」）：手机上限定在屏幕内，宽度一律「屏宽 - 24px」，
-   * 并允许名字省略、数字靠右不换行，避免长昵称把弹窗撑出屏幕。
-   */
+  /* 弹窗：手机上限定在屏幕内，宽度一律「屏宽 - 24px」 */
   .mp-modal {
     padding: 12px;
   }
@@ -2051,25 +1933,6 @@ body {
     width: 100%;
     max-width: 100%;
     min-width: 0;
-  }
-
-  .mp-owner-options {
-    min-width: 0;
-  }
-
-  .mp-owner-option {
-    gap: 8px;
-    padding: 9px 10px;
-  }
-
-  .mp-owner-option > span {
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-
-  .mp-owner-option > em {
-    flex: 0 0 auto;
-    white-space: nowrap;
   }
 
   .mp-list {
@@ -2121,61 +1984,14 @@ body {
     grid-column: 1 / -1;
   }
 
-  /* ---------- 移动端：顶部压缩、高级筛选抽屉、右下角悬浮操作 ---------- */
+  /* ---------- 移动端：顶部压缩、底部操作卡片 ---------- */
 
-  /* 搜索框与「高级筛选」入口同一行 */
-  .mp-search-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 0 10px;
+  .mp-search {
+    margin: 6px 10px 8px;
   }
 
-  .mp-search-row .mp-search {
-    flex: 1 1 auto;
-    min-width: 0;
-    margin: 6px 0 5px;
-  }
-
-  .mp-filter-btn {
-    position: relative;
-    flex: 0 0 auto;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 32px;
-    margin: 6px 0 5px;
-    border: 1px solid var(--mp-border);
-    border-radius: 8px;
-    background: var(--mp-surface);
-    color: var(--mp-text);
-  }
-
-  .mp-filter-btn svg {
-    width: 15px;
-    height: 15px;
-  }
-
-  /* 有生效中的筛选条件时，漏斗按钮点亮 */
-  .mp-filter-btn.is-active {
-    border-color: var(--mp-accent);
-    color: var(--mp-accent);
-  }
-
-  .mp-filter-badge {
-    position: absolute;
-    top: -5px;
-    right: -5px;
-    min-width: 15px;
-    height: 15px;
-    padding: 0 3px;
-    border-radius: 999px;
-    background: var(--mp-accent);
-    color: #fff;
-    font-size: 10px;
-    line-height: 15px;
-    text-align: center;
+  .mp-owner-option {
+    padding: 10px 12px;
   }
 
   /* 主分类 + 二级分类合成一条横滑轨道，隐藏滚动条 */
@@ -2210,85 +2026,9 @@ body {
     background: none;
   }
 
-  /* 高级筛选：标签与添加者收进底部弹出层 */
-  /* 抽屉在 .mp-sidebar 的层叠上下文里，打开时把侧栏整体抬高，才能盖住右下角悬浮组 */
-  .mp-app.filters-open .mp-sidebar {
-    z-index: 70;
-  }
-
-  .mp-filters-mask {
-    display: block;
-    position: fixed;
-    inset: 0;
-    z-index: 60;
-    background: rgba(10, 12, 22, 0.42);
-  }
-
-  .mp-filters {
-    display: block;
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 61;
-    max-height: 64vh;
-    overflow-y: auto;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-    border-radius: 14px 14px 0 0;
-    background: var(--mp-surface);
-    box-shadow: 0 -14px 40px rgba(0, 0, 0, 0.28);
-    /* 收起时 visibility: hidden：既不能被 Tab 聚焦，也不会被 scrollIntoView 拖出来 */
-    visibility: hidden;
-    transform: translateY(105%);
-    transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1), visibility 0s linear 0.22s;
-  }
-
-  .mp-filters.is-open {
-    visibility: visible;
-    transform: translateY(0);
-    transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1), visibility 0s;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .mp-filters {
-      transition: none;
-    }
-  }
-
-  .mp-filters-head {
-    position: sticky;
-    top: 0;
-    z-index: 1;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    padding: 12px 14px;
-    border-bottom: 1px solid var(--mp-border);
-    background: var(--mp-surface);
-  }
-
-  .mp-filters-head strong {
-    font-size: 14px;
-  }
-
-  .mp-filters .mp-tags,
-  .mp-filters .mp-owner {
-    max-height: none;
-    overflow: visible;
-    padding: 10px 14px;
-    border-bottom: 0;
-  }
-
-  /* 抽屉里没有悬停，把当前筛选项直接写成一行文字 */
-  .mp-filters .mp-owner-state {
-    display: block;
-  }
-
   /*
    * 底部操作卡片：常驻屏幕底部，和上方的检索卡片分开（中间留 10px）。
-   * 按钮平铺一排、等分整行，触控高度守 44px；权限不够的按钮在手机端仍然隐藏，
-   * 所以点下去不会有任何「文字提示」需要弹。
+   * 按钮平铺一排、等分整行，触控高度守 44px，和桌面端同一套顺序与显隐规则。
    */
   .mp-actions,
   .mp-actions.one-action,
@@ -2323,23 +2063,6 @@ body {
   .mp-actions .mp-actions-toggle svg {
     width: 20px;
     height: 20px;
-  }
-
-  /* 从左到右：导入、分类、开合检索区、添加标记（和桌面端同一套顺序） */
-  .mp-actions #mapImportBtn {
-    order: 2;
-  }
-
-  .mp-actions #mapCatsBtn {
-    order: 3;
-  }
-
-  .mp-actions .mp-actions-toggle {
-    order: 4;
-  }
-
-  .mp-actions #mapAddBtn {
-    order: 5;
   }
 
   /* 卡片不再浮在列表上方，滚动到底不会再有东西压住最后几条 */
@@ -2505,25 +2228,15 @@ body {
     order: 10;
   }
 
-  /* 桌面端不要备注标签（#街道级、#精确 这类） */
-  .mp-tags {
-    display: none;
-  }
-
-  /*
-   * 添加者从检索卡片里搬走了：桌面端它回到下方操作卡片（.mp-owner-entry），
-   * 打开的是卡片上方的气泡浮层（.mp-owner-pop），不再占检索卡片的一行。
-   */
-  .mp-owner {
-    display: none;
-  }
-
   /* ---------- 分类：默认 1-2 行 + 底部渐隐 + 右下角展开按钮 ---------- */
   .mp-chips-row {
     display: block;
     position: relative;
     margin: 0 12px 8px;
-    max-height: 76px;
+    /* 右侧留出悬浮箭头的宽度，标签不会跑到箭头底下 */
+    padding-right: 20px;
+    /* 2.5 行：第二行完整、第三行只露半截，配合底部渐隐暗示还能展开 */
+    max-height: 82px;
     overflow: hidden;
     transition: max-height 0.26s cubic-bezier(0.32, 0.72, 0, 1);
   }
@@ -2552,23 +2265,24 @@ body {
     position: absolute;
     right: 0;
     bottom: 0;
-    width: 28px;
-    height: 28px;
-    border: 1px solid var(--mp-border);
-    border-radius: 6px;
-    background: var(--mp-surface);
+    /* 浮在标签之上，纯图标，不带边框 / 底色 / 阴影 */
+    z-index: 3;
+    width: 22px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    background: none;
     color: var(--mp-muted);
     cursor: pointer;
   }
 
   .mp-cats-toggle:hover {
     color: var(--mp-text);
-    border-color: var(--mp-muted);
   }
 
   .mp-cats-toggle svg {
-    width: 15px;
-    height: 15px;
+    width: 16px;
+    height: 16px;
     transition: transform 0.2s ease-out;
   }
 
@@ -2634,31 +2348,6 @@ body {
     padding: 6px;
   }
 
-  /* 添加者入口只在桌面端出现（手机端在高级筛选抽屉里） */
-  .mp-owner-entry {
-    display: inline-flex;
-  }
-
-  #mapOwnerBtn {
-    order: 1;
-  }
-
-  #mapImportBtn {
-    order: 2;
-  }
-
-  #mapCatsBtn {
-    order: 3;
-  }
-
-  .mp-actions .mp-actions-toggle {
-    order: 4;
-  }
-
-  #mapAddBtn {
-    order: 5;
-  }
-
   /* 图标按钮：没有文字，所以给一个矮一点的正方形，五枚并排也不挤 */
   .mp-actions .mp-btn,
   .mp-actions .mp-actions-toggle,
@@ -2678,43 +2367,4 @@ body {
     height: 16px;
   }
 
-  .mp-owner-entry.is-active {
-    border-color: var(--mp-accent);
-    color: var(--mp-accent);
-  }
-
-  /* 浮层开着的时候别再叠一个悬停气泡上去 */
-  .mp-owner-entry[aria-expanded="true"]::after {
-    display: none;
-  }
-
-  /*
-   * ---------- 添加者浮层：锚在操作卡片正上方 ----------
-   * left/right 都贴住卡片，所以宽度天然不会超过卡片；高度由内容决定，
-   * 项数多的时候才卷起来。
-   */
-  .mp-owner-pop {
-    display: block;
-    position: absolute;
-    z-index: 70;
-    left: 0;
-    right: 0;
-    bottom: calc(100% + 8px);
-    max-height: min(46vh, 320px);
-    overflow-y: auto;
-    padding: 6px;
-    border: 1px solid var(--mp-border);
-    border-radius: 8px;
-    background: var(--mp-surface);
-    box-shadow: var(--mp-shadow);
-  }
-
-  .mp-owner-pop .mp-owner-options {
-    max-height: none;
-    overflow: visible;
-  }
-
-  .mp-owner-pop .mp-owner-option {
-    padding: 8px 10px;
-  }
 }

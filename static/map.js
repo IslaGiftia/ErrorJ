@@ -134,7 +134,6 @@
     signedIn: false,
     activeTop: new Set(),
     activeSubs: new Set(),
-    activeTags: new Set(),
     expandedTops: new Set(),
     keyword: "",
     ownerFilter: "",
@@ -503,19 +502,6 @@
         var topId = cat ? cat.parent_id || cat.id : null;
         if (!topId || !state.activeTop.has(topId)) return false;
       }
-      if (state.activeTags.size) {
-        var placeTags = String(place.tags || "")
-          .split(",")
-          .map(function (tag) {
-            return tag.trim();
-          })
-          .filter(Boolean);
-        var matched = true;
-        state.activeTags.forEach(function (tag) {
-          if (placeTags.indexOf(tag) < 0) matched = false;
-        });
-        if (!matched) return false;
-      }
       if (!keyword) return true;
       var haystack = [
         place.name,
@@ -653,68 +639,7 @@
     box.innerHTML = html;
   }
 
-  function renderTags() {
-    var box = $("mapTags");
-    if (!box) return;
-    var counts = {};
-    state.places.forEach(function (place) {
-      String(place.tags || "")
-        .split(",")
-        .forEach(function (tag) {
-          tag = tag.trim();
-          if (tag) counts[tag] = (counts[tag] || 0) + 1;
-        });
-    });
-    var tags = Object.keys(counts)
-      .sort(function (a, b) {
-        return counts[b] - counts[a] || a.localeCompare(b, "zh-CN");
-      })
-      .slice(0, 24);
-    if (!tags.length) {
-      box.hidden = true;
-      box.innerHTML = "";
-      return;
-    }
-    box.hidden = false;
-    box.innerHTML = tags
-      .map(function (tag) {
-        return (
-          '<button type="button" class="mp-tag-chip' +
-          (state.activeTags.has(tag) ? " is-on" : "") +
-          '" data-tag="' +
-          esc(tag) +
-          '">#' +
-          esc(tag) +
-          "<em>" +
-          counts[tag] +
-          "</em></button>"
-        );
-      })
-      .join("");
-  }
-
   var ownerGroups = [];
-
-  /*
-   * 桌面端操作卡片对所有人显示同样的五枚按钮：没权限的那几枚照常占位，
-   * 点下去只提示去申请权限，不进功能。手机端仍然按权限隐藏
-   * （右下角悬浮组里少一枚就是少一枚，不摆空按钮占地方）。
-   *
-   * 不用 aria-disabled 标记这些按钮：它们仍然可点（点了会解释原因），
-   * 标成 disabled 反而是在骗读屏和自动化。
-   */
-  function syncActionButtons() {
-    var narrow = isNarrowMap();
-    [
-      [$("mapAddBtn"), state.canAdd],
-      [$("mapCatsBtn"), state.canManageCategories],
-      [$("mapImportBtn"), state.canImport]
-    ].forEach(function (rule) {
-      var button = rule[0];
-      if (!button) return;
-      button.hidden = narrow && !rule[1];
-    });
-  }
 
   function ownerLabel(key) {
     // 普通账户不能挑别人，按钮就两态：全部 / 只看自己添加的
@@ -728,22 +653,17 @@
   }
 
   function syncOwnerLabel() {
-    var value = $("mapOwnerValue");
     var label = ownerLabel(state.ownerFilter);
-    if (value) value.textContent = label;
-    // 两个入口共用同一份状态：手机端高级筛选抽屉里的那个，和桌面端操作卡片里的那个
-    ["mapOwnerFilter", "mapOwnerBtn"].forEach(function (id) {
-      var button = $(id);
-      if (!button) return;
-      // 悬停提示只写按钮名；当前筛的是谁走 aria-label，另外有筛选生效时按钮会点亮
-      button.setAttribute("data-tip", "添加者");
-      // 图标按钮没有可见文字，读屏要靠 aria-label；把当前状态也带进去
-      button.setAttribute("aria-label", "添加者筛选：" + label);
-      button.classList.toggle("is-active", Boolean(state.ownerFilter));
-    });
+    var button = $("mapOwnerBtn");
+    if (!button) return;
+    // 悬停提示只写按钮名；当前筛的是谁走 aria-label，另外有筛选生效时按钮会点亮
+    button.setAttribute("data-tip", "添加者");
+    // 图标按钮没有可见文字，读屏要靠 aria-label；把当前状态也带进去
+    button.setAttribute("aria-label", "添加者筛选：" + label);
+    button.classList.toggle("is-active", Boolean(state.ownerFilter));
   }
 
-  // 桌面端的添加者浮层：就锚在操作卡片正上方，不进全屏弹窗
+  // 添加者浮层：PC 与手机都锚在操作卡片正上方，不进全屏弹窗
   function setOwnerPopOpen(open) {
     var pop = $("mapOwnerPop");
     if (pop) pop.hidden = !open;
@@ -752,10 +672,6 @@
   }
 
   function closeOwnerPicker() {
-    var modal = $("mapOwnerModal");
-    if (modal) modal.hidden = true;
-    var button = $("mapOwnerFilter");
-    if (button) button.setAttribute("aria-expanded", "false");
     setOwnerPopOpen(false);
   }
 
@@ -782,14 +698,9 @@
     return html;
   }
 
-  /*
-   * 添加者列表要在两处出现：手机上是被「高级筛选」拉起的站内弹窗（原生 select 的系统选择器和
-   * 站内风格不一致），桌面上是操作卡片上方的气泡浮层。两处共用同一份 HTML。
-   */
   function renderOwnerFilter() {
-    var modalList = $("mapOwnerOptions");
     var popList = $("mapOwnerPopList");
-    if (!modalList && !popList) return;
+    if (!popList) return;
     var groups = {};
     state.places.forEach(function (place) {
       var key = String(place.created_by == null ? "" : place.created_by);
@@ -815,8 +726,7 @@
     }
     syncOwnerLabel();
     var html = ownerOptionsHtml();
-    if (modalList) modalList.innerHTML = html;
-    if (popList) popList.innerHTML = html;
+    popList.innerHTML = html;
   }
 
   function popupHtml(place) {
@@ -1053,15 +963,13 @@
   function renderAll() {
     renderChips();
     renderSubcats();
-    renderTags();
-    updateFilterBadge();
     updateCatsToggle();
     renderList();
     renderMarkers();
   }
 
   /*
-   * 桌面端分类默认只露 1-2 行（CSS 里 max-height: 76px），装不下才显示展开按钮；
+   * 桌面端分类默认只露 2.5 行（CSS 里 max-height: 82px），装不下才显示展开按钮；
    * 移动端整块是横向滚动，不需要这个按钮。
    */
   function updateCatsToggle() {
@@ -1073,7 +981,7 @@
       row.classList.remove("is-expanded");
       return;
     }
-    var collapsed = 76;
+    var collapsed = 82;
     if (row.scrollHeight <= collapsed + 4) {
       button.hidden = true;
       row.classList.remove("is-expanded");
@@ -1141,13 +1049,6 @@
       state.canManageCategories = Boolean(data.can_manage_categories);
       state.canFilterOwner = Boolean(data.can_filter_owner);
       state.myUserId = data.user_id == null ? "" : String(data.user_id);
-      syncActionButtons();
-      var ownerBtn = $("mapOwnerFilter");
-      if (ownerBtn) {
-        // 管理员点开的是选人弹窗；普通账户点的是开关，所以只在管理员那边声明 popup 语义
-        if (state.canFilterOwner) ownerBtn.setAttribute("aria-haspopup", "dialog");
-        else ownerBtn.removeAttribute("aria-haspopup");
-      }
       syncOwnerLabel();
       syncMapActions();
       var categoryIds = {};
@@ -1166,18 +1067,6 @@
       state.expandedTops.forEach(function (id) {
         var cat = categoryIds[id];
         if (!cat || cat.parent_id) state.expandedTops.delete(id);
-      });
-      var availableTags = {};
-      state.places.forEach(function (place) {
-        String(place.tags || "")
-          .split(",")
-          .forEach(function (tag) {
-            tag = tag.trim();
-            if (tag) availableTags[tag] = true;
-          });
-      });
-      state.activeTags.forEach(function (tag) {
-        if (!availableTags[tag]) state.activeTags.delete(tag);
       });
       renderOwnerFilter();
       renderAll();
@@ -2260,43 +2149,9 @@
     });
   }
 
-  var tagsBox = $("mapTags");
-  if (tagsBox) {
-    tagsBox.addEventListener("click", function (event) {
-      var chip = event.target.closest(".mp-tag-chip");
-      if (!chip) return;
-      var tag = chip.getAttribute("data-tag");
-      if (state.activeTags.has(tag)) state.activeTags.delete(tag);
-      else state.activeTags.add(tag);
-      renderAll();
-    });
-  }
-
-  var ownerButton = $("mapOwnerFilter");
-  if (ownerButton) {
-    ownerButton.addEventListener("click", function () {
-      /*
-       * 普通账户没有「按添加者挑人」的权限：不再弹出选人弹窗，
-       * 直接把筛选在「全部」和「只看我添加的」之间切换。
-       * 复用的是同一个 state.ownerFilter（存 created_by），筛选逻辑不变。
-       */
-      if (!state.canFilterOwner) {
-        state.ownerFilter = state.ownerFilter ? "" : state.myUserId;
-        syncOwnerLabel();
-        renderAll();
-        return;
-      }
-      renderOwnerFilter();
-      var modal = $("mapOwnerModal");
-      if (modal) modal.hidden = false;
-      ownerButton.setAttribute("aria-expanded", "true");
-      if (window.lucide && lucide.createIcons) lucide.createIcons();
-    });
-  }
-
   /*
-   * 桌面端操作卡片里的添加者入口：点一下在按钮上方开出气泡浮层，再点一下收起来。
-   * 浮层里选中某一项就立刻应用筛选并关闭。
+   * 操作卡片里的添加者入口（PC 与手机同一套）：点一下在按钮上方开出气泡浮层，
+   * 再点一下收起来。普通账户没有「挑人」的权限，按钮退化成「全部 / 只看我添加的」开关。
    */
   var ownerEntry = $("mapOwnerBtn");
   if (ownerEntry) {
@@ -2325,20 +2180,19 @@
     setOwnerPopOpen(false);
   });
 
-  ["mapOwnerOptions", "mapOwnerPopList"].forEach(function (boxId) {
-    var ownerOptions = $(boxId);
-    if (!ownerOptions) return;
+  var ownerOptions = $("mapOwnerPopList");
+  if (ownerOptions) {
     ownerOptions.addEventListener("click", function (event) {
       var option = event.target.closest("[data-owner]");
       if (!option) return;
       state.ownerFilter = option.getAttribute("data-owner") || "";
       closeOwnerPicker();
-      // 按钮上的文字只在 renderOwnerFilter 里更新，选完要顺手同步一次，
-      // 否则会一直停在上一个添加者的名字上，直到重新打开弹窗
+      // 按钮的提示只在 renderOwnerFilter 里更新，选完要顺手同步一次，
+      // 否则会一直停在上一个添加者的状态上，直到重新打开浮层
       syncOwnerLabel();
       renderAll();
     });
-  });
+  }
 
   var statusBox = $("placeStatus");
   if (statusBox) {
@@ -2706,13 +2560,12 @@
 
    [["mapPlaceClose", "mapPlaceModal"], ["mapPlaceCancel", "mapPlaceModal"],
     ["mapCatsClose", "mapCatsModal"], ["mapCatsDone", "mapCatsModal"],
-    ["mapOwnerClose", "mapOwnerModal"],
    ["mapImportClose", "mapImportModal"], ["mapImportCancel", "mapImportModal"]].forEach(function (pair) {
     var btn = $(pair[0]);
     if (btn) btn.addEventListener("click", function () { closeModal(pair[1]); });
   });
 
-   ["mapPlaceModal", "mapCatsModal", "mapImportModal", "mapOwnerModal"].forEach(function (id) {
+   ["mapPlaceModal", "mapCatsModal", "mapImportModal"].forEach(function (id) {
     var modal = $(id);
     if (!modal) return;
     modal.addEventListener("click", function (event) {
@@ -2837,8 +2690,6 @@
     if (!app || !actions) return;
     // 权限已经确定（或请求失败兜底），操作栏可以现身了
     actions.classList.remove("is-pending");
-    // 视口变了（缩小 / 放大窗口）按钮的显隐规则也要跟着切
-    syncActionButtons();
     var visible = Array.prototype.filter.call(actions.children, function (child) {
       return (
         child.classList.contains("mp-btn") &&
@@ -2869,51 +2720,6 @@
   }
   window.addEventListener("resize", syncMapActions);
 
-  /* ---------- 移动端：高级筛选弹出层 + 右下角悬浮操作组 ---------- */
-  var filterBtn = $("mapFilterBtn");
-  var filterSheet = $("mapFilters");
-  var filterMask = $("mapFiltersMask");
-  var filterClose = $("mapFiltersClose");
-
-  function setFilterSheet(open) {
-    if (!filterSheet || !filterBtn) return;
-    filterSheet.classList.toggle("is-open", open);
-    filterBtn.setAttribute("aria-expanded", open ? "true" : "false");
-    if (filterMask) filterMask.hidden = !open;
-    // 抽屉要盖在右下角悬浮组之上：给 app 打个标记，由 CSS 抬高侧栏层级
-    var app = $("mapApp");
-    if (app) app.classList.toggle("filters-open", open);
-  }
-
-  if (filterBtn && filterSheet) {
-    filterBtn.addEventListener("click", function () {
-      setFilterSheet(!filterSheet.classList.contains("is-open"));
-    });
-    if (filterMask) {
-      filterMask.addEventListener("click", function () {
-        setFilterSheet(false);
-      });
-    }
-    if (filterClose) {
-      filterClose.addEventListener("click", function () {
-        setFilterSheet(false);
-      });
-    }
-  }
-
-  /*
-   * 生效中的次要筛选条件数量（标签 + 添加者），给漏斗按钮点灯与角标用。
-   * 只读 state，不参与筛选逻辑本身。
-   */
-  function updateFilterBadge() {
-    var badge = $("mapFilterBadge");
-    if (!badge || !filterBtn) return;
-    var count = state.activeTags.size + (state.ownerFilter ? 1 : 0);
-    badge.hidden = count === 0;
-    badge.textContent = String(count);
-    filterBtn.classList.toggle("is-active", count > 0);
-  }
-
   var listBoxMobile = $("mapList");
   if (listBoxMobile) {
     listBoxMobile.addEventListener("click", function () {
@@ -2927,12 +2733,10 @@
       closeModal("mapPlaceModal");
       closeModal("mapCatsModal");
       closeModal("mapImportModal");
-      closeModal("mapOwnerModal");
       setOwnerPopOpen(false);
       resolveConfirm(false);
       openBasePanel(false);
       closeSidebar();
-      setFilterSheet(false);
     }
   });
 

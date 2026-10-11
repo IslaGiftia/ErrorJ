@@ -1,3 +1,8 @@
+/* 触摸屏点按不要留系统高亮 */
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
 :root {
   --bk-bg: #f4f5f8;
   --bk-surface: #ffffff;
@@ -11,6 +16,15 @@
   --bk-accent-soft: #efedff;
   --bk-danger: #d64545;
   --bk-shadow: 0 12px 32px rgba(24, 31, 45, 0.16);
+  /*
+   * 封面上的浮层（右上角格式标签 / 右下角操作胶囊）：浅色主题用浅底深字，
+   * 深色主题保持原来的深底浅字，两边都靠这两个变量换色，尺寸和位置不动。
+   */
+  --bk-badge-bg: rgba(255, 255, 255, 0.82);
+  --bk-badge-ink: #1b1f27;
+  --bk-actions-bg: rgba(255, 255, 255, 0.78);
+  --bk-actions-ink: #1b1f27;
+  --bk-actions-hover: rgba(0, 0, 0, 0.1);
   color-scheme: light;
 }
 
@@ -27,6 +41,11 @@
   --bk-accent-soft: #302a4a;
   --bk-danger: #f87171;
   --bk-shadow: 0 14px 36px rgba(0, 0, 0, 0.5);
+  --bk-badge-bg: rgba(16, 18, 24, 0.72);
+  --bk-badge-ink: #fff;
+  --bk-actions-bg: rgba(16, 18, 24, 0.58);
+  --bk-actions-ink: rgba(255, 255, 255, 0.92);
+  --bk-actions-hover: rgba(255, 255, 255, 0.24);
   color-scheme: dark;
 }
 
@@ -262,8 +281,9 @@ body {
   right: 8px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(16, 18, 24, 0.72);
-  color: #fff;
+  background: var(--bk-badge-bg);
+  color: var(--bk-badge-ink);
+  backdrop-filter: blur(6px);
   font-size: 10.5px;
   font-weight: 700;
   text-transform: uppercase;
@@ -332,24 +352,24 @@ body {
   gap: 2px;
   padding: 3px;
   border-radius: 9px;
-  background: rgba(16, 18, 24, 0.58);
+  background: var(--bk-actions-bg);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.24);
   backdrop-filter: blur(7px);
 }
 
 .bk-cover-actions .bk-card-edit {
   margin-left: 0;
-  color: rgba(255, 255, 255, 0.92);
+  color: var(--bk-actions-ink);
 }
 
 .bk-cover-actions .bk-card-edit:hover {
-  background: rgba(255, 255, 255, 0.24);
-  color: #fff;
+  background: var(--bk-actions-hover);
 }
 
 .bk-cover-actions .bk-card-edit:disabled,
 .bk-cover-actions .bk-card-edit.is-pending {
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--bk-actions-ink);
+  opacity: 0.55;
 }
 
 .bk-card-edit:hover {

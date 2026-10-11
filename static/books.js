@@ -178,12 +178,13 @@
             book.id +
             '" title="编辑"><i data-lucide="pencil"></i></button>'
           : "";
-        var report =
-          '<button class="bk-card-edit" type="button" data-report-type="book" data-report-key="' +
-          book.id +
-          '" data-report-title="' +
-          esc(book.title || "电子书") +
-          '" title="举报"><i data-lucide="flag"></i></button>';
+        var report = state.authenticated
+          ? '<button class="bk-card-edit" type="button" data-report-type="book" data-report-key="' +
+            book.id +
+            '" data-report-title="' +
+            esc(book.title || "电子书") +
+            '" title="举报"><i data-lucide="flag"></i></button>'
+          : "";
         var share = state.canManage
           ? '<button class="bk-card-edit" type="button" data-book-share="' +
             book.id +
@@ -211,8 +212,15 @@
               '" title="申请下载"><i data-lucide="download"></i></button>';
           }
         }
-        var coverActions = edit + report + share + download
-          ? '<div class="bk-cover-actions">' + edit + report + share + download + "</div>"
+        // 游客不显示封面右下角的操作胶囊，也不显示右上角的格式标签
+        var coverActions =
+          state.authenticated && edit + report + share + download
+            ? '<div class="bk-cover-actions">' + edit + report + share + download + "</div>"
+            : "";
+        var formatBadge = state.authenticated
+          ? '<span class="bk-format">' +
+            esc(String(book.format || "").toUpperCase()) +
+            "</span>"
           : "";
         return (
           '<article class="bk-card" data-book-open="' +
@@ -226,9 +234,7 @@
             : '<span class="bk-cover-fallback"><i data-lucide="book-open"></i><span>' +
               esc(book.title) +
               "</span></span>") +
-          '<span class="bk-format">' +
-          esc(String(book.format || "").toUpperCase()) +
-          "</span>" +
+          formatBadge +
           (percent > 0
             ? '<span class="bk-progress" title="已读 ' + percent + '%"><i style="width:' + percent + '%"></i></span>'
             : "") +
@@ -270,6 +276,9 @@
         state.canManage = Boolean(status.owner);
         state.canDownload = state.canManage;
         $("bookUploadBtn").hidden = !state.canManage;
+        // 游客看不到筛选 / 排序栏，网格自然往上顶
+        var toolbar = $("bookToolbar");
+        if (toolbar) toolbar.hidden = !state.authenticated;
         var recentOption = document.querySelector('#bookSort option[value="recent"]');
         if (recentOption) {
           recentOption.hidden = !state.authenticated;
@@ -284,6 +293,8 @@
         state.authenticated = false;
         state.canManage = false;
         state.canDownload = false;
+        var toolbar = $("bookToolbar");
+        if (toolbar) toolbar.hidden = true;
       });
   }
 

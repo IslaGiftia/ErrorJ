@@ -81,6 +81,11 @@
   box-sizing: border-box;
 }
 
+/* 触摸屏点按不要留系统高亮（手机上点一下按钮会留下紫色方块） */
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
 [hidden] {
   display: none !important;
 }
@@ -1358,6 +1363,17 @@ body.head-hidden .location-panel {
 
 .theme-float:hover {
   border-color: var(--accent);
+}
+
+/* 点按反馈只留给 :active；没有 hover 能力的设备不要卡住悬停的高亮圈 */
+.theme-float:active {
+  border-color: var(--accent);
+}
+
+@media (hover: none) {
+  .theme-float:hover {
+    border-color: var(--line);
+  }
 }
 
 .image-zoom {

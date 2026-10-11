@@ -1,3 +1,8 @@
+/* 触摸屏点按不要留系统高亮 */
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
 :root {
   --mo-bg: #f5f6f8;
   --mo-surface: #ffffff;
@@ -891,6 +896,14 @@ button.mo-share:hover {
   overflow: hidden;
 }
 
+/*
+ * 看图的时候弹窗跟着图片走：图片小就收窄，不再留一圈白边；
+ * 里面是 iframe 之类的其它内容时仍用原来的固定宽度。
+ */
+.mo-viewer-dialog:has(.mo-viewer-body img) {
+  width: fit-content;
+}
+
 .mo-viewer-head {
   display: flex;
   align-items: center;
@@ -911,10 +924,12 @@ button.mo-share:hover {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  background: var(--mo-bg);
   text-align: center;
-  /* 双击交给下面的 image-zoom.js 处理，别让浏览器把整页双击放大 */
-  touch-action: manipulation;
+  /*
+   * 双击交给 image-zoom.js 处理，别让浏览器把整页双击放大；
+   * pan-x pan-y 保留单指平移（放大后拖着看细节），同时把整页捏合缩放让给脚本。
+   */
+  touch-action: pan-x pan-y;
 }
 
 .mo-viewer-body img {
@@ -932,6 +947,10 @@ button.mo-share:hover {
   cursor: zoom-out;
 }
 
+.mo-viewer-body.is-panning img {
+  cursor: grabbing;
+}
+
 .mo-header-actions {
   display: flex;
   align-items: center;
@@ -942,28 +961,6 @@ button.mo-share:hover {
   display: flex;
   justify-content: flex-end;
   margin-top: 6px;
-}
-
-.mo-locked {
-  display: grid;
-  gap: 8px;
-  padding: 16px;
-  border: 1px dashed var(--mo-border);
-  border-radius: 8px;
-  color: var(--mo-muted);
-}
-
-.mo-locked strong {
-  color: var(--mo-text);
-}
-
-.mo-locked p {
-  margin: 0;
-  line-height: 1.7;
-}
-
-.mo-locked .mo-btn {
-  justify-self: start;
 }
 
 @media (max-width: 640px) {
@@ -1008,19 +1005,26 @@ button.mo-share:hover {
   .mo-comment-form {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    align-items: end;
+    align-items: center;
+    gap: 6px;
   }
 
+  /* 手机上把评论框压扁：字号仍守 16px（小于它 iOS 聚焦会自动放大整页），高度和内边距收紧 */
   .mo-comment-form textarea {
-    min-height: 42px;
-    max-height: 120px;
+    height: 38px;
+    min-height: 38px;
+    max-height: 96px;
+    padding: 4px 8px;
+    overflow-y: auto;
     resize: none;
   }
 
   .mo-comment-submit {
     width: auto;
+    min-height: 34px;
     margin-left: 0;
-    padding: 8px 12px;
+    padding: 5px 10px;
+    font-size: 12.5px;
   }
 }
 [hidden] {

@@ -846,30 +846,6 @@
     return item;
   }
 
-  function buildLockedMoment(row) {
-    var item = el("article", "mo-card mo-item is-locked");
-    var avatar = document.createElement("img");
-    avatar.className = "mo-avatar";
-    avatar.src = "/static/site/error-chan-favicon.png?v=3";
-    avatar.alt = "Error酱";
-    item.appendChild(avatar);
-    var body = el("div", "mo-item-body");
-    var head = el("div", "mo-item-head");
-    head.appendChild(el("span", "mo-nick", "Error酱"));
-    if (row.pinned) head.appendChild(el("span", "mo-pin-badge", "置顶"));
-    head.appendChild(el("span", "mo-time", formatTime(row.created_at)));
-    body.appendChild(head);
-    var locked = el("div", "mo-locked");
-    locked.appendChild(el("strong", "", "登录后查看动态"));
-    locked.appendChild(el("p", "", "动态正文、图片、评论和点赞信息仅向登录账号开放。"));
-    var login = el("a", "mo-btn mo-btn-primary", "前往登录");
-    login.href = "/login?next=" + encodeURIComponent("/moments");
-    locked.appendChild(login);
-    body.appendChild(locked);
-    item.appendChild(body);
-    return item;
-  }
-
   function loadMoments() {
     var list = $("momentList");
     var targetsRequest = canInteract
@@ -885,6 +861,8 @@
       var payload = result[0] || {};
       momentsRequireLogin = Boolean(payload.requires_login);
       latestMomentRows = Array.isArray(payload) ? payload : (payload.items || []);
+      // 游客先落在「开发日志」那一栏（日志本来就对外公开），登录账号仍默认「我的动态」
+      if (momentsRequireLogin && !explicitMomentKind) setMomentKind("log");
       freshTargets = {};
       (result[1] || []).forEach(function (id) {
         freshTargets[String(id)] = true;
@@ -926,6 +904,11 @@
   var MOMENT_FILTER_VALUES = ["all", "liked", "commented"];
   var MOMENT_KIND_VALUES = ["post", "log"];
   var currentMomentKind = "post";
+  // 地址栏里明确带了 ?kind= 就听用户的，否则游客会默认落到「开发日志」
+  var explicitMomentKind =
+    MOMENT_KIND_VALUES.indexOf(
+      new URLSearchParams(location.search).get("kind") || ""
+    ) >= 0;
   var canManageMoments = false;
   var MOMENT_FILTER_EMPTY_TEXT = {
     liked: "还没有你点赞过的动态。",
@@ -1187,14 +1170,14 @@
   }
 
   function momentEmptyText() {
-    if (momentsRequireLogin) return "登录后查看动态。";
+    if (currentMomentKind === "log") return "还没有开发日志。";
+    if (momentsRequireLogin) return "请登录后查看我的动态。";
     if (currentMomentFilter !== "all") {
       return (
         MOMENT_FILTER_EMPTY_TEXT[currentMomentFilter] ||
         "没有符合条件的动态。"
       );
     }
-    if (currentMomentKind === "log") return "还没有开发日志。";
     return "还没有记录，写第一条吧。";
   }
 
@@ -1213,14 +1196,20 @@
       list.appendChild(el("div", "mo-empty", momentEmptyText()));
       return;
     }
-    if (currentMomentKind === "log" && !momentsRequireLogin) {
+    // 开发日志对游客也开放正文（后端只给 log 行带 content），所以这里不做登录判断
+    if (currentMomentKind === "log") {
       buildLogList(list, rows);
       refreshIcons();
       updateJumpButton();
       return;
     }
+    // 「我的动态」只对登录账号开放，游客看到一句占位提示
+    if (momentsRequireLogin) {
+      list.appendChild(el("div", "mo-empty", "请登录后查看我的动态。"));
+      return;
+    }
     rows.forEach(function (row) {
-      list.appendChild(momentsRequireLogin ? buildLockedMoment(row) : buildMoment(row));
+      list.appendChild(buildMoment(row));
     });
     refreshIcons();
     updateJumpButton();

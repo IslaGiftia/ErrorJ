@@ -10789,21 +10789,30 @@ class InventoryHandler(BaseHTTPRequestHandler):
         identity = self.session_identity()
         if not identity:
             rows = query(
-                "SELECT id, pinned, kind, created_at FROM moments ORDER BY pinned DESC, created_at DESC, id DESC"
+                """SELECT id, content, tags, pinned, kind, created_at
+                   FROM moments
+                   ORDER BY pinned DESC, created_at DESC, id DESC"""
             )
+            items = []
+            for row in rows:
+                kind = row.get("kind") or "post"
+                item = {
+                    "id": row["id"],
+                    "pinned": bool(row["pinned"]),
+                    "kind": kind,
+                    "created_at": row["created_at"],
+                }
+                # 开发日志就是站内更新日志，本来就对所有人公开，游客照常拿到正文；
+                # 手动发布的动态仍然只给游客一条「需登录」的占位。
+                if kind == "log":
+                    item["content"] = row["content"] or ""
+                    item["tags"] = row["tags"] or ""
+                items.append(item)
             self.send_json(
                 200,
                 {
                     "requires_login": True,
-                    "items": [
-                        {
-                            "id": row["id"],
-                            "pinned": bool(row["pinned"]),
-                            "kind": row.get("kind") or "post",
-                            "created_at": row["created_at"],
-                        }
-                        for row in rows
-                    ],
+                    "items": items,
                 },
             )
             return

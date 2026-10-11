@@ -843,9 +843,16 @@
         locked.appendChild(el("i", "mg-locked-icon", "🔒"));
         locked.appendChild(el("strong", "", "登录后查看留言"));
         locked.appendChild(el("p", "", "留言内容仅向经管理员审核通过的登录账号开放。"));
-        var login = el("a", "mg-btn mg-btn-primary", "前往登录");
-        login.href = "/login?next=" + encodeURIComponent("/messages");
-        locked.appendChild(login);
+        /*
+         * 游客点「留言」不再跳登录页，直接在当前页给一句提示。
+         * 想登录的话页面右上角的账号入口一直都在，不会因此走投无路。
+         */
+        var writeBtn = el("button", "mg-btn mg-btn-primary", "留言");
+        writeBtn.type = "button";
+        writeBtn.addEventListener("click", function () {
+          toast("请申请注册账号后留言");
+        });
+        locked.appendChild(writeBtn);
         list.appendChild(locked);
         return;
       }

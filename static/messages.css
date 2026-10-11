@@ -1,3 +1,8 @@
+/* 触摸屏点按不要留系统高亮（手机上点一下按钮会留下紫色方块） */
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
 :root {
   --mg-bg: #f5f6f8;
   --mg-surface: #ffffff;
@@ -784,14 +789,21 @@ button.mg-file {
   white-space: nowrap;
 }
 
+/* 看图的时候弹窗跟着图片收窄，不留一圈白边；iframe 等其它内容仍用固定宽度 */
+.mg-viewer-dialog:has(.mg-viewer-body img) {
+  width: fit-content;
+}
+
 .mg-viewer-body {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  background: var(--mg-bg);
   text-align: center;
-  /* 双击交给下面的 image-zoom.js 处理，别让浏览器把整页双击放大 */
-  touch-action: manipulation;
+  /*
+   * 双击交给 image-zoom.js 处理；pan-x pan-y 保留放大后的单指平移，
+   * 双指捏合缩放留给脚本自己算。
+   */
+  touch-action: pan-x pan-y;
 }
 
 .mg-viewer-body img {
@@ -807,6 +819,10 @@ button.mg-file {
 
 .mg-viewer-body img.is-zoomed {
   cursor: zoom-out;
+}
+
+.mg-viewer-body.is-panning img {
+  cursor: grabbing;
 }
 
 .mg-viewer-body iframe {
