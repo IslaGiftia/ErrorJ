@@ -2545,3 +2545,67 @@ git commit 节点图标）、手机端标签吸顶；顺带把地图悬浮组「
 线上只做了「静态文件哈希逐字节一致 + 服务端代码特征串 + 更新日志入库」这三重确认。「导出」下线后
 `/api/map/export` 对游客返回 401 而非 404，是因为它先撞上 `/api/map` 的权限闸门，行不通并不代表路由还在
 （服务器上的 map.js 已经完全没有这个入口）。
+
+## 81. 2026-10-12 00:38:56 游客模式放行开发日志、书架主题适配与图片查看器升级
+
+需求（站便签「20261011问题汇总」）：分类筛选区收尾（无边框悬浮箭头 + 两行半渐隐）、游客模式权限与交互、
+书架封面浮层的明暗主题适配、书架游客模式隐藏部分 UI、留言 / 动态的触摸高亮与图片查看器问题。
+
+完成内容（`92e9a86 feat:guest-mode-books-theme-and-image-viewer`，14 个文件，+435/-834；
+含上一轮做完但一直没提交的「添加者进卡片 + 高级筛选下线」）：
+- 分类筛选区：展开按钮去掉边框 / 底色 / 阴影，改成 22×20 的纯箭头绝对定位悬浮在右下角（`z-index: 3`），
+  分类容器右侧留 20px 内边距避开它；收起态 `max-height` 76 → 82px（两行半），底部 `mask-image` 渐隐保留，
+  展开态解除限制并去掉遮罩；`updateCatsToggle()` 的阈值同步改成 82。
+- 游客模式：`/api/moments` 的游客分支改成只把 `kind='log'` 的行带上正文（posts 仍是四字段最小集，
+  安全测试里的白名单断言不动）；前端游客默认落在「开发日志」栏（地址栏带 ?kind= 时听用户的），
+  切到「我的动态」显示「请登录后查看我的动态。」，删掉原来的锁定卡与其「前往登录」链接；
+  留言页游客卡片上的「留言」按钮改成站内 toast「请申请注册账号后留言」，不再跳登录页。
+- 书架：封面上两处浮层（右上角格式标签、右下角操作胶囊）改用 `--bk-badge-*` / `--bk-actions-*`
+  两组主题变量——浅色半透明白底 + 深色图标，深色保持原样，毛玻璃与尺寸位置不变；游客模式隐藏
+  顶部筛选 / 排序栏（网格自然上移）、封面格式标签与操作胶囊。
+- 图片查看器（`static/site/image-zoom.js` 重写缩放内核）：双击 / 双点仍是 2 倍，新增滚轮缩放（电脑）、
+  按住鼠标拖动平移（电脑）、双指捏合缩放与单指平移（手机），范围 1~5 倍，锚点跟随指针 / 双指中点；
+  查看弹窗在内容含图片时 `width: fit-content`，不再在图片周围留白边；`touch-action` 从 `manipulation`
+  改成 `pan-x pan-y`。
+- 触摸与排版：`styles.css` / `messages.css` / `moments.css` / `books.css` 加
+  `-webkit-tap-highlight-color: transparent`，首页主题按钮的悬停高亮在 `@media (hover: none)` 下还原、
+  只留 `:active`；移动端评论框压到 38px 高、发送按钮 47×44（字号仍守 16px，避免 iOS 聚焦放大整页）。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 107 项全过
+      node --check static/{map,moments,messages,books}.js static/site/image-zoom.js；json.tool；git diff --check 干净
+      浏览器逐项验证（本地实例）：
+      分类区 rowH=82 / scrollH=242、箭头 border=0px、bg=transparent、z-index=3、落在行内，展开后 242px 且 mask=none
+      游客动态（真游客实例）：默认 kind=log、三个月份组、7 条日志行；切「我的动态」显示「请登录后查看我的动态。」
+      游客留言页：.mg-locked 存在且无 /login 链接，点「留言」后 toast = 请申请注册账号后留言，地址仍是 /messages
+      书架游客：toolbarHidden=true、无 .bk-format、无 .bk-cover-actions、网格 top 74（浅色 / 深色一致）
+      书架登录：浅色 badge rgba(255,255,255,.82)+深色字、胶囊 rgba(255,255,255,.78)+blur(7px)；
+                深色 badge rgba(16,18,24,.72)+白字、胶囊 rgba(16,18,24,.58)（与改前一致）
+      查看器：滚轮 scale 1→2.94、可滚动；拖拽 scrollLeft 875→1035 且 is-panning 复位；滚回 scale=1 且取消 is-zoomed
+      移动端评论框：textarea 359×38、发送 47×44、同一行，tap-highlight = rgba(0,0,0,0)
+提交：92e9a86（14 个文件，+435/-834），fetch/rebase 后 push，本地 == origin/main
+备份：/data/errorjiang-backup/guest-books-viewer-20261012-0039/（停服后复制 inventory.db 3424256 字节与 changelog-seed.json）
+服务器：git pull --ff-only f9d756b -> 92e9a86 -> runuser -u errorjiang -- python3 -c "import app; app.init_db()"（migration-ok）
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 = b0e3453f…5607）
+      import_changelog_moments.py --date 2026-10-12 --force -> 完成：新增 1 条，覆盖 0 条，跳过 0 条
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，/api/health = {"ok": true}，服务器 HEAD = 92e9a86
+              （重启瞬间线上出现一次 nginx 502，几秒后自行恢复，复查正常）
+更新日志    -> /api/moments 里 id 307 = 2026-10-12 00:38:56「游客模式放行开发日志、书架主题适配与图片查看器升级」，
+              kind = log，游客接口共 81 条
+线上游客态  -> 用匿名浏览器打开 https://zhexiyan.cc/moments：默认 kind=log、标签「开发日志72」、
+              渲染出 2026年10月 / 09月 / 08月三个月份组、62 条日志行 —— 游客确实读到了日志正文
+静态资源    -> moments.js/css、books.js/css、site/image-zoom.js、messages.js、map.js、styles.css
+              八个文件的线上 SHA256 与本机逐一相同（f5fa36eb / 199abfda / 29e1cee3 / 3bd9fe43 /
+              6df7a3b6 / bcff023e / a06cbd48 / 74eb3c7f）
+审计        -> mobile-audit 跑 map / moments / messages / books 四页两档视口，没有新增问题类型
+              （仍是品牌链接与地图标记小于 44px、桌面视口输入框 13-14px、格式标签 10.5px 这些老账）
+```
+
+备注：书架、地图这类需要登录的页面，线上只做了「静态文件哈希一致 + 代码特征」的确认，实际渲染与交互是在
+本地同提交实例上验证的；游客相关路径因为本地免密实例默认是站长身份，另起了一个带 `INVENTORY_PASSWORD`
+的实例来跑真游客，线上又用匿名浏览器复核了动态页。
