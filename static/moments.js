@@ -924,6 +924,9 @@
 
   // ---------- 筛选 ----------
   var MOMENT_FILTER_VALUES = ["all", "liked", "commented"];
+  var MOMENT_KIND_VALUES = ["post", "log"];
+  var currentMomentKind = "post";
+  var canManageMoments = false;
   var MOMENT_FILTER_EMPTY_TEXT = {
     liked: "还没有你点赞过的动态。",
     commented: "还没有你评论过的动态。",
@@ -970,6 +973,128 @@
     });
   }
 
+  /*
+   * 动态分两栏：我的动态（kind=post）与开发日志（kind=log）。
+   * 数据由后端在 moments.kind 上标记，前端只做分流，不发新请求、不刷新页面。
+   */
+  function setMomentKind(value) {
+    if (MOMENT_KIND_VALUES.indexOf(value) < 0) value = "post";
+    currentMomentKind = value;
+    var box = $("momentKinds");
+    if (box) {
+      box.querySelectorAll("[data-mo-kind]").forEach(function (node) {
+        var active = node.getAttribute("data-mo-kind") === value;
+        node.classList.toggle("is-active", active);
+        node.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+    }
+    var url = new URL(window.location.href);
+    if (value === "post") url.searchParams.delete("kind");
+    else url.searchParams.set("kind", value);
+    history.replaceState(null, "", url.toString());
+    applyKindVisibility();
+  }
+
+  /* 日志栏里没有可点的赞和评论，所以筛选行只在「我的动态」下出现；发布框也只有管理员在动态栏里看得到 */
+  function applyKindVisibility() {
+    var composer = $("momentForm");
+    if (composer) composer.hidden = !canManageMoments || currentMomentKind === "log";
+    var filterBox = $("momentFilters");
+    if (filterBox) filterBox.hidden = !canInteract || currentMomentKind === "log";
+  }
+
+  function updateKindCounts() {
+    var post = 0;
+    var log = 0;
+    latestMomentRows.forEach(function (row) {
+      if ((row.kind || "post") === "log") log += 1;
+      else post += 1;
+    });
+    var postNum = $("kindNumPost");
+    var logNum = $("kindNumLog");
+    if (postNum) postNum.textContent = post ? String(post) : "";
+    if (logNum) logNum.textContent = log ? String(log) : "";
+  }
+
+  function initMomentKinds() {
+    var box = $("momentKinds");
+    if (!box) return;
+    box.hidden = false;
+    box.addEventListener("click", function (event) {
+      var btn = event.target.closest("[data-mo-kind]");
+      if (!btn) return;
+      var value = btn.getAttribute("data-mo-kind");
+      if (value === currentMomentKind) return;
+      setMomentKind(value);
+      renderMomentRows();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  }
+
+  /* 「【更新日志】2026-10-11　标题」+ 若干「· 条目」→ 标题与条目 */
+  function parseLogRow(row) {
+    var text = String(row.content || "").replace(/^【更新日志】\s*/, "");
+    var lines = text.split("\n");
+    var head = (lines.shift() || "").trim();
+    var matched = head.match(/^(\d{4}-\d{2}-\d{2})[\s\u3000]+([\s\S]*)$/);
+    var items = lines
+      .map(function (line) {
+        return line.replace(/^\s*[·•\-*]\s*/, "").trim();
+      })
+      .filter(Boolean);
+    return { title: (matched ? matched[2] : head).trim() || "更新", items: items };
+  }
+
+  /* 开发日志：按日期分组的紧凑列表，行内只有时间与标题，点开才展开条目 */
+  function buildLogList(list, rows) {
+    var order = [];
+    var byDate = {};
+    rows.forEach(function (row) {
+      var date = String(row.created_at || "").slice(0, 10);
+      if (!byDate[date]) {
+        byDate[date] = [];
+        order.push(date);
+      }
+      byDate[date].push(row);
+    });
+    order.forEach(function (date) {
+      var section = el("section", "mo-log-group");
+      section.appendChild(el("h3", "mo-log-date", date));
+      var ol = el("ol", "mo-log-rows");
+      byDate[date].forEach(function (row) {
+        var parsed = parseLogRow(row);
+        var li = el("li", "mo-log-row");
+        var btn = el("button", "mo-log-head");
+        btn.type = "button";
+        btn.setAttribute("aria-expanded", "false");
+        var node = el("span", "mo-log-node");
+        node.innerHTML = '<i data-lucide="git-commit-vertical"></i>';
+        var time = el("time", "mo-log-time", String(row.created_at || "").slice(11, 16));
+        var title = el("span", "mo-log-title", parsed.title);
+        var caret = el("span", "mo-log-caret");
+        caret.innerHTML = '<i data-lucide="chevron-down"></i>';
+        btn.append(node, time, title, caret);
+        var body = el("div", "mo-log-body");
+        body.hidden = true;
+        var ul = el("ul", "mo-log-items");
+        parsed.items.forEach(function (item) {
+          ul.appendChild(el("li", "", item));
+        });
+        body.appendChild(ul);
+        li.append(btn, body);
+        btn.addEventListener("click", function () {
+          var open = !li.classList.contains("is-open");
+          li.classList.toggle("is-open", open);
+          body.hidden = !open;
+          btn.setAttribute("aria-expanded", open ? "true" : "false");
+        });
+        ol.appendChild(li);
+      });
+      section.appendChild(ol);
+      list.appendChild(section);
+    });
+  }
+
   function momentEmptyText() {
     if (momentsRequireLogin) return "登录后查看动态。";
     if (currentMomentFilter !== "all") {
@@ -978,20 +1103,29 @@
         "没有符合条件的动态。"
       );
     }
+    if (currentMomentKind === "log") return "还没有开发日志。";
     return "还没有记录，写第一条吧。";
   }
 
   function renderMomentRows() {
     var list = $("momentList");
     if (!list) return;
-    var rows =
-      currentMomentFilter === "all"
-        ? latestMomentRows
-        : latestMomentRows.filter(momentMatchesFilter);
+    // 先按 kind 分流，再套用「全部 / 我点赞过 / 我评论过」的筛选
+    var rows = latestMomentRows.filter(function (row) {
+      return (row.kind || "post") === currentMomentKind;
+    });
+    if (currentMomentFilter !== "all") rows = rows.filter(momentMatchesFilter);
+    updateKindCounts();
     list.innerHTML = "";
     $("momentCount").textContent = rows.length ? "共 " + rows.length + " 条" : "";
     if (!rows.length) {
       list.appendChild(el("div", "mo-empty", momentEmptyText()));
+      return;
+    }
+    if (currentMomentKind === "log" && !momentsRequireLogin) {
+      buildLogList(list, rows);
+      refreshIcons();
+      updateJumpButton();
       return;
     }
     rows.forEach(function (row) {
@@ -1003,6 +1137,8 @@
 
   renderPending();
   setMomentFilter(new URLSearchParams(location.search).get("filter") || "all");
+  setMomentKind(new URLSearchParams(location.search).get("kind") || "post");
+  initMomentKinds();
   $("momentShowRegion").checked = false;
   refreshIcons();
 
@@ -1046,17 +1182,18 @@
   });
 
   api("/api/auth/status").then(function (status) {
-    var canManage = Boolean(status.admin);
+    canManageMoments = Boolean(status.admin);
     canInteract = Boolean(status.authenticated);
     viewerLikeName = status.owner
       ? "管理员"
       : String(status.username || status.nickname || "");
-    $("momentForm").hidden = !canManage;
     if (canInteract) initMomentFilters();
+    applyKindVisibility();
     if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);
     return loadMoments().then(pollMomentNotifications);
   }).catch(function () {
-    $("momentForm").hidden = true;
+    canManageMoments = false;
+    applyKindVisibility();
     return loadMoments();
   });
   document.addEventListener("visibilitychange", function () {

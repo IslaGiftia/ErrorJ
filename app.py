@@ -957,6 +957,8 @@ def init_db():
                 ip TEXT,
                 ip_region TEXT,
                 show_region INTEGER NOT NULL DEFAULT 0,
+                -- post = 手动发布的动态；log = 更新日志（由导入脚本写入）
+                kind TEXT NOT NULL DEFAULT 'post',
                 created_at TEXT NOT NULL
             );
 
@@ -1548,6 +1550,14 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
         if "register_ip" not in user_columns:
             conn.execute("ALTER TABLE users ADD COLUMN register_ip TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_users_register_ip ON users(register_ip)")
+        moment_columns = [
+            row[1] for row in conn.execute("PRAGMA table_info(moments)").fetchall()
+        ]
+        if "kind" not in moment_columns:
+            conn.execute("ALTER TABLE moments ADD COLUMN kind TEXT NOT NULL DEFAULT 'post'")
+            # 老数据里更新日志是靠内容前缀写进去的，这里只回填这一次；
+            # 之后新导入的日志由 tools/import_changelog_moments.py 自己写 kind='log'。
+            conn.execute("UPDATE moments SET kind = 'log' WHERE content LIKE '【更新日志】%'")
         session_columns = [
             row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
         ]
@@ -10788,7 +10798,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         identity = self.session_identity()
         if not identity:
             rows = query(
-                "SELECT id, pinned, created_at FROM moments ORDER BY pinned DESC, created_at DESC, id DESC"
+                "SELECT id, pinned, kind, created_at FROM moments ORDER BY pinned DESC, created_at DESC, id DESC"
             )
             self.send_json(
                 200,
@@ -10798,6 +10808,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                         {
                             "id": row["id"],
                             "pinned": bool(row["pinned"]),
+                            "kind": row.get("kind") or "post",
                             "created_at": row["created_at"],
                         }
                         for row in rows
@@ -10806,7 +10817,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             )
             return
         rows = query(
-            """SELECT id, content, tags, pinned, ip, ip_region, show_region, created_at
+            """SELECT id, content, tags, pinned, ip, ip_region, show_region, kind, created_at
                FROM moments
                ORDER BY pinned DESC, created_at DESC, id DESC"""
         )
@@ -10880,6 +10891,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
             row["commented_by_me"] = int(row["id"]) in comment_moment_ids
             row["like_users"] = like_user_map.get(int(row["id"]), [])[:12]
             row["pinned"] = bool(row["pinned"])
+            # post = 手动发布的动态，log = 更新日志；前端按这个字段分流成两个标签页
+            row["kind"] = row.get("kind") or "post"
             row["can_manage"] = can_manage
             row["can_save"] = can_manage
             row["region"] = (
@@ -11068,8 +11081,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
         def write(conn):
             cursor = conn.execute(
                 """INSERT INTO moments
-                       (content, tags, pinned, ip, ip_region, show_region, created_at)
-                   VALUES (?, ?, 0, ?, ?, ?, ?)""",
+                       (content, tags, pinned, ip, ip_region, show_region, kind, created_at)
+                   VALUES (?, ?, 0, ?, ?, ?, 'post', ?)""",
                 (content, tags, client_ip, ip_region, show_region, created_at),
             )
             moment_id = cursor.lastrowid
@@ -11523,8 +11536,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 return
             moment_id = execute(
                 """INSERT INTO moments
-                       (content, tags, pinned, ip, ip_region, show_region, created_at)
-                   VALUES (?, NULL, 0, '', '', 0, ?)""",
+                       (content, tags, pinned, ip, ip_region, show_region, kind, created_at)
+                   VALUES (?, NULL, 0, '', '', 0, 'post', ?)""",
                 (content, stamp),
             )
             execute(

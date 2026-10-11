@@ -265,11 +265,6 @@ body {
   white-space: nowrap;
 }
 
-/* 普通账户拿到的这个按钮是开关而不是选择器，去掉下拉箭头（见 map.js 的 is-simple） */
-.mp-owner-btn.is-simple svg {
-  display: none;
-}
-
 .mp-owner-btn svg {
   width: 15px;
   height: 15px;
@@ -493,9 +488,10 @@ body {
   left: 16px;
   bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   display: grid;
-  grid-template-columns: 34px repeat(2, minmax(0, 1fr));
+  /* 纯图标：列宽就是图标按钮的宽度，栏体缩到刚好包住它们 */
+  grid-template-columns: 36px repeat(2, 36px);
   gap: 8px;
-  width: min(340px, calc(100vw - 32px));
+  width: max-content;
   padding: 10px 12px;
   border: 1px solid var(--mp-border);
   border-radius: 8px;
@@ -521,28 +517,35 @@ body {
 }
 
 .mp-actions .mp-btn {
+  width: 36px;
+  height: 36px;
   min-width: 0;
-  padding: 0 10px;
+  padding: 0;
+}
+
+/* 开合键在桌面上竖跨两行，做成与整栏同高的把手（height: auto + span 2） */
+.mp-actions .mp-actions-toggle {
+  height: auto;
 }
 
 .mp-actions-toggle {
   grid-row: span 2;
-  width: 34px;
+  width: 36px;
   height: auto;
   padding: 0;
 }
 
 .mp-actions.one-action {
-  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-columns: 36px 36px;
 }
 
 .mp-actions.is-solo {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: 36px;
 }
 
 .mp-actions.is-solo .mp-actions-toggle {
   grid-row: auto;
-  width: 100%;
+  width: 36px;
 }
 
 .mp-actions.single-row .mp-actions-toggle {
@@ -577,6 +580,109 @@ body {
 .mp-btn svg {
   width: 15px;
   height: 15px;
+}
+
+/*
+ * 纯图标按钮的悬停提示。
+ * 思路参考 balloon.css（MIT，纯 CSS + data 属性），不引依赖：
+ * 文字放在 data-tip 上，用 ::after 画出来，桌面端悬停 / 键盘聚焦时显示。
+ * 触摸设备（hover: none）直接不渲染——手机上点一下会留下「卡住的 hover」，反而碍事。
+ * 不加出现延迟：这一排图标按钮属于高频工具栏，即时出现的手感更好
+ * （Emil 的设计工程规则里，同一排工具从第二个开始就应当是瞬时的）。
+ */
+.mp-tip {
+  position: relative;
+}
+
+.mp-tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  z-index: 60;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  max-width: 240px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  /* 用主题里的文字色/底色互反，明暗主题都能自动适配 */
+  background: color-mix(in srgb, var(--mp-text) 92%, transparent);
+  color: var(--mp-surface);
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(2px);
+  transition: opacity 0.14s ease-out, transform 0.14s ease-out, visibility 0s linear 0.14s;
+}
+
+.mp-tip:hover::after,
+.mp-tip:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* 右上角那组工具：提示往左边展开 */
+.mp-tip-left::after {
+  left: auto;
+  right: calc(100% + 8px);
+  bottom: auto;
+  top: 50%;
+  transform: translateY(-50%) translateX(2px);
+}
+
+.mp-tip-left:hover::after,
+.mp-tip-left:focus-visible::after {
+  transform: translateY(-50%) translateX(0);
+}
+
+/* 侧栏里的提示放到按钮下方：侧栏是 overflow: hidden，提示不能越出它的盒子 */
+.mp-owner .mp-tip::after,
+.mp-filter-btn.mp-tip::after {
+  top: calc(100% + 8px);
+  bottom: auto;
+  transform: translateX(-50%) translateY(-2px);
+}
+
+.mp-owner .mp-tip:hover::after,
+.mp-owner .mp-tip:focus-visible::after,
+.mp-filter-btn.mp-tip:hover::after,
+.mp-filter-btn.mp-tip:focus-visible::after {
+  transform: translateX(-50%) translateY(0);
+}
+
+@media (hover: none) {
+  .mp-tip::after {
+    display: none;
+  }
+}
+
+/*
+ * 「添加者」按钮：纯图标（users），当前筛选项通过 data-tip 提示；
+ * 手机端在高级筛选抽屉里另外显示一行状态文字（.mp-owner-state），因为抽屉里没有悬停。
+ */
+.mp-owner-btn {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  justify-content: center;
+}
+
+.mp-owner-btn.is-active {
+  border-color: var(--mp-accent);
+  color: var(--mp-accent);
+}
+
+.mp-owner-state {
+  display: none;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mp-muted);
+  font-size: 12.5px;
 }
 
 .mp-btn-primary {
@@ -1831,7 +1937,8 @@ body {
 
   /* 添加者筛选按钮压到 32px，仍然保证好点 */
   .mp-owner-btn {
-    height: 32px;
+    width: 44px;
+    height: 44px;
     font-size: 12.5px;
   }
 
@@ -2126,6 +2233,11 @@ body {
     border-bottom: 0;
   }
 
+  /* 抽屉里没有悬停，把当前筛选项直接写成一行文字 */
+  .mp-filters .mp-owner-state {
+    display: block;
+  }
+
   /* 底部操作区：整条收成右下角悬浮组，列表因此能往下多顶一截 */
   .mp-sidebar {
     bottom: calc(20px + env(safe-area-inset-bottom, 0px));
@@ -2135,7 +2247,8 @@ body {
   .mp-actions {
     left: auto;
     right: 12px;
-    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    /* 让开右下角的 Leaflet 缩放控件（约 62px 高）和版权条，避免挡住地图的 +/- */
+    bottom: calc(94px + env(safe-area-inset-bottom, 0px));
     display: flex;
     flex-direction: column;
     align-items: flex-end;
@@ -2187,6 +2300,13 @@ body {
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
   }
 
+  /* 基础规则 .mp-actions .mp-btn 的尺寸优先级更高，这里补一条同优先级的覆盖 */
+  .mp-actions .mp-actions-more {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+  }
+
   .mp-actions-toggle svg,
   .mp-actions-more svg {
     width: 18px;
@@ -2204,31 +2324,34 @@ body {
   .mp-actions.is-more-open #mapImportBtn,
   .mp-actions.is-more-open #mapExportLink {
     display: flex;
-    min-height: 38px;
-    padding: 0 14px;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    padding: 0;
   }
 
   /* 添加标记：圆形 FAB，只留图标 */
   .mp-actions #mapAddBtn {
-    width: 56px;
-    height: 56px;
+    width: 44px;
+    height: 44px;
     min-width: 0;
     border-radius: 999px;
-    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.26);
-  }
-
-  .mp-actions #mapAddBtn span {
-    display: none;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.24);
   }
 
   .mp-actions #mapAddBtn svg {
-    width: 22px;
-    height: 22px;
+    width: 19px;
+    height: 19px;
   }
 
   /* 悬浮组会盖住列表最后几条，留出滚动余量 */
   .mp-list {
     padding-bottom: 84px;
+  }
+
+  /* 「更多」展开时悬浮组长高一大截，列表内边距跟着让位 */
+  .mp-app.more-open .mp-list {
+    padding-bottom: 320px;
   }
 
   /*

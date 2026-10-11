@@ -45,7 +45,7 @@
           <i data-lucide="search"></i>
           <input id="mapSearch" type="search" autocomplete="off" placeholder="搜索名称、地址、备注">
         </div>
-        <button class="mp-filter-btn" id="mapFilterBtn" type="button" aria-label="高级筛选" title="高级筛选"
+        <button class="mp-filter-btn mp-tip" id="mapFilterBtn" type="button" aria-label="高级筛选" data-tip="高级筛选"
                 aria-expanded="false" aria-controls="mapFilters">
           <i data-lucide="funnel"></i>
           <span class="mp-filter-badge" id="mapFilterBadge" hidden>0</span>
@@ -68,10 +68,11 @@
         <div class="mp-tags" id="mapTags" hidden></div>
         <div class="mp-owner">
           <span class="mp-owner-label">添加者</span>
-          <button class="mp-owner-btn" id="mapOwnerFilter" type="button" aria-haspopup="dialog" aria-expanded="false">
-            <span id="mapOwnerValue">全部添加者</span>
-            <i data-lucide="chevron-down"></i>
+          <button class="mp-owner-btn mp-tip" id="mapOwnerFilter" type="button" aria-haspopup="dialog" aria-expanded="false">
+            <i data-lucide="users"></i>
           </button>
+          <!-- 当前筛选项：桌面端靠按钮上的悬停提示显示，手机端在高级筛选抽屉里直接显示这行文字 -->
+          <span class="mp-owner-state" id="mapOwnerValue">全部添加者</span>
         </div>
       </div>
       <div class="mp-list" id="mapList"></div>
@@ -79,36 +80,37 @@
 
     <!-- is-pending：权限还没回来之前先不显示操作栏，避免先闪出「导出」和管理员按钮 -->
     <div class="mp-actions is-pending" id="mapActions">
-      <button class="mp-btn mp-actions-toggle" id="mapActionsToggle" type="button" aria-label="隐藏标记清单" title="隐藏标记清单">
+      <button class="mp-btn mp-actions-toggle mp-tip" id="mapActionsToggle" type="button" aria-label="隐藏标记清单" data-tip="隐藏标记清单">
         <i data-lucide="chevron-left"></i>
       </button>
       <!-- 手机上操作栏收成右下角悬浮组，这个按钮负责展开/收起「分类 / 导入 / 导出」；桌面端保持 hidden 不参与布局 -->
-      <button class="mp-btn mp-actions-more" id="mapMoreToggle" type="button" aria-label="更多操作" title="更多操作"
+      <button class="mp-btn mp-actions-more mp-tip" id="mapMoreToggle" type="button" aria-label="更多操作" data-tip="更多操作"
               aria-expanded="false" hidden>
         <i data-lucide="ellipsis"></i>
       </button>
-      <button class="mp-btn mp-btn-primary" id="mapAddBtn" type="button" hidden>
-        <i data-lucide="plus"></i><span>添加标记</span>
+      <!-- 纯图标按钮：文字说明走 data-tip（悬停提示）+ aria-label（读屏），不再显示文字 -->
+      <button class="mp-btn mp-btn-primary mp-tip" id="mapAddBtn" type="button" aria-label="添加标记" data-tip="添加标记" hidden>
+        <i data-lucide="plus"></i>
       </button>
-      <button class="mp-btn" id="mapCatsBtn" type="button" hidden>
-        <i data-lucide="tags"></i><span>分类</span>
+      <button class="mp-btn mp-tip" id="mapCatsBtn" type="button" aria-label="分类管理" data-tip="分类管理" hidden>
+        <i data-lucide="tags"></i>
       </button>
-      <button class="mp-btn" id="mapImportBtn" type="button" hidden>
-        <i data-lucide="upload"></i><span>导入</span>
+      <button class="mp-btn mp-tip" id="mapImportBtn" type="button" aria-label="导入标记" data-tip="导入标记" hidden>
+        <i data-lucide="upload"></i>
       </button>
-      <a class="mp-btn" id="mapExportLink" href="/api/map/export" download hidden>
-        <i data-lucide="download"></i><span>导出</span>
+      <a class="mp-btn mp-tip" id="mapExportLink" href="/api/map/export" download aria-label="导出标记" data-tip="导出标记" hidden>
+        <i data-lucide="download"></i>
       </a>
     </div>
 
     <div class="mp-tools">
-      <button type="button" id="mapBaseBtn" title="切换底图" aria-label="切换底图" aria-haspopup="menu">
+      <button type="button" id="mapBaseBtn" class="mp-tip mp-tip-left" data-tip="切换底图" aria-label="切换底图" aria-haspopup="menu">
         <i data-lucide="layers"></i>
       </button>
-      <button type="button" id="mapLocateBtn" title="定位到我的位置" aria-label="定位到我的位置">
+      <button type="button" id="mapLocateBtn" class="mp-tip mp-tip-left" data-tip="定位到我的位置" aria-label="定位到我的位置">
         <i data-lucide="locate-fixed"></i>
       </button>
-      <button type="button" id="mapFitBtn" title="显示全部标记" aria-label="显示全部标记">
+      <button type="button" id="mapFitBtn" class="mp-tip mp-tip-left" data-tip="显示全部标记" aria-label="显示全部标记">
         <i data-lucide="maximize"></i>
       </button>
     </div>

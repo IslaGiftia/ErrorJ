@@ -770,7 +770,8 @@ class InteractionTests(unittest.TestCase):
         self.assertTrue(payload["requires_login"])
         self.assertEqual(
             set(payload["items"][0]),
-            {"id", "pinned", "created_at"},
+            # kind 只说明这条是「我的动态」还是「开发日志」，游客也有这一栏，所以照常返回
+            {"id", "pinned", "kind", "created_at"},
         )
 
     def test_moment_like_lists_usernames(self):
@@ -1884,7 +1885,7 @@ class ComplianceWorkflowTests(unittest.TestCase):
         self.assertTrue(payload["requires_login"])
         self.assertEqual(
             set(payload["items"][0]),
-            {"id", "pinned", "created_at"},
+            {"id", "pinned", "kind", "created_at"},
         )
 
         guest.api_site_music_stream(self.music_id)

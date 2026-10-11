@@ -1040,3 +1040,191 @@ button.mo-share:hover {
     min-height: 44px;
   }
 }
+
+/* ---------- 动态分栏：我的动态 / 开发日志 ---------- */
+
+.mo-kinds[hidden] {
+  display: none;
+}
+
+.mo-kinds {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.mo-kind {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--mo-border);
+  border-radius: 8px;
+  background: var(--mo-surface);
+  color: var(--mo-muted);
+  font: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+.mo-kind svg {
+  width: 16px;
+  height: 16px;
+}
+
+.mo-kind.is-active {
+  border-color: var(--mo-accent);
+  background: var(--mo-accent-soft);
+  color: var(--mo-accent);
+  font-weight: 600;
+}
+
+.mo-kind-num {
+  font-style: normal;
+  font-size: 11.5px;
+  opacity: 0.7;
+}
+
+/* ---------- 开发日志：按日期分组、无卡片无阴影的紧凑列表 ---------- */
+
+.mo-log-group {
+  margin: 0 0 12px;
+}
+
+.mo-log-date {
+  margin: 0;
+  padding: 4px 2px 6px;
+  color: var(--mo-faint);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.mo-log-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mo-log-row + .mo-log-row {
+  border-top: 1px solid color-mix(in srgb, var(--mo-border) 60%, transparent);
+}
+
+.mo-log-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 2px;
+  border: 0;
+  background: none;
+  color: var(--mo-muted);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mo-log-head:hover,
+.mo-log-row.is-open .mo-log-head {
+  color: var(--mo-text);
+}
+
+.mo-log-node {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--mo-accent);
+  opacity: 0.75;
+}
+
+.mo-log-node svg {
+  width: 14px;
+  height: 14px;
+}
+
+.mo-log-time {
+  flex: 0 0 auto;
+  color: var(--mo-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.mo-log-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mo-log-caret {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--mo-faint);
+}
+
+.mo-log-caret svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.16s ease-out;
+}
+
+.mo-log-row.is-open .mo-log-caret svg {
+  transform: rotate(180deg);
+}
+
+.mo-log-body {
+  padding: 0 0 10px 24px;
+}
+
+.mo-log-body[hidden] {
+  display: none;
+}
+
+.mo-log-items {
+  margin: 0;
+  padding: 0 0 0 14px;
+  list-style: disc;
+  color: var(--mo-muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.mo-log-items li + li {
+  margin-top: 2px;
+}
+
+@media (max-width: 640px) {
+  /* 手机：分栏吸顶在页面标题下方（标题本身 57px 高），两个标签的触控高度 44px */
+  .mo-kinds {
+    position: sticky;
+    top: 57px;
+    z-index: 5;
+    margin: 0 0 8px;
+    padding: 8px 0;
+    background: color-mix(in srgb, var(--mo-bg) 94%, transparent);
+    backdrop-filter: blur(10px);
+  }
+
+  .mo-kind {
+    min-height: 44px;
+  }
+
+  /* 日志排版再压一档：竖屏地方宝贵 */
+  .mo-log-head {
+    min-height: 44px;
+    gap: 6px;
+    padding: 4px 0;
+  }
+
+  .mo-log-body {
+    padding: 0 0 8px 20px;
+  }
+
+  .mo-log-items {
+    font-size: 12px;
+    line-height: 1.55;
+  }
+}

@@ -45,6 +45,15 @@
 
   <div class="mo-app">
     <main class="mo-main">
+      <!-- 两栏：我的动态（手动发布）/ 开发日志（更新日志导入，kind=log）；默认看我的动态 -->
+      <nav class="mo-kinds" id="momentKinds" hidden aria-label="动态分类">
+        <button class="mo-kind is-active" type="button" data-mo-kind="post" aria-pressed="true">
+          <i data-lucide="message-square"></i><span>我的动态</span><em class="mo-kind-num" id="kindNumPost"></em>
+        </button>
+        <button class="mo-kind" type="button" data-mo-kind="log" aria-pressed="false">
+          <i data-lucide="git-commit-vertical"></i><span>开发日志</span><em class="mo-kind-num" id="kindNumLog"></em>
+        </button>
+      </nav>
       <form class="mo-card mo-composer" id="momentForm" hidden>
         <textarea id="momentContent" maxlength="2000" placeholder="今天在折腾什么？记录一句，或者直接粘贴截图…"></textarea>
         <div class="mo-tag-input">

@@ -170,8 +170,8 @@ def main():
                 continue
             conn.execute(
                 """INSERT INTO moments
-                       (content, tags, pinned, ip, ip_region, show_region, created_at)
-                   VALUES (?, ?, 0, '', '', 0, ?)""",
+                       (content, tags, pinned, ip, ip_region, show_region, kind, created_at)
+                   VALUES (?, ?, 0, '', '', 0, 'log', ?)""",
                 (content, tag, stamp),
             )
             inserted += 1

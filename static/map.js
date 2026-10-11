@@ -716,7 +716,16 @@
 
   function syncOwnerLabel() {
     var value = $("mapOwnerValue");
-    if (value) value.textContent = ownerLabel(state.ownerFilter);
+    var label = ownerLabel(state.ownerFilter);
+    if (value) value.textContent = label;
+    var button = $("mapOwnerFilter");
+    if (button) {
+      // 纯图标按钮：状态文字走悬停提示，同时点亮表示「有筛选生效」
+      button.setAttribute("data-tip", label);
+      // 图标按钮没有可见文字，读屏要靠 aria-label；把当前状态也带进去
+      button.setAttribute("aria-label", "添加者筛选：" + label);
+      button.classList.toggle("is-active", Boolean(state.ownerFilter));
+    }
   }
 
   function closeOwnerPicker() {
@@ -1081,10 +1090,12 @@
       if (catsBtn) catsBtn.hidden = !state.canManageCategories;
       if (importBtn) importBtn.hidden = !state.canImport;
       if (exportLink) exportLink.hidden = !state.canExport;
-      // 普通账户（没有挑人权限）时，添加者按钮是个开关：只显示「全部标记 / 只看我添加的」，
-      // 引导语里的下拉箭头也就没意义了，隐藏掉
       var ownerBtn = $("mapOwnerFilter");
-      if (ownerBtn) ownerBtn.classList.toggle("is-simple", !state.canFilterOwner);
+      if (ownerBtn) {
+        // 管理员点开的是选人弹窗；普通账户点的是开关，所以只在管理员那边声明 popup 语义
+        if (state.canFilterOwner) ownerBtn.setAttribute("aria-haspopup", "dialog");
+        else ownerBtn.removeAttribute("aria-haspopup");
+      }
       syncOwnerLabel();
       syncMapActions();
       var categoryIds = {};
@@ -2556,7 +2567,7 @@
       : '<i data-lucide="chevron-left"></i>';
     var label = collapsed ? "展开标记清单" : "隐藏标记清单";
     actionsToggle.setAttribute("aria-label", label);
-    actionsToggle.setAttribute("title", label);
+    actionsToggle.setAttribute("data-tip", label);
     if (window.lucide && lucide.createIcons) lucide.createIcons();
   }
   function updateToggleForViewport() {
@@ -2569,7 +2580,7 @@
         : '<i data-lucide="chevron-up"></i>';
       var label = open ? "收起标记清单" : "展开标记清单";
       actionsToggle.setAttribute("aria-label", label);
-      actionsToggle.setAttribute("title", label);
+      actionsToggle.setAttribute("data-tip", label);
       if (window.lucide && lucide.createIcons) lucide.createIcons();
       return;
     }
@@ -2597,7 +2608,10 @@
       }).length;
       var showMore = isNarrowMap() && lowFreq > 0;
       moreBtn.hidden = !showMore;
-      if (!showMore) actions.classList.remove("is-more-open");
+      if (!showMore) {
+        actions.classList.remove("is-more-open");
+        if (app) app.classList.remove("more-open");
+      }
     }
     app.style.setProperty(
       "--mp-actions-h",
@@ -2659,6 +2673,9 @@
       var open = !actions.classList.contains("is-more-open");
       actions.classList.toggle("is-more-open", open);
       moreToggle.setAttribute("aria-expanded", open ? "true" : "false");
+      // 展开后悬浮组会变高，给列表加一段动态内边距，别把最后几条压在按钮下面
+      var app = $("mapApp");
+      if (app) app.classList.toggle("more-open", open);
     });
   }
 
