@@ -2609,3 +2609,66 @@ git commit 节点图标）、手机端标签吸顶；顺带把地图悬浮组「
 备注：书架、地图这类需要登录的页面，线上只做了「静态文件哈希一致 + 代码特征」的确认，实际渲染与交互是在
 本地同提交实例上验证的；游客相关路径因为本地免密实例默认是站长身份，另起了一个带 `INVENTORY_PASSWORD`
 的实例来跑真游客，线上又用匿名浏览器复核了动态页。
+
+## 82. 2026-10-12 07:38:49 足迹卡片精简：三键导航与点赞打卡下线
+
+需求（站便签「20261011问题汇总」的最后一批）：删掉足迹圆形入口中间的十字和外圈的紫色圆环；删掉标记点卡片的
+「点赞 / 打卡」按钮与功能，连对应的接口、计数、Webhook 推送和互动提醒一起清掉；删掉百度导航，卡片只留
+**导航 / 编辑 / 删除**三个风格完全一致的按钮，导航默认走高德。
+
+完成内容（`efae3ae feat:trim-map-card-and-retire-place-interactions`，7 个文件，+25/-390）：
+- 圆形入口：`static/site/site.html` 去掉 `<span class="map-dock-cross">` 与 `<span class="map-dock-ring">`，
+  `static/site/minimap.css` 清掉这两条死样式；圆形底图、角标和悬停「足迹」保持不变。
+- 标记点卡片：`static/map.js` 删掉「点赞」「打卡」按钮与整段点击处理（含 `/api/map/places/<id>/interact`
+  调用、计数与状态回写），删掉「百度导航」和只在百度用的 BD-09 坐标换算；导航改高德，与「编辑」「删除」
+  同排放在 `.mp-popup-actions`，三个按钮统一 `mp-link-btn mp-edit-btn`（28px 高、`min-width: 46px`）。
+  `static/map.css` 清掉 `.mp-react-*` 六条死样式。
+- 后端下线：`app.py` 删除 `/api/map/places/<id>/interact` 路由与 `api_map_place_interact` 处理器、
+  `map_interaction_counts` / `map_interaction_mine` 两个方法、`/api/map` 返回的 `like_count` /
+  `checkin_count` / `liked` / `checked_in` 四个字段，以及通知设置里的 `map_interaction` 事件
+  （工作台「通知设置」的事件列表同步少一项）。**只删功能与接口，历史数据行保留不删**：
+  `map_place_interactions` 表、索引和「删除标记点时顺手清理历史行」的逻辑都还在，
+  `notification_alert_text` 的 map 分支改成直接回显历史提醒自带的文案。
+- 文档与测试：README 地图一节改成三个按钮的描述（并去掉「PUBG 风格」「百度导航」的说法）；
+  `tests/test_security.py` 删掉互动开关 / 通知用例，换成「接口与互动字段都已下线」的断言，
+  「提醒不被日志截断」的用例改用历史遗留提醒来验证。
+
+修复（本轮顺带）：上一轮删紫色圆环时把 `.map-dock-mini` / `.map-dock-tint` 的 `position: absolute; inset: 0;`
+ 一起删掉了（选择器还出现了重复的 `.map-dock-mini`），首页圆形入口因此塌成 0×0；这轮补齐规则并拆回两段。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 107 项全过
+      node --check static/map.js static/site/minimap.js；python -m json.tool config/changelog-seed.json；git diff --check 干净
+      本机实例（重启后加载新 app.py）用 Playwright 走真浏览器验证：
+      桌面 1440 / 窄窗 412 / 手机 412（touch）：卡片底部正好三个按钮 导航 48×28、编辑 48×28、删除 48×28，
+      字号 12px、内边距 0 11px、min-width 46px 完全一致；卡片里 `[data-mp-react]` = 0、无百度链接、无「点赞 / 打卡」字样
+      首页：`#mapDock` 130×130，`.map-dock-cross` / `.map-dock-ring` 都不存在，底图与角标正常
+      接口：POST /api/map/places/1/interact -> 404 接口不存在；GET /api/map 的 place 字段里没有互动四个字段；
+            GET /api/admin/notify 的 events / event_options 只剩 8 项（没有 map_interaction）
+提交：efae3ae（7 个文件，+25/-390），fetch/rebase 后 push，本地 == origin/main
+备份：/data/errorjiang-backup/map-card-trim-20261012-0738/（停服后复制 inventory.db 3465216 字节与 changelog-seed.json）
+服务器：git pull --ff-only 1e6f180 -> efae3ae -> runuser -u errorjiang -- python3 -c "import app; app.init_db()"（migration-ok）
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 = 674c373a…8e56）
+      import_changelog_moments.py --date 2026-10-12 --force -> 完成：新增 2 条，覆盖 0 条，跳过 0 条
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，/api/health = {"ok": true}，服务器 HEAD = efae3ae
+              服务重启时间 2026-10-12 07:41:45 CST
+更新日志    -> /api/moments 里 id 309 = 2026-10-12 07:38:49「足迹卡片精简：只留导航 / 编辑 / 删除，点赞打卡整体下线」，
+              kind = log（进「开发日志」栏），2026-10-12 当天两条（00:38:56 / 07:38:49）无重复时间戳，游客接口共 82 条
+静态资源    -> https://zhexiyan.cc 上的 static/map.js、map.css、site/minimap.css、site/site.html 与本机文件
+              SHA256 逐一相同（313fbf4b / b573bc77 / df8b8fb5 / ab93291e）
+服务端代码  -> 服务器上 static/map.js 里 'mp-react' 0 次、'uri.amap.com' 1 次；static/site/site.html 里
+              'map-dock-ring|map-dock-cross' 0 次；app.py 里 'api_map_place_interact'、'map_interaction'、
+              'place_like|place_checkin' 均为 0 次 —— 证明前端与后端都已经下线
+权限边界    -> 游客 GET /api/map 与 POST /api/map/places/1/interact 都返回 401「请先登录」（先撞权限闸门，
+              行不通并不代表路由还在；路由已删除的证据是本机实例上的 404 与服务器的代码特征串）
+```
+
+备注：线上地图页要登录才能打开，所以卡片三个按钮、圆形入口和首页角标的实际渲染是在**同一提交**的本地实例上
+用真浏览器（Chrome + Playwright，1440 / 412 两档视口，手机档带触摸）逐项验证的；线上做的是「静态文件哈希
+逐字节一致 + 服务端代码特征串 + 更新日志入库 + 健康检查」四重确认。`/map` 对游客返回 200 是因为
+`Invoke-WebRequest` 会自动跟随 `/login` 跳转（上一轮用 `curl` 看到的是 302）。
