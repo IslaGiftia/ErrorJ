@@ -852,22 +852,6 @@ body {
   filter: brightness(1.2) contrast(1.06);
 }
 
-.mp-hint {
-  position: absolute;
-  z-index: 40;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: min(520px, calc(100vw - 32px));
-  padding: 9px 14px;
-  border-radius: 8px;
-  background: var(--mp-toast);
-  color: #fff;
-  font-size: 13px;
-  box-shadow: var(--mp-shadow);
-  text-align: center;
-}
-
 .mp-toast {
   position: absolute;
   z-index: 60;
@@ -881,6 +865,98 @@ body {
   color: #fff;
   font-size: 13px;
   box-shadow: var(--mp-shadow);
+}
+
+/* ---------- 中心选点（PC / 移动端共用）：水滴尖端 = 地图正中心 ---------- */
+
+.mp-pin-mode {
+  position: absolute;
+  z-index: 45;
+  left: 50%;
+  top: 50%;
+  /* 整块不占位置、不吃事件，只有右边的按钮收点击，地图照常能拖能缩 */
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+/* 正中心的小圆点：这就是最终落点的坐标 */
+.mp-pin-dot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--mp-accent);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+}
+
+/* 水滴：translate(-50%, -100%) 让它的尖落在中心点上（再加 5px 对齐圆点） */
+.mp-pin-mark {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, calc(-100% + 5px));
+  color: var(--mp-accent);
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.45));
+}
+
+.mp-pin-mark svg {
+  width: 34px;
+  height: 34px;
+  /* 白底 + 主题色描边，浅色深色底图都看得清 */
+  fill: #fff;
+  stroke-width: 2.2;
+}
+
+.mp-pin-actions {
+  position: absolute;
+  left: 26px;
+  top: 0;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.mp-pin-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--mp-border);
+  border-radius: 50%;
+  background: var(--mp-surface);
+  color: var(--mp-text);
+  font: inherit;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+}
+
+.mp-pin-btn svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.4;
+}
+
+.mp-pin-ok {
+  border-color: var(--mp-accent);
+  background: var(--mp-accent);
+  color: #fff;
+}
+
+.mp-pin-ok:hover {
+  background: var(--mp-accent-hover);
+}
+
+.mp-pin-cancel:hover {
+  background: var(--mp-hover);
 }
 
 /* ---------- markers & popup ---------- */
@@ -1812,9 +1888,9 @@ body {
 .mp-filter-btn,
 .mp-filters-mask,
 .mp-filters-head,
-.mp-actions-more,
 .mp-cats-toggle,
-.mp-owner-caret {
+.mp-owner-entry,
+.mp-owner-pop {
   display: none;
 }
 
@@ -1826,10 +1902,10 @@ body {
     top: 12px;
     left: 12px;
     right: 12px;
-    bottom: calc(12px + env(safe-area-inset-bottom, 0px) + var(--mp-actions-h, 92px) + 8px);
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px) + var(--mp-actions-h, 70px) + 10px);
     width: auto;
     max-height: none;
-    transform: translateY(calc(100% + var(--mp-actions-h, 92px) + 32px));
+    transform: translateY(calc(100% + var(--mp-actions-h, 70px) + 40px));
     transition: transform 0.22s ease;
   }
 
@@ -2013,30 +2089,6 @@ body {
     font-size: 11.5px;
   }
 
-  .mp-actions .mp-btn {
-    /* 和左下角展开 / 收起按钮同高（它是 44px），否则同一排按钮会一高一矮 */
-    height: 44px;
-    font-size: 12.5px;
-  }
-
-  /* 左下角展开 / 收起按钮：撑满左侧两行，别只剩半截 */
-  .mp-actions .mp-actions-toggle {
-    width: 44px;
-    height: auto;
-    min-height: 44px;
-    padding: 0;
-  }
-
-  .mp-actions.is-solo .mp-actions-toggle,
-  .mp-actions.single-row .mp-actions-toggle {
-    min-height: 44px;
-  }
-
-  .mp-actions-toggle svg {
-    width: 20px;
-    height: 20px;
-  }
-
   .mp-tools {
     top: 12px;
     right: 12px;
@@ -2052,16 +2104,9 @@ body {
     height: 38px;
   }
 
-  .mp-hint {
-    top: 12px;
-    left: 12px;
-    right: 12px;
-    transform: none;
-    max-width: none;
-  }
-
   .mp-toast {
-    bottom: calc(140px + env(safe-area-inset-bottom, 0px));
+    /* 落在底部操作卡片上方，别被卡片压住 */
+    bottom: calc(84px + env(safe-area-inset-bottom, 0px));
   }
 
   .mp-cat-row {
@@ -2240,125 +2285,102 @@ body {
     display: block;
   }
 
-  /* 底部操作区：整条收成右下角悬浮组，列表因此能往下多顶一截 */
-  .mp-sidebar {
-    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
-    transform: translateY(calc(100% + 140px));
-  }
-
-  .mp-actions {
-    left: auto;
+  /*
+   * 底部操作卡片：常驻屏幕底部，和上方的检索卡片分开（中间留 10px）。
+   * 按钮平铺一排、等分整行，触控高度守 44px；权限不够的按钮在手机端仍然隐藏，
+   * 所以点下去不会有任何「文字提示」需要弹。
+   */
+  .mp-actions,
+  .mp-actions.one-action,
+  .mp-actions.is-solo,
+  .mp-actions.single-row {
+    left: 12px;
     right: 12px;
-    /* 让开右下角的 Leaflet 缩放控件（约 62px 高）和版权条，避免挡住地图的 +/- */
-    bottom: calc(94px + env(safe-area-inset-bottom, 0px));
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 8px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     width: auto;
-    padding: 0;
-    border: 0;
-    border-radius: 0;
-    background: none;
-    box-shadow: none;
-    backdrop-filter: none;
     grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 8px;
+    padding: 8px;
   }
 
-  .mp-actions .mp-btn {
+  .mp-actions .mp-btn,
+  .mp-actions .mp-actions-toggle,
+  .mp-actions.is-solo .mp-actions-toggle,
+  .mp-actions.single-row .mp-actions-toggle {
+    grid-column: auto;
+    grid-row: auto;
+    width: auto;
+    height: 44px;
+    min-height: 44px;
+    min-width: 0;
     padding: 0;
-    border-radius: 999px;
-    justify-content: center;
+    border-radius: 10px;
   }
 
-  /* 悬浮组自下而上：添加（FAB）→ 清单开合 → 更多 → 展开出来的低频操作 */
-  .mp-actions #mapAddBtn {
-    order: 10;
+  .mp-actions .mp-btn svg,
+  .mp-actions .mp-actions-toggle svg {
+    width: 20px;
+    height: 20px;
   }
 
-  .mp-actions-toggle {
-    order: 8;
+  /* 从左到右：导入、分类、开合检索区、添加标记（和桌面端同一套顺序） */
+  .mp-actions #mapImportBtn {
+    order: 2;
   }
 
-  .mp-actions-more {
-    order: 6;
+  .mp-actions #mapCatsBtn {
+    order: 3;
   }
 
-  .mp-actions #mapCatsBtn,
-  .mp-actions #mapImportBtn,
-  .mp-actions #mapExportLink {
+  .mp-actions .mp-actions-toggle {
     order: 4;
   }
 
-  .mp-actions-toggle,
-  .mp-actions-more {
-    display: flex;
-    grid-row: auto;
-    width: 44px;
-    height: 44px;
-    min-width: 44px;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--mp-surface) 96%, transparent);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
-  }
-
-  /* 基础规则 .mp-actions .mp-btn 的尺寸优先级更高，这里补一条同优先级的覆盖 */
-  .mp-actions .mp-actions-more {
-    width: 44px;
-    height: 44px;
-    min-width: 44px;
-  }
-
-  .mp-actions-toggle svg,
-  .mp-actions-more svg {
-    width: 18px;
-    height: 18px;
-  }
-
-  /* 低频操作默认收进「···」，展开后才出现 */
-  .mp-actions:not(.is-more-open) #mapCatsBtn,
-  .mp-actions:not(.is-more-open) #mapImportBtn,
-  .mp-actions:not(.is-more-open) #mapExportLink {
-    display: none;
-  }
-
-  .mp-actions.is-more-open #mapCatsBtn,
-  .mp-actions.is-more-open #mapImportBtn,
-  .mp-actions.is-more-open #mapExportLink {
-    display: flex;
-    width: 44px;
-    height: 44px;
-    min-width: 44px;
-    padding: 0;
-  }
-
-  /* 添加标记：圆形 FAB，只留图标 */
   .mp-actions #mapAddBtn {
-    width: 44px;
-    height: 44px;
-    min-width: 0;
-    border-radius: 999px;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.24);
+    order: 5;
   }
 
-  .mp-actions #mapAddBtn svg {
-    width: 19px;
-    height: 19px;
-  }
-
-  /* 移动端是纯图标按钮：按钮里的文字不显示（桌面端才露出来） */
-  .mp-actions .mp-btn-text {
-    display: none;
-  }
-
-  /* 悬浮组会盖住列表最后几条，留出滚动余量 */
+  /* 卡片不再浮在列表上方，滚动到底不会再有东西压住最后几条 */
   .mp-list {
-    padding-bottom: 84px;
+    padding-bottom: 12px;
   }
 
-  /* 「更多」展开时悬浮组长高一大截，列表内边距跟着让位 */
-  .mp-app.more-open .mp-list {
-    padding-bottom: 320px;
+  /* 卡片顶部用来做「下滑收起」的手势，别让浏览器把它当成页面滚动 */
+  .mp-sidebar-head {
+    touch-action: none;
+  }
+
+  /*
+   * 底部操作卡片铺满整行，会把右下角的缩放控件、比例尺和版权条压在下面。
+   * 把它们整组抬到卡片上方（和检索卡片用同一套高度差）。
+   */
+  .mp-map .leaflet-bottom.leaflet-right {
+    margin-bottom: calc(
+      12px + env(safe-area-inset-bottom, 0px) + var(--mp-actions-h, 70px) + 10px
+    );
+  }
+
+  /* 中心选点：手机上把水滴和按钮都放大一档，方便戳 */
+  .mp-pin-mark svg {
+    width: 38px;
+    height: 38px;
+  }
+
+  .mp-pin-actions {
+    left: 30px;
+    gap: 10px;
+  }
+
+  .mp-pin-btn {
+    width: 46px;
+    height: 46px;
+  }
+
+  .mp-pin-btn svg {
+    width: 20px;
+    height: 20px;
   }
 
   /*
@@ -2466,7 +2488,7 @@ body {
     border-top-right-radius: 8px;
   }
 
-  /* ---------- 卡片内顺序：搜索框 → 添加者 → 分类 → 列表 ---------- */
+  /* ---------- 卡片内顺序：搜索框 → 分类 → 列表 ---------- */
   .mp-sidebar > .mp-sidebar-head {
     order: 0;
   }
@@ -2475,12 +2497,8 @@ body {
     order: 1;
   }
 
-  .mp-owner {
-    order: 2;
-  }
-
   .mp-chips-row {
-    order: 3;
+    order: 2;
   }
 
   .mp-list {
@@ -2492,65 +2510,12 @@ body {
     display: none;
   }
 
-  /* ---------- 添加者：紧凑下拉样式的整行控件，紧跟搜索框 ---------- */
+  /*
+   * 添加者从检索卡片里搬走了：桌面端它回到下方操作卡片（.mp-owner-entry），
+   * 打开的是卡片上方的气泡浮层（.mp-owner-pop），不再占检索卡片的一行。
+   */
   .mp-owner {
-    position: relative;
-    align-items: center;
-    gap: 8px;
-    margin: 0 12px 8px;
-    padding: 0 10px;
-    height: 34px;
-    border: 1px solid var(--mp-border);
-    border-radius: 8px;
-    background: var(--mp-surface-2);
-  }
-
-  .mp-owner:hover {
-    border-color: var(--mp-muted);
-  }
-
-  .mp-owner-label {
-    font-size: 12px;
-    color: var(--mp-muted);
-  }
-
-  .mp-owner-state {
-    display: block;
-    flex: 1 1 auto;
-    min-width: 0;
-    color: var(--mp-text);
-    font-size: 12.5px;
-  }
-
-  /* 按钮铺满整行当点击热区，视觉交给上面的行样式 */
-  .mp-owner-btn {
-    position: absolute;
-    inset: 0;
-    width: auto;
-    height: auto;
-    border: 0;
-    background: none;
-    border-radius: 8px;
-  }
-
-  .mp-owner-btn svg {
     display: none;
-  }
-
-  /* 行里已经有文字，悬停提示就多余了 */
-  .mp-owner .mp-tip::after {
-    display: none;
-  }
-
-  .mp-owner-caret {
-    display: inline-flex;
-    margin-left: auto;
-    color: var(--mp-muted);
-  }
-
-  .mp-owner-caret svg {
-    width: 15px;
-    height: 15px;
   }
 
   /* ---------- 分类：默认 1-2 行 + 底部渐隐 + 右下角展开按钮 ---------- */
@@ -2652,46 +2617,104 @@ body {
     padding-bottom: 10px;
   }
 
-  /* ---------- 操作卡片：与检索卡片同宽、按钮均分、带文字 ---------- */
-  .mp-actions {
+  /*
+   * ---------- 操作卡片：一排纯图标按钮，与检索卡片同宽、尽量矮 ----------
+   * 卡片里从左到右是「添加者、导入、分类、展开/收起检索区、添加标记」，
+   * 可见按钮数量随权限变化，所以用 grid-auto-flow 让它们自己均分整行。
+   */
+  .mp-actions,
+  .mp-actions.one-action,
+  .mp-actions.is-solo,
+  .mp-actions.single-row {
     width: min(340px, calc(100vw - 32px));
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-    padding: 10px 12px;
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 6px;
+    padding: 6px;
   }
 
-  .mp-actions .mp-btn {
+  /* 添加者入口只在桌面端出现（手机端在高级筛选抽屉里） */
+  .mp-owner-entry {
+    display: inline-flex;
+  }
+
+  #mapOwnerBtn {
+    order: 1;
+  }
+
+  #mapImportBtn {
+    order: 2;
+  }
+
+  #mapCatsBtn {
+    order: 3;
+  }
+
+  .mp-actions .mp-actions-toggle {
+    order: 4;
+  }
+
+  #mapAddBtn {
+    order: 5;
+  }
+
+  /* 图标按钮：没有文字，所以给一个矮一点的正方形，五枚并排也不挤 */
+  .mp-actions .mp-btn,
+  .mp-actions .mp-actions-toggle,
+  .mp-actions.is-solo .mp-actions-toggle {
+    grid-column: auto;
+    grid-row: auto;
+    justify-self: stretch;
     width: auto;
-    height: 40px;
-    min-height: 40px;
-    padding: 0 10px;
+    height: 34px;
+    min-height: 34px;
+    padding: 0;
     border-radius: 8px;
   }
 
   .mp-actions .mp-btn svg {
-    width: 15px;
-    height: 15px;
+    width: 16px;
+    height: 16px;
   }
 
-  .mp-actions .mp-btn-text {
-    display: inline;
-    font-size: 12.5px;
+  .mp-owner-entry.is-active {
+    border-color: var(--mp-accent);
+    color: var(--mp-accent);
   }
 
-  /* 开合按钮固定在卡片第一行右侧，只占一小格 */
-  .mp-actions .mp-actions-toggle {
-    grid-column: 1 / -1;
-    grid-row: auto;
-    justify-self: end;
-    width: 30px;
-    height: 26px;
-    min-height: 26px;
-    padding: 0;
+  /* 浮层开着的时候别再叠一个悬停气泡上去 */
+  .mp-owner-entry[aria-expanded="true"]::after {
+    display: none;
   }
 
-  .mp-actions.one-action,
-  .mp-actions.is-solo,
-  .mp-actions.single-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  /*
+   * ---------- 添加者浮层：锚在操作卡片正上方 ----------
+   * left/right 都贴住卡片，所以宽度天然不会超过卡片；高度由内容决定，
+   * 项数多的时候才卷起来。
+   */
+  .mp-owner-pop {
+    display: block;
+    position: absolute;
+    z-index: 70;
+    left: 0;
+    right: 0;
+    bottom: calc(100% + 8px);
+    max-height: min(46vh, 320px);
+    overflow-y: auto;
+    padding: 6px;
+    border: 1px solid var(--mp-border);
+    border-radius: 8px;
+    background: var(--mp-surface);
+    box-shadow: var(--mp-shadow);
+  }
+
+  .mp-owner-pop .mp-owner-options {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .mp-owner-pop .mp-owner-option {
+    padding: 8px 10px;
   }
 }

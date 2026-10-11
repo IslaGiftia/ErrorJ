@@ -220,7 +220,6 @@ PERMISSION_GROUPS = (
             {"key": "map:write", "label": "添加标记、管理自己添加的标记与照片"},
             {"key": "map:write_all", "label": "编辑和删除所有标记"},
             {"key": "map:manage_categories", "label": "管理地图分类"},
-            {"key": "map:export", "label": "导出地图数据"},
         ),
     },
     {
@@ -314,7 +313,6 @@ if MAP_PUBLIC:
         "map:write",
         "map:write_all",
         "map:manage_categories",
-        "map:export",
     )
 
 SENSITIVE_SEED_WORDS = (
@@ -5515,10 +5513,6 @@ def required_permission(path, method):
         return ""
     if path.startswith("/api/admin"):
         return None
-    if path.startswith("/api/map/export"):
-        if not MAP_PUBLIC:
-            return None
-        return "map:export"
     if path.startswith("/api/map/categories"):
         if not MAP_PUBLIC:
             return None
@@ -5531,7 +5525,7 @@ def required_permission(path, method):
             return None
         if method in ("POST", "PATCH", "DELETE"):
             return "map:write"
-        return ("map:write", "map:write_all", "map:manage_categories", "map:export")
+        return ("map:write", "map:write_all", "map:manage_categories")
     for prefix, module in PERMISSION_ROUTE_MODULES:
         if path.startswith(prefix):
             action = "write" if method in ("POST", "PATCH", "DELETE") else "view"
@@ -5548,7 +5542,6 @@ MAP_VIEW_PERMISSIONS = (
     "map:write",
     "map:write_all",
     "map:manage_categories",
-    "map:export",
 )
 # 私有模块数据目录：登录账号需要对应权限
 DATA_PERMISSION_RULES = (
@@ -8767,8 +8760,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_admin_download_requests(query)
             elif path == "/api/references":
                 self.api_reference_projects()
-            elif path == "/api/map/export":
-                self.api_map_export()
             elif re.fullmatch(r"/api/recommendations/\d+/icon", path):
                 self.api_recommendation_icon(path)
             elif path == "/api/site/photos":
@@ -12962,7 +12953,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "can_manage": is_admin,
                 "can_add": self.can("map:write"),
                 "can_import": is_admin,
-                "can_export": self.can("map:export"),
                 "can_manage_categories": self.can("map:manage_categories"),
                 # 只有管理员能按「添加者」挑人；普通账户只能看「全部」或「只看自己添加的」
                 "can_filter_owner": is_admin,
@@ -13516,64 +13506,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
             target_id=photo["place_id"],
         )
         self.send_json(200, {"ok": True})
-
-    def api_map_export(self):
-        if not self.can("map:export"):
-            api_error(self, 403, "只有管理员可以导出地图数据。")
-            return
-        categories = {row["id"]: row for row in self.map_category_rows()}
-
-        def category_path(category_id):
-            category = categories.get(category_id)
-            if not category:
-                return ""
-            if category.get("parent_id"):
-                parent = categories.get(category["parent_id"])
-                if parent:
-                    return f"{parent['name']} / {category['name']}"
-            return category["name"]
-
-        features = []
-        for row in self.map_place_rows():
-            path = category_path(row.get("category_id"))
-            features.append(
-                {
-                    "type": "Feature",
-                    "geometry": {"type": "Point", "coordinates": [row["lng"], row["lat"]]},
-                    "properties": {
-                        "id": row["id"],
-                        "name": row["name"],
-                        "subtitle": row.get("subtitle") or "",
-                        "address": row.get("address") or "",
-                        "note": row.get("note") or "",
-                        "signature": row.get("signature") or "",
-                        "tags": row.get("tags") or "",
-                        "status": row.get("status") or "",
-                        "rating": row.get("rating") or 0,
-                        "added_by": row.get("created_by_name") or "",
-                        "category": row.get("category_name") or "",
-                        "category_path": path,
-                        "category_color": row.get("category_color") or "",
-                        "category_glyph": row.get("category_glyph") or "",
-                    },
-                }
-            )
-        body = json.dumps(
-            {"type": "FeatureCollection", "features": features},
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/geo+json; charset=utf-8")
-        self.send_header(
-            "Content-Disposition",
-            "attachment; filename*=UTF-8''"
-            + quote(f"errorjiang-map-{today_text()}.geojson"),
-        )
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(body)
 
     def api_map_import(self, payload):
         user_id = self.map_identity_user_id()

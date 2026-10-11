@@ -425,6 +425,9 @@
 
   var toastEl = $("mapToast");
   var toastTimer = null;
+  // 桌面端操作卡片里没权限的按钮统一给这一句，措辞保持一致
+  var NO_PERMISSION_TIP = "请向管理员申请权限";
+
   function toast(message) {
     if (!toastEl) return;
     toastEl.textContent = message;
@@ -439,17 +442,6 @@
     try {
       localStorage.setItem("errorMapDockRefresh", String(Date.now()));
     } catch (err) {}
-  }
-
-  var hintEl = $("mapHint");
-  function setHint(text) {
-    if (!hintEl) return;
-    if (text) {
-      hintEl.textContent = text;
-      hintEl.hidden = false;
-    } else {
-      hintEl.hidden = true;
-    }
   }
 
   function categoryById(id) {
@@ -703,6 +695,27 @@
 
   var ownerGroups = [];
 
+  /*
+   * 桌面端操作卡片对所有人显示同样的五枚按钮：没权限的那几枚照常占位，
+   * 点下去只提示去申请权限，不进功能。手机端仍然按权限隐藏
+   * （右下角悬浮组里少一枚就是少一枚，不摆空按钮占地方）。
+   *
+   * 不用 aria-disabled 标记这些按钮：它们仍然可点（点了会解释原因），
+   * 标成 disabled 反而是在骗读屏和自动化。
+   */
+  function syncActionButtons() {
+    var narrow = isNarrowMap();
+    [
+      [$("mapAddBtn"), state.canAdd],
+      [$("mapCatsBtn"), state.canManageCategories],
+      [$("mapImportBtn"), state.canImport]
+    ].forEach(function (rule) {
+      var button = rule[0];
+      if (!button) return;
+      button.hidden = narrow && !rule[1];
+    });
+  }
+
   function ownerLabel(key) {
     // 普通账户不能挑别人，按钮就两态：全部 / 只看自己添加的
     if (!state.canFilterOwner) return key ? "只看我添加的" : "全部标记";
@@ -718,14 +731,24 @@
     var value = $("mapOwnerValue");
     var label = ownerLabel(state.ownerFilter);
     if (value) value.textContent = label;
-    var button = $("mapOwnerFilter");
-    if (button) {
-      // 纯图标按钮：状态文字走悬停提示，同时点亮表示「有筛选生效」
-      button.setAttribute("data-tip", label);
+    // 两个入口共用同一份状态：手机端高级筛选抽屉里的那个，和桌面端操作卡片里的那个
+    ["mapOwnerFilter", "mapOwnerBtn"].forEach(function (id) {
+      var button = $(id);
+      if (!button) return;
+      // 悬停提示只写按钮名；当前筛的是谁走 aria-label，另外有筛选生效时按钮会点亮
+      button.setAttribute("data-tip", "添加者");
       // 图标按钮没有可见文字，读屏要靠 aria-label；把当前状态也带进去
       button.setAttribute("aria-label", "添加者筛选：" + label);
       button.classList.toggle("is-active", Boolean(state.ownerFilter));
-    }
+    });
+  }
+
+  // 桌面端的添加者浮层：就锚在操作卡片正上方，不进全屏弹窗
+  function setOwnerPopOpen(open) {
+    var pop = $("mapOwnerPop");
+    if (pop) pop.hidden = !open;
+    var button = $("mapOwnerBtn");
+    if (button) button.setAttribute("aria-expanded", open ? "true" : "false");
   }
 
   function closeOwnerPicker() {
@@ -733,13 +756,40 @@
     if (modal) modal.hidden = true;
     var button = $("mapOwnerFilter");
     if (button) button.setAttribute("aria-expanded", "false");
+    setOwnerPopOpen(false);
   }
 
-  // 添加者选择：手机上原生 select 弹的是系统选择器，和站内风格不一致，改成站内弹窗
+  function ownerOptionsHtml() {
+    var current = String(state.ownerFilter || "");
+    var html =
+      '<button type="button" class="mp-owner-option' +
+      (current ? "" : " is-active") +
+      '" data-owner=""><span>全部添加者</span><em>' +
+      state.places.length +
+      " 个标记</em></button>";
+    ownerGroups.forEach(function (item) {
+      html +=
+        '<button type="button" class="mp-owner-option' +
+        (current === String(item.key) ? " is-active" : "") +
+        '" data-owner="' +
+        esc(item.key) +
+        '"><span>' +
+        esc(item.name) +
+        "</span><em>" +
+        item.count +
+        " 个标记</em></button>";
+    });
+    return html;
+  }
+
+  /*
+   * 添加者列表要在两处出现：手机上是被「高级筛选」拉起的站内弹窗（原生 select 的系统选择器和
+   * 站内风格不一致），桌面上是操作卡片上方的气泡浮层。两处共用同一份 HTML。
+   */
   function renderOwnerFilter() {
-    var button = $("mapOwnerFilter");
-    var list = $("mapOwnerOptions");
-    if (!button || !list) return;
+    var modalList = $("mapOwnerOptions");
+    var popList = $("mapOwnerPopList");
+    if (!modalList && !popList) return;
     var groups = {};
     state.places.forEach(function (place) {
       var key = String(place.created_by == null ? "" : place.created_by);
@@ -764,26 +814,9 @@
       state.ownerFilter = "";
     }
     syncOwnerLabel();
-    var current = String(state.ownerFilter || "");
-    var html =
-      '<button type="button" class="mp-owner-option' +
-      (current ? "" : " is-active") +
-      '" data-owner=""><span>全部添加者</span><em>' +
-      state.places.length +
-      " 个标记</em></button>";
-    ownerGroups.forEach(function (item) {
-      html +=
-        '<button type="button" class="mp-owner-option' +
-        (current === String(item.key) ? " is-active" : "") +
-        '" data-owner="' +
-        esc(item.key) +
-        '"><span>' +
-        esc(item.name) +
-        "</span><em>" +
-        item.count +
-        " 个标记</em></button>";
-    });
-    list.innerHTML = html;
+    var html = ownerOptionsHtml();
+    if (modalList) modalList.innerHTML = html;
+    if (popList) popList.innerHTML = html;
   }
 
   function popupHtml(place) {
@@ -1105,18 +1138,10 @@
       state.canAdd = Boolean(data.can_add);
       state.signedIn = Boolean(data.signed_in);
       state.canImport = Boolean(data.can_import);
-      state.canExport = Boolean(data.can_export);
       state.canManageCategories = Boolean(data.can_manage_categories);
       state.canFilterOwner = Boolean(data.can_filter_owner);
       state.myUserId = data.user_id == null ? "" : String(data.user_id);
-      var addBtn = $("mapAddBtn");
-      var catsBtn = $("mapCatsBtn");
-      var importBtn = $("mapImportBtn");
-      var exportLink = $("mapExportLink");
-      if (addBtn) addBtn.hidden = !state.canAdd;
-      if (catsBtn) catsBtn.hidden = !state.canManageCategories;
-      if (importBtn) importBtn.hidden = !state.canImport;
-      if (exportLink) exportLink.hidden = !state.canExport;
+      syncActionButtons();
       var ownerBtn = $("mapOwnerFilter");
       if (ownerBtn) {
         // 管理员点开的是选人弹窗；普通账户点的是开关，所以只在管理员那边声明 popup 语义
@@ -2061,39 +2086,118 @@
       });
   }
 
-  // ---------- placing ----------
+  /*
+   * ---------- 中心选点（PC / 移动端共用一套） ----------
+   * 进入后地图正中心浮着一个水滴，水滴尖端就是将要落点的坐标。
+   * 用户可以随意平移缩放，中心图标跟着屏幕走、不跟地图走；
+   * 点对号 = 用当前中心点开编辑框，点叉号 / 按 Esc = 取消。
+   * 全程不动地图的拖拽与缩放设置，退出时也不会留下任何监听。
+   */
+  var pinModeEl = $("mapPinMode");
+
+  // 记一份中心点坐标（数据坐标），确认时再读一次真实中心作为兜底
+  function pinCenterLatLng() {
+    var center = map.getCenter();
+    return dataLatLng(center.lat, center.lng);
+  }
+
+  function isPlacing() {
+    return Boolean(state.placing);
+  }
+
   function startPlacing() {
-    if (!state.canAdd) return;
+    if (!state.canAdd || state.placing) return;
     state.placing = true;
-    map.getContainer().style.cursor = "crosshair";
-    setHint("点击地图选择位置，按 Esc 取消");
+    if (pinModeEl) pinModeEl.hidden = false;
+    // 地图移动结束 / 缩放结束时中心点才有意义，这里跟着更新一次即可
+    map.on("moveend", syncPinCenter);
+    map.on("dragend", syncPinCenter);
+    map.on("zoomend", syncPinCenter);
   }
 
   function stopPlacing() {
+    if (!state.placing) return;
     state.placing = false;
-    map.getContainer().style.cursor = "";
-    setHint("");
+    if (pinModeEl) pinModeEl.hidden = true;
+    map.off("moveend", syncPinCenter);
+    map.off("dragend", syncPinCenter);
+    map.off("zoomend", syncPinCenter);
   }
 
-  // 落点统一走这里：标记点和聚合点默认不把点击冒泡出去（Leaflet 的
-  // bubblingMouseEvents 默认关闭），如果只监听 map 的 click，点在它们身上会一点反应都没有。
-  // 捕获阶段接管容器上的点击后，落点模式下点哪儿都能落点，同时也避免顺手把
-  // 标记的弹窗带出来；因为这一层已经 stopPropagation，冒泡阶段的 map click 收不到事件，
-  // 所以落点逻辑只保留这一处，不再另设 map.on("click")。
-  map.getContainer().addEventListener(
+  function syncPinCenter() {
+    pinCenterLatLng();
+  }
+
+  function confirmPin() {
+    if (!state.placing) return;
+    var coords = pinCenterLatLng();
+    stopPlacing();
+    map.closePopup();
+    openPlaceModal(null, coords);
+  }
+
+  var pinConfirmBtn = $("mapPinConfirm");
+  if (pinConfirmBtn) pinConfirmBtn.addEventListener("click", confirmPin);
+  var pinCancelBtn = $("mapPinCancel");
+  if (pinCancelBtn) pinCancelBtn.addEventListener("click", stopPlacing);
+
+  /*
+   * 长按地图 = 直接进中心选点。
+   * 用 pointer 事件而不是 click，避开双击放大；按下后只要指针挪动超过 8px、
+   * 或者地图开始拖动，这次长按就作废，免得把「拖地图」误判成「长按」。
+   * 长按落下后浏览器还会补一发 click，用 suppressNextClick 把它吃掉，
+   * 否则松手会顺手打开标记点弹窗。
+   */
+  var LONG_PRESS_MS = 420;
+  var LONG_PRESS_SLOP = 8;
+  var pressTimer = null;
+  var pressStart = null;
+  var suppressNextClick = false;
+
+  function cancelLongPress() {
+    clearTimeout(pressTimer);
+    pressTimer = null;
+    pressStart = null;
+  }
+
+  var mapContainerEl = map.getContainer();
+
+  mapContainerEl.addEventListener(
     "click",
     function (event) {
-      if (!state.placing) return;
-      if (event.target.closest && event.target.closest(".leaflet-control-container")) return;
+      if (!suppressNextClick) return;
+      suppressNextClick = false;
       event.stopPropagation();
       event.preventDefault();
-      var latlng = map.containerPointToLatLng(map.mouseEventToContainerPoint(event));
-      stopPlacing();
-      map.closePopup();
-      openPlaceModal(null, dataLatLng(latlng.lat, latlng.lng));
     },
     true
   );
+
+  mapContainerEl.addEventListener("pointerdown", function (event) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    if (isPlacing() || !state.canAdd) return;
+    if (event.target.closest && event.target.closest(".leaflet-control-container")) return;
+    cancelLongPress();
+    pressStart = { x: event.clientX, y: event.clientY };
+    pressTimer = setTimeout(function () {
+      pressTimer = null;
+      pressStart = null;
+      suppressNextClick = true;
+      startPlacing();
+    }, LONG_PRESS_MS);
+  });
+
+  mapContainerEl.addEventListener("pointermove", function (event) {
+    if (!pressStart) return;
+    var dx = event.clientX - pressStart.x;
+    var dy = event.clientY - pressStart.y;
+    if (Math.sqrt(dx * dx + dy * dy) > LONG_PRESS_SLOP) cancelLongPress();
+  });
+
+  ["pointerup", "pointercancel"].forEach(function (name) {
+    mapContainerEl.addEventListener(name, cancelLongPress);
+  });
+  map.on("movestart", cancelLongPress);
 
   // ---------- events ----------
   var chips = $("mapCategories");
@@ -2190,8 +2294,40 @@
     });
   }
 
-  var ownerOptions = $("mapOwnerOptions");
-  if (ownerOptions) {
+  /*
+   * 桌面端操作卡片里的添加者入口：点一下在按钮上方开出气泡浮层，再点一下收起来。
+   * 浮层里选中某一项就立刻应用筛选并关闭。
+   */
+  var ownerEntry = $("mapOwnerBtn");
+  if (ownerEntry) {
+    ownerEntry.addEventListener("click", function () {
+      if (!state.canFilterOwner) {
+        state.ownerFilter = state.ownerFilter ? "" : state.myUserId;
+        syncOwnerLabel();
+        renderAll();
+        return;
+      }
+      var pop = $("mapOwnerPop");
+      var willOpen = Boolean(pop && pop.hidden);
+      if (willOpen) renderOwnerFilter();
+      setOwnerPopOpen(willOpen);
+    });
+  }
+
+  // 点浮层和入口按钮以外的地方就把浮层收起来（Escape 走 closeOwnerPicker）
+  document.addEventListener("click", function (event) {
+    var pop = $("mapOwnerPop");
+    if (!pop || pop.hidden) return;
+    var inside =
+      event.target.closest &&
+      (event.target.closest("#mapOwnerPop") || event.target.closest("#mapOwnerBtn"));
+    if (inside) return;
+    setOwnerPopOpen(false);
+  });
+
+  ["mapOwnerOptions", "mapOwnerPopList"].forEach(function (boxId) {
+    var ownerOptions = $(boxId);
+    if (!ownerOptions) return;
     ownerOptions.addEventListener("click", function (event) {
       var option = event.target.closest("[data-owner]");
       if (!option) return;
@@ -2202,7 +2338,7 @@
       syncOwnerLabel();
       renderAll();
     });
-  }
+  });
 
   var statusBox = $("placeStatus");
   if (statusBox) {
@@ -2397,6 +2533,10 @@
   var addBtn = $("mapAddBtn");
   if (addBtn) {
     addBtn.addEventListener("click", function () {
+      if (!state.canAdd) {
+        toast(NO_PERMISSION_TIP);
+        return;
+      }
       closeSidebar();
       startPlacing();
     });
@@ -2405,6 +2545,10 @@
   var catsBtn = $("mapCatsBtn");
   if (catsBtn) {
     catsBtn.addEventListener("click", function () {
+      if (!state.canManageCategories) {
+        toast(NO_PERMISSION_TIP);
+        return;
+      }
       state.expandedTops.clear();
       renderCatRows();
       openModal("mapCatsModal");
@@ -2414,6 +2558,10 @@
   var importBtn = $("mapImportBtn");
   if (importBtn) {
     importBtn.addEventListener("click", function () {
+      if (!state.canImport) {
+        toast(NO_PERMISSION_TIP);
+        return;
+      }
       var errorEl = $("mapImportError");
       if (errorEl) errorEl.hidden = true;
       fillImportCategorySelect();
@@ -2598,6 +2746,64 @@
     if (app) app.classList.remove("is-panel-open");
     updateToggleForViewport();
   }
+
+  /*
+   * 手机端：从卡片顶部往下滑 = 收起检索卡片。
+   * 只认竖直方向的下滑，往上滑和横向滑动都不拦；拖动时卡片跟着手指走一小段
+   * （最多 80px），松手超过阈值就收起、没到就弹回。卡片本来盖在地图上层，
+   * 不会把触摸事件传给地图，配合 header 上的 touch-action: none，
+   * 浏览器也不会把这次拖动当成页面滚动或下拉刷新。
+   */
+  var sidebarHead = sidebar ? sidebar.querySelector(".mp-sidebar-head") : null;
+  if (sidebarHead) {
+    var swipeStartY = null;
+    var swipeOffset = 0;
+    var SWIPE_CLOSE_PX = 70;
+    var SWIPE_MAX_PX = 80;
+
+    sidebarHead.addEventListener(
+      "touchstart",
+      function (event) {
+        if (!isNarrowMap() || !sidebar || !sidebar.classList.contains("is-open")) return;
+        if (event.touches.length !== 1) return;
+        swipeStartY = event.touches[0].clientY;
+        swipeOffset = 0;
+        sidebar.style.transition = "none";
+      },
+      { passive: true }
+    );
+
+    sidebarHead.addEventListener(
+      "touchmove",
+      function (event) {
+        if (swipeStartY == null) return;
+        var delta = event.touches[0].clientY - swipeStartY;
+        if (delta <= 0) {
+          swipeOffset = 0;
+          sidebar.style.transform = "";
+          return;
+        }
+        swipeOffset = delta;
+        sidebar.style.transform = "translateY(" + Math.min(delta, SWIPE_MAX_PX) + "px)";
+      },
+      { passive: true }
+    );
+
+    function endSidebarSwipe() {
+      if (swipeStartY == null) return;
+      var shouldClose = swipeOffset > SWIPE_CLOSE_PX;
+      swipeStartY = null;
+      swipeOffset = 0;
+      // 先把跟手的位移交还给 CSS（transition 恢复成 0.22s），再决定收起还是弹回
+      sidebar.style.transition = "";
+      sidebar.style.transform = "";
+      if (shouldClose) closeSidebar();
+    }
+
+    sidebarHead.addEventListener("touchend", endSidebarSwipe);
+    sidebarHead.addEventListener("touchcancel", endSidebarSwipe);
+  }
+
   function setActionsToggle(collapsed) {
     if (!actionsToggle) return;
     actionsToggle.innerHTML = collapsed
@@ -2611,12 +2817,12 @@
   function updateToggleForViewport() {
     if (!actionsToggle) return;
     if (isNarrowMap()) {
-      // 手机端：清单收起时显示向上箭头（点击展开），展开后显示向下箭头（点击收起）
+      // 手机端：检索卡片收起时显示向上箭头（点击滑出），展开后显示向下箭头（点击收起）
       var open = Boolean(sidebar && sidebar.classList.contains("is-open"));
       actionsToggle.innerHTML = open
         ? '<i data-lucide="chevron-down"></i>'
         : '<i data-lucide="chevron-up"></i>';
-      var label = open ? "收起标记清单" : "展开标记清单";
+      var label = open ? "收起检索区" : "展开检索区";
       actionsToggle.setAttribute("aria-label", label);
       actionsToggle.setAttribute("data-tip", label);
       if (window.lucide && lucide.createIcons) lucide.createIcons();
@@ -2631,26 +2837,18 @@
     if (!app || !actions) return;
     // 权限已经确定（或请求失败兜底），操作栏可以现身了
     actions.classList.remove("is-pending");
+    // 视口变了（缩小 / 放大窗口）按钮的显隐规则也要跟着切
+    syncActionButtons();
     var visible = Array.prototype.filter.call(actions.children, function (child) {
-      return !child.hidden && !child.classList.contains("mp-actions-toggle");
+      return (
+        child.classList.contains("mp-btn") &&
+        !child.hidden &&
+        !child.classList.contains("mp-actions-toggle")
+      );
     }).length;
     actions.classList.toggle("is-solo", visible === 0);
     actions.classList.toggle("one-action", visible === 1);
     actions.classList.toggle("single-row", visible <= 2);
-    // 手机上「分类 / 导入 / 导出」收进「···」：只有真的至少有一项可用时才显示这个按钮
-    var moreBtn = $("mapMoreToggle");
-    if (moreBtn) {
-      var lowFreq = ["mapCatsBtn", "mapImportBtn", "mapExportLink"].filter(function (id) {
-        var el = $(id);
-        return el && !el.hidden;
-      }).length;
-      var showMore = isNarrowMap() && lowFreq > 0;
-      moreBtn.hidden = !showMore;
-      if (!showMore) {
-        actions.classList.remove("is-more-open");
-        if (app) app.classList.remove("more-open");
-      }
-    }
     app.style.setProperty(
       "--mp-actions-h",
       Math.round(actions.getBoundingClientRect().height) + "px"
@@ -2703,20 +2901,6 @@
     }
   }
 
-  var moreToggle = $("mapMoreToggle");
-  if (moreToggle) {
-    moreToggle.addEventListener("click", function () {
-      var actions = $("mapActions");
-      if (!actions) return;
-      var open = !actions.classList.contains("is-more-open");
-      actions.classList.toggle("is-more-open", open);
-      moreToggle.setAttribute("aria-expanded", open ? "true" : "false");
-      // 展开后悬浮组会变高，给列表加一段动态内边距，别把最后几条压在按钮下面
-      var app = $("mapApp");
-      if (app) app.classList.toggle("more-open", open);
-    });
-  }
-
   /*
    * 生效中的次要筛选条件数量（标签 + 添加者），给漏斗按钮点灯与角标用。
    * 只读 state，不参与筛选逻辑本身。
@@ -2744,6 +2928,7 @@
       closeModal("mapCatsModal");
       closeModal("mapImportModal");
       closeModal("mapOwnerModal");
+      setOwnerPopOpen(false);
       resolveConfirm(false);
       openBasePanel(false);
       closeSidebar();

@@ -77,35 +77,38 @@
           </button>
           <!-- 当前筛选项：桌面端靠按钮上的悬停提示显示，手机端在高级筛选抽屉里直接显示这行文字 -->
           <span class="mp-owner-state" id="mapOwnerValue">全部添加者</span>
-          <i class="mp-owner-caret" data-lucide="chevron-down"></i>
         </div>
       </div>
       <div class="mp-list" id="mapList"></div>
     </aside>
 
-    <!-- is-pending：权限还没回来之前先不显示操作栏，避免先闪出「导出」和管理员按钮 -->
+    <!-- is-pending：权限还没回来之前先不显示操作栏，避免先闪出管理员按钮 -->
     <div class="mp-actions is-pending" id="mapActions">
       <button class="mp-btn mp-actions-toggle mp-tip" id="mapActionsToggle" type="button" aria-label="隐藏标记清单" data-tip="隐藏标记清单">
         <i data-lucide="chevron-left"></i>
       </button>
-      <!-- 手机上操作栏收成右下角悬浮组，这个按钮负责展开/收起「分类 / 导入 / 导出」；桌面端保持 hidden 不参与布局 -->
-      <button class="mp-btn mp-actions-more mp-tip" id="mapMoreToggle" type="button" aria-label="更多操作" data-tip="更多操作"
-              aria-expanded="false" hidden>
-        <i data-lucide="ellipsis"></i>
+      <!--
+        桌面端操作卡片里排在最左的「添加者」，点开的是卡片上方的气泡浮层；
+        手机上这个筛选在高级筛选抽屉里，这一整块在手机端隐藏（见 .mp-owner-entry）。
+      -->
+      <button class="mp-btn mp-owner-entry mp-tip" id="mapOwnerBtn" type="button" aria-label="添加者筛选：全部添加者"
+              data-tip="全部添加者" aria-haspopup="true" aria-controls="mapOwnerPop" aria-expanded="false">
+        <i data-lucide="users"></i>
       </button>
-      <!-- 纯图标按钮：文字说明走 data-tip（悬停提示）+ aria-label（读屏），不再显示文字 -->
+      <!-- 桌面端添加者浮层：锚在操作卡片正上方，宽度跟卡片一致，高度按内容自适应 -->
+      <div class="mp-owner-pop" id="mapOwnerPop" hidden>
+        <div class="mp-owner-options" id="mapOwnerPopList"></div>
+      </div>
+      <!-- 纯图标按钮：文字说明走 data-tip（悬停提示）+ aria-label（读屏），按钮里不再放文字 -->
       <button class="mp-btn mp-btn-primary mp-tip" id="mapAddBtn" type="button" aria-label="添加标记" data-tip="添加标记" hidden>
-        <i data-lucide="plus"></i><span class="mp-btn-text">添加标记</span>
+        <i data-lucide="plus"></i>
       </button>
       <button class="mp-btn mp-tip" id="mapCatsBtn" type="button" aria-label="分类管理" data-tip="分类管理" hidden>
-        <i data-lucide="tags"></i><span class="mp-btn-text">分类</span>
+        <i data-lucide="tags"></i>
       </button>
       <button class="mp-btn mp-tip" id="mapImportBtn" type="button" aria-label="导入标记" data-tip="导入标记" hidden>
-        <i data-lucide="upload"></i><span class="mp-btn-text">导入</span>
+        <i data-lucide="upload"></i>
       </button>
-      <a class="mp-btn mp-tip" id="mapExportLink" href="/api/map/export" download aria-label="导出标记" data-tip="导出标记" hidden>
-        <i data-lucide="download"></i><span class="mp-btn-text">导出</span>
-      </a>
     </div>
 
     <div class="mp-tools">
@@ -122,8 +125,25 @@
 
     <div class="mp-base-panel" id="mapBasePanel" role="menu" aria-label="底图选择" hidden></div>
 
-    <div class="mp-hint" id="mapHint" hidden></div>
-    <div class="mp-toast" id="mapToast" hidden></div>
+    <div class="mp-toast" id="mapToast" role="status" aria-live="polite" hidden></div>
+
+    <!--
+      中心选点模式（PC 与移动端共用）：水滴的尖端对准地图正中心，
+      右边一列是确认 / 取消。整块默认 pointer-events: none，只有按钮收事件，
+      所以地图照样能拖、能缩。
+    -->
+    <div class="mp-pin-mode" id="mapPinMode" role="group" aria-label="添加标记选点" hidden>
+      <span class="mp-pin-dot" aria-hidden="true"></span>
+      <span class="mp-pin-mark" aria-hidden="true"><i data-lucide="map-pin"></i></span>
+      <div class="mp-pin-actions">
+        <button class="mp-pin-btn mp-pin-ok" id="mapPinConfirm" type="button" aria-label="就在这里添加标记">
+          <i data-lucide="check"></i>
+        </button>
+        <button class="mp-pin-btn mp-pin-cancel" id="mapPinCancel" type="button" aria-label="取消添加标记">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+    </div>
   </div>
 
   <div class="mp-modal" id="mapPlaceModal" hidden>
@@ -261,7 +281,7 @@
         <div class="mp-field">
           <label for="mapImportCoord">坐标来源</label>
           <select id="mapImportCoord">
-            <option value="wgs84">WGS-84（OSM / Google / 本站导出）</option>
+            <option value="wgs84">WGS-84（OSM / Google）</option>
             <option value="gcj02">GCJ-02（高德 / 腾讯）</option>
             <option value="bd09">BD-09（百度）</option>
           </select>
