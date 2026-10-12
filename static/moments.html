@@ -34,25 +34,56 @@
 
   <div class="mo-app">
     <main class="mo-main">
-      <!-- 两栏：我的动态（手动发布）/ 开发日志（更新日志导入，kind=log）；默认看我的动态 -->
-      <nav class="mo-kinds" id="momentKinds" hidden aria-label="动态分类">
-        <button class="mo-kind is-active" type="button" data-mo-kind="post" aria-pressed="true">
-          <i data-lucide="message-square"></i><span>我的动态</span><em class="mo-kind-num" id="kindNumPost"></em>
+      <!--
+        悬浮操作区（和留言页同一套外壳）：栏位切换（我的动态 / 开发日志，只留图标）+
+        筛选下拉 + 写动态。吸在内容区左上角，距卡片边缘的留白和留言页一致。
+      -->
+      <div class="mo-dock" id="momentDock" hidden>
+        <div class="mo-kind-switch" id="momentKinds" role="group" aria-label="动态分类">
+          <button class="mo-filter-btn mo-kind-btn is-active" type="button" data-mo-kind="post"
+                  aria-pressed="true" aria-label="我的动态" title="我的动态">
+            <i data-lucide="message-square" aria-hidden="true"></i>
+            <em class="mo-kind-num" id="kindNumPost"></em>
+          </button>
+          <button class="mo-filter-btn mo-kind-btn" type="button" data-mo-kind="log"
+                  aria-pressed="false" aria-label="开发日志" title="开发日志">
+            <i data-lucide="git-commit-vertical" aria-hidden="true"></i>
+            <em class="mo-kind-num" id="kindNumLog"></em>
+          </button>
+        </div>
+        <div class="mo-filter-wrap" id="momentFilterWrap">
+          <button class="mo-filter-btn" id="momentFilterBtn" type="button"
+                  aria-haspopup="listbox" aria-expanded="false" aria-controls="momentFilterMenu">
+            <span class="mo-filter-label" id="momentFilterLabel">全部动态</span>
+            <i data-lucide="chevron-down" aria-hidden="true"></i>
+          </button>
+          <div class="mo-filter-menu" id="momentFilterMenu" role="listbox" aria-label="动态筛选" hidden>
+            <button class="mo-filter-option is-active" type="button" role="option" aria-selected="true" data-mo-filter="all">
+              <span class="mo-filter-option-label">全部动态</span>
+              <span class="mo-filter-check" aria-hidden="true"><i data-lucide="check"></i></span>
+            </button>
+            <button class="mo-filter-option" type="button" role="option" aria-selected="false" data-mo-filter="liked">
+              <span class="mo-filter-option-label">点赞</span>
+              <span class="mo-filter-check" aria-hidden="true"><i data-lucide="check"></i></span>
+            </button>
+            <button class="mo-filter-option" type="button" role="option" aria-selected="false" data-mo-filter="commented">
+              <span class="mo-filter-option-label">评论</span>
+              <span class="mo-filter-check" aria-hidden="true"><i data-lucide="check"></i></span>
+            </button>
+          </div>
+        </div>
+        <button class="mo-filter-btn mo-send-float" id="momentSendBtn" type="button"
+                aria-label="写动态" aria-hidden="true" tabindex="-1">
+          <i data-lucide="send" aria-hidden="true"></i>
+          <span>写动态</span>
         </button>
-        <button class="mo-kind" type="button" data-mo-kind="log" aria-pressed="false">
-          <i data-lucide="git-commit-vertical"></i><span>开发日志</span><em class="mo-kind-num" id="kindNumLog"></em>
-        </button>
-      </nav>
+      </div>
       <form class="mo-card mo-composer" id="momentForm" hidden>
         <textarea id="momentContent" maxlength="2000" placeholder="今天在折腾什么？记录一句，或者直接粘贴截图…"></textarea>
         <div class="mo-tag-input">
           <input id="momentTags" maxlength="200" placeholder="标签（可选，用逗号分隔，例如：单片机, 折腾记录）">
         </div>
         <ul class="mo-pending" id="pendingList"></ul>
-        <label class="mo-region-toggle">
-          <input type="checkbox" id="momentShowRegion">
-          <span>公开 IP 属地（国内显示省份，国外显示国家 / 地区；完整 IP 不会对外显示）</span>
-        </label>
         <div class="mo-composer-foot">
           <button class="mo-btn mo-btn-ghost" id="pickImageBtn" type="button">
             <i data-lucide="image-plus"></i><span>配图</span>
@@ -62,30 +93,34 @@
             <i data-lucide="send"></i><span>发布</span>
           </button>
         </div>
+        <div class="mo-composer-meta">
+          <label class="mo-region-toggle">
+            <input type="checkbox" id="momentShowRegion">
+            <span>公开 IP 属地（国内显示省份，国外显示国家 / 地区；完整 IP 不会对外显示）</span>
+          </label>
+        </div>
         <input type="file" id="imageInput" accept="image/*" multiple hidden>
       </form>
 
-      <nav class="mo-filters" id="momentFilters" hidden aria-label="动态筛选">
-        <button class="mo-filter" type="button" data-mo-filter="all">全部</button>
-        <button class="mo-filter" type="button" data-mo-filter="liked">我点赞过</button>
-        <button class="mo-filter" type="button" data-mo-filter="commented">我评论过</button>
-      </nav>
       <section class="mo-list" id="momentList"></section>
     </main>
   </div>
 
   <div class="mo-toast" id="toast" hidden></div>
 
-  <div class="mo-viewer" id="momentViewer" hidden>
-    <div class="mo-viewer-dialog" role="dialog" aria-modal="true" aria-labelledby="momentViewerTitle">
-      <header class="mo-viewer-head">
-        <strong id="momentViewerTitle">查看图片</strong>
-        <button class="mo-icon-btn" id="momentViewerClose" type="button" aria-label="关闭">
-          <i data-lucide="x"></i>
-        </button>
-      </header>
-      <div class="mo-viewer-body" id="momentViewerBody"></div>
-    </div>
+  <!-- 图片灯箱（和留言页同一套）：原图独占屏幕、无白框、左右切换 -->
+  <div class="mo-viewer" id="momentViewer" role="dialog" aria-modal="true" aria-label="查看图片" hidden>
+    <div class="mo-viewer-stage" id="momentViewerStage"></div>
+    <button class="mo-viewer-nav is-prev" id="momentViewerPrev" type="button" aria-label="上一张">
+      <i data-lucide="chevron-left"></i>
+    </button>
+    <button class="mo-viewer-nav is-next" id="momentViewerNext" type="button" aria-label="下一张">
+      <i data-lucide="chevron-right"></i>
+    </button>
+    <span class="mo-viewer-counter" id="momentViewerCounter" hidden></span>
+    <button class="mo-viewer-close" id="momentViewerClose" type="button" aria-label="关闭">
+      <i data-lucide="x"></i>
+    </button>
   </div>
 
   <script src="/static/vendor/lucide.min.js"></script>

@@ -4,6 +4,9 @@ html {
 }
 
 :root {
+  /* 页面左右内边距 + 悬浮按钮离卡片边缘的留白：左右两侧共用，和留言页一致 */
+  --mo-page-pad: 16px;
+  --mo-float-inset: 12px;
   --mo-bg: #f5f6f8;
   --mo-surface: #ffffff;
   --mo-text: #1f2329;
@@ -61,8 +64,8 @@ body {
   z-index: 1;
   max-width: 760px;
   margin: 0 auto;
-  /* 顶部状态栏已移除，这里留出舒适留白（并避开刘海屏安全区） */
-  padding: calc(18px + env(safe-area-inset-top, 0px)) 16px 64px;
+  /* 顶部导航栏已移除：只留一点舒适留白（并避开刘海屏安全区），不再叠旧占位 */
+  padding: calc(14px + env(safe-area-inset-top, 0px)) var(--mo-page-pad) 64px;
 }
 
 .mo-main {
@@ -125,11 +128,25 @@ body {
   flex-wrap: wrap;
 }
 
+/* 「发布」贴到「配图」同一行的右侧 */
+.mo-composer-foot .mo-btn-primary {
+  margin-left: auto;
+}
+
+/* 第二行：公开 IP 属地（和留言页的属地行对齐方式一致） */
+.mo-composer-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
 .mo-region-toggle {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 0;
   color: var(--mo-muted);
   font-size: 12.5px;
   line-height: 1.5;
@@ -249,38 +266,214 @@ body {
   gap: 14px;
 }
 
-.mo-filters {
+/* ---------- 悬浮操作区：栏位切换 + 筛选下拉 + 写动态（同留言页） ---------- */
+.mo-dock {
+  position: sticky;
+  top: calc(14px + env(safe-area-inset-top, 0px));
+  z-index: 30;
+  align-self: flex-start;
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+  /* 往里收一点：别和卡片左侧那条描边严丝合缝地贴在一起 */
+  margin-left: var(--mo-float-inset);
+  max-width: calc(100% - var(--mo-float-inset));
 }
 
-.mo-filters[hidden] {
+.mo-dock[hidden] {
   display: none;
 }
 
-.mo-filter {
-  height: 30px;
-  padding: 0 13px;
-  border: 1px solid var(--mo-border);
-  border-radius: 999px;
-  background: var(--mo-surface);
-  color: var(--mo-muted);
-  font-size: 13px;
-  cursor: pointer;
-  white-space: nowrap;
+.mo-kind-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.mo-filter:hover {
-  background: var(--mo-hover);
+.mo-filter-wrap {
+  position: relative;
+  display: flex;
+}
+
+.mo-filter-wrap[hidden] {
+  display: none;
+}
+
+.mo-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border: 1px solid color-mix(in srgb, var(--mo-border) 78%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--mo-surface) 78%, transparent);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   color: var(--mo-text);
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(24, 31, 45, 0.08);
 }
 
-.mo-filter.is-active {
-  border-color: color-mix(in srgb, var(--mo-accent) 55%, var(--mo-border));
+.mo-filter-btn:hover {
+  background: color-mix(in srgb, var(--mo-surface) 92%, transparent);
+}
+
+.mo-filter-btn[hidden] {
+  display: none;
+}
+
+.mo-filter-btn svg {
+  width: 15px;
+  height: 15px;
+  color: var(--mo-muted);
+  transition: transform 0.18s ease;
+}
+
+/* 栏位切换：只留图标的方形按钮，和筛选 / 写动态同一套外壳 */
+.mo-kind-btn {
+  position: relative;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+}
+
+.mo-kind-btn svg {
+  width: 17px;
+  height: 17px;
+}
+
+.mo-kind-btn.is-active {
+  border-color: color-mix(in srgb, var(--mo-accent) 46%, var(--mo-border));
   background: var(--mo-accent-soft);
   color: var(--mo-accent);
+}
+
+.mo-kind-btn.is-active svg {
+  color: var(--mo-accent);
+}
+
+.mo-kind-num {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--mo-accent);
+  color: #fff;
+  font-size: 10.5px;
+  font-style: normal;
   font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+
+.mo-kind-num:empty {
+  display: none;
+}
+
+.mo-filter-wrap.is-open > .mo-filter-btn {
+  border-color: color-mix(in srgb, var(--mo-accent) 46%, var(--mo-border));
+}
+
+.mo-filter-wrap.is-open > .mo-filter-btn svg {
+  transform: rotate(180deg);
+}
+
+/* 「写动态」：编辑框滚出视野上方才渐显，只改透明度，不做位移 / 缩放 */
+.mo-send-float {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.24s ease;
+}
+
+.mo-send-float.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.mo-filter-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 31;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 150px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid var(--mo-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--mo-surface) 96%, transparent);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 12px 32px rgba(24, 31, 45, 0.18);
+  animation: moFilterMenuIn 0.16s ease;
+}
+
+.mo-filter-menu[hidden] {
+  display: none;
+}
+
+@keyframes moFilterMenuIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.mo-filter-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--mo-text);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mo-filter-option:hover {
+  background: var(--mo-accent-soft);
+}
+
+.mo-filter-option.is-active {
+  color: var(--mo-accent);
+  font-weight: 600;
+}
+
+.mo-filter-check {
+  display: inline-flex;
+  margin-left: auto;
+  opacity: 0;
+}
+
+.mo-filter-check svg {
+  width: 15px;
+  height: 15px;
+}
+
+.mo-filter-option.is-active .mo-filter-check {
+  opacity: 1;
 }
 
 .mo-item {
@@ -328,18 +521,31 @@ body {
   word-break: break-word;
 }
 
-.mo-images {
+/* 朋友圈式九宫格：1 张等比例、2-4 两列、5-9 三列，格子一律正方裁剪 */
+.mo-gallery {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
+  max-width: 100%;
   margin-top: 10px;
 }
 
-.mo-images.is-single {
-  grid-template-columns: minmax(0, 420px);
+.mo-gallery.cols-1 {
+  display: block;
+  width: 100%;
+  max-width: 260px;
 }
 
-.mo-thumb {
+.mo-gallery.cols-2,
+.mo-gallery.cols-3 {
+  width: min(100%, 320px);
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.mo-gallery.cols-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.mo-gallery-cell {
   position: relative;
   display: block;
   width: 100%;
@@ -347,17 +553,52 @@ body {
   border: 1px solid var(--mo-border);
   border-radius: 8px;
   overflow: hidden;
-  background: var(--mo-bg);
   line-height: 0;
   font: inherit;
+  color: inherit;
+  background: var(--mo-bg);
   cursor: zoom-in;
+  aspect-ratio: 1 / 1;
 }
 
-.mo-thumb.no-save img {
+/* 单图保持原比例，不裁剪 */
+.mo-gallery.cols-1 .mo-gallery-cell {
+  aspect-ratio: auto;
+}
+
+.mo-gallery-cell img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mo-gallery.cols-1 .mo-gallery-cell img {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+.mo-gallery-cell.no-save img {
   pointer-events: none;
   -webkit-user-drag: none;
   -webkit-touch-callout: none;
   user-select: none;
+}
+
+/* 超过 9 张时，第九格右下角压一个「+剩余数量」 */
+.mo-gallery-more {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 6px 8px;
+  background: rgba(12, 16, 22, 0.35);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .mo-media-guard {
@@ -365,7 +606,7 @@ body {
   inset: 0;
 }
 
-.mo-thumb.can-save .mo-media-guard {
+.mo-gallery-cell.can-save .mo-media-guard {
   display: none;
 }
 
@@ -373,19 +614,6 @@ body {
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
-}
-
-.mo-images img {
-  width: 100%;
-  height: 132px;
-  object-fit: cover;
-  display: block;
-}
-
-.mo-images.is-single img {
-  height: auto;
-  max-height: 420px;
-  object-fit: contain;
 }
 
 .mo-tags {
@@ -401,12 +629,6 @@ body {
   background: var(--mo-hover);
   color: var(--mo-muted);
   font-size: 12px;
-}
-
-.mo-actions {
-  display: flex;
-  gap: 4px;
-  margin-top: 10px;
 }
 
 .mo-link-btn {
@@ -587,16 +809,25 @@ button.mo-share:hover {
 }
 
 .mo-like-btn {
-  padding: 2px 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--mo-faint);
   font: inherit;
-  font-size: 15px;
   line-height: 1;
   cursor: pointer;
   transition: color 0.15s ease, background 0.15s ease;
+}
+
+.mo-like-btn svg {
+  width: 17px;
+  height: 17px;
+  /* 无论点赞与否都保持线框，只靠描边颜色区分 */
+  fill: none;
 }
 
 .mo-like-btn:hover {
@@ -604,8 +835,9 @@ button.mo-share:hover {
   color: var(--mo-accent);
 }
 
+/* 已点赞：只把线框描边换成主题色，不做实心填充 */
 .mo-like-btn.is-liked {
-  color: #e2557b;
+  color: var(--mo-accent);
 }
 
 .mo-like-btn:disabled {
@@ -613,11 +845,27 @@ button.mo-share:hover {
   cursor: default;
 }
 
-.mo-like-count {
-  color: var(--mo-muted);
-  font-size: 12.5px;
+/* 定位到「新点赞」时给大拇指一个很轻的放大反馈 */
+.mo-like-btn.is-pop {
+  color: var(--mo-accent);
+  animation: moLikePop 0.5s ease;
 }
 
+@keyframes moLikePop {
+  0% {
+    transform: scale(1);
+  }
+
+  40% {
+    transform: scale(1.24);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* 大拇指右边的点赞人：最多 3 个名字，超了收成「等 N 人」 */
 .mo-like-names {
   min-width: 0;
   color: var(--mo-muted);
@@ -625,10 +873,6 @@ button.mo-share:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.mo-comment > .mo-like {
-  margin-top: 6px;
 }
 
 .mo-comments {
@@ -650,12 +894,6 @@ button.mo-share:hover {
   display: flex;
   flex-direction: column;
   gap: 3px;
-}
-
-.mo-comment.is-reply {
-  margin-left: 14px;
-  padding-left: 10px;
-  border-left: 2px solid var(--mo-border);
 }
 
 .mo-comment-head {
@@ -745,30 +983,96 @@ button.mo-share:hover {
   }
 }
 
-.mo-jump-btn {
-  position: fixed;
-  right: 22px;
-  bottom: 22px;
-  z-index: 40;
-  width: 44px;
-  height: 44px;
-  border: 1px solid color-mix(in srgb, var(--mo-accent) 50%, transparent);
-  border-radius: 50%;
-  background: var(--mo-accent);
-  color: #fff;
-  font-size: 19px;
-  line-height: 1;
-  box-shadow: 0 10px 24px rgba(80, 60, 200, 0.32);
-  cursor: pointer;
+/* 新评论：正文变主题色并闪烁；桌面闪到鼠标进入整张卡片，触摸设备只闪 3 次 */
+.mo-comment-text.is-new-comment {
+  color: var(--mo-accent);
+  animation: moCommentBlink 1s ease-in-out infinite;
 }
 
-.mo-jump-btn[hidden] {
-  display: none;
+@keyframes moCommentBlink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .mo-comment-text.is-new-comment {
+    animation-iteration-count: 3;
+  }
+}
+
+/* ============================================================
+ * 右下角「顶部」按钮：方形毛玻璃，落在卡片内侧右下角，
+ * 和左上角悬浮按钮共用 --mo-float-inset，左右完全对称（同留言页）
+ * ============================================================ */
+body[data-notify-module="moments"] .site-back-top {
+  flex-direction: column;
+  gap: 2px;
+  right: calc(
+    max(0px, (100vw - 760px) / 2) + var(--mo-page-pad) + var(--mo-float-inset)
+  );
+  bottom: calc(var(--site-back-top-bottom, 22px) + 28px);
+  width: 48px;
+  height: 58px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--mo-border) 85%, transparent);
+  background: color-mix(in srgb, var(--mo-surface) 86%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  color: var(--mo-text);
+  box-shadow: 0 6px 20px rgba(24, 31, 45, 0.18);
+}
+
+body[data-notify-module="moments"] .site-back-top::after {
+  content: "顶部";
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+body[data-notify-module="moments"] .site-back-top svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* 有新评论 / 新动态时：箭头翻向下、文案换成「评论 / 动态」、沿用同一套呼吸 */
+body[data-notify-module="moments"] .site-back-top.is-pending {
+  border-color: color-mix(in srgb, var(--mo-accent) 55%, transparent);
+  --mo-fresh-base: 0 6px 20px rgba(24, 31, 45, 0.18);
+  color: var(--mo-accent);
+  animation: moFreshPulse 3.6s ease-in-out infinite;
+}
+
+body[data-notify-module="moments"] .site-back-top.is-pending::after {
+  content: attr(data-fresh-label);
+}
+
+body[data-notify-module="moments"] .site-back-top.is-pending svg {
+  transform: rotate(180deg);
+}
+
+@media (max-width: 640px) {
+  body[data-notify-module="moments"] .site-back-top {
+    width: 44px;
+    height: 52px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mo-item.is-fresh {
+  .mo-item.is-fresh,
+  .mo-comment-text.is-new-comment,
+  .mo-like-btn.is-pop,
+  body[data-notify-module="moments"] .site-back-top {
     animation: none;
+  }
+
+  .mo-send-float {
+    transition: none;
   }
 }
 
@@ -838,84 +1142,223 @@ button.mo-share:hover {
   position: fixed;
   inset: 0;
   z-index: 60;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
+  padding: 0;
   background: rgba(12, 16, 22, 0.72);
   backdrop-filter: blur(4px);
 }
 
-.mo-viewer-dialog {
+.mo-viewer[hidden] {
+  display: none;
+}
+
+.mo-viewer-stage {
+  position: absolute;
+  inset: 0;
   display: flex;
-  flex-direction: column;
-  width: min(920px, 100%);
-  max-height: 90vh;
-  border: 1px solid var(--mo-border);
-  border-radius: 10px;
-  background: var(--mo-surface);
-  overflow: hidden;
-}
-
-/*
- * 看图的时候弹窗跟着图片走：图片小就收窄，不再留一圈白边；
- * 里面是 iframe 之类的其它内容时仍用原来的固定宽度。
- */
-.mo-viewer-dialog:has(.mo-viewer-body img) {
-  width: fit-content;
-}
-
-.mo-viewer-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--mo-border);
-}
-
-.mo-viewer-head strong {
-  overflow: hidden;
-  font-size: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mo-viewer-body {
-  flex: 1;
-  min-height: 0;
   overflow: auto;
-  text-align: center;
   /*
-   * 双击交给 image-zoom.js 处理，别让浏览器把整页双击放大；
-   * pan-x pan-y 保留单指平移（放大后拖着看细节），同时把整页捏合缩放让给脚本。
+   * 双击交给 image-zoom.js 处理；pan-x pan-y 保留放大后的单指平移，
+   * 双指捏合缩放留给脚本自己算。
    */
   touch-action: pan-x pan-y;
 }
 
-.mo-viewer-body img {
+.mo-viewer-stage img {
   display: block;
+  margin: auto;
   max-width: 100%;
-  max-height: 76vh;
-  margin: 0 auto;
+  max-height: 100%;
   -webkit-user-drag: none;
   -webkit-touch-callout: none;
   user-select: none;
   cursor: zoom-in;
 }
 
-.mo-viewer-body img.is-zoomed {
+.mo-viewer-stage img.is-zoomed {
   cursor: zoom-out;
 }
 
-.mo-viewer-body.is-panning img {
+.mo-viewer-stage.is-panning img {
   cursor: grabbing;
+}
+
+.mo-viewer-close,
+.mo-viewer-nav {
+  position: absolute;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(20, 24, 32, 0.55);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.mo-viewer-close:hover,
+.mo-viewer-nav:hover {
+  background: rgba(20, 24, 32, 0.8);
+}
+
+.mo-viewer-close {
+  top: calc(14px + env(safe-area-inset-top, 0px));
+  right: 16px;
+  width: 40px;
+  height: 40px;
+}
+
+.mo-viewer-nav {
+  top: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translateY(-50%);
+}
+
+.mo-viewer-nav.is-prev {
+  left: 14px;
+}
+
+.mo-viewer-nav.is-next {
+  right: 14px;
+}
+
+.mo-viewer-nav[hidden] {
+  display: none;
+}
+
+.mo-viewer-close svg,
+.mo-viewer-nav svg {
+  width: 24px;
+  height: 24px;
+}
+
+.mo-viewer-counter {
+  position: absolute;
+  left: 50%;
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  z-index: 2;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(20, 24, 32, 0.55);
+  color: #fff;
+  font-size: 13px;
+}
+
+.mo-viewer-counter[hidden] {
+  display: none;
 }
 
 .mo-item-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
-  margin-top: 6px;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+/* ---------- 卡片右下角「三个点」菜单（同留言页） ---------- */
+.mo-more {
+  position: relative;
+  display: flex;
+  margin-left: auto;
+}
+
+.mo-more-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--mo-muted);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.mo-more-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.mo-more-btn:hover {
+  background: var(--mo-hover);
+  color: var(--mo-text);
+}
+
+.mo-more.is-open .mo-more-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* PC：悬停动态卡片才显示，移出隐藏（也和键盘焦点联动） */
+@media (hover: hover) and (pointer: fine) {
+  .mo-item:hover .mo-more-btn,
+  .mo-item:focus-within .mo-more-btn {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+/* 移动端没有 hover：三个点常驻显示，点击区域放大到 36px */
+@media (hover: none), (pointer: coarse) {
+  .mo-more-btn {
+    width: 36px;
+    height: 36px;
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.mo-more-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  min-width: 112px;
+  padding: 4px;
+  border: 1px solid var(--mo-border);
+  border-radius: 8px;
+  background: var(--mo-surface);
+  box-shadow: 0 10px 28px rgba(24, 31, 45, 0.18);
+}
+
+.mo-more-menu[hidden] {
+  display: none;
+}
+
+.mo-more-item {
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mo-text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mo-more-item:hover {
+  background: var(--mo-hover);
+}
+
+.mo-more-item.is-danger {
+  color: var(--mo-danger);
+}
+
+.mo-more-item.is-danger:hover {
+  background: var(--mo-danger-soft);
 }
 
 @media (max-width: 640px) {
@@ -927,8 +1370,18 @@ button.mo-share:hover {
     font-size: 16px;
   }
 
+  :root {
+    --mo-page-pad: 12px;
+  }
+
   .mo-app {
-    padding: calc(16px + env(safe-area-inset-top, 0px)) 12px 48px;
+    /* 顶部导航栏早已删除：手机上把顶部留白压到极小值，也不再叠一遍 safe-area */
+    padding: 6px var(--mo-page-pad) 48px;
+  }
+
+  /* 悬浮按钮再往上贴一点，把内容空间让出来 */
+  .mo-dock {
+    top: 8px;
   }
 
   .mo-item {
@@ -942,14 +1395,23 @@ button.mo-share:hover {
     height: 34px;
   }
 
-  .mo-images img {
-    height: 96px;
+  /* 手机：九宫格收窄一点，单图别顶满整行；「发布」仍和「配图」同一行 */
+  .mo-gallery.cols-1 {
+    max-width: 220px;
   }
 
-  .mo-composer-foot > .mo-btn-primary {
-    margin-left: 0;
-    width: 100%;
-    justify-content: center;
+  .mo-gallery.cols-2,
+  .mo-gallery.cols-3 {
+    width: min(100%, 288px);
+  }
+
+  .mo-composer-foot .mo-hint {
+    order: 3;
+    flex: 1 1 100%;
+  }
+
+  .mo-composer-foot .mo-btn-primary {
+    margin-left: auto;
   }
 
   .mo-comment-form {
@@ -996,62 +1458,6 @@ button.mo-share:hover {
 }
 
 /* ---------- 动态分栏：我的动态 / 开发日志 ---------- */
-
-.mo-kinds[hidden] {
-  display: none;
-}
-
-.mo-kinds {
-  /*
-   * 两栏 Tab 吸顶：滚动时贴在顶部，自带主题底色 + 毛玻璃 + 极浅底影，
-   * 下面的卡片不会从背后透出来。尺寸、间距、圆角都保持原样。
-   */
-  position: sticky;
-  top: env(safe-area-inset-top, 0px);
-  z-index: 20;
-  display: flex;
-  gap: 8px;
-  margin: 0 0 12px;
-  background: color-mix(in srgb, var(--mo-bg) 86%, transparent);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 6px 14px -12px rgba(0, 0, 0, 0.45);
-}
-
-.mo-kind {
-  flex: 1 1 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 42px;
-  padding: 0 12px;
-  border: 1px solid var(--mo-border);
-  border-radius: 8px;
-  background: var(--mo-surface);
-  color: var(--mo-muted);
-  font: inherit;
-  font-size: 13.5px;
-  cursor: pointer;
-}
-
-.mo-kind svg {
-  width: 16px;
-  height: 16px;
-}
-
-.mo-kind.is-active {
-  border-color: var(--mo-accent);
-  background: var(--mo-accent-soft);
-  color: var(--mo-accent);
-  font-weight: 600;
-}
-
-.mo-kind-num {
-  font-style: normal;
-  font-size: 11.5px;
-  opacity: 0.7;
-}
 
 /* ---------- 开发日志：按月份折叠的紧凑列表（无卡片无阴影） ---------- */
 
@@ -1239,27 +1645,10 @@ button.mo-share:hover {
 }
 
 @media (max-width: 640px) {
-  /* 手机：分栏吸顶在页面标题下方（标题本身 57px 高），两个标签的触控高度 44px */
-  .mo-kinds {
-    position: sticky;
-    /* 顶部状态栏已移除：原来这里写死 57px（让开那条栏），现在直接贴顶并避开安全区 */
-    top: env(safe-area-inset-top, 0px);
-    z-index: 20;
-    margin: 0 0 8px;
-    padding: 8px 0;
-    background: color-mix(in srgb, var(--mo-bg) 94%, transparent);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-  }
-
-  .mo-kind {
-    min-height: 44px;
-  }
-
-  /* 月份标题吸在分栏下方（分栏高度 = 8 + 44 + 8 = 60），展开区够大 */
+  /* 月份标题吸在悬浮操作区下方（按钮 38px + 上方 8px + 间隙 6px），展开区够大 */
   .mo-log-month {
     position: sticky;
-    top: calc(60px + env(safe-area-inset-top, 0px));
+    top: calc(52px + env(safe-area-inset-top, 0px));
     z-index: 4;
     background: var(--mo-bg);
   }

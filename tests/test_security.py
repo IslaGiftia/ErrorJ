@@ -789,7 +789,10 @@ class InteractionTests(unittest.TestCase):
         )
         self.assertEqual(len(notifications), 1)
         self.assertEqual(notifications[0]["module"], "moments")
-        self.assertEqual(int(notifications[0]["target_id"]), moment_id)
+        # 提醒落在「新回复」这条评论上（带着评论 id 才能精确高亮 / 定位）
+        self.assertEqual(
+            int(notifications[0]["target_id"]), int(responses[-1][1]["id"])
+        )
 
     def test_comment_like_notifies_author_and_shows_names(self):
         stamp = app.now_text()
@@ -894,10 +897,13 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(owner_rows[0]["kind"], "moment_comment")
         self.assertEqual(owner_rows[0]["text"], "评论了你的动态")
 
-        author_handler, _ = self.make_handler(self.author_id, username="author1")
+        author_handler, author_responses = self.make_handler(
+            self.author_id, username="author1"
+        )
         author_handler.api_moment_comment_create(
             moment_id, {"content": "回复这条评论", "parent_id": parent_id}
         )
+        reply_id = int(author_responses[-1][1]["id"])
         self.assertEqual(
             app.query_one(
                 """SELECT COUNT(*) AS n FROM user_notifications
@@ -916,7 +922,12 @@ class InteractionTests(unittest.TestCase):
         owner_handler.api_site_moments_unread()
         payload = owner_responses[-1][1]
         self.assertEqual(payload["unread"], 2)
-        self.assertEqual(payload["targets"], [moment_id])
+        # 两条提醒分别指向两条评论；target_kinds 用来区分「动态本体」和「评论」
+        self.assertEqual(payload["targets"], [parent_id, reply_id])
+        self.assertEqual(
+            payload["target_kinds"],
+            {str(parent_id): "moment_comment", str(reply_id): "moment_comment"},
+        )
 
         owner_handler.api_site_activity()
         items = owner_responses[-1][1]["items"]
@@ -2116,7 +2127,7 @@ class ComplianceWorkflowTests(unittest.TestCase):
     def test_moments_mobile_comment_layout_is_scoped(self):
         css = (app.STATIC_DIR / "moments.css").read_text(encoding="utf-8")
         script = (app.STATIC_DIR / "moments.js").read_text(encoding="utf-8")
-        self.assertIn(".mo-composer-foot > .mo-btn-primary", css)
+        self.assertIn(".mo-composer-foot .mo-btn-primary", css)
         self.assertIn(".mo-comment-submit", css)
         self.assertIn("scrollIntoView", script)
 

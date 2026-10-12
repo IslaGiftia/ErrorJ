@@ -6312,7 +6312,8 @@ NOTIFICATION_ACTIVITY_ACTIONS = {
 }
 NOTIFICATION_TARGET_TABLES = {
     "messages": "site_messages",
-    "moments": "moments",
+    # 动态模块的提醒有两种落点：动态本身（新动态）和具体评论（新评论 / 回复 / 点赞）
+    "moments": ("moments", "moment_comments"),
     "map": "map_places",
     "music": "site_music",
     "books": "books",
@@ -6433,6 +6434,34 @@ def unseen_notification_targets(user_id, module):
     return sorted(int(row["target_id"]) for row in rows)
 
 
+def unseen_notification_target_kinds(user_id, module):
+    """未读提醒的 target_id → kind。
+
+    动态模块里「动态 id」和「评论 id」来自两张自增表，可能撞号；前端要靠 kind
+    判断这个目标指向的是动态本体还是某条评论。评论类 kind 优先。
+    """
+    if user_id is None:
+        return {}
+    user_id = int(user_id)
+    if user_id < 0 or module not in NOTIFICATION_MODULES:
+        return {}
+    comment_kinds = {"moment_comment", "comment_reply", "comment_like"}
+    result = {}
+    for row in query(
+        """SELECT target_id, kind FROM user_notifications
+           WHERE user_id = ? AND module = ? AND seen_at IS NULL
+             AND target_id > 0
+           ORDER BY id""",
+        (user_id, module),
+    ):
+        target = int(row["target_id"])
+        kind = str(row.get("kind") or "")
+        if result.get(target) in comment_kinds:
+            continue
+        result[target] = kind
+    return result
+
+
 def unseen_notification_rows(user_id):
     """返回未读提醒的明细，供首页把公开动态和站内提醒合并展示。"""
     if user_id is None:
@@ -6488,10 +6517,14 @@ def prune_notification_targets(user_id, module, table):
     if not targets:
         return []
     placeholders = ",".join("?" for _ in targets)
-    rows = query(
-        f"SELECT id FROM {table} WHERE id IN ({placeholders})", tuple(targets)
-    )
-    existing = {int(row["id"]) for row in rows}
+    # table 可以是单个表名，也可以是多张表的元组（例如动态 = moments + moment_comments）
+    tables = (table,) if isinstance(table, str) else tuple(table)
+    existing = set()
+    for name in tables:
+        for row in query(
+            f"SELECT id FROM {name} WHERE id IN ({placeholders})", tuple(targets)
+        ):
+            existing.add(int(row["id"]))
     for target in targets:
         if target not in existing:
             mark_notifications_seen(user_id, module, target)
@@ -10154,14 +10187,20 @@ class InventoryHandler(BaseHTTPRequestHandler):
             self.send_json(200, {"unread": 0, "text": "", "targets": []})
             return
         user_id = 0 if identity.get("kind") == "owner" else int(identity.get("user_id") or 0)
-        targets = prune_notification_targets(user_id, "moments", "moments")
+        targets = prune_notification_targets(
+            user_id, "moments", NOTIFICATION_TARGET_TABLES["moments"]
+        )
         info = unseen_notifications(user_id).get("moments") or {}
+        kinds = unseen_notification_target_kinds(user_id, "moments")
         self.send_json(
             200,
             {
                 "unread": int(info.get("count") or 0),
                 "text": str(info.get("kind") or ""),
                 "targets": targets,
+                "target_kinds": {
+                    str(target): kinds.get(target, "") for target in targets
+                },
             },
         )
 
@@ -10236,7 +10275,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                         author_id,
                         "comment_like",
                         "moments",
-                        int(row.get("moment_id") or 0),
+                        int(row.get("id") or 0),
                         self.notification_actor_name(identity),
                         "点赞了你的评论",
                     )
@@ -10922,7 +10961,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     target_user,
                     "comment_reply",
                     "moments",
-                    moment_id,
+                    comment_id,
                     actor,
                     "回复了你的评论",
                 )
@@ -10932,7 +10971,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 0,
                 "moment_comment",
                 "moments",
-                moment_id,
+                comment_id,
                 actor,
                 "评论了你的动态",
             )

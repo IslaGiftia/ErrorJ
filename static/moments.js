@@ -11,7 +11,6 @@
   var viewerLikeName = "";
   var shareAudio = null;
   var freshTargets = {};
-  var jumpBtn = null;
   var jumpFrame = null;
   var lastMomentUnread = null;
   var momentPollBusy = false;
@@ -318,34 +317,99 @@
     });
   });
 
-  // ---------- 列表 ----------
-  function openImageViewer(file) {
-    var viewer = $("momentViewer");
-    var body = $("momentViewerBody");
-    var title = $("momentViewerTitle");
-    if (!viewer || !body) return;
-    if (title) title.textContent = "查看图片";
-    body.innerHTML = "";
-    var image = document.createElement("img");
+  // ---------- 图片：朋友圈九宫格 + 灯箱查看器（同留言页） ----------
+  var galleryImages = [];
+  var galleryIndex = 0;
+  var viewerImg = null;
+  var viewerZoomBound = false;
+
+  function viewerImageEl() {
+    var stage = $("momentViewerStage");
+    if (!stage) return null;
+    if (!viewerImg) {
+      viewerImg = document.createElement("img");
+      viewerImg.alt = "";
+      viewerImg.draggable = false;
+      stage.appendChild(viewerImg);
+    }
+    if (!viewerZoomBound && window.ErrorImageZoom) {
+      window.ErrorImageZoom.bind(stage, viewerImg);
+      viewerZoomBound = true;
+    }
+    return viewerImg;
+  }
+
+  // 换图 / 关闭时清掉上一张的缩放与滚动
+  function resetViewerZoom() {
+    var stage = $("momentViewerStage");
+    if (viewerImg) {
+      viewerImg._ezBase = null;
+      viewerImg._ezScale = 1;
+      viewerImg.style.width = "";
+      viewerImg.style.height = "";
+      viewerImg.style.maxWidth = "";
+      viewerImg.style.maxHeight = "";
+      viewerImg.classList.remove("is-zoomed");
+    }
+    if (stage) {
+      stage.scrollLeft = 0;
+      stage.scrollTop = 0;
+      stage.classList.remove("is-panning");
+    }
+  }
+
+  function renderViewerImage() {
+    var image = viewerImageEl();
+    var file = galleryImages[galleryIndex];
+    if (!image || !file) return;
+    resetViewerZoom();
     image.src = "/site-files/" + file.file_path;
     image.alt = file.file_name || "";
-    image.draggable = false;
-    body.appendChild(image);
-    if (window.ErrorImageZoom) window.ErrorImageZoom.bind(body, image);
+    var multiple = galleryImages.length > 1;
+    var prev = $("momentViewerPrev");
+    var next = $("momentViewerNext");
+    var counter = $("momentViewerCounter");
+    if (prev) prev.hidden = !multiple;
+    if (next) next.hidden = !multiple;
+    if (counter) {
+      counter.hidden = !multiple;
+      counter.textContent = galleryIndex + 1 + " / " + galleryImages.length;
+    }
+  }
+
+  function openImageViewer(files, index) {
+    var images = (files || []).slice();
+    var viewer = $("momentViewer");
+    if (!viewer || !images.length) return;
+    galleryImages = images;
+    galleryIndex = Math.max(0, Math.min(Number(index) || 0, images.length - 1));
     viewer.hidden = false;
+    renderViewerImage();
+    refreshIcons();
+  }
+
+  function stepViewerImage(delta) {
+    if (galleryImages.length < 2) return;
+    galleryIndex = (galleryIndex + delta + galleryImages.length) % galleryImages.length;
+    renderViewerImage();
   }
 
   function closeImageViewer() {
     var viewer = $("momentViewer");
-    var body = $("momentViewerBody");
     if (viewer) viewer.hidden = true;
-    if (body) body.innerHTML = "";
+    galleryImages = [];
+    galleryIndex = 0;
+    resetViewerZoom();
   }
 
   function buildImages(files, canSave) {
-    var wrap = el("div", "mo-images" + (files.length === 1 ? " is-single" : ""));
-    files.forEach(function (file) {
-      var thumb = el("button", "mo-thumb " + (canSave ? "can-save" : "no-save"));
+    var count = files.length;
+    var cols = count === 1 ? 1 : count <= 4 ? 2 : 3;
+    var gallery = el("div", "mo-gallery cols-" + cols);
+    var shown = files.slice(0, 9);
+    var extra = count - shown.length;
+    shown.forEach(function (file, index) {
+      var thumb = el("button", "mo-gallery-cell " + (canSave ? "can-save" : "no-save"));
       thumb.type = "button";
       thumb.title = canSave ? file.file_name : file.file_name + "（仅可查看）";
       var image = document.createElement("img");
@@ -355,65 +419,139 @@
       image.draggable = false;
       thumb.appendChild(image);
       thumb.appendChild(el("span", "mo-media-guard", ""));
+      if (extra > 0 && index === shown.length - 1) {
+        thumb.appendChild(el("span", "mo-gallery-more", "+" + extra));
+      }
       thumb.addEventListener("click", function () {
-        openImageViewer(file);
+        openImageViewer(files, index);
       });
-      wrap.appendChild(thumb);
+      gallery.appendChild(thumb);
     });
-    return wrap;
+    return gallery;
   }
 
-  function markFreshCard(node, id) {
-    if (!freshTargets[String(id)]) return;
-    node.classList.add("is-fresh");
-    node.addEventListener(
-      "mouseenter",
-      function () {
-        node.classList.remove("is-fresh");
-        updateJumpButton();
-        if (!canInteract) return;
-        api("/api/site/notifications/seen", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ module: "moments", target_id: id }),
-        }).catch(function () {});
-      },
-      { once: true }
-    );
+  /*
+   * 新互动提醒（同留言页）：整张卡片方框呼吸，新评论的正文额外高亮闪烁；
+   * 右下角不再单独放「↓」按钮，而是复用页面共用的「顶部」按钮——
+   * 有未读时切成「↓ 评论 / ↓ 动态」并带呼吸，没有未读时是普通「↑ 顶部」。
+   */
+  function freshCards() {
+    return Array.prototype.slice.call(document.querySelectorAll(".mo-item.is-fresh"));
   }
 
-  function ensureJumpButton() {
-    if (jumpBtn) return jumpBtn;
-    jumpBtn = el("button", "mo-jump-btn", "↓");
-    jumpBtn.type = "button";
-    jumpBtn.title = "跳到有提醒的动态";
-    jumpBtn.setAttribute("aria-label", "跳到有提醒的动态");
-    jumpBtn.hidden = true;
-    jumpBtn.addEventListener("click", function () {
-      var target = freshBelowNode();
-      if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-    document.body.appendChild(jumpBtn);
-    return jumpBtn;
+  // 评论类提醒的目标是「评论 id」，其它（新动态）指向动态本身
+  var MOMENT_COMMENT_KINDS = {
+    moment_comment: 1,
+    comment_reply: 1,
+    comment_like: 1,
+  };
+
+  function isCommentFresh(id) {
+    return Boolean(MOMENT_COMMENT_KINDS[freshTargets[String(id)]]);
   }
 
-  function freshNodes() {
-    return Array.prototype.slice.call(
-      document.querySelectorAll(".mo-item.is-fresh")
-    );
-  }
-
-  function freshBelowNode() {
+  function freshCardBelow() {
     return (
-      freshNodes().filter(function (node) {
+      freshCards().filter(function (node) {
         return node.getBoundingClientRect().top > window.innerHeight - 80;
       })[0] || null
     );
   }
 
+  function backTopApi() {
+    return window.ErrorBackToTop && window.ErrorBackToTop.setPending
+      ? window.ErrorBackToTop
+      : null;
+  }
+
+  function clearFreshCard(card, ids) {
+    card.classList.remove("is-fresh");
+    Array.prototype.forEach.call(
+      card.querySelectorAll(".mo-comment-text.is-new-comment"),
+      function (node) {
+        node.classList.remove("is-new-comment");
+      }
+    );
+    updateJumpButton();
+    if (!canInteract) return;
+    ids.forEach(function (id) {
+      api("/api/site/notifications/seen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ module: "moments", target_id: id }),
+      }).catch(function () {});
+    });
+  }
+
+  function markFreshCard(card, ids, kind) {
+    if (!ids.length) return;
+    card.classList.add("is-fresh");
+    card.dataset.freshKind = kind;
+    card.dataset.freshIds = ids.join(",");
+    var clear = function () {
+      card.removeEventListener("mouseenter", clear);
+      card.removeEventListener("touchstart", clear);
+      clearFreshCard(card, ids);
+    };
+    card.addEventListener("mouseenter", clear);
+    card.addEventListener("touchstart", clear, { passive: true });
+  }
+
+  // 移动端没有 hover：滚到新评论后把正文的闪烁重放一次（CSS 在触摸设备上只闪 3 次）
+  function replayCommentBlink(card) {
+    var text = card.querySelector(".mo-comment-text.is-new-comment");
+    if (!text) return;
+    text.classList.remove("is-new-comment");
+    void text.offsetWidth;
+    text.classList.add("is-new-comment");
+  }
+
+  function popLikeButton(card) {
+    var like = card.querySelector(".mo-like-btn");
+    if (!like) return;
+    like.classList.remove("is-pop");
+    void like.offsetWidth;
+    like.classList.add("is-pop");
+    window.setTimeout(function () {
+      like.classList.remove("is-pop");
+    }, 620);
+  }
+
+  function jumpToFreshCard(card) {
+    if (!card) return;
+    var kind = card.dataset.freshKind === "comment" ? "comment" : "moment";
+    var target = card;
+    if (kind === "comment") {
+      target = card.querySelector(".mo-comment-text.is-new-comment") || card;
+      replayCommentBlink(card);
+    } else {
+      popLikeButton(card);
+    }
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  var lastPendingKey = null;
+
   function updateJumpButton() {
-    var btn = ensureJumpButton();
-    btn.hidden = !freshBelowNode();
+    var api = backTopApi();
+    if (!api) return;
+    var card = freshCardBelow();
+    var key = card ? card.dataset.freshKind + ":" + card.dataset.freshIds : "";
+    if (key === lastPendingKey) return;
+    lastPendingKey = key;
+    if (card) {
+      var isComment = card.dataset.freshKind === "comment";
+      api.setPending({
+        active: true,
+        label: isComment ? "评论" : "动态",
+        title: isComment ? "跳到新评论" : "跳到新动态",
+        onActivate: function () {
+          jumpToFreshCard(freshCardBelow() || card);
+        },
+      });
+    } else {
+      api.setPending({ active: false });
+    }
     document.dispatchEvent(new CustomEvent("errorjumpvisibilitychange"));
   }
 
@@ -522,13 +660,11 @@
     return users.length > 3 ? shown + " 等 " + users.length + " 人" : shown;
   }
 
-  function bindLikeControl(wrap, btn, count, names, targetType, target) {
+  function bindLikeControl(btn, names, targetType, target) {
     var namesEl = names;
     function sync() {
       btn.classList.toggle("is-liked", Boolean(target.liked));
       btn.title = target.liked ? "取消点赞" : "点赞";
-      count.textContent = String(target.like_count || 0);
-      count.hidden = !target.like_count && !target.liked;
       var text = likeNamesText(target);
       namesEl.hidden = !text;
       namesEl.textContent = text;
@@ -567,17 +703,79 @@
 
   function buildLikeRow(targetType, target) {
     var wrap = el("div", "mo-like");
-    var btn = el("button", "mo-like-btn", "♥");
-    var count = el("span", "mo-like-count", "");
+    var btn = el("button", "mo-like-btn");
     var names = el("span", "mo-like-names", "");
     btn.type = "button";
-    wrap.append(btn, count, names);
-    bindLikeControl(wrap, btn, count, names, targetType, target);
+    // 线框大拇指：未赞灰、已赞只换主题色描边；右边跟点赞者用户名
+    btn.innerHTML = '<i data-lucide="thumbs-up" aria-hidden="true"></i>';
+    wrap.append(btn, names);
+    bindLikeControl(btn, names, targetType, target);
     return wrap;
   }
 
   function buildMomentLike(moment) {
     return buildLikeRow("moment", moment);
+  }
+
+  // ---------- 卡片右下角「更多」菜单 ----------
+  function closeAllMoreMenus() {
+    Array.prototype.forEach.call(
+      document.querySelectorAll(".mo-more.is-open"),
+      function (node) {
+        node.classList.remove("is-open");
+        var menu = node.querySelector(".mo-more-menu");
+        if (menu) menu.hidden = true;
+        var btn = node.querySelector(".mo-more-btn");
+        if (btn) btn.setAttribute("aria-expanded", "false");
+      }
+    );
+  }
+
+  function buildMoreMenu(items) {
+    var more = el("div", "mo-more");
+    var btn = el("button", "mo-more-btn");
+    btn.type = "button";
+    btn.title = "更多操作";
+    btn.setAttribute("aria-haspopup", "true");
+    btn.setAttribute("aria-expanded", "false");
+    btn.setAttribute("aria-label", "更多操作");
+    btn.innerHTML = '<i data-lucide="ellipsis" aria-hidden="true"></i>';
+    var menu = el("div", "mo-more-menu");
+    menu.hidden = true;
+    menu.setAttribute("role", "menu");
+    items.forEach(function (item) {
+      var node = el(
+        "button",
+        "mo-more-item" + (item.danger ? " is-danger" : ""),
+        item.label
+      );
+      node.type = "button";
+      node.setAttribute("role", "menuitem");
+      if (item.report) {
+        node.setAttribute("data-report-type", "moment");
+        node.setAttribute("data-report-key", item.report.id);
+        node.setAttribute(
+          "data-report-title",
+          "动态：" + String(item.report.content || "").slice(0, 40)
+        );
+        node.setAttribute("data-report-login", "1");
+      }
+      node.addEventListener("click", function () {
+        closeAllMoreMenus();
+        if (item.onPick) item.onPick();
+      });
+      menu.appendChild(node);
+    });
+    btn.addEventListener("click", function (event) {
+      event.stopPropagation();
+      var willOpen = menu.hidden;
+      closeAllMoreMenus();
+      menu.hidden = !willOpen;
+      btn.setAttribute("aria-expanded", willOpen ? "true" : "false");
+      more.classList.toggle("is-open", willOpen);
+    });
+    more.append(btn, menu);
+    return more;
   }
 
   function buildCommentForm(moment, parentId, placeholder) {
@@ -624,21 +822,28 @@
     return form;
   }
 
-  function buildCommentNode(moment, comment, byParent) {
-    var row = el("div", "mo-comment" + (comment.parent_id ? " is-reply" : ""));
+  /* 评论：只保留正文和作者可删的「删除」，不再有点赞和回复（楼中楼一并去掉） */
+  function buildCommentNode(moment, comment, freshIds) {
+    var row = el("div", "mo-comment");
+    row.dataset.commentId = String(comment.id);
     var head = el("div", "mo-comment-head");
     head.appendChild(el("span", "mo-comment-actor", comment.actor || "匿名"));
     head.appendChild(el("span", "mo-comment-time", formatTime(comment.created_at)));
     row.appendChild(head);
-    row.appendChild(el("p", "mo-comment-text", comment.content));
-    row.appendChild(buildLikeRow("comment", comment));
-    var actions = el("div", "mo-comment-actions");
+    var text = el("p", "mo-comment-text", comment.content);
+    // 新评论：正文变主题色并闪烁（不再给评论行加方框呼吸）
+    if (isCommentFresh(comment.id)) {
+      text.classList.add("is-new-comment");
+      freshIds.push(comment.id);
+    }
+    row.appendChild(text);
     if (comment.can_delete) {
+      var actions = el("div", "mo-comment-actions");
       var deleteBtn = el("button", "mo-link-btn is-danger", "删除");
       deleteBtn.type = "button";
       deleteBtn.addEventListener("click", async function () {
         var confirmed = await window.ErrorDialog.confirm(
-          "删除这条评论？下面的回复也会一起删除。",
+          "确定要删除这条评论吗？",
           { title: "删除评论", confirmText: "删除", danger: true }
         );
         if (!confirmed) return;
@@ -652,46 +857,19 @@
           });
       });
       actions.appendChild(deleteBtn);
+      row.appendChild(actions);
     }
-    row.appendChild(actions);
-    if (canInteract && !comment.parent_id) {
-      var replyBtn = el("button", "mo-link-btn", "回复");
-      replyBtn.type = "button";
-      actions.insertBefore(replyBtn, actions.firstChild);
-      var replyForm = buildCommentForm(
-        moment,
-        comment.id,
-        "回复 " + (comment.actor || "这条评论") + "…"
-      );
-      replyBtn.addEventListener("click", function () {
-        replyForm.hidden = !replyForm.hidden;
-        if (!replyForm.hidden) replyForm.querySelector("textarea").focus();
-      });
-      row.appendChild(replyForm);
-    }
-    (byParent[comment.id] || []).forEach(function (child) {
-      row.appendChild(buildCommentNode(moment, child, byParent));
-    });
     return row;
   }
 
-  function buildComments(moment) {
+  function buildComments(moment, freshIds) {
     var comments = moment.comments || [];
     var box = el("div", "mo-comments");
-    var byParent = {};
-    comments.forEach(function (comment) {
-      if (comment.parent_id) {
-        byParent[comment.parent_id] = byParent[comment.parent_id] || [];
-        byParent[comment.parent_id].push(comment);
-      }
-    });
     if (comments.length) {
       var list = el("div", "mo-comment-list");
-      comments
-        .filter(function (comment) { return !comment.parent_id; })
-        .forEach(function (comment) {
-          list.appendChild(buildCommentNode(moment, comment, byParent));
-        });
+      comments.forEach(function (comment) {
+        list.appendChild(buildCommentNode(moment, comment, freshIds));
+      });
       box.appendChild(list);
     }
     if (canInteract) {
@@ -702,7 +880,6 @@
 
   function buildMoment(moment) {
     var item = el("article", "mo-card mo-item " + (moment.can_save ? "can-save" : "no-save"));
-    markFreshCard(item, moment.id);
     var avatar = document.createElement("img");
     avatar.className = "mo-avatar";
     avatar.src = "/static/site/error-chan-favicon.png?v=3";
@@ -721,7 +898,7 @@
       )
     );
     if (moment.region) {
-      head.appendChild(el("span", "mo-region", "IP 属地：" + moment.region));
+      head.appendChild(el("span", "mo-region", moment.region));
     }
     body.appendChild(head);
 
@@ -746,103 +923,110 @@
     }
 
     body.appendChild(buildMomentLike(moment));
-    if (canInteract) {
-      var itemActions = el("div", "mo-item-actions");
-      var reportBtn = el("button", "mo-link-btn", "举报");
-      reportBtn.type = "button";
-      reportBtn.setAttribute("data-report-type", "moment");
-      reportBtn.setAttribute("data-report-key", moment.id);
-      reportBtn.setAttribute("data-report-title", "动态：" + String(moment.content || "").slice(0, 40));
-      reportBtn.setAttribute("data-report-login", "1");
-      itemActions.appendChild(reportBtn);
-      body.appendChild(itemActions);
+
+    var freshCommentIds = [];
+    body.appendChild(buildComments(moment, freshCommentIds));
+
+    /*
+     * 右下角「⋯」：举报（别人发的动态）或 置顶 / 编辑 / 删除（管理员），
+     * 和留言页一样收进菜单，不再平铺一行按钮。
+     */
+    var actionsRow = el("div", "mo-item-actions");
+    var menuItems = [];
+
+    function togglePin() {
+      api("/api/moments/" + moment.id, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned: !moment.pinned }),
+      }).then(function () {
+        return loadMoments();
+      }).catch(function (err) {
+        toast(err.message);
+      });
     }
-    body.appendChild(buildComments(moment));
 
-    item.appendChild(body);
+    function startEdit() {
+      if (body.querySelector(".mo-edit")) return;
+      var box = el("div", "mo-edit");
+      var area = document.createElement("textarea");
+      area.maxLength = 2000;
+      area.value = moment.content || "";
+      var tagInput = document.createElement("input");
+      tagInput.className = "mo-tag-input";
+      tagInput.maxLength = 200;
+      tagInput.value = moment.tags || "";
+      tagInput.placeholder = "标签（逗号分隔）";
+      tagInput.style.cssText = "width:100%;margin-top:8px;padding:8px 12px;border-radius:8px;border:1px solid var(--mo-border);background:var(--mo-bg);color:var(--mo-text);font:inherit;font-size:13px;";
+      var row = el("div", "mo-edit-actions");
+      var cancel = el("button", "mo-btn mo-btn-ghost", "取消");
+      var save = el("button", "mo-btn mo-btn-primary", "保存");
+      cancel.type = "button";
+      save.type = "button";
+      row.append(cancel, save);
+      box.append(area, tagInput, row);
+      body.insertBefore(box, actionsRow);
+      area.focus();
 
-    if (moment.can_manage) {
-      var actions = el("div", "mo-actions");
-      var pinBtn = el("button", "mo-link-btn", moment.pinned ? "取消置顶" : "置顶");
-      var editBtn = el("button", "mo-link-btn", "编辑");
-      var deleteBtn = el("button", "mo-link-btn is-danger", "删除");
-      pinBtn.type = "button";
-      editBtn.type = "button";
-      deleteBtn.type = "button";
-      actions.append(pinBtn, editBtn, deleteBtn);
-      body.appendChild(actions);
-
-      pinBtn.addEventListener("click", function () {
-        pinBtn.disabled = true;
+      cancel.addEventListener("click", function () {
+        box.remove();
+      });
+      save.addEventListener("click", function () {
+        save.disabled = true;
         api("/api/moments/" + moment.id, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pinned: !moment.pinned }),
+          body: JSON.stringify({ content: area.value, tags: tagInput.value }),
         }).then(function () {
+          toast("已保存");
           return loadMoments();
         }).catch(function (err) {
           toast(err.message);
-        }).then(function () {
-          pinBtn.disabled = false;
-        });
-      });
-
-      editBtn.addEventListener("click", function () {
-        if (body.querySelector(".mo-edit")) return;
-        var box = el("div", "mo-edit");
-        var area = document.createElement("textarea");
-        area.maxLength = 2000;
-        area.value = moment.content || "";
-        var tagInput = document.createElement("input");
-        tagInput.className = "mo-tag-input";
-        tagInput.maxLength = 200;
-        tagInput.value = moment.tags || "";
-        tagInput.placeholder = "标签（逗号分隔）";
-        tagInput.style.cssText = "width:100%;margin-top:8px;padding:8px 12px;border-radius:8px;border:1px solid var(--mo-border);background:var(--mo-bg);color:var(--mo-text);font:inherit;font-size:13px;";
-        var row = el("div", "mo-edit-actions");
-        var cancel = el("button", "mo-btn mo-btn-ghost", "取消");
-        var save = el("button", "mo-btn mo-btn-primary", "保存");
-        cancel.type = "button";
-        save.type = "button";
-        row.append(cancel, save);
-        box.append(area, tagInput, row);
-        body.insertBefore(box, actions);
-        area.focus();
-
-        cancel.addEventListener("click", function () {
-          box.remove();
-        });
-        save.addEventListener("click", function () {
-          save.disabled = true;
-          api("/api/moments/" + moment.id, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ content: area.value, tags: tagInput.value }),
-          }).then(function () {
-            toast("已保存");
-            return loadMoments();
-          }).catch(function (err) {
-            toast(err.message);
-            save.disabled = false;
-          });
-        });
-      });
-
-      deleteBtn.addEventListener("click", async function () {
-        var confirmed = await window.ErrorDialog.confirm(
-          "删除这条说说？配图也会一起删掉。",
-          { title: "删除动态", confirmText: "删除", danger: true }
-        );
-        if (!confirmed) return;
-        api("/api/moments/" + moment.id, { method: "DELETE" }).then(function () {
-          toast("已删除");
-          return loadMoments();
-        }).catch(function (err) {
-          toast(err.message);
+          save.disabled = false;
         });
       });
     }
 
+    function removeMoment() {
+      window.ErrorDialog.confirm("确定要删除这条动态吗？", {
+        title: "删除动态",
+        confirmText: "删除",
+        danger: true,
+      }).then(function (confirmed) {
+        if (!confirmed) return;
+        return api("/api/moments/" + moment.id, { method: "DELETE" })
+          .then(function () {
+            toast("已删除");
+            return loadMoments();
+          })
+          .catch(function (err) {
+            toast(err.message);
+          });
+      });
+    }
+
+    if (moment.can_manage) {
+      menuItems.push({ label: moment.pinned ? "取消置顶" : "置顶", onPick: togglePin });
+      menuItems.push({ label: "编辑", onPick: startEdit });
+      menuItems.push({ label: "删除", danger: true, onPick: removeMoment });
+    } else if (canInteract) {
+      menuItems.push({ label: "举报", report: moment });
+    }
+    if (menuItems.length) {
+      actionsRow.appendChild(buildMoreMenu(menuItems));
+      body.appendChild(actionsRow);
+    }
+
+    item.appendChild(body);
+
+    // 整张卡片的方框呼吸：自己收到新评论，或卡片本身就是新的
+    var rootFresh =
+      Boolean(freshTargets[String(moment.id)]) && !isCommentFresh(moment.id);
+    if (rootFresh || freshCommentIds.length) {
+      var freshIds = freshCommentIds.slice();
+      if (rootFresh) freshIds.unshift(moment.id);
+      markFreshCard(item, freshIds, freshCommentIds.length ? "comment" : "moment");
+    }
     return item;
   }
 
@@ -851,21 +1035,27 @@
     var targetsRequest = canInteract
       ? api("/api/site/moments/unread")
           .then(function (data) {
-            return (data && data.targets) || [];
+            return data || {};
           })
           .catch(function () {
-            return [];
+            return {};
           })
-      : Promise.resolve([]);
+      : Promise.resolve({});
     return Promise.all([api("/api/moments"), targetsRequest]).then(function (result) {
       var payload = result[0] || {};
       momentsRequireLogin = Boolean(payload.requires_login);
       latestMomentRows = Array.isArray(payload) ? payload : (payload.items || []);
       // 游客先落在「开发日志」那一栏（日志本来就对外公开），登录账号仍默认「我的动态」
       if (momentsRequireLogin && !explicitMomentKind) setMomentKind("log");
+      /*
+       * freshTargets: 目标 id → 提醒类型。动态 id 和评论 id 是两张表的自增主键，
+       * 可能撞号，所以一定要靠 kind 区分「动态本体」和「某条评论」。
+       */
       freshTargets = {};
-      (result[1] || []).forEach(function (id) {
-        freshTargets[String(id)] = true;
+      var unread = result[1] || {};
+      var targetKinds = unread.target_kinds || {};
+      (unread.targets || []).forEach(function (id) {
+        freshTargets[String(id)] = targetKinds[String(id)] || "";
       });
       renderMomentRows();
     }).catch(function (err) {
@@ -902,6 +1092,11 @@
 
   // ---------- 筛选 ----------
   var MOMENT_FILTER_VALUES = ["all", "liked", "commented"];
+  var MOMENT_FILTER_LABELS = {
+    all: "全部动态",
+    liked: "点赞",
+    commented: "评论",
+  };
   var MOMENT_KIND_VALUES = ["post", "log"];
   var currentMomentKind = "post";
   // 地址栏里明确带了 ?kind= 就听用户的，否则游客会默认落到「开发日志」
@@ -927,33 +1122,78 @@
   function setMomentFilter(value) {
     if (MOMENT_FILTER_VALUES.indexOf(value) < 0) value = "all";
     currentMomentFilter = value;
-    var filterBox = $("momentFilters");
-    if (filterBox) {
-      filterBox.querySelectorAll("[data-mo-filter]").forEach(function (node) {
-        node.classList.toggle(
-          "is-active",
-          node.getAttribute("data-mo-filter") === value
-        );
-      });
-    }
+    syncFilterControl();
     var url = new URL(window.location.href);
     if (value === "all") url.searchParams.delete("filter");
     else url.searchParams.set("filter", value);
     history.replaceState(null, "", url.toString());
   }
 
+  // 悬浮按钮上的文字 + 菜单里的选中态保持同步
+  function syncFilterControl() {
+    var label = $("momentFilterLabel");
+    if (label) {
+      label.textContent =
+        MOMENT_FILTER_LABELS[currentMomentFilter] || MOMENT_FILTER_LABELS.all;
+    }
+    Array.prototype.forEach.call(
+      document.querySelectorAll("#momentFilterMenu [data-mo-filter]"),
+      function (node) {
+        var active =
+          node.getAttribute("data-mo-filter") === currentMomentFilter;
+        node.classList.toggle("is-active", active);
+        node.setAttribute("aria-selected", active ? "true" : "false");
+      }
+    );
+  }
+
+  function filterMenuOpen() {
+    var menu = $("momentFilterMenu");
+    return Boolean(menu && !menu.hidden);
+  }
+
+  function setFilterMenuOpen(open) {
+    var menu = $("momentFilterMenu");
+    var btn = $("momentFilterBtn");
+    var wrap = $("momentFilterWrap");
+    if (menu) menu.hidden = !open;
+    if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (wrap) wrap.classList.toggle("is-open", open);
+  }
+
+  function closeFilterMenu() {
+    if (filterMenuOpen()) setFilterMenuOpen(false);
+  }
+
   function initMomentFilters() {
-    var filterBox = $("momentFilters");
-    if (!filterBox || !canInteract) return;
-    filterBox.hidden = false;
-    filterBox.addEventListener("click", function (event) {
-      var btn = event.target.closest("[data-mo-filter]");
-      if (!btn) return;
-      var value = btn.getAttribute("data-mo-filter");
-      if (value === currentMomentFilter) return;
-      setMomentFilter(value);
-      renderMomentRows();
+    syncFilterControl();
+    var btn = $("momentFilterBtn");
+    if (!btn || !canInteract) return;
+    btn.addEventListener("click", function () {
+      setFilterMenuOpen(!filterMenuOpen());
     });
+    var menu = $("momentFilterMenu");
+    if (menu) {
+      menu.addEventListener("click", function (event) {
+        var option = event.target.closest("[data-mo-filter]");
+        if (!option) return;
+        var value = option.getAttribute("data-mo-filter");
+        setFilterMenuOpen(false);
+        if (value === currentMomentFilter) return;
+        setMomentFilter(value);
+        renderMomentRows();
+      });
+    }
+    // 点菜单以外的地方关掉；Esc 同样收起
+    document.addEventListener("click", function (event) {
+      var target = event.target;
+      if (target && target.closest && target.closest("#momentFilterWrap")) return;
+      closeFilterMenu();
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") closeFilterMenu();
+    });
+    initSendFloat();
   }
 
   /*
@@ -978,12 +1218,19 @@
     applyKindVisibility();
   }
 
-  /* 日志栏里没有可点的赞和评论，所以筛选行只在「我的动态」下出现；发布框也只有管理员在动态栏里看得到 */
+  /*
+   * 栏位开关（我的动态 / 开发日志）常驻；筛选和「写动态」只在「我的动态」下出现——
+   * 开发日志没有点赞 / 评论可筛，也不能发布。发布框本身也只对管理员显示。
+   */
   function applyKindVisibility() {
     var composer = $("momentForm");
     if (composer) composer.hidden = !canManageMoments || currentMomentKind === "log";
-    var filterBox = $("momentFilters");
-    if (filterBox) filterBox.hidden = !canInteract || currentMomentKind === "log";
+    var isLog = currentMomentKind === "log";
+    var filterWrap = $("momentFilterWrap");
+    if (filterWrap) filterWrap.hidden = !canInteract || isLog;
+    var sendBtn = $("momentSendBtn");
+    if (sendBtn) sendBtn.hidden = !canManageMoments || isLog;
+    closeFilterMenu();
   }
 
   function updateKindCounts() {
@@ -1000,18 +1247,86 @@
   }
 
   function initMomentKinds() {
+    var dock = $("momentDock");
+    if (!dock) return;
+    dock.hidden = false;
     var box = $("momentKinds");
-    if (!box) return;
-    box.hidden = false;
-    box.addEventListener("click", function (event) {
-      var btn = event.target.closest("[data-mo-kind]");
-      if (!btn) return;
-      var value = btn.getAttribute("data-mo-kind");
-      if (value === currentMomentKind) return;
-      setMomentKind(value);
-      renderMomentRows();
-      window.scrollTo({ top: 0, behavior: "smooth" });
+    if (box) {
+      box.addEventListener("click", function (event) {
+        var btn = event.target.closest("[data-mo-kind]");
+        if (!btn) return;
+        var value = btn.getAttribute("data-mo-kind");
+        if (value === currentMomentKind) return;
+        setMomentKind(value);
+        renderMomentRows();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+    }
+    applyKindVisibility();
+  }
+
+  /*
+   * 「写动态」悬浮按钮：只有发布框完全滚出视野上方时才渐显（纯 opacity）；
+   * 点它先淡出，再平滑滚回顶部并聚焦输入的文本域。
+   */
+  function setSendFloatVisible(visible) {
+    var btn = $("momentSendBtn");
+    if (!btn) return;
+    btn.classList.toggle("is-visible", Boolean(visible));
+    btn.setAttribute("aria-hidden", visible ? "false" : "true");
+    btn.tabIndex = visible ? 0 : -1;
+  }
+
+  function initSendFloat() {
+    var btn = $("momentSendBtn");
+    var composer = $("momentForm");
+    if (!btn || !composer) return;
+    setSendFloatVisible(false);
+    btn.addEventListener("click", function () {
+      setSendFloatVisible(false);
+      try {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      } catch (err) {
+        window.scrollTo(0, 0);
+      }
+      var area = $("momentContent");
+      if (!area) return;
+      window.setTimeout(function () {
+        try {
+          area.focus({ preventScroll: true });
+        } catch (err) {
+          area.focus();
+        }
+      }, 0);
     });
+    if (typeof window.IntersectionObserver === "function") {
+      var observer = new IntersectionObserver(
+        function (entries) {
+          var entry = entries[entries.length - 1];
+          setSendFloatVisible(
+            !entry.isIntersecting && entry.boundingClientRect.bottom <= 0
+          );
+        },
+        { threshold: 0 }
+      );
+      observer.observe(composer);
+      return;
+    }
+    var ticking = false;
+    var update = function () {
+      ticking = false;
+      setSendFloatVisible(composer.getBoundingClientRect().bottom <= 0);
+    };
+    window.addEventListener(
+      "scroll",
+      function () {
+        if (ticking) return;
+        ticking = true;
+        window.requestAnimationFrame(update);
+      },
+      { passive: true }
+    );
+    update();
   }
 
   /* 「【更新日志】2026-10-11　标题」+ 若干「· 条目」→ 标题与条目 */
@@ -1244,9 +1559,16 @@
   }
 
   var imageViewer = $("momentViewer");
+  var imageViewerStage = $("momentViewerStage");
   if (imageViewer) {
     imageViewer.addEventListener("click", function (event) {
-      if (event.target === imageViewer) closeImageViewer();
+      // 灯箱：点图片周围的空白（stage / viewer 本身）退出
+      if (
+        event.target === imageViewer ||
+        event.target === imageViewerStage
+      ) {
+        closeImageViewer();
+      }
     });
     imageViewer.addEventListener("contextmenu", function (event) {
       event.preventDefault();
@@ -1256,8 +1578,34 @@
   if (imageViewerClose) {
     imageViewerClose.addEventListener("click", closeImageViewer);
   }
+  var imageViewerPrev = $("momentViewerPrev");
+  if (imageViewerPrev) {
+    imageViewerPrev.addEventListener("click", function () {
+      stepViewerImage(-1);
+    });
+  }
+  var imageViewerNext = $("momentViewerNext");
+  if (imageViewerNext) {
+    imageViewerNext.addEventListener("click", function () {
+      stepViewerImage(1);
+    });
+  }
+  // 点菜单以外的地方收起「⋯」菜单
+  document.addEventListener("click", function (event) {
+    if (event.target && event.target.closest && event.target.closest(".mo-more")) {
+      return;
+    }
+    closeAllMoreMenus();
+  });
   document.addEventListener("keydown", function (event) {
-    if (event.key === "Escape") closeImageViewer();
+    if (event.key === "Escape") {
+      closeAllMoreMenus();
+      closeImageViewer();
+    } else if (event.key === "ArrowLeft" && imageViewer && !imageViewer.hidden) {
+      stepViewerImage(-1);
+    } else if (event.key === "ArrowRight" && imageViewer && !imageViewer.hidden) {
+      stepViewerImage(1);
+    }
   });
 
   api("/api/auth/status").then(function (status) {
