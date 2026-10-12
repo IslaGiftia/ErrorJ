@@ -3217,3 +3217,76 @@ nginx       -> systemctl is-active nginx = active，errorjiang 未重启、/api/
 四条的实际表现（顶部留白、按钮留白、发送按钮显隐 / 回顶 / 聚焦、点赞线框）都是在**同一提交**的隔离实例上用真浏览器量的；
 线上按「静态哈希一致 + 代码特征 + 页面无报错 + 更新日志入库 + 健康检查」确认。留言页需要登录才能看到正文与悬浮按钮，
 所以线上的交互没有用管理员账号直接复测（不掌握线上口令）。
+
+## 92. 2026-10-12 20:38:46 留言页：新消息导航并入「顶部」按钮，移动端顶部留白修复
+
+需求：点赞保持线框、只换描边色；左上角加「发送留言」悬浮按钮（编辑框滚出才渐显、点它回顶并聚焦）；
+左上角两枚按钮与右下角「顶部」按钮的留白左右对称、「顶部」按钮移到卡片内侧右下角；
+继续修移动端顶部空白；把右下角独立的「↓ 新回复」导航并进「顶部」按钮，按新消息类型切换形态并复用呼吸；
+新点赞定位到时大拇指轻弹一下，新回复定位到时正文变主题色闪烁（桌面闪到鼠标进入卡片、手机闪 3 次），
+去掉回复行的方框呼吸、保留整张卡片的方框呼吸。
+
+完成内容（`68d5e1a feat:merge-fresh-nav-into-top-button-and-align-float-insets`，5 文件，+259/−83）：
+- 底部留白变量化：`:root` 新增 `--mg-page-pad`（16px，手机 12px）与 `--mg-float-inset`（12px）。
+  `.mg-app` 左右内边距、`.mg-filter-dock` 的 `margin-left`、右下角按钮的 `right` 全部引用它们——
+  `right: calc(max(0px, (100vw - 900px) / 2) + var(--mg-page-pad) + var(--mg-float-inset))`，
+  实测桌面 / 手机的左右内缩都是 12px（之前左 6px、右 20px，不对称）。
+- 移动端顶部空白：`.mg-app` 手机顶部内边距由 `calc(10px + env(safe-area-inset-top))` 改成固定 `6px`
+  （不再叠加 safe-area，避免浏览器已经让开状态栏时又叠一次），`.mg-main` 的 `padding-top` 已是 0；
+  悬浮 dock 的手机 `top` 由 14px 收到 8px。实测手机内容首行 top = 6px。
+- 「顶部」按钮兼作新互动导航：`static/site/back-to-top.js`（全站公共组件）新增 `ErrorBackToTop.setPending({active, label, title, onActivate})`，
+  其它页面不调用时行为完全不变；pending 时强制常驻、点击走 `onActivate`，`renderMode()` 维护 `is-pending` 与 `data-fresh-label`。
+  留言页 CSS 用 `body[data-notify-module="messages"] .site-back-top.is-pending` 覆盖：箭头 `rotate(180deg)`（↑ → ↓）、
+  `::after` 取 `attr(data-fresh-label)`（回复 / 点赞）、沿用 `mgFreshPulse` 呼吸、描边和文字换主题色。
+- 删除 `.mg-jump-btn`（messages.js 的 `ensureJumpButton` 那套 + messages.css 的两条规则），`updateJumpButton()` 改为：
+  找视口下方第一张 `.mg-item.is-fresh`，把它的 `data-fresh-kind`（reply / like）交给 `setPending`；没有未读就 `setPending({active:false})`。
+  用 `lastPendingKey` 去重，避免每帧重设。
+- 提醒样式：`markFreshCard(card, ids, kind)` 只给整张卡片加 `is-fresh`（方框呼吸保留），
+  新回复的正文加 `.is-new-reply`（主题色 + `mgReplyBlink`；桌面 `infinite`、`(hover:none)/(pointer:coarse)` 下 3 次）；
+  鼠标进入整张卡片（或手机上触摸卡片）时清掉呼吸、闪烁并上报 `notifications/seen`。
+  点击向下按钮后 `jumpToFreshCard()`：`scrollIntoView` 到卡片，reply 重放一次闪烁、like 给大拇指加 `.is-pop`（0.5s 放大到 1.24 倍）。
+- 点赞线框加固：`.mg-like-btn svg { fill: none }`，点赞态只改 `color`，杜绝实心填充。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 109 项全过
+      node --check static/messages.js / static/site/back-to-top.js / map.js / moments.js 全过；git diff --check 干净
+      隔离实例（复制 inventory.db，端口 8100）Playwright 实测（桌面 1440x900 / 手机 412x915）：
+        顶部留白：手机 mg-app padding-top 6px、mg-main 0、首条留言 top=6px（桌面 14px）
+        左右对称：dock 距卡片左缘 12px、顶部按钮距卡片右缘 12px（两侧相等）
+        旧按钮：文档里已无 .mg-jump-btn
+        新点赞：按钮 is-pending、data-fresh-label=点赞、::after="点赞"、animation=mgFreshPulse、
+                svg transform=matrix(-1,0,0,-1,0,0)（箭头翻转）；卡片 is-fresh 且 data-fresh-kind=like；
+                点它后 scrollY 1531、卡片进入视野、按钮恢复「顶部」、期间捕获到 .mg-like-btn.is-pop
+        新回复：data-fresh-label=回复；正文 color=rgb(123,104,238)、animation=mgReplyBlink（桌面 infinite / 手机 3）；
+                卡片 is-fresh、.mg-reply.is-fresh 数量为 0（回复行不再呼吸）；点它后正文进入视野、按钮恢复
+        无未读：按钮 pending=false、animation=none、按滚动阈值正常隐藏
+      清理：临时实例与截图目录已删除，真实 inventory.db 未写入
+提交：68d5e1a（fetch/push 后本地 == origin/main）
+备份：/data/errorjiang-backup/msgnav-20261012-2039/（停服后复制 inventory.db 与 changelog-seed.json）
+服务器：git pull --ff-only 8ff0936 -> 68d5e1a（纯静态 + 文档，app.py 没动）
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 9BE154D7…D9EA 一致）
+      import_changelog_moments.py --date 2026-10-12 --force -> 新增 11 条
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 68d5e1a，/api/health = {"ok": true}
+更新日志    -> /api/moments 里 2026-10-12 20:38:46「留言页：新消息导航并入「顶部」按钮，移动端顶部留白修复」（id=372，kind=log）
+静态资源    -> messages.js / messages.css / site/back-to-top.js 与本机 SHA256 逐一相同
+代码特征    -> 线上 messages.js 有 freshCardBelow / jumpToFreshCard / popLikeButton 且已无 mg-jump-btn；
+              messages.css 有 --mg-float-inset、padding: 6px var(--mg-page-pad)、.site-back-top.is-pending、mgReplyBlink、fill: none；
+              back-to-top.js 有 setPending / is-pending
+线上页面    -> Playwright 打开 https://zhexiyan.cc/messages（桌面 1440x900 / 手机 412x915）：手机 padding-top 实测 6px、
+              mg-main 0、ErrorBackToTop.setPending 可用、旧 .mg-jump-btn 为 0 个，无 JS / 控制台报错
+```
+
+备注：本轮改到全站公共的 `back-to-top.js`，但只是在 null 分支外新增 `setPending`——不调用的页面（其它模块）行为和样式都没变。
+纯静态 + 文档，`app.py` 没动，线上生效靠 `git pull`；重启是导入更新日志流程的常规动作。
+左右对称、顶部留白、两种新互动形态与点按表现都是在**同一提交**的隔离实例上用真浏览器量的；
+线上按「静态哈希一致 + 代码特征 + 页面无报错 + 更新日志入库 + 健康检查」确认。留言页要登录才看得到正文与悬浮按钮，
+所以线上没有用管理员账号复测交互。
+
+补充说明（排查记录）：隔离实例第一次复测时发现「重新加载页面后未读提醒就没了」，原因是页面加载的 `static/site/notify-seen.js`
+会在 `pagehide` 时把整模块的提醒标记为已读（原有设计：离开页面即算已读）。测试改成每个场景用全新 context +
+每次重新写入提醒后，行为全部符合预期；线上真实使用（一直停在页面上）不受影响。
