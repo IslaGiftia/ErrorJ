@@ -2846,14 +2846,19 @@ git commit 节点图标）、手机端标签吸顶；顺带把地图悬浮组「
 - 仓库：`deploy/nginx-errorjiang.conf`、`deploy/nginx-errorjiang-http.conf` 两份示例配置同步改成 `SAMEORIGIN`
   并写上原因，避免以后照仓库里的例子恢复配置又把线上打回去。
 
+顺带修掉的小毛病（`fc1309b fix:skip-guest-notification-polls-on-downloads-page`）：下载页外壳不管有没有登录都在
+每 5 秒轮询 `/api/site/notifications/summary`、切 Tab 时还会 POST `/api/site/notifications/seen`，游客访问时
+每次都吃 401、控制台一串红字。现在先问一次 `/api/auth/status`，只有登录账号才做这两件事。
+
 验证结果：
 ```text
 响应头      -> https://zhexiyan.cc/books?embed=1 与 /downloads 均返回 200，X-Frame-Options: SAMEORIGIN
-真浏览器    -> 无头 Chrome 打开线上 https://zhexiyan.cc/downloads：
+真浏览器    -> 无头 Chrome 打开线上 https://zhexiyan.cc/downloads（未登录游客视角）：
                /music?embed=1 标题「歌单」、渲染出 15 条歌曲行、is-embed = true；
-               /books?embed=1 标题「书架」、/recommendations?embed=1 标题「推荐」，两个内嵌页都正常加载
-               （游客在这两栏看到 0 项是因为游客权限本身不返回书籍 / 推荐数据，登录后即有内容，
-                控制台里的 401 就是这两个接口的游客闸门）
+               /books?embed=1 标题「书架」、渲染出 6 张书卡；/recommendations?embed=1 标题「推荐」、渲染出 4 张推荐卡；
+               三个内嵌页全部正常加载，控制台 0 个 error、0 个 4xx/5xx 请求（`fc1309b` 之前是 7 个 401）
+角标回归    -> 本地实例（登录身份）复跑角标用例：首页「下载」角标 6 + 呼吸，下载页「书籍」1、「推荐」3，
+               点「书籍」后清空并发出 {"module":"books"}，与改造前一致
 nginx       -> systemctl is-active nginx = active，errorjiang 未重启、/api/health = {"ok": true}
 ```
 
