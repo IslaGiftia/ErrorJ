@@ -17,7 +17,9 @@ html {
   --mg-danger: #d64545;
   --mg-danger-soft: #fff0f0;
   --mg-shadow: 0 1px 3px rgba(24, 31, 45, 0.06);
-  --mg-toast-bg: #252a34;
+  --mg-toast-bg: rgba(255, 255, 255, 0.97);
+  --mg-toast-ink: #1b1f27;
+  --mg-toast-border: rgba(24, 31, 45, 0.14);
   color-scheme: light;
 }
 
@@ -36,6 +38,8 @@ html {
   --mg-danger-soft: #3d2020;
   --mg-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
   --mg-toast-bg: #0f0f10;
+  --mg-toast-ink: #ffffff;
+  --mg-toast-border: transparent;
   color-scheme: dark;
 }
 
@@ -690,8 +694,9 @@ button.mg-file {
   padding: 10px 18px;
   border-radius: 8px;
   background: var(--mg-toast-bg);
-  color: #ffffff;
+  color: var(--mg-toast-ink);
   font-size: 13px;
+  border: 1px solid var(--mg-toast-border);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
   z-index: 40;
 }

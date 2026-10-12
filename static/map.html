@@ -27,7 +27,8 @@
   <link rel="stylesheet" href="/static/fonts.css">
 </head>
 <body>
-  <div class="mp-app" id="mapApp">
+  <!-- is-sidebar-collapsed：进页面默认收起检索卡片，只留左下角的功能按键 -->
+  <div class="mp-app is-sidebar-collapsed" id="mapApp">
     <div class="mp-map" id="map"></div>
 
     <aside class="mp-sidebar" id="mapSidebar">
@@ -47,8 +48,7 @@
       <div class="mp-list" id="mapList"></div>
     </aside>
 
-    <!-- is-pending：权限还没回来之前先不显示操作栏，避免先闪出管理员按钮 -->
-    <div class="mp-actions is-pending" id="mapActions">
+    <div class="mp-actions" id="mapActions">
       <!--
         底部操作卡片：六枚等宽图标按钮，从左到右
         分类筛选 / 添加者 / 导入标记 / 分类管理 / 开合检索区 / 添加标记。
@@ -245,6 +245,7 @@
           <i data-lucide="plus"></i><span>新增一级分类</span>
         </button>
         <span class="mp-spacer"></span>
+        <button class="mp-btn" id="mapCatsCancel" type="button">取消</button>
         <button class="mp-btn mp-btn-primary" id="mapCatsDone" type="button">完成</button>
       </div>
     </div>

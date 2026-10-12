@@ -17,7 +17,9 @@ html {
   --mo-danger: #d64545;
   --mo-danger-soft: #fff0f0;
   --mo-shadow: 0 1px 3px rgba(24, 31, 45, 0.06);
-  --mo-toast-bg: #252a34;
+  --mo-toast-bg: rgba(255, 255, 255, 0.97);
+  --mo-toast-ink: #1b1f27;
+  --mo-toast-border: rgba(24, 31, 45, 0.14);
   color-scheme: light;
 }
 
@@ -36,6 +38,8 @@ html {
   --mo-danger-soft: #3d2020;
   --mo-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
   --mo-toast-bg: #0f0f10;
+  --mo-toast-ink: #ffffff;
+  --mo-toast-border: transparent;
   color-scheme: dark;
 }
 
@@ -806,8 +810,9 @@ button.mo-share:hover {
   padding: 10px 18px;
   border-radius: 8px;
   background: var(--mo-toast-bg);
-  color: #ffffff;
+  color: var(--mo-toast-ink);
   font-size: 13px;
+  border: 1px solid var(--mo-toast-border);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
   z-index: 40;
 }

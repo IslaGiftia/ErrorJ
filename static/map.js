@@ -294,9 +294,7 @@
   map.setView(initialCenter, savedView ? savedView.zoom : 12);
 
   BASE_LAYERS[activeBaseId].layer.addTo(map);
-  L.control.zoom({ position: "bottomright" }).addTo(map);
-  L.control.scale({ position: "bottomright", imperial: false }).addTo(map);
-
+  // 缩放 +/− 与比例尺控件已移除（用户不需要；地图本身仍能滚轮缩放、双指捏合）
   var darkRefLayer = L.tileLayer(
     "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
     { maxZoom: 16, attribution: "&copy; Esri" }
@@ -593,7 +591,22 @@
     if (pop) pop.hidden = !open;
     var button = $("mapOwnerBtn");
     if (button) button.setAttribute("aria-expanded", open ? "true" : "false");
+    syncPopTools();
     if (open) applyPopHeight(pop);
+  }
+
+  /*
+   * 手机端：分类 / 添加者浮层打开时，让右上角那四枚按钮向右滑出把位置让出来
+   * （和「展开检索区」用的是同一套让位动画），浮层关掉再滑回来。
+   */
+  function syncPopTools() {
+    var app = $("mapApp");
+    if (!app) return;
+    var catPop = $("mapCatPop");
+    var ownerPop = $("mapOwnerPop");
+    var anyOpen =
+      Boolean(catPop && !catPop.hidden) || Boolean(ownerPop && !ownerPop.hidden);
+    app.classList.toggle("is-pop-open", anyOpen && isNarrowMap());
   }
 
   function closeOwnerPicker() {
@@ -702,6 +715,7 @@
     if (pop) pop.hidden = !open;
     var button = $("mapCatBtn");
     if (button) button.setAttribute("aria-expanded", open ? "true" : "false");
+    syncPopTools();
     if (open) applyPopHeight(pop);
   }
 
@@ -722,7 +736,9 @@
     if (!node || !sidebar || !actions) return;
     var limit = Math.round(sidebar.getBoundingClientRect().height);
     var tools = document.querySelector(".mp-tools");
-    if (tools) {
+    var app = $("mapApp");
+    var toolsGone = Boolean(app && app.classList.contains("is-pop-open"));
+    if (tools && !toolsGone) {
       var actionsBox = actions.getBoundingClientRect();
       var toolsBox = tools.getBoundingClientRect();
       var overlaps =
@@ -2640,7 +2656,8 @@
   }
 
    [["mapPlaceClose", "mapPlaceModal"], ["mapPlaceCancel", "mapPlaceModal"],
-    ["mapCatsClose", "mapCatsModal"], ["mapCatsDone", "mapCatsModal"],
+    ["mapCatsClose", "mapCatsModal"], ["mapCatsCancel", "mapCatsModal"],
+    ["mapCatsDone", "mapCatsModal"],
    ["mapImportClose", "mapImportModal"], ["mapImportCancel", "mapImportModal"]].forEach(function (pair) {
     var btn = $(pair[0]);
     if (btn) btn.addEventListener("click", function () { closeModal(pair[1]); });
@@ -2769,8 +2786,6 @@
     var app = $("mapApp");
     var actions = $("mapActions");
     if (!app || !actions) return;
-    // 权限已经确定（或请求失败兜底），操作栏可以现身了
-    actions.classList.remove("is-pending");
     app.style.setProperty(
       "--mp-actions-h",
       Math.round(actions.getBoundingClientRect().height) + "px"
@@ -2796,6 +2811,8 @@
     if (openCat && !openCat.hidden) applyPopHeight(openCat);
     var openOwner = $("mapOwnerPop");
     if (openOwner && !openOwner.hidden) applyPopHeight(openOwner);
+    // 视口在「手机 / 桌面」之间来回切时，让位状态要跟着重算
+    syncPopTools();
   });
 
   /*

@@ -634,6 +634,13 @@ body {
   transform: translateX(-50%);
 }
 
+/* 提示条跟着主题走：浅色主题浅底深字，深色主题维持原来的深底白字 */
+:root:not([data-theme="dark"]) .bk-toast {
+  background: rgba(255, 255, 255, 0.97);
+  color: #1b1f27;
+  border: 1px solid rgba(24, 31, 45, 0.14);
+}
+
 .bk-dialog .pg-rows {
   --pg-accent: var(--bk-accent);
   margin: 4px 0 8px;
