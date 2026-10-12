@@ -62,7 +62,8 @@ body {
 .mg-app {
   position: relative;
   z-index: 1;
-  max-width: 900px;
+  /* 和动态页 .mo-app 一致的 760px：两个页面的内容区宽度、居中与左右留白完全对齐 */
+  max-width: 760px;
   margin: 0 auto;
   /* 顶部导航栏已移除：只留一点舒适留白（并避开刘海屏安全区），不再叠旧占位 */
   padding: calc(14px + env(safe-area-inset-top, 0px)) var(--mg-page-pad) 64px;
@@ -1326,7 +1327,7 @@ body[data-notify-module="messages"] .site-back-top {
   gap: 2px;
   /* 收进卡片内侧右下角：和左上角两枚悬浮按钮用同一个 --mg-float-inset，左右对称 */
   right: calc(
-    max(0px, (100vw - 900px) / 2) + var(--mg-page-pad) + var(--mg-float-inset)
+    max(0px, (100vw - 760px) / 2) + var(--mg-page-pad) + var(--mg-float-inset)
   );
   bottom: calc(var(--site-back-top-bottom, 22px) + 28px);
   width: 48px;
