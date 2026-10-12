@@ -44,10 +44,19 @@ class MessageDeletePermissionTests(unittest.TestCase):
             )
         )
 
-    def test_download_request_is_available_to_members(self):
-        self.assertEqual(app.required_permission("/api/download-requests", "POST"), "")
+    def test_download_endpoints_are_open_to_members(self):
         self.assertEqual(app.required_permission("/api/site/music/1/download", "GET"), "")
         self.assertEqual(app.required_permission("/api/books/1/download", "GET"), "")
+
+    def test_download_request_flow_is_gone(self):
+        """下载申请 / 审批整体下线：接口、处理器与通知事件都不再存在。"""
+        self.assertFalse(hasattr(app.InventoryHandler, "api_download_request_create"))
+        self.assertFalse(hasattr(app.InventoryHandler, "api_admin_download_requests"))
+        self.assertFalse(hasattr(app.InventoryHandler, "api_admin_download_request_action"))
+        self.assertFalse(hasattr(app.InventoryHandler, "download_state"))
+        self.assertNotIn(
+            "download_request", {item["key"] for item in app.NOTIFY_EVENTS}
+        )
 
 
 class ReferenceProjectTests(unittest.TestCase):
@@ -81,7 +90,8 @@ class UsernameMaskTests(unittest.TestCase):
 
 
 class DownloadWorkflowTests(unittest.TestCase):
-    def test_member_request_can_be_approved_and_revoked(self):
+    def test_member_downloads_directly_without_approval(self):
+        """下载不再需要申请与审批：登录账号直接拿文件，也不再写申请记录。"""
         with tempfile.TemporaryDirectory() as temp_dir:
             with patch.object(app, "DB_PATH", Path(temp_dir) / "inventory.db"):
                 app.init_db()
@@ -100,6 +110,12 @@ class DownloadWorkflowTests(unittest.TestCase):
                        VALUES (?, ?, 'txt', ?, 1, 0, ?, ?)""",
                     ("测试书", "作者", "book_files/test.txt", stamp, stamp),
                 )
+                music_id = app.execute(
+                    """INSERT INTO site_music
+                           (title, source_type, source_id, sort_order, created_at)
+                       VALUES (?, 'file', ?, 0, ?)""",
+                    ("测试歌曲", "site_music_files/tone.mp3", stamp),
+                )
                 member = {
                     "kind": "member",
                     "user_id": user_id,
@@ -112,42 +128,34 @@ class DownloadWorkflowTests(unittest.TestCase):
                 responses = []
                 handler.send_json = lambda status, payload: responses.append((status, payload))
                 handler.log_activity = lambda *args, **kwargs: None
+                sent = []
+                handler.send_data_file = lambda *args, **kwargs: sent.append(args)
 
-                with patch.object(app, "notify_async", return_value=False):
-                    handler.api_download_request_create(
-                        {"resource_type": "book", "resource_id": book_id}
-                    )
+                handler.api_book_download(book_id)
+                handler.api_site_music_download(music_id)
 
-                row = app.query_one(
-                    """SELECT id, status FROM download_requests
-                       WHERE user_id = ? AND resource_type = 'book' AND resource_id = ?""",
-                    (user_id, book_id),
+                # 没有任何 401 / 403，两个文件都直接送出
+                self.assertEqual(responses, [])
+                self.assertEqual(
+                    [Path(str(call[0])).name for call in sent],
+                    ["test.txt", "tone.mp3"],
                 )
-                self.assertEqual(row["status"], "pending")
-                self.assertEqual(handler.download_state(member, "book", book_id), "pending")
+                # 也不再写申请记录
+                self.assertEqual(
+                    app.query_one("SELECT COUNT(*) AS n FROM download_requests")["n"], 0
+                )
 
-                admin_handler = object.__new__(app.InventoryHandler)
-                admin_handler.session_identity = lambda: {
-                    "kind": "owner",
-                    "user_id": 0,
-                    "nickname": "管理员",
-                }
-                admin_handler.is_admin = lambda: True
-                admin_handler.log_activity = lambda *args, **kwargs: None
-                admin_handler.send_json = lambda status, payload: responses.append(
+                # 游客仍然拿不到文件（登录要求没被一起放开）
+                guest = object.__new__(app.InventoryHandler)
+                guest.session_identity = lambda: None
+                guest.is_admin = lambda: False
+                guest_responses = []
+                guest.send_json = lambda status, payload: guest_responses.append(
                     (status, payload)
                 )
-                admin_handler.api_admin_download_request_action(
-                    f"/api/admin/download-requests/{row['id']}",
-                    {"action": "approve"},
-                )
-                self.assertEqual(handler.download_state(member, "book", book_id), "approved")
-
-                admin_handler.api_admin_download_request_action(
-                    f"/api/admin/download-requests/{row['id']}",
-                    {"action": "revoke"},
-                )
-                self.assertEqual(handler.download_state(member, "book", book_id), "revoked")
+                guest.send_data_file = lambda *args, **kwargs: None
+                guest.api_book_download(book_id)
+                self.assertEqual(guest_responses[-1][0], 401)
 
 
 class MusicDurationTests(unittest.TestCase):
@@ -263,10 +271,6 @@ class HomeActivityTests(unittest.TestCase):
             text = (app.STATIC_DIR / name).read_text(encoding="utf-8")
             self.assertIn("/static/site/embed.css", text)
             self.assertIn("/static/site/embed.js", text)
-
-    def test_download_request_notification_event_exists(self):
-        events = {item["key"]: item for item in app.NOTIFY_EVENTS}
-        self.assertTrue(events["download_request"]["default"])
 
     def test_messages_permission_label_is_renamed(self):
         labels = {item["key"]: item["label"] for item in app.GUEST_PAGE_PERMISSIONS}
@@ -1986,12 +1990,6 @@ class ComplianceWorkflowTests(unittest.TestCase):
                VALUES ('recommendation', '1', '测试推荐', '违法违规', 'pending', ?)""",
             (stamp,),
         )
-        app.execute(
-            """INSERT INTO download_requests
-                   (user_id, resource_type, resource_id, status, created_at, updated_at)
-               VALUES (?, 'book', ?, 'pending', ?, ?)""",
-            (self.member_id, self.book_id, stamp, stamp),
-        )
         handler = self.make_handler(
             {"kind": "owner", "user_id": 0, "nickname": "管理员"}, admin=True
         )
@@ -2000,8 +1998,7 @@ class ComplianceWorkflowTests(unittest.TestCase):
         self.assertEqual(summary["pending_users"], 1)
         self.assertEqual(summary["pending_reviews"], 2)
         self.assertEqual(summary["pending_reports"], 1)
-        self.assertEqual(summary["pending_downloads"], 1)
-        self.assertEqual(summary["workbench"], 5)
+        self.assertEqual(summary["workbench"], 4)
 
     def test_notification_summary_tracks_member_interactions(self):
         app.add_user_notification(

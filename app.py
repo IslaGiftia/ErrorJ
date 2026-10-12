@@ -358,7 +358,6 @@ NOTIFY_EVENTS = (
     {"key": "register", "label": "新的注册申请", "default": True},
     {"key": "attachment", "label": "新的待审核留言", "default": True},
     {"key": "report", "label": "新的内容举报", "default": True},
-    {"key": "download_request", "label": "新的下载申请", "default": True},
     {"key": "message", "label": "新的留言", "default": True},
     {"key": "moment_comment", "label": "新的动态评论", "default": True},
     {"key": "place", "label": "新的标记点", "default": True},
@@ -422,6 +421,8 @@ PUBLIC_ACTIVITY_LABELS = {
     "music_upload": "上传了一首歌",
     "recommendation_create": "新增了一条推荐",
     "recommendation_update": "更新了一条推荐",
+    "music_download": "下载了一首歌",
+    "book_download": "下载了一本电子书",
     "map_place_create": "新增了一个足迹",
 }
 REFERENCE_ITEM_RE = re.compile(
@@ -5432,8 +5433,6 @@ def required_permission(path, method):
         return None
     if path.startswith("/api/workbench") or path.startswith("/api/prompts"):
         return None
-    if path.startswith("/api/admin/download-requests"):
-        return None
     if path == "/api/account/nickname":
         return ""
     if path == "/api/site/messages/quota" and method == "GET":
@@ -5446,8 +5445,6 @@ def required_permission(path, method):
         return "" if method == "GET" else None
     if re.fullmatch(r"/api/references/\d+", path):
         return None
-    if path == "/api/download-requests" and method == "POST":
-        return ""
     if path == "/api/map/seen" and method == "POST":
         # 记录「已看到标记」是读状态，任何登录账号都可以
         return ""
@@ -7254,7 +7251,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
         pending_users = 0
         pending_attachments = 0
         pending_reports = 0
-        pending_download_requests = 0
         if identity and identity.get("kind") != "owner":
             permissions = sorted(user_permission_set(identity.get("user_id")))
         if identity and identity.get("kind") in ("owner", "admin"):
@@ -7274,9 +7270,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
             pending_attachments = int(pending_messages) + int(pending_legacy_files)
             pending_reports = query_one(
                 "SELECT COUNT(*) AS n FROM content_reports WHERE status = 'pending'"
-            )["n"]
-            pending_download_requests = query_one(
-                "SELECT COUNT(*) AS n FROM download_requests WHERE status = 'pending'"
             )["n"]
         self.send_json(
             200,
@@ -7298,7 +7291,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "pending_users": pending_users,
                 "pending_attachments": pending_attachments,
                 "pending_reports": pending_reports,
-                "pending_download_requests": pending_download_requests,
             },
         )
 
@@ -8754,8 +8746,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_admin_notify(query)
             elif path == "/api/admin/upload-limits":
                 self.api_admin_upload_limits()
-            elif path == "/api/admin/download-requests":
-                self.api_admin_download_requests(query)
             elif path == "/api/references":
                 self.api_reference_projects()
             elif re.fullmatch(r"/api/recommendations/\d+/icon", path):
@@ -8921,8 +8911,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_admin_share_link_create(payload)
             elif path == "/api/admin/share-content":
                 self.api_admin_share_content(payload)
-            elif re.fullmatch(r"/api/admin/download-requests/\d+", path):
-                self.api_admin_download_request_action(path, payload)
             elif path == "/api/admin/review/approve-all":
                 self.api_admin_review_all(payload)
             elif re.fullmatch(r"/api/admin/review/\d+", path):
@@ -8945,8 +8933,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_recommendation_create(payload)
             elif path == "/api/references":
                 self.api_reference_create(payload)
-            elif path == "/api/download-requests":
-                self.api_download_request_create(payload)
             elif path == "/api/recommendations/images":
                 self.api_recommendation_image_upload(payload)
             elif path == "/api/site/photos":
@@ -10079,7 +10065,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
             "pending_users": 0,
             "pending_reviews": 0,
             "pending_reports": 0,
-            "pending_downloads": 0,
         }
         if not identity:
             return summary
@@ -10125,16 +10110,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "SELECT COUNT(*) AS n FROM content_reports WHERE status = 'pending'"
                 )["n"]
             )
-            summary["pending_downloads"] = int(
-                query_one(
-                    "SELECT COUNT(*) AS n FROM download_requests WHERE status = 'pending'"
-                )["n"]
-            )
             summary["workbench"] = (
                 summary["pending_users"]
                 + summary["pending_reviews"]
                 + summary["pending_reports"]
-                + summary["pending_downloads"]
             )
         else:
             summary["messages"] = int(
@@ -11248,7 +11227,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )
         self.send_json(200, {"id": item_id})
 
-    # ---------- 限时分享与下载申请 ----------
+    # ---------- 限时分享 ----------
 
     def share_resource(self, resource_type, resource_id):
         if resource_type not in SHARE_RESOURCE_TYPES:
@@ -11325,163 +11304,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
             "download_name": (row.get("title") or "music")
             + (os.path.splitext(source_id)[1] or ".mp3"),
         }
-
-    def download_state(self, identity, resource_type, resource_id):
-        if identity and identity.get("kind") in ("owner", "admin"):
-            return "admin"
-        if not identity:
-            return "guest"
-        user_id = int(identity.get("user_id") or 0)
-        if user_id <= 0:
-            return "guest"
-        if not self.download_resource(resource_type, resource_id):
-            return "unavailable"
-        row = query_one(
-            """SELECT status FROM download_requests
-               WHERE user_id = ? AND resource_type = ? AND resource_id = ?""",
-            (user_id, resource_type, resource_id),
-        )
-        return (row or {}).get("status") or "none"
-
-    def api_download_request_create(self, payload):
-        identity = self.session_identity()
-        if not identity:
-            api_error(self, 401, "请先登录后申请下载。")
-            return
-        if identity.get("kind") in ("owner", "admin"):
-            self.send_json(200, {"ok": True, "status": "approved"})
-            return
-        resource_type = str(payload.get("resource_type") or "").strip()
-        try:
-            resource_id = int(payload.get("resource_id") or 0)
-        except (TypeError, ValueError):
-            resource_id = 0
-        resource = self.download_resource(resource_type, resource_id)
-        if not resource:
-            api_error(self, 400, "这个文件不支持下载申请。")
-            return
-        user_id = int(identity.get("user_id") or 0)
-        existing = query_one(
-            """SELECT id, status FROM download_requests
-               WHERE user_id = ? AND resource_type = ? AND resource_id = ?""",
-            (user_id, resource_type, resource_id),
-        )
-        if existing and existing.get("status") == "approved":
-            self.send_json(200, {"ok": True, "status": "approved"})
-            return
-        if existing and existing.get("status") == "pending":
-            self.send_json(200, {"ok": True, "status": "pending"})
-            return
-        stamp = now_text()
-        if existing:
-            execute(
-                """UPDATE download_requests
-                   SET status = 'pending', updated_at = ?, reviewed_by = NULL,
-                       reviewed_at = NULL
-                   WHERE id = ?""",
-                (stamp, existing["id"]),
-            )
-            request_id = existing["id"]
-        else:
-            request_id = execute(
-                """INSERT INTO download_requests
-                       (user_id, resource_type, resource_id, status,
-                        created_at, updated_at)
-                   VALUES (?, ?, ?, 'pending', ?, ?)""",
-                (user_id, resource_type, resource_id, stamp, stamp),
-            )
-        label = "电子书" if resource_type == "book" else "歌曲"
-        summary = f"申请下载{label}：{resource['title']}"
-        self.log_activity(
-            "download_request_create",
-            summary,
-            target_type=resource_type,
-            target_id=resource_id,
-        )
-        notify_async(
-            "download_request",
-            "Error酱：新的下载申请",
-            f"{identity.get('nickname') or identity.get('username') or '普通用户'} {summary}",
-            "/workbench?view=downloads",
-        )
-        self.send_json(200, {"ok": True, "id": request_id, "status": "pending"})
-
-    def api_admin_download_requests(self, params):
-        status_filter = str((params.get("status") or ["pending"])[0] or "pending")
-        if status_filter not in ("pending", "approved", "all"):
-            status_filter = "pending"
-        conditions = [] if status_filter == "all" else ["d.status = ?"]
-        values = [] if status_filter == "all" else [status_filter]
-        where = "WHERE " + " AND ".join(conditions) if conditions else ""
-        rows = query(
-            f"""SELECT d.*, u.username, u.nickname
-                FROM download_requests d
-                LEFT JOIN users u ON u.id = d.user_id
-                {where}
-                ORDER BY d.updated_at DESC, d.id DESC
-                LIMIT 500""",
-            tuple(values),
-        )
-        for row in rows:
-            resource = self.download_resource(row["resource_type"], row["resource_id"])
-            row["resource_title"] = resource["title"] if resource else "文件已删除"
-            row["resource_kind"] = "电子书" if row["resource_type"] == "book" else "歌曲"
-            row["user_name"] = (
-                row.get("nickname")
-                or row.get("username")
-                or f"用户 #{row.get('user_id')}"
-            )
-        pending = query_one(
-            "SELECT COUNT(*) AS n FROM download_requests WHERE status = 'pending'"
-        )["n"]
-        self.send_json(200, {"items": rows, "pending": pending})
-
-    def api_admin_download_request_action(self, path, payload):
-        request_id = int(path.rsplit("/", 1)[1])
-        row = query_one("SELECT * FROM download_requests WHERE id = ?", (request_id,))
-        if not row:
-            api_error(self, 404, "下载申请不存在。")
-            return
-        action = str(payload.get("action") or "").strip()
-        status_map = {"approve": "approved", "reject": "rejected", "revoke": "revoked"}
-        if action not in status_map:
-            api_error(self, 400, "未知操作。")
-            return
-        if action in ("approve", "reject") and row.get("status") != "pending":
-            api_error(self, 400, "只有待处理申请可以批准或拒绝。")
-            return
-        if action == "revoke" and row.get("status") != "approved":
-            api_error(self, 400, "只有已批准申请可以撤销。")
-            return
-        identity = self.session_identity()
-        reviewer = (identity or {}).get("nickname") or "管理员"
-        status = status_map[action]
-        execute(
-            """UPDATE download_requests
-               SET status = ?, updated_at = ?, reviewed_by = ?, reviewed_at = ?
-               WHERE id = ?""",
-            (status, now_text(), reviewer, now_text(), request_id),
-        )
-        resource = self.download_resource(row["resource_type"], row["resource_id"])
-        title = resource["title"] if resource else f"#{row['resource_id']}"
-        action_labels = {
-            "approve": "批准",
-            "reject": "拒绝",
-            "revoke": "撤销",
-        }
-        self.log_activity(
-            f"download_request_{action}",
-            f"{action_labels[action]}下载申请：{title}",
-            target_type=row["resource_type"],
-            target_id=row["resource_id"],
-        )
-        write_audit(
-            identity,
-            f"download_request_{action}",
-            f"{action_labels[action]}下载申请：{title}",
-            {"id": request_id, "user_id": row.get("user_id")},
-        )
-        self.send_json(200, {"ok": True, "status": status})
 
     def notify_members_new_content(self, kind, module, target_id, actor, text):
         """给所有已批准普通账号写一条新内容提醒。"""
@@ -11626,7 +11448,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
         item = self.book_payload(row, self.book_user_id())
         item["file_url"] = f"/api/shared/books/{book_id}/content"
         item.pop("file_path", None)
-        item["download_state"] = self.download_state(identity, "book", book_id)
         self.send_json(200, item)
 
     def api_shared_book_content(self, book_id):
@@ -12125,10 +11946,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 row["url"] = (
                     f"/api/site/music/{row['id']}/stream" if identity else ""
                 )
-                row["download_state"] = self.download_state(identity, "music", row["id"])
             else:
                 row["url"] = (row.get("source_id") or "") if identity else ""
-                row["download_state"] = "external"
             row["cover_url"] = (
                 "/site-files/" + row["cover_path"] if row.get("cover_path") else ""
             )
@@ -12157,15 +11976,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not resource:
             api_error(self, 404, "歌曲不存在或不是本地上传文件。")
             return
-        identity = self.session_identity()
-        state = self.download_state(identity, "music", item_id)
-        if state not in ("admin", "approved"):
-            if state == "guest":
-                api_error(self, 401, "请先登录后申请下载。")
-            elif state == "pending":
-                api_error(self, 403, "下载申请正在等待管理员审核。")
-            else:
-                api_error(self, 403, "请先提交下载申请。")
+        # 登录后直接下载，不再需要申请与审核
+        if self.session_identity() is None:
+            api_error(self, 401, "登录后可以下载。")
             return
         self.log_activity(
             "music_download",
@@ -12304,6 +12117,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 remove_data_file(current["cover_path"])
             execute("DELETE FROM site_music WHERE id = ?", (item_id,))
             execute(
+                # 下载申请功能已下线，这里只清理历史行，避免删歌后留下孤儿记录
                 "DELETE FROM download_requests WHERE resource_type = 'music' AND resource_id = ?",
                 (item_id,),
             )
@@ -12381,7 +12195,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
         items = []
         for row in rows:
             item = self.book_payload(row, user_id, can_read=identity is not None)
-            item["download_state"] = self.download_state(identity, "book", row["id"])
             if not is_admin:
                 item.pop("file_path", None)
             items.append(item)
@@ -12485,15 +12298,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not resource:
             api_error(self, 404, "电子书不存在。")
             return
-        identity = self.session_identity()
-        state = self.download_state(identity, "book", book_id)
-        if state not in ("admin", "approved"):
-            if state == "guest":
-                api_error(self, 401, "请先登录后申请下载。")
-            elif state == "pending":
-                api_error(self, 403, "下载申请正在等待管理员审核。")
-            else:
-                api_error(self, 403, "请先提交下载申请。")
+        # 登录后直接下载，不再需要申请与审核
+        if self.session_identity() is None:
+            api_error(self, 401, "登录后可以下载。")
             return
         self.log_activity(
             "book_download",
@@ -12539,6 +12346,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             execute("DELETE FROM book_bookmarks WHERE book_id = ?", (item_id,))
             execute("DELETE FROM book_annotations WHERE book_id = ?", (item_id,))
             execute(
+                # 下载申请功能已下线，这里只清理历史行，避免删书后留下孤儿记录
                 "DELETE FROM download_requests WHERE resource_type = 'book' AND resource_id = ?",
                 (item_id,),
             )
@@ -13969,23 +13777,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                         "created_at": (newest_report or {}).get("created_at") or now_text(),
                         "actor": "管理员",
                         "text": f"有 {int(pending_reports)} 个待处理举报",
-                        "alert": True,
-                    }
-                )
-            pending_downloads = query_one(
-                "SELECT COUNT(*) AS n FROM download_requests WHERE status = 'pending'"
-            )["n"]
-            if pending_downloads:
-                newest_download = query_one(
-                    """SELECT updated_at AS created_at FROM download_requests
-                       WHERE status = 'pending' ORDER BY id DESC LIMIT 1"""
-                )
-                alerts.append(
-                    {
-                        "id": "download-request-alert",
-                        "created_at": (newest_download or {}).get("created_at") or now_text(),
-                        "actor": "管理员",
-                        "text": f"有 {int(pending_downloads)} 个下载申请",
                         "alert": True,
                     }
                 )

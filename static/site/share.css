@@ -1,5 +1,4 @@
-.share-overlay,
-.download-request-overlay {
+.share-overlay {
   --share-accent: var(
     --bk-accent,
     var(--mu-accent, var(--nt-accent, var(--wb-accent, #4f46e5)))
@@ -27,8 +26,7 @@
 }
 
 /* 深色模式下即使页面没有定义上面这些变量，也跟随用户选择的暗色 */
-:root[data-theme="dark"] .share-overlay,
-:root[data-theme="dark"] .download-request-overlay {
+:root[data-theme="dark"] .share-overlay {
   --share-accent: var(--bk-accent, var(--mu-accent, var(--nt-accent, #a78bfa)));
   --share-panel: var(--bk-surface, var(--mu-surface, var(--nt-surface, #262626)));
   --share-text: var(--bk-text, var(--mu-text, var(--nt-text, #f4f4f5)));
@@ -37,8 +35,7 @@
   --share-bg: var(--bk-bg, var(--mu-bg, var(--nt-bg, #1f1f23)));
 }
 
-.share-overlay,
-.download-request-overlay {
+.share-overlay {
   position: fixed;
   inset: 0;
   z-index: 260;
@@ -49,13 +46,11 @@
   backdrop-filter: blur(8px);
 }
 
-.share-overlay[hidden],
-.download-request-overlay[hidden] {
+.share-overlay[hidden] {
   display: none;
 }
 
-.share-dialog,
-.download-request-dialog {
+.share-dialog {
   width: min(440px, 100%);
   padding: 20px;
   border: 1px solid var(--share-line);
@@ -65,16 +60,14 @@
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
 }
 
-.share-head,
-.download-request-head {
+.share-head {
   display: flex;
   align-items: center;
   gap: 12px;
   margin-bottom: 14px;
 }
 
-.share-head h2,
-.download-request-head h2 {
+.share-head h2 {
   margin: 0;
   font-size: 18px;
 }
@@ -95,23 +88,20 @@
   color: var(--share-text);
 }
 
-.share-field,
-.download-request-field {
+.share-field {
   display: flex;
   flex-direction: column;
   gap: 6px;
   margin-bottom: 12px;
 }
 
-.share-field span,
-.download-request-field span {
+.share-field span {
   color: var(--share-muted);
   font-size: 13px;
 }
 
 .share-field select,
-.share-field input,
-.download-request-field input {
+.share-field input {
   width: 100%;
   height: 40px;
   padding: 0 11px;
@@ -122,8 +112,7 @@
   font: inherit;
 }
 
-.share-actions,
-.download-request-actions {
+.share-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
@@ -230,8 +219,7 @@
   font-weight: 650;
 }
 
-.share-btn,
-.download-request-btn {
+.share-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -247,15 +235,13 @@
   cursor: pointer;
 }
 
-.share-btn.primary,
-.download-request-btn.primary {
+.share-btn.primary {
   border-color: var(--share-accent);
   background: var(--share-accent);
   color: #fff;
 }
 
-.share-btn:disabled,
-.download-request-btn:disabled {
+.share-btn:disabled {
   cursor: wait;
   opacity: 0.65;
 }
@@ -280,10 +266,4 @@
 
 .share-result input {
   font-size: 12px;
-}
-
-.download-request-dialog p {
-  margin: 0;
-  color: var(--share-muted);
-  line-height: 1.7;
 }

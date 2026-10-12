@@ -25,10 +25,7 @@
       pending_users: 0,
       pending_reviews: 0,
       pending_reports: 0,
-      pending_downloads: 0,
     },
-    downloadRequests: [],
-    downloadRequestStatus: "pending",
     uploadLimitSchema: [],
     uploadLimits: null,
     uploadLimitDefaults: null,
@@ -166,19 +163,17 @@
     if (view === "accounts") loadAccounts();
     if (view === "review") loadReview();
     if (view === "reports") loadReports();
-    if (view === "downloads") loadDownloadRequests();
     if (view === "uploads") loadUploadLimits();
     if (view === "logs") loadLogs();
   }
 
   function initialView() {
-    const allowed = ["overview", "assets", "firmware", "repairs", "prompts", "accounts", "review", "reports", "downloads", "uploads", "logs"];
+    const allowed = ["overview", "assets", "firmware", "repairs", "prompts", "accounts", "review", "reports", "uploads", "logs"];
     const params = new URLSearchParams(location.search);
     const candidate = (params.get("view") || (location.hash || "").replace("#", "") || "overview").trim();
     if (candidate === "accounts" && !state.isAdmin) return "overview";
     if (candidate === "review" && !state.isAdmin) return "overview";
     if (candidate === "reports" && !state.isAdmin) return "overview";
-    if (candidate === "downloads" && !state.isAdmin) return "overview";
     if (candidate === "uploads" && !state.isAdmin) return "overview";
     if (candidate === "logs" && !state.isAdmin) return "overview";
     return allowed.includes(candidate) ? candidate : "overview";
@@ -666,7 +661,6 @@
     bindAccountEvents();
     bindReviewEvents();
     bindReportEvents();
-    bindDownloadEvents();
     bindLogEvents();
     bindUploadLimitEvents();
     try {
@@ -679,8 +673,6 @@
       if (reviewNav) reviewNav.hidden = !state.isAdmin;
       const reportsNav = document.querySelector('[data-view="reports"]');
       if (reportsNav) reportsNav.hidden = !state.isAdmin;
-      const downloadsNav = document.querySelector('[data-view="downloads"]');
-      if (downloadsNav) downloadsNav.hidden = !state.isAdmin;
       const uploadsNav = document.querySelector('[data-view="uploads"]');
       if (uploadsNav) uploadsNav.hidden = !state.isAdmin;
       const logsNav = document.querySelector('[data-view="logs"]');
@@ -689,12 +681,10 @@
         setPendingBadge(status.pending_users || 0);
         setReviewBadge(status.pending_attachments || 0);
         setReportsBadge(status.pending_reports || 0);
-        setDownloadsBadge(status.pending_download_requests || 0);
         state.badgeCounts = {
           pending_users: Number(status.pending_users) || 0,
           pending_reviews: Number(status.pending_attachments) || 0,
           pending_reports: Number(status.pending_reports) || 0,
-          pending_downloads: Number(status.pending_download_requests) || 0,
         };
       }
     } catch (err) {}
@@ -746,9 +736,6 @@
     approve_attachment: "通过附件审核",
     reject_attachment: "拒绝附件审核",
     approve_attachment_batch: "批量通过附件",
-    download_request_approve: "批准下载申请",
-    download_request_reject: "拒绝下载申请",
-    download_request_revoke: "撤销下载权限",
     notify_settings: "修改通知设置",
   };
 
@@ -769,13 +756,11 @@
         pending_users: Number(data.pending_users) || 0,
         pending_reviews: Number(data.pending_reviews) || 0,
         pending_reports: Number(data.pending_reports) || 0,
-        pending_downloads: Number(data.pending_downloads) || 0,
       };
       const previous = state.badgeCounts || {};
       setPendingBadge(next.pending_users);
       setReviewBadge(next.pending_reviews);
       setReportsBadge(next.pending_reports);
-      setDownloadsBadge(next.pending_downloads);
       state.badgeCounts = next;
       if (
         state.view === "accounts" &&
@@ -795,12 +780,6 @@
         previous.pending_reports !== next.pending_reports
       ) {
         loadReports();
-      }
-      if (
-        state.view === "downloads" &&
-        previous.pending_downloads !== next.pending_downloads
-      ) {
-        loadDownloadRequests();
       }
     } catch (err) {}
   }
@@ -1704,10 +1683,6 @@
     asset_download: "下载资料",
     share_create: "生成分享链接",
     share_download: "通过分享链接下载",
-    download_request_create: "提交下载申请",
-    download_request_approve: "批准下载申请",
-    download_request_reject: "拒绝下载申请",
-    download_request_revoke: "撤销下载权限",
     music_download: "下载歌曲",
     music_upload: "上传歌曲",
     music_delete: "删除歌曲",
@@ -2242,138 +2217,6 @@
         }
       });
     }
-  }
-
-  function setDownloadsBadge(count) {
-    const value = Number(count) || 0;
-    const nav = $("downloadsNavBadge");
-    if (nav) {
-      nav.hidden = value <= 0;
-      nav.textContent = value > 99 ? "99+" : String(value);
-    }
-  }
-
-  async function loadDownloadRequests() {
-    const panel = $("downloadRequestPanel");
-    if (!panel) return;
-    panel.innerHTML = '<div class="wb-empty">正在加载…</div>';
-    try {
-      const data = await api(
-        "/api/admin/download-requests?status=" +
-          encodeURIComponent(state.downloadRequestStatus)
-      );
-      state.downloadRequests = data.items || [];
-      setDownloadsBadge(data.pending || 0);
-      panel.innerHTML = downloadRequestsHtml();
-      if (window.lucide) lucide.createIcons();
-    } catch (err) {
-      panel.innerHTML = `<div class="wb-empty">${escapeHtml(err.message)}</div>`;
-    }
-  }
-
-  function downloadStatusLabel(status) {
-    return {
-      pending: "待处理",
-      approved: "已批准",
-      rejected: "已拒绝",
-      revoked: "已撤销",
-    }[status] || status;
-  }
-
-  function downloadRequestsHtml() {
-    if (!state.downloadRequests.length) {
-      return '<div class="wb-empty">没有匹配的下载申请。</div>';
-    }
-    return (
-      '<div class="wb-review-grid">' +
-      state.downloadRequests
-        .map((row) => {
-          const pending = row.status === "pending";
-          const approved = row.status === "approved";
-          const statusClass =
-            row.status === "approved"
-              ? "approved"
-              : row.status === "pending"
-                ? "pending"
-                : "rejected";
-          const actions = [
-            pending
-              ? `<button class="wb-btn wb-btn-primary" type="button" data-download-action="approve" data-download-id="${row.id}"><i data-lucide="check"></i><span>批准</span></button>`
-              : "",
-            pending
-              ? `<button class="wb-btn wb-btn-danger" type="button" data-download-action="reject" data-download-id="${row.id}"><i data-lucide="x"></i><span>拒绝</span></button>`
-              : "",
-            approved
-              ? `<button class="wb-btn wb-btn-danger" type="button" data-download-action="revoke" data-download-id="${row.id}"><i data-lucide="ban"></i><span>撤销</span></button>`
-              : "",
-          ].join("");
-          return `
-            <article class="wb-review-card">
-              <div class="wb-review-thumb"><i data-lucide="download"></i></div>
-              <div class="wb-review-body">
-                <div class="wb-user-title">
-                  <strong>${escapeHtml(row.resource_title || "文件已删除")}</strong>
-                  <span class="wb-chip wb-chip-${statusClass}">${escapeHtml(downloadStatusLabel(row.status))}</span>
-                </div>
-                <div class="wb-user-meta">
-                  ${escapeHtml(row.resource_kind || "")} · ${escapeHtml(row.user_name || "用户")} · 申请 ${formatTime(row.updated_at || row.created_at)}
-                </div>
-                ${row.reviewed_by ? `<p class="wb-review-text">处理人：${escapeHtml(row.reviewed_by)} · ${formatTime(row.reviewed_at)}</p>` : ""}
-              </div>
-              <div class="wb-user-actions">${actions}</div>
-            </article>`;
-        })
-        .join("") +
-      "</div>"
-    );
-  }
-
-  function bindDownloadEvents() {
-    const refresh = $("downloadsRefreshBtn");
-    if (refresh) {
-      refresh.addEventListener("click", () => {
-        loadDownloadRequests().catch((err) => toast(err.message));
-      });
-    }
-    const tabs = $("downloadRequestTabs");
-    if (tabs) {
-      tabs.addEventListener("click", (event) => {
-        const button = event.target.closest("[data-download-status]");
-        if (!button) return;
-        state.downloadRequestStatus = button.dataset.downloadStatus;
-        tabs.querySelectorAll("button").forEach((item) => {
-          item.classList.toggle("active", item === button);
-        });
-        loadDownloadRequests();
-      });
-    }
-    const panel = $("downloadRequestPanel");
-    if (!panel) return;
-    panel.addEventListener("click", async (event) => {
-      const button = event.target.closest("[data-download-action]");
-      if (!button) return;
-      if (button.dataset.downloadAction === "reject" && button.dataset.armed !== "1") {
-        button.dataset.armed = "1";
-        button.querySelector("span").textContent = "再点一次确认";
-        setTimeout(() => {
-          if (button.isConnected) {
-            button.dataset.armed = "0";
-            button.querySelector("span").textContent = "拒绝";
-          }
-        }, 4000);
-        return;
-      }
-      try {
-        await api(`/api/admin/download-requests/${button.dataset.downloadId}`, {
-          method: "POST",
-          body: JSON.stringify({ action: button.dataset.downloadAction }),
-        });
-        toast("下载申请已更新");
-        await loadDownloadRequests();
-      } catch (err) {
-        toast(err.message);
-      }
-    });
   }
 
   function setReviewBadge(count) {

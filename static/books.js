@@ -190,28 +190,12 @@
             book.id +
             '" title="分享"><i data-lucide="share-2"></i></button>'
           : "";
-        var download = "";
-        if (state.canManage) {
-          download =
-            '<button class="bk-card-edit" type="button" data-book-download="' +
+        // 登录后直接下载原文件，不再需要申请和审核
+        var download = state.authenticated
+          ? '<button class="bk-card-edit" type="button" data-book-download="' +
             book.id +
-            '" title="下载原文件"><i data-lucide="download"></i></button>';
-        } else if (state.authenticated) {
-          if (book.download_state === "approved") {
-            download =
-              '<button class="bk-card-edit" type="button" data-book-download="' +
-              book.id +
-              '" title="下载原文件"><i data-lucide="download"></i></button>';
-          } else if (book.download_state === "pending") {
-            download =
-              '<button class="bk-card-edit is-pending" type="button" disabled title="下载申请待审核"><i data-lucide="clock"></i></button>';
-          } else {
-            download =
-              '<button class="bk-card-edit" type="button" data-book-request="' +
-              book.id +
-              '" title="申请下载"><i data-lucide="download"></i></button>';
-          }
-        }
+            '" title="下载原文件"><i data-lucide="download"></i></button>'
+          : "";
         // 游客不显示封面右下角的操作胶囊，也不显示右上角的格式标签
         var coverActions =
           state.authenticated && edit + report + share + download
@@ -572,20 +556,6 @@
       })[0];
       if (shareBook && window.ErrorShare) {
         window.ErrorShare.open("book", shareBook.id, shareBook.title);
-      }
-      return;
-    }
-    var request = event.target.closest("[data-book-request]");
-    if (request) {
-      event.stopPropagation();
-      var requestBook = state.books.filter(function (book) {
-        return book.id === Number(request.getAttribute("data-book-request"));
-      })[0];
-      if (requestBook && window.ErrorDownload) {
-        window.ErrorDownload.request("book", requestBook.id, requestBook.title, function () {
-          requestBook.download_state = "pending";
-          renderGrid();
-        });
       }
       return;
     }

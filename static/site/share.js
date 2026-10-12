@@ -270,71 +270,6 @@
     }
   }
 
-  var requestOverlay = null;
-  var requestTitle = null;
-  var requestSubmit = null;
-  var requestText = null;
-  var requestCallback = null;
-
-  function buildRequestModal() {
-    if (requestOverlay) return;
-    requestOverlay = el("div", "download-request-overlay");
-    requestOverlay.hidden = true;
-    var dialog = el("div", "download-request-dialog");
-    var head = el("div", "download-request-head");
-    requestTitle = el("h2", "", "申请下载");
-    var close = el("button", "share-close", "×");
-    close.type = "button";
-    close.setAttribute("aria-label", "关闭");
-    head.append(requestTitle, close);
-    requestText = el("p", "", "");
-    var actions = el("div", "download-request-actions");
-    var cancel = el("button", "download-request-btn", "取消");
-    cancel.type = "button";
-    requestSubmit = el("button", "download-request-btn primary", "提交申请");
-    requestSubmit.type = "button";
-    actions.append(cancel, requestSubmit);
-    dialog.append(head, requestText, actions);
-    requestOverlay.appendChild(dialog);
-    document.body.appendChild(requestOverlay);
-
-    close.addEventListener("click", function () {
-      requestOverlay.hidden = true;
-    });
-    cancel.addEventListener("click", function () {
-      requestOverlay.hidden = true;
-    });
-    requestOverlay.addEventListener("click", function (event) {
-      if (event.target === requestOverlay) requestOverlay.hidden = true;
-    });
-    requestSubmit.addEventListener("click", async function () {
-      var payload = requestSubmit.__payload;
-      if (!payload) return;
-      requestSubmit.disabled = true;
-      requestSubmit.textContent = "提交中…";
-      try {
-        var response = await fetch("/api/download-requests", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        var data = await response.json().catch(function () {
-          return {};
-        });
-        if (!response.ok) throw new Error(data.error || "申请失败");
-        requestOverlay.hidden = true;
-        if (requestCallback) requestCallback(data.status || "pending");
-      } catch (err) {
-        await window.ErrorDialog.alert(err.message || "申请失败", {
-          title: "申请失败",
-        });
-      } finally {
-        requestSubmit.disabled = false;
-        requestSubmit.textContent = "提交申请";
-      }
-    });
-  }
-
   window.ErrorShare = {
     open: function (resourceType, resourceId, title) {
       buildShareModal();
@@ -354,17 +289,4 @@
     },
   };
 
-  window.ErrorDownload = {
-    request: function (resourceType, resourceId, title, callback) {
-      buildRequestModal();
-      requestTitle.textContent = "申请下载";
-      requestText.textContent = "向管理员申请下载「" + (title || "文件") + "」？";
-      requestSubmit.__payload = {
-        resource_type: resourceType,
-        resource_id: resourceId,
-      };
-      requestCallback = callback;
-      requestOverlay.hidden = false;
-    },
-  };
 })();

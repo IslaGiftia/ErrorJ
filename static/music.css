@@ -667,8 +667,7 @@ input[type="range"]:focus-visible {
   color: var(--mu-text);
 }
 
-.mu-icon-btn:disabled,
-.mu-icon-btn.is-pending {
+.mu-icon-btn:disabled {
   cursor: default;
   opacity: 0.55;
 }

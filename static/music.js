@@ -206,20 +206,11 @@
             track.id +
             '" title="删除歌曲"><i data-lucide="trash-2"></i></button>';
         } else if (state.authenticated && track.source_type === "file") {
-          if (track.download_state === "approved") {
-            actionButtons +=
-              '<button class="mu-icon-btn" type="button" data-music-download="' +
-              track.id +
-              '" title="下载歌曲"><i data-lucide="download"></i></button>';
-          } else if (track.download_state === "pending") {
-            actionButtons +=
-              '<button class="mu-icon-btn is-pending" type="button" disabled title="下载申请待审核"><i data-lucide="clock"></i></button>';
-          } else {
-            actionButtons +=
-              '<button class="mu-icon-btn" type="button" data-music-request="' +
-              track.id +
-              '" title="申请下载"><i data-lucide="download"></i></button>';
-          }
+          // 登录后直接下载，不再需要申请和审核
+          actionButtons +=
+            '<button class="mu-icon-btn" type="button" data-music-download="' +
+            track.id +
+            '" title="下载歌曲"><i data-lucide="download"></i></button>';
         }
         var actions = actionButtons
           ? '<span class="mu-row-actions">' + actionButtons + "</span>"
@@ -1022,18 +1013,6 @@
       var shareTrack = trackById(Number(share.getAttribute("data-music-share")));
       if (shareTrack && window.ErrorShare) {
         window.ErrorShare.open("music", shareTrack.id, shareTrack.title);
-      }
-      return;
-    }
-    var request = event.target.closest("[data-music-request]");
-    if (request) {
-      event.stopPropagation();
-      var requestTrack = trackById(Number(request.getAttribute("data-music-request")));
-      if (requestTrack && window.ErrorDownload) {
-        window.ErrorDownload.request("music", requestTrack.id, requestTrack.title, function () {
-          requestTrack.download_state = "pending";
-          renderList();
-        });
       }
       return;
     }
