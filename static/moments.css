@@ -9,6 +9,12 @@ html {
   --mo-float-inset: 12px;
   /* 悬浮操作区按钮高度：和留言页 .mg-filter-btn 的实际高度（35px）对齐 */
   --mo-dock-btn-h: 35px;
+  /* 评论 / 回复输入框与同行「发送」按钮的统一高度 */
+  --mo-input-h: 38px;
+  /* 动态卡片头像的尺寸（手机端在下面收一档），也用作头部那一行的最小高度 */
+  --mo-avatar: 40px;
+  /* 分享卡专辑封面尺寸（手机端在下面收一档），不超出整张分享卡的高度 */
+  --mo-share-cover: 52px;
   --mo-bg: #f5f6f8;
   --mo-surface: #ffffff;
   --mo-text: #1f2329;
@@ -57,6 +63,22 @@ html {
 
 * {
   box-sizing: border-box;
+}
+
+/*
+ * 输入框和图片查看器都不再显示滚动条：滚动能力保留（滚轮 / 手指 / 拖拽放大后的平移照常），
+ * 只是不画那条滑块，界面看起来更干净。右下角的拖拽手柄（resize: vertical）不受影响。
+ */
+textarea,
+.mo-viewer-stage {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+textarea::-webkit-scrollbar,
+.mo-viewer-stage::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 body {
@@ -389,6 +411,11 @@ body {
   pointer-events: auto;
 }
 
+/* 和留言页一致：筛选菜单打开时，这一排按钮的图标一起转（含「写动态」的飞机） */
+.mo-dock.is-open .mo-send-float svg {
+  transform: rotate(180deg);
+}
+
 /*
  * 纯图标按钮的悬停提示（和地图页 .mp-tip 同一套做法）：
  * 文字放在 data-tip 上，用 ::after 画出来；浅色主题浅底深字、深色主题深底浅字。
@@ -513,23 +540,30 @@ body {
 
 .mo-item {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr);
+  grid-template-columns: var(--mo-avatar) minmax(0, 1fr);
   gap: 12px;
   padding: 16px;
 }
 
+/*
+ * 头像：透明底的角色立绘（和标签页图标同一张画），不再垫主题色圆底；
+ * 顶部对齐 + 头部那一行用同一个高度做 min-height，昵称 / 时间 / 属地的中心就和头像中心水平对齐。
+ */
 .mo-avatar {
-  width: 40px;
-  height: 40px;
+  width: var(--mo-avatar);
+  height: var(--mo-avatar);
+  align-self: start;
   border-radius: 50%;
-  object-fit: cover;
-  background: var(--mo-accent-soft);
+  object-fit: contain;
+  background: transparent;
 }
 
 .mo-item-head {
   display: flex;
   /* 这一行现在还有「⋯」按钮，居中对齐比基线对齐稳 */
   align-items: center;
+  /* 和头像同高，保证「Error酱」的中心和头像中心在同一水平线上 */
+  min-height: var(--mo-avatar);
   gap: 8px;
   flex-wrap: wrap;
 }
@@ -778,8 +812,9 @@ button.mo-share:hover {
 .mo-share-cover {
   position: relative;
   flex: 0 0 auto;
-  width: 46px;
-  height: 46px;
+  align-self: center;
+  width: var(--mo-share-cover);
+  height: var(--mo-share-cover);
   padding: 0;
   border: 0;
   border-radius: 9px;
@@ -803,36 +838,42 @@ button.mo-share:hover {
   font-size: 20px;
 }
 
+/*
+ * 播放键：直接复用歌曲播放页那颗实心圆形播放键（music.css 的 .mu-icon-btn.mu-play）——
+ * 同样的直径比例、主题色底、白色图标、hover 换 --mo-accent-hover，
+ * 状态切换时由 morph-icons.js 做 play↔pause 的描边形变（和播放页同一个组件）。
+ */
 .mo-share-play {
   flex: 0 0 auto;
   align-self: center;
-  margin-left: auto;
-  width: 36px;
-  height: 36px;
+  margin-left: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
   padding: 0;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--mo-border);
+  border: 0;
   border-radius: 50%;
-  background: var(--mo-accent-soft);
-  color: var(--mo-accent);
+  background: var(--mo-accent);
+  color: #fff;
   font: inherit;
-  font-size: 14px;
   line-height: 1;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .mo-share-play:hover {
-  border-color: var(--mo-accent);
-}
-
-.mo-share.is-playing .mo-share-play {
-  border-color: var(--mo-accent);
-  background: var(--mo-accent);
+  background: var(--mo-accent-hover);
   color: #fff;
 }
 
+.mo-share-play svg {
+  width: 21px;
+  height: 21px;
+}
+
+/* 播放中：封面加一圈主题色描边 */
 .mo-share.is-playing .mo-share-cover {
   box-shadow: 0 0 0 2px var(--mo-accent);
 }
@@ -996,9 +1037,11 @@ button.mo-share:hover {
 .mo-comment-form textarea {
   flex: 1;
   min-width: 0;
-  min-height: 38px;
+  /* 和右边的「发送」按钮同高：单行高度，内容长了在框内滚动 */
+  height: var(--mo-input-h);
+  min-height: var(--mo-input-h);
   max-height: 140px;
-  padding: 8px 10px;
+  padding: 6px 10px;
   border: 1px solid var(--mo-border);
   border-radius: 8px;
   background: var(--mo-surface);
@@ -1016,7 +1059,9 @@ button.mo-share:hover {
 
 .mo-comment-submit {
   flex: 0 0 auto;
-  padding: 8px 14px;
+  height: var(--mo-input-h);
+  min-height: var(--mo-input-h);
+  padding: 0 14px;
 }
 
 /* ---------- 新互动提醒：和首页模块按钮一样的呼吸 ---------- */
@@ -1425,6 +1470,10 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
 
   :root {
     --mo-page-pad: 12px;
+    /* 头像收一档，同时和「⋯」按钮（36px）等高，头部那一行的中心仍然对齐 */
+    --mo-avatar: 36px;
+    /* 分享卡封面在手机上收一档，播放键跟着收，保持卡片不被撑开 */
+    --mo-share-cover: 44px;
   }
 
   .mo-app {
@@ -1438,14 +1487,20 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
   }
 
   .mo-item {
-    grid-template-columns: 34px minmax(0, 1fr);
+    grid-template-columns: var(--mo-avatar) minmax(0, 1fr);
     gap: 10px;
     padding: 14px;
   }
 
-  .mo-avatar {
-    width: 34px;
-    height: 34px;
+  /* 分享卡：封面收了，播放键跟着收，卡片高度不会被撑开 */
+  .mo-share-play {
+    width: 40px;
+    height: 40px;
+  }
+
+  .mo-share-play svg {
+    width: 19px;
+    height: 19px;
   }
 
   /* 手机：九宫格收窄一点，单图别顶满整行；「发布」仍和「配图」同一行 */
@@ -1476,19 +1531,21 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
 
   /* 手机上把评论框压扁：字号仍守 16px（小于它 iOS 聚焦会自动放大整页），高度和内边距收紧 */
   .mo-comment-form textarea {
-    height: 38px;
-    min-height: 38px;
+    height: var(--mo-input-h);
+    min-height: var(--mo-input-h);
     max-height: 96px;
     padding: 4px 8px;
     overflow-y: auto;
     resize: none;
   }
 
-  .mo-comment-submit {
+  /* 「发送」跟着输入框走：不能再用 .mo-btn 的 44px 最小高度，否则比输入框高一截 */
+  .mo-comment-form .mo-comment-submit {
     width: auto;
-    min-height: 34px;
+    height: var(--mo-input-h);
+    min-height: var(--mo-input-h);
     margin-left: 0;
-    padding: 5px 10px;
+    padding: 0 12px;
     font-size: 12.5px;
   }
 }

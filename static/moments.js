@@ -569,7 +569,14 @@
 
   function buildShareCard(share) {
     var info = el("div", "mo-share-info");
-    info.appendChild(el("span", "mo-share-label", share.label || "内容"));
+    /*
+     * 歌曲卡只留「歌名 + 歌手」两行，笔记卡也去掉标签那行小字（书籍卡照旧保留）；
+     * 去掉之后信息块正好两行，和左侧封面垂直居中。
+     */
+    var hideLabel = share.type === "music" || share.type === "note";
+    if (!hideLabel) {
+      info.appendChild(el("span", "mo-share-label", share.label || "内容"));
+    }
     info.appendChild(el("strong", "mo-share-title", share.title || ""));
     if (share.subtitle) {
       info.appendChild(el("span", "mo-share-subtitle", share.subtitle));
@@ -597,15 +604,32 @@
       } else {
         cover.appendChild(el("span", "mo-share-placeholder", "♪"));
       }
-      var play = el("button", "mo-share-play", "▶");
+      /*
+       * 播放键和歌曲播放页是同一套：同样的实心圆形样式 + morphicons 的 play↔pause 形变。
+       * 先把 morph 实例按「播放」建好（不播动画），之后每次切换才有形变；
+       * 没有 morphicons 时退回原来的 lucide 图标硬切。
+       */
+      var play = el("button", "mo-share-play");
+      play.innerHTML = '<i data-lucide="play" aria-hidden="true"></i>';
       play.type = "button";
+      play.title = "播放";
       play.setAttribute("aria-label", "播放");
+      play.setAttribute("data-icon", "play");
+      if (window.ErrorMorph) window.ErrorMorph.set(play, "play");
       var audio = new Audio();
       audio.preload = "none";
       audio.src = share.url;
       function sync(playing) {
-        play.textContent = playing ? "❚❚" : "▶";
+        var icon = playing ? "pause" : "play";
+        if (play.getAttribute("data-icon") !== icon) {
+          play.setAttribute("data-icon", icon);
+          if (!(window.ErrorMorph && window.ErrorMorph.morph(play, icon))) {
+            play.innerHTML = '<i data-lucide="' + icon + '" aria-hidden="true"></i>';
+            if (window.lucide) window.lucide.createIcons();
+          }
+        }
         cover.setAttribute("aria-label", playing ? "暂停" : "播放");
+        play.title = playing ? "暂停" : "播放";
         play.setAttribute("aria-label", playing ? "暂停" : "播放");
         card.classList.toggle("is-playing", playing);
       }
@@ -990,7 +1014,8 @@
     var item = el("article", "mo-card mo-item " + (moment.can_save ? "can-save" : "no-save"));
     var avatar = document.createElement("img");
     avatar.className = "mo-avatar";
-    avatar.src = "/static/site/error-chan-favicon.png?v=3";
+    /* 透明底的角色立绘（和标签页图标同一张画的高清版），由 CSS 负责尺寸与中心对齐 */
+    avatar.src = "/static/site/error-chan-avatar.png?v=1";
     avatar.alt = "Error酱";
     item.appendChild(avatar);
 
@@ -1276,9 +1301,12 @@
     var menu = $("momentFilterMenu");
     var btn = $("momentFilterBtn");
     var wrap = $("momentFilterWrap");
+    var dock = $("momentDock");
     if (menu) menu.hidden = !open;
     if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
     if (wrap) wrap.classList.toggle("is-open", open);
+    // 和留言页一致：菜单打开时这一排按钮的图标一起转（含「写动态」的飞机）
+    if (dock) dock.classList.toggle("is-open", open);
   }
 
   function closeFilterMenu() {

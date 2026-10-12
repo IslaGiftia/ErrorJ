@@ -7,6 +7,8 @@ html {
   /* 页面左右内边距 + 悬浮按钮离卡片边缘的留白：左右两侧共用，保证对称 */
   --mg-page-pad: 16px;
   --mg-float-inset: 12px;
+  /* 回复框输入框与同行「发送」按钮的统一高度（和动态页评论框一致） */
+  --mg-input-h: 38px;
   --mg-bg: #f5f6f8;
   --mg-surface: #ffffff;
   --mg-text: #1f2329;
@@ -48,6 +50,22 @@ html {
 
 * {
   box-sizing: border-box;
+}
+
+/*
+ * 输入框和图片查看器都不再显示滚动条：滚动能力保留（滚轮 / 手指 / 放大后的平移照常），
+ * 只是不画那条滑块。右下角的拖拽手柄（resize: vertical）不受影响。
+ */
+textarea,
+.mg-viewer-stage {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+textarea::-webkit-scrollbar,
+.mg-viewer-stage::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 body {
@@ -970,19 +988,54 @@ button.mg-file {
   }
 }
 
+/*
+ * 回复框：和动态页评论框同一套形态——左边输入框、右边「发送」，两个控件同高。
+ * 没有独立的「取消」按钮（再次点「回复」即收起），也不再带「公开 IP 属地」勾选。
+ */
 .mg-reply-form {
   display: flex;
-  flex-direction: column;
+  align-items: flex-end;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
 .mg-reply-form[hidden] {
   display: none;
 }
 
-.mg-reply-form .mg-compose-row {
-  justify-content: flex-end;
+.mg-reply-form textarea {
+  flex: 1;
+  min-width: 0;
+  height: var(--mg-input-h);
+  min-height: var(--mg-input-h);
+  max-height: 140px;
+  padding: 6px 10px;
+  border: 1px solid var(--mg-border);
+  border-radius: 8px;
+  background: var(--mg-surface);
+  color: var(--mg-text);
+  font: inherit;
+  font-size: 13.5px;
+  resize: vertical;
+  scroll-margin-block: 120px 40px;
+}
+
+.mg-reply-form textarea:focus {
+  outline: none;
+  border-color: var(--mg-accent);
+}
+
+.mg-reply-form .mg-reply-send {
+  flex: 0 0 auto;
+  height: var(--mg-input-h);
+  min-height: var(--mg-input-h);
+  margin-left: 0;
+  padding: 0 14px;
+}
+
+/* 「回复」展开中时给个主题色，和动态页的评论回复一致 */
+.mg-item-actions .mg-link-btn.is-active {
+  color: var(--mg-accent);
 }
 
 .mg-empty {
@@ -1277,6 +1330,31 @@ button.mg-file {
 
   .mg-compose-meta .mg-region-toggle {
     flex: 1 1 100%;
+  }
+
+  /* 回复框在手机上换成「输入框 + 发送」两列，两个控件同高同中线 */
+  .mg-reply-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* 字号仍守 16px（小于它 iOS 聚焦会自动放大整页），高度和内边距收紧 */
+  .mg-reply-form textarea {
+    height: var(--mg-input-h);
+    min-height: var(--mg-input-h);
+    max-height: 96px;
+    padding: 4px 8px;
+    resize: none;
+  }
+
+  /* 「发送」跟着输入框走：不能再用 .mg-btn 的 44px 最小高度，否则比输入框高一截 */
+  .mg-reply-form .mg-reply-send {
+    height: var(--mg-input-h);
+    min-height: var(--mg-input-h);
+    padding: 0 12px;
+    font-size: 12.5px;
   }
 
   /* 手机：九宫格收窄一点，单图别顶满整行 */

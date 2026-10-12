@@ -614,40 +614,24 @@
     return wrap;
   }
 
+  /*
+   * 回复框：形态照搬动态页评论框——左边输入框、右边「发送」，两个控件同高。
+   * 没有独立的「取消」按钮（再次点「回复」即收起），也不再带「公开 IP 属地」勾选：
+   * 属地只有「发留言」编辑区那一个入口，回复一律不带。
+   */
   function buildReplyForm(parentId, placeholder) {
     var form = el("form", "mg-reply-form");
     form.hidden = true;
 
-    var textField = el("div", "mg-field");
-    textField.appendChild(el("label", "", "回复"));
     var textArea = document.createElement("textarea");
     textArea.maxLength = 1000;
+    textArea.rows = 1;
     textArea.placeholder = placeholder || "回复一下…";
-    textField.appendChild(textArea);
 
-    var regionLabel = el("label", "mg-region-toggle");
-    var regionInput = document.createElement("input");
-    regionInput.type = "checkbox";
-    regionInput.checked = false;
-    regionLabel.append(
-      regionInput,
-      el("span", "", "公开 IP 属地（国内显示省份，国外显示国家 / 地区）")
-    );
-
-    var row = el("div", "mg-compose-row");
-    var cancelBtn = el("button", "mg-btn mg-btn-ghost", "取消");
-    cancelBtn.type = "button";
-    var sendBtn = el("button", "mg-btn mg-btn-primary", "提交回复");
-    sendBtn.classList.add("mg-send-btn");
+    var sendBtn = el("button", "mg-btn mg-btn-primary mg-reply-send", "发送");
     sendBtn.type = "submit";
-    row.append(cancelBtn, sendBtn);
 
-    form.append(textField, regionLabel, row);
-
-    cancelBtn.addEventListener("click", function () {
-      textArea.value = "";
-      form.hidden = true;
-    });
+    form.append(textArea, sendBtn);
 
     form.addEventListener("submit", function (event) {
       event.preventDefault();
@@ -660,11 +644,7 @@
       api("/api/site/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: content,
-          parent_id: parentId,
-          show_region: regionInput.checked,
-        }),
+        body: JSON.stringify({ content: content, parent_id: parentId }),
       }).then(function () {
         applyQuota(dailyLimit, Math.max(0, (Number(dailyRemaining) || 0) - 1));
         toast("回复已发布");
@@ -677,6 +657,20 @@
     });
 
     return form;
+  }
+
+  /* 点「回复」展开 / 收起回复框，展开时按钮变主题色（和动态页的评论回复一致） */
+  function bindReplyToggle(btn, form) {
+    btn.setAttribute("aria-expanded", "false");
+    btn.addEventListener("click", function () {
+      var open = form.hidden;
+      form.hidden = !open;
+      btn.classList.toggle("is-active", open);
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      if (!open) return;
+      var area = form.querySelector("textarea");
+      if (area) area.focus();
+    });
   }
 
   function buildLikeControl(targetType, target) {
@@ -1001,13 +995,7 @@
           message.id,
           "回复 " + (message.nickname || "这条留言") + "…"
         );
-        replyBtn.addEventListener("click", function () {
-          rootForm.hidden = !rootForm.hidden;
-          if (!rootForm.hidden) {
-            var area = rootForm.querySelector("textarea");
-            if (area) area.focus();
-          }
-        });
+        bindReplyToggle(replyBtn, rootForm);
       }
     }
     var freshReplyIds = [];
@@ -1048,13 +1036,7 @@
           reply.id,
           "回复 " + (reply.nickname || "这条回复") + "…"
         );
-        subReplyBtn.addEventListener("click", function () {
-          subForm.hidden = !subForm.hidden;
-          if (!subForm.hidden) {
-            var area = subForm.querySelector("textarea");
-            if (area) area.focus();
-          }
-        });
+        bindReplyToggle(subReplyBtn, subForm);
         row.appendChild(subForm);
       }
       repliesBox.appendChild(row);

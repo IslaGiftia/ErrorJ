@@ -11157,10 +11157,15 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 400, str(exc))
             return
         if not content:
-            has_image = query_one(
+            # 「有内容」不只是文字：带配图，或者「分享到动态」生成的卡片
+            # （歌曲 / 笔记 / 电子书等，正文本来就允许为空）同样算有内容，
+            # 这样这些动态才能正常置顶 / 编辑，不会被「说说内容不能为空」挡住。
+            has_extra = query_one(
                 "SELECT id FROM moment_files WHERE moment_id = ? LIMIT 1", (moment_id,)
+            ) or query_one(
+                "SELECT id FROM moment_shares WHERE moment_id = ? LIMIT 1", (moment_id,)
             )
-            if not has_image:
+            if not has_extra:
                 api_error(self, 400, "说说内容不能为空。")
                 return
         pinned = 1 if payload.get("pinned", current.get("pinned")) else 0
