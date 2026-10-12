@@ -9,6 +9,11 @@
   var button = document.createElement("button");
   var style = document.createElement("style");
   var scrollingElement = document.scrollingElement || document.documentElement;
+  /*
+   * pending：把「回到顶部」临时切成「有新互动」形态（向下箭头 + 自定义文案 + 呼吸）。
+   * 只有留言页会用到；其它页面不调用 setPending 时行为和以前完全一样。
+   */
+  var pending = null;
 
   style.textContent = [
     ".site-back-top{position:fixed;right:22px;bottom:var(--site-back-top-bottom,22px);z-index:39;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;border:1px solid rgba(123,104,238,.52);border-radius:50%;background:#6d5be8;color:#fff;box-shadow:0 10px 24px rgba(80,60,200,.32);cursor:pointer;transition:bottom .18s ease,opacity .18s ease,transform .18s ease}",
@@ -28,6 +33,20 @@
 
   document.head.appendChild(style);
   document.body.appendChild(button);
+
+  function renderMode() {
+    if (pending) {
+      button.classList.add("is-pending");
+      button.dataset.freshLabel = pending.label || "";
+      button.title = pending.title || pending.label || "有新互动";
+      button.setAttribute("aria-label", button.title);
+    } else {
+      button.classList.remove("is-pending");
+      delete button.dataset.freshLabel;
+      button.title = "返回顶部";
+      button.setAttribute("aria-label", "返回顶部");
+    }
+  }
 
   function scrollTop() {
     return container
@@ -67,6 +86,12 @@
   }
 
   function hideIfNeeded() {
+    // 有新互动时按钮必须常驻，用户才有可能点它跳过去
+    if (pending) {
+      positionButton();
+      button.hidden = false;
+      return;
+    }
     if (!overflows() || scrollTop() < 24) {
       button.hidden = true;
     }
@@ -97,6 +122,10 @@
   }
 
   button.addEventListener("click", function () {
+    if (pending && typeof pending.onActivate === "function") {
+      pending.onActivate();
+      return;
+    }
     if (container) {
       container.scrollTo({ top: 0, behavior: "smooth" });
     } else {
@@ -117,6 +146,25 @@
     window.lucide.createIcons();
   }
 
-  window.ErrorBackToTop = { refresh: refresh };
+  renderMode();
+  window.ErrorBackToTop = {
+    refresh: refresh,
+    /**
+     * 切到「有新互动」形态：setPending({active:true, label, title, onActivate})
+     * 或恢复正常：setPending({active:false})。
+     */
+    setPending: function (options) {
+      var opts = options || {};
+      pending = opts.active
+        ? {
+            label: opts.label || "",
+            title: opts.title || "",
+            onActivate: opts.onActivate,
+          }
+        : null;
+      renderMode();
+      refresh();
+    },
+  };
   requestAnimationFrame(refresh);
 })();

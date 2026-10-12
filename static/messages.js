@@ -11,7 +11,6 @@
   var canPost = false;
   var isAdmin = false;
   var freshTargets = {};
-  var jumpBtn = null;
   var jumpFrame = null;
   var dailyRemaining = null;
   var dailyLimit = 0;
@@ -717,57 +716,117 @@
     return wrap;
   }
 
-  function markFreshCard(node, id) {
-    if (!freshTargets[String(id)]) return;
-    node.classList.add("is-fresh");
-    node.addEventListener(
-      "mouseenter",
-      function () {
-        node.classList.remove("is-fresh");
-        updateJumpButton();
-        if (!canPost) return;
-        api("/api/site/notifications/seen", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ module: "messages", target_id: id }),
-        }).catch(function () {});
-      },
-      { once: true }
-    );
-  }
-
-  function ensureJumpButton() {
-    if (jumpBtn) return jumpBtn;
-    jumpBtn = el("button", "mg-jump-btn", "↓");
-    jumpBtn.type = "button";
-    jumpBtn.title = "跳到有提醒的留言";
-    jumpBtn.setAttribute("aria-label", "跳到有提醒的留言");
-    jumpBtn.hidden = true;
-    jumpBtn.addEventListener("click", function () {
-      var target = freshBelowNode();
-      if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-    document.body.appendChild(jumpBtn);
-    return jumpBtn;
-  }
-
-  function freshNodes() {
+  /*
+   * 新互动提醒：整张留言卡片方框呼吸，新回复的正文额外高亮闪烁；
+   * 右下角不再单独放「↓ 新回复」按钮，而是复用页面共用的「顶部」按钮——
+   * 有未读时切成「↓ + 回复 / 点赞」并带呼吸，没有未读时是普通「↑ 顶部」。
+   */
+  function freshCards() {
     return Array.prototype.slice.call(
-      document.querySelectorAll(".mg-item.is-fresh, .mg-reply.is-fresh")
+      document.querySelectorAll(".mg-item.is-fresh")
     );
   }
 
-  function freshBelowNode() {
+  function freshCardBelow() {
     return (
-      freshNodes().filter(function (node) {
+      freshCards().filter(function (node) {
         return node.getBoundingClientRect().top > window.innerHeight - 80;
       })[0] || null
     );
   }
 
+  function backTopApi() {
+    return window.ErrorBackToTop && window.ErrorBackToTop.setPending
+      ? window.ErrorBackToTop
+      : null;
+  }
+
+  function clearFreshCard(card, ids) {
+    card.classList.remove("is-fresh");
+    Array.prototype.forEach.call(
+      card.querySelectorAll(".mg-reply-text.is-new-reply"),
+      function (node) {
+        node.classList.remove("is-new-reply");
+      }
+    );
+    updateJumpButton();
+    if (!canPost) return;
+    ids.forEach(function (id) {
+      api("/api/site/notifications/seen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ module: "messages", target_id: id }),
+      }).catch(function () {});
+    });
+  }
+
+  function markFreshCard(card, ids, kind) {
+    if (!ids.length) return;
+    card.classList.add("is-fresh");
+    card.dataset.freshKind = kind;
+    card.dataset.freshIds = ids.join(",");
+    var clear = function () {
+      card.removeEventListener("mouseenter", clear);
+      card.removeEventListener("touchstart", clear);
+      clearFreshCard(card, ids);
+    };
+    card.addEventListener("mouseenter", clear);
+    card.addEventListener("touchstart", clear, { passive: true });
+  }
+
+  // 移动端没有 hover：滚到新回复后把正文的闪烁重放一次（CSS 在触摸设备上只闪 3 次）
+  function replayReplyBlink(card) {
+    var text = card.querySelector(".mg-reply-text.is-new-reply");
+    if (!text) return;
+    text.classList.remove("is-new-reply");
+    void text.offsetWidth;
+    text.classList.add("is-new-reply");
+  }
+
+  function popLikeButton(card) {
+    var like = card.querySelector(".mg-like-btn");
+    if (!like) return;
+    like.classList.remove("is-pop");
+    void like.offsetWidth;
+    like.classList.add("is-pop");
+    window.setTimeout(function () {
+      like.classList.remove("is-pop");
+    }, 620);
+  }
+
+  function jumpToFreshCard(card) {
+    if (!card) return;
+    var kind = card.dataset.freshKind === "reply" ? "reply" : "like";
+    card.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (kind === "reply") replayReplyBlink(card);
+    else popLikeButton(card);
+  }
+
+  var lastPendingKey = null;
+
   function updateJumpButton() {
-    var btn = ensureJumpButton();
-    btn.hidden = !freshBelowNode();
+    var api = backTopApi();
+    if (!api) return;
+    var card = freshCardBelow();
+    var key = card
+      ? card.dataset.freshKind + ":" + card.dataset.freshIds
+      : "";
+    // 滚动时只关心状态没变就别重设，省掉每帧一次布局计算
+    if (key === lastPendingKey) return;
+    lastPendingKey = key;
+    if (card) {
+      var isReply = card.dataset.freshKind === "reply";
+      api.setPending({
+        active: true,
+        label: isReply ? "回复" : "点赞",
+        title: isReply ? "跳到新回复" : "跳到新点赞",
+        onActivate: function () {
+          jumpToFreshCard(freshCardBelow() || card);
+        },
+      });
+    } else {
+      api.setPending({ active: false });
+    }
     document.dispatchEvent(new CustomEvent("errorjumpvisibilitychange"));
   }
 
@@ -871,7 +930,6 @@
 
   function buildMessage(message) {
     var item = el("article", "mg-item " + (message.can_save ? "can-save" : "no-save"));
-    markFreshCard(item, message.id);
     var head = el("div", "mg-item-head");
     head.appendChild(el("span", "mg-nick", message.nickname || "匿名"));
     head.appendChild(el("span", "mg-time", formatTime(message.created_at)));
@@ -927,9 +985,9 @@
         });
       }
     }
+    var freshReplyIds = [];
     (message.replies || []).forEach(function (reply) {
       var row = el("div", "mg-reply " + (reply.can_save ? "can-save" : "no-save"));
-      markFreshCard(row, reply.id);
       var replyHead = el("div", "mg-item-head");
       replyHead.appendChild(el("span", "mg-nick", reply.nickname || "匿名"));
       if (Number(reply.parent_id) !== Number(message.id)) {
@@ -943,7 +1001,13 @@
       }
       row.appendChild(replyHead);
       if (reply.content) {
-        row.appendChild(el("p", "mg-reply-text", reply.content));
+        var replyText = el("p", "mg-reply-text", reply.content);
+        // 新回复：正文变主题色并闪烁（不再给回复那一行加方框呼吸）
+        if (freshTargets[String(reply.id)]) {
+          replyText.classList.add("is-new-reply");
+          freshReplyIds.push(reply.id);
+        }
+        row.appendChild(replyText);
       }
       var replyFiles = reply.files || [];
       if (replyFiles.length) {
@@ -972,6 +1036,17 @@
     });
 
     item.appendChild(repliesBox);
+    // 整张卡片的方框呼吸：自己收到新点赞，或卡里的某条回复是新的
+    var rootFresh = Boolean(freshTargets[String(message.id)]);
+    if (rootFresh || freshReplyIds.length) {
+      var freshIds = freshReplyIds.slice();
+      if (rootFresh) freshIds.unshift(message.id);
+      markFreshCard(
+        item,
+        freshIds,
+        freshReplyIds.length ? "reply" : "like"
+      );
+    }
     if (rootForm) {
       item.appendChild(rootForm);
     }

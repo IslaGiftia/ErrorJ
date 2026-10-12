@@ -4,6 +4,9 @@ html {
 }
 
 :root {
+  /* 页面左右内边距 + 悬浮按钮离卡片边缘的留白：左右两侧共用，保证对称 */
+  --mg-page-pad: 16px;
+  --mg-float-inset: 12px;
   --mg-bg: #f5f6f8;
   --mg-surface: #ffffff;
   --mg-text: #1f2329;
@@ -62,7 +65,7 @@ body {
   max-width: 900px;
   margin: 0 auto;
   /* 顶部导航栏已移除：只留一点舒适留白（并避开刘海屏安全区），不再叠旧占位 */
-  padding: calc(14px + env(safe-area-inset-top, 0px)) 16px 64px;
+  padding: calc(14px + env(safe-area-inset-top, 0px)) var(--mg-page-pad) 64px;
 }
 
 .mg-icon-btn {
@@ -327,8 +330,8 @@ body {
   gap: 8px;
   justify-content: flex-start;
   /* 往里收一点：别和卡片左侧那条描边严丝合缝地贴在一起 */
-  margin-left: 6px;
-  max-width: calc(100% - 6px);
+  margin-left: var(--mg-float-inset);
+  max-width: calc(100% - var(--mg-float-inset));
 }
 
 .mg-filter-dock[hidden] {
@@ -860,6 +863,8 @@ button.mg-file {
 .mg-like-btn svg {
   width: 17px;
   height: 17px;
+  /* 无论点赞与否都保持线框，只靠描边颜色区分 */
+  fill: none;
 }
 
 .mg-like-btn:hover {
@@ -877,6 +882,26 @@ button.mg-file {
   cursor: default;
 }
 
+/* 定位到「新点赞」时给大拇指一个很轻的放大反馈，不抢戏 */
+.mg-like-btn.is-pop {
+  color: var(--mg-accent);
+  animation: mgLikePop 0.5s ease;
+}
+
+@keyframes mgLikePop {
+  0% {
+    transform: scale(1);
+  }
+
+  40% {
+    transform: scale(1.24);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
 .mg-reply-to {
   color: var(--mg-accent);
   font-size: 12.5px;
@@ -885,11 +910,6 @@ button.mg-file {
 /* ---------- 新互动提醒：和首页模块按钮一样的呼吸 ---------- */
 .mg-item.is-fresh {
   --mg-fresh-base: var(--mg-shadow);
-  animation: mgFreshPulse 3.6s ease-in-out infinite;
-}
-
-.mg-reply.is-fresh {
-  --mg-fresh-base: 0 0 0 rgba(0, 0, 0, 0);
   animation: mgFreshPulse 3.6s ease-in-out infinite;
 }
 
@@ -907,38 +927,36 @@ button.mg-file {
   }
 }
 
-.mg-jump-btn {
-  position: fixed;
-  right: 22px;
-  bottom: 22px;
-  z-index: 40;
-  width: 44px;
-  height: 44px;
-  border: 1px solid color-mix(in srgb, var(--mg-accent) 50%, transparent);
-  border-radius: 50%;
-  background: var(--mg-accent);
-  color: #fff;
-  font-size: 19px;
-  line-height: 1;
-  box-shadow: 0 10px 24px rgba(80, 60, 200, 0.32);
-  cursor: pointer;
-}
-
-.mg-jump-btn[hidden] {
-  display: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .mg-item.is-fresh,
-  .mg-reply.is-fresh {
-    animation: none;
-  }
-}
-
 .mg-reply-text {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/*
+ * 新回复：正文变主题色并闪烁。桌面端一直闪到鼠标进入整张卡片；
+ * 触摸设备只闪 3 次（定位到新回复后重放一次）。
+ */
+.mg-reply-text.is-new-reply {
+  color: var(--mg-accent);
+  animation: mgReplyBlink 1s ease-in-out infinite;
+}
+
+@keyframes mgReplyBlink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .mg-reply-text.is-new-reply {
+    animation-iteration-count: 3;
+  }
 }
 
 .mg-reply-form {
@@ -1213,8 +1231,18 @@ button.mg-file {
     font-size: 16px;
   }
 
+  :root {
+    --mg-page-pad: 12px;
+  }
+
   .mg-app {
-    padding: calc(10px + env(safe-area-inset-top, 0px)) 12px 48px;
+    /* 顶部导航栏早已删除：手机上把顶部留白压到极小值，也不再叠一遍 safe-area */
+    padding: 6px var(--mg-page-pad) 48px;
+  }
+
+  /* 悬浮按钮再往上贴一点，把内容空间让出来 */
+  .mg-filter-dock {
+    top: 8px;
   }
 
   .mg-panel,
@@ -1286,8 +1314,10 @@ button.mg-file {
 body[data-notify-module="messages"] .site-back-top {
   flex-direction: column;
   gap: 2px;
-  /* 收进卡片内侧右下角：right = 卡片右缘到屏幕右边的距离 + 20px，再整体抬高留出底部空间 */
-  right: calc(max(12px, (100vw - 900px) / 2 + 16px) + 20px);
+  /* 收进卡片内侧右下角：和左上角两枚悬浮按钮用同一个 --mg-float-inset，左右对称 */
+  right: calc(
+    max(0px, (100vw - 900px) / 2) + var(--mg-page-pad) + var(--mg-float-inset)
+  );
   bottom: calc(var(--site-back-top-bottom, 22px) + 28px);
   width: 48px;
   height: 58px;
@@ -1312,6 +1342,22 @@ body[data-notify-module="messages"] .site-back-top svg {
   height: 18px;
 }
 
+/* 有新回复 / 新点赞时：箭头翻向下、文案换成「回复 / 点赞」、沿用同一套呼吸 */
+body[data-notify-module="messages"] .site-back-top.is-pending {
+  border-color: color-mix(in srgb, var(--mg-accent) 55%, transparent);
+  --mg-fresh-base: 0 6px 20px rgba(24, 31, 45, 0.18);
+  color: var(--mg-accent);
+  animation: mgFreshPulse 3.6s ease-in-out infinite;
+}
+
+body[data-notify-module="messages"] .site-back-top.is-pending::after {
+  content: attr(data-fresh-label);
+}
+
+body[data-notify-module="messages"] .site-back-top.is-pending svg {
+  transform: rotate(180deg);
+}
+
 @media (max-width: 640px) {
   body[data-notify-module="messages"] .site-back-top {
     width: 44px;
@@ -1322,9 +1368,16 @@ body[data-notify-module="messages"] .site-back-top svg {
 @media (prefers-reduced-motion: reduce) {
   body[data-notify-module="messages"] .site-back-top {
     transition: none;
+    animation: none;
   }
 
   .mg-send-float {
     transition: none;
+  }
+
+  .mg-item.is-fresh,
+  .mg-reply-text.is-new-reply,
+  .mg-like-btn.is-pop {
+    animation: none;
   }
 }
