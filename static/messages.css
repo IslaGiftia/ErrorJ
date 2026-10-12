@@ -882,6 +882,16 @@ button.mg-file {
   cursor: default;
 }
 
+/* 大拇指右边的点赞人：最多 3 个名字，超了收成「等 N 人」，太长省略号 */
+.mg-like-names {
+  min-width: 0;
+  color: var(--mg-muted);
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* 定位到「新点赞」时给大拇指一个很轻的放大反馈，不抢戏 */
 .mg-like-btn.is-pop {
   color: var(--mg-accent);

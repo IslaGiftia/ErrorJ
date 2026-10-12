@@ -10,6 +10,7 @@
   var toastTimer = null;
   var canPost = false;
   var isAdmin = false;
+  var viewerLikeName = "";
   var freshTargets = {};
   var jumpFrame = null;
   var dailyRemaining = null;
@@ -681,13 +682,28 @@
   function buildLikeControl(targetType, target) {
     var wrap = el("div", "mg-like");
     var btn = el("button", "mg-like-btn");
+    var names = el("span", "mg-like-names", "");
     btn.type = "button";
-    // 大拇指图标：未点赞跟随默认灰，点赞后点亮主题色；不再显示点赞人数
+    // 大拇指图标：未点赞跟随默认灰，点赞后点亮主题色；右边跟点赞者用户名
     btn.innerHTML = '<i data-lucide="thumbs-up" aria-hidden="true"></i>';
+    function syncNames() {
+      var users = (target.like_users || []).slice();
+      if (!users.length) {
+        names.hidden = true;
+        names.textContent = "";
+        return;
+      }
+      var shown = users.slice(0, 3).join("、");
+      names.hidden = false;
+      names.textContent =
+        users.length > 3 ? shown + " 等 " + users.length + " 人" : shown;
+    }
     function sync() {
       btn.classList.toggle("is-liked", Boolean(target.liked));
       btn.title = target.liked ? "取消点赞" : "点赞";
+      syncNames();
     }
+    names.hidden = true;
     sync();
     btn.addEventListener("click", function () {
       if (!canPost) {
@@ -705,6 +721,14 @@
       }).then(function (data) {
         target.liked = Boolean(data && data.liked);
         target.like_count = Number(data && data.count) || 0;
+        var users = Array.isArray(target.like_users) ? target.like_users : [];
+        var own = viewerLikeName;
+        if (own) {
+          var index = users.indexOf(own);
+          if (target.liked && index < 0) users.unshift(own);
+          if (!target.liked && index >= 0) users.splice(index, 1);
+        }
+        target.like_users = users;
         sync();
       }).catch(function (err) {
         toast(err.message || "操作失败");
@@ -713,6 +737,7 @@
       });
     });
     wrap.appendChild(btn);
+    wrap.appendChild(names);
     return wrap;
   }
 
@@ -1436,6 +1461,9 @@
   api("/api/auth/status").then(function (status) {
     canPost = Boolean(status.authenticated);
     isAdmin = Boolean(status.admin || status.owner);
+    viewerLikeName = status.owner
+      ? "管理员"
+      : String(status.username || status.nickname || "");
     $("messageComposerPanel").hidden = !canPost;
     if (canPost) {
       initMessageFilters();
