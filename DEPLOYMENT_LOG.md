@@ -3464,3 +3464,65 @@ CSS 选择器从 `.mo-composer-foot > .mo-btn-primary` 改成 `.mo-composer-foot
 8001 并在结束后关闭；第一次线上复测时桌面视口在冷启动下比探针慢了一拍，探针改成轮询「列表已渲染且
 开发日志栏已激活」后复测通过；游客的 `hidden` 打在筛选包裹层上，探针一开始查的是按钮自身的
 `computed display`，属于探针误报，已改正。
+
+## 95. 2026-10-12 22:56:00 留言页与动态页宽度统一、属地文案精简
+
+需求（站长要求只动这三点，其它 UI 与逻辑一行都不要碰）：
+① 留言和动态编辑区里「公开 IP 属地」后面括号里的整段说明删掉，只留「公开 IP 属地」；
+② 留言页内容区宽度改成和动态页完全一致（PC 与手机的居中、左右留白一致）；
+③ 因为宽度变了，留言页左上角「全部留言 / 发送留言」和右下角「顶部」按钮要跟着向内缩，别留在旧位置，
+   也不能和卡片边缘贴太紧，并检查移动端不会挡住变窄的内容。
+
+完成内容（提交 `b91e44d style:align-messages-width-with-moments-and-trim-region-label`，5 文件，+8/−7）：
+
+- 文案（`static/messages.html`、`static/moments.html`）：`<span>公开 IP 属地（国内显示省份，国外显示国家 / 地区；
+  完整 IP 不会对外显示）</span>` → `<span>公开 IP 属地</span>`，括号连内容一起删掉，勾选逻辑与后端行为全部不变。
+- 宽度（`static/messages.css`）：`.mg-app` 的 `max-width` 从 900px 改成 760px，与 `.mo-app` 完全一致；
+  `margin: 0 auto` 居中与 `--mg-page-pad`（PC 16px / 手机 12px）本来就和动态页同值，没有改动。
+- 悬浮按钮（`static/messages.css`）：右下角「顶部」按钮的 `right` 里 `max(0px, (100vw - 900px) / 2)`
+  跟着改成 `760px`，否则按钮会停在旧宽度算出来的位置；左上角两枚按钮用的是容器内的
+  `margin-left: var(--mg-float-inset)`，本来就跟容器走，未改动。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 109 项全过
+      node --check static/messages.js / moments.js / books.js / site/activity.js 全过；python -m json.tool seed；git diff --check 干净
+      隔离实例（端口 8001）：tmp/mo-verify/width.mjs 在 1440x900 / 1024x800 / 820x1180 / 412x915 / 360x740
+        五档同时打开两页对比，全部通过：
+        内容区：两页 app 宽度都是 760px（手机就等于视口宽），max-width 都是 760px，左右内边距同值，
+                各自按自己的 clientWidth 居中（误差 <= 1px），卡片宽度相等，无横向溢出
+        悬浮按钮：左上两枚距卡片左边缘 12 / 12px；右下「顶部」按钮撑高页面 + 派发真实滚轮事件唤出后，
+                距卡片右边缘 20 / 20px（桌面，有纵向滚动条）与 12 / 12px（平板 / 手机），两页完全一致
+        文案：两页属地 label 都是「公开 IP 属地」，单行、宽 68px、高 19px，没有多余空白或换行
+      scripts/mobile-audit.mjs（360x800 / 412x915 / 1440x900）：两页均 0px 横向溢出、0 条控制台与网络异常；
+        剩余 P1 / P2 都是既有现象（桌面输入框 14px、13px 复选框、桌面 40px 按钮），本轮没有引入新问题
+      本轮只读本地数据库，没有写入任何测试数据（复查：19 条动态、评论 / 点赞 / 分享仍为 0）
+提交：b91e44d（fetch/push 后本地 == origin/main == b91e44d）
+备份：/data/errorjiang-backup/width-align-20261012-2255/（停服后复制 inventory.db 3649536 字节与
+      changelog-seed.json 64477 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only 6984548 -> b91e44d；本轮 `app.py` 未改动，不需要靠重启生效
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 dfa1941C…80891 一致）
+      import_changelog_moments.py --date 2026-10-12 --force -> 新增 14 条，覆盖 0 条
+      为了一致性备份数据库，服务在备份期间短暂停止，随后已 start
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务启动时间 22:53:50（在 git pull 之后），
+              服务器 HEAD = b91e44d，/api/health = {"ok": true}，服务器工作区只剩已知未跟踪目录
+更新日志    -> /api/moments 里 2026-10-12 22:53:02「留言页与动态页宽度统一、属地文案精简」（id=412，kind=log）
+静态资源    -> messages.html / messages.css / moments.html / references.html 的**已提交内容**与线上实际返回
+              逐字节相同（SHA256 一致）。注意 messages.html 本地工作区是 CRLF、仓库里存的是 LF，
+              所以要比对 `HEAD:static/messages.html` 而不是工作区文件，否则会看到假的哈希不一致
+线上内容    -> 线上 messages.html / moments.html 里都是 <span>公开 IP 属地</span>、已无「国内显示省份」；
+              线上 messages.css 里 .mg-app 是 760px、右下按钮用 100vw - 760px，且已无 900px 残留
+线上页面    -> 游客打开 https://zhexiyan.cc/messages 与 /moments（桌面 1440x900 / 手机 412x915）：
+              两页内容区宽度 760 / 760（手机 412 / 412）、max-width 都是 760px、左右内边距同值、
+              详情页无横向溢出、无 JS 异常与 4xx / 5xx；动态页开发日志 75 行正常渲染，
+              最新一条更新日志就排在最上面
+```
+
+备注：登录态下的留言页编辑区（属地复选框）与左上 / 右下悬浮按钮的实际落点，是在隔离实例上用真浏览器
+量的；线上是口令站点，游客看不到编辑区和悬浮区，所以线上侧用「已提交内容与线上静态文件逐字节一致 +
+真浏览器量两页容器几何」来确认。本轮 `app.py` 没有改动，因此前端 pull 完即生效，不需要重启服务，
+备份期间的短暂停服只是为了拿到一致的数据库副本。
