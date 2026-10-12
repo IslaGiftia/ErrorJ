@@ -51,80 +51,32 @@ body {
   overflow: hidden;
 }
 
-.dl-header {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px max(16px, calc((100% - 980px) / 2));
-  background: color-mix(in srgb, var(--dl-bg) 90%, transparent);
-  border-bottom: 1px solid var(--dl-border);
-}
-
-.dl-brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: inherit;
-  text-decoration: none;
-  font-size: 15px;
-}
-
-.dl-brand-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  background: var(--dl-accent-soft);
-  color: var(--dl-accent);
-}
-
-.dl-brand-icon svg {
-  width: 17px;
-  height: 17px;
-}
-
-.dl-header-actions {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.dl-link-btn {
-  display: inline-flex;
-  align-items: center;
-  height: 32px;
-  padding: 0 12px;
-  border: 1px solid var(--dl-border);
-  border-radius: 8px;
-  background: var(--dl-surface);
-  color: var(--dl-text);
-  font-size: 13px;
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.dl-link-btn:hover {
-  background: var(--dl-hover);
-}
-
 .dl-app {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 12px max(12px, calc((100% - 980px) / 2)) 0;
+  /* 顶部状态栏已移除，这里留出舒适留白（并避开刘海屏安全区） */
+  padding: calc(18px + env(safe-area-inset-top, 0px)) max(12px, calc((100% - 980px) / 2)) 0;
 }
 
 .dl-tabs {
+  /*
+   * 三个 Tab 吸顶（本页主体不滚动，面板在内部滚，所以它始终停在顶部）；
+   * 同样带主题底色 + 毛玻璃 + 极浅底影。尺寸、间距、圆角保持原样。
+   */
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 20;
   flex: 0 0 auto;
   display: flex;
   align-items: stretch;
   gap: 8px;
   padding-bottom: 10px;
+  background: color-mix(in srgb, var(--dl-bg) 88%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 6px 14px -12px rgba(0, 0, 0, 0.45);
 }
 
 .dl-tab {
@@ -240,12 +192,8 @@ body {
 }
 
 @media (max-width: 720px) {
-  .dl-header {
-    padding: 10px 12px;
-  }
-
   .dl-app {
-    padding: 10px 10px 0;
+    padding: calc(16px + env(safe-area-inset-top, 0px)) 10px 0;
   }
 
   .dl-tabs {

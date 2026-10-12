@@ -837,7 +837,6 @@
       var payload = result[0] || {};
       if (payload.requires_login) {
         latestMessageRows = [];
-        $("messageCount").textContent = "";
         list.innerHTML = "";
         var locked = el("div", "mg-locked");
         locked.appendChild(el("i", "mg-locked-icon", "🔒"));
@@ -980,7 +979,6 @@
     rows.forEach(function (row) {
       total += 1 + (row.replies || []).length;
     });
-    $("messageCount").textContent = rows.length ? "共 " + total + " 条" : "";
     if (!rows.length) {
       list.appendChild(el("div", "mg-empty", messageEmptyText()));
       return;

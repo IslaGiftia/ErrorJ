@@ -1191,7 +1191,6 @@
     if (currentMomentFilter !== "all") rows = rows.filter(momentMatchesFilter);
     updateKindCounts();
     list.innerHTML = "";
-    $("momentCount").textContent = rows.length ? "共 " + rows.length + " 条" : "";
     if (!rows.length) {
       list.appendChild(el("div", "mo-empty", momentEmptyText()));
       return;
