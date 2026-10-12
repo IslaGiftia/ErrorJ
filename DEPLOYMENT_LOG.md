@@ -2828,3 +2828,37 @@ git commit 节点图标）、手机端标签吸顶；顺带把地图悬浮组「
 手机 412 触摸）验证的，线上做的是「静态文件哈希一致 + 服务端代码特征串 + 数据库状态 + 页面可访问 + 更新日志入库」
 这几重确认。高德 POI 搜索在本地实例上没有配 `INVENTORY_AMAP_KEY`，结果流是用拦截接口的方式造的确定性数据（2 条），
 另外单独跑了一次不拦截的真实请求，确认它确实打到后端并显示「还没有配置高德 Key」的提示。
+
+## 85. 2026-10-12 13:56:30 修复线上「下载」页三个 Tab 空白（nginx X-Frame-Options）
+
+现象（站长反馈 + 截图）：线上打开 `/downloads`，三个 Tab 里显示的是 Firefox 的
+「Firefox 无法打开此页面——为了保护您的安全，zhexiyan.cc 将不允许 Firefox 显示嵌入了其他网站的页面」。
+
+原因：`/downloads` 的三个面板是**同源 iframe**（`/music?embed=1` 等），而线上 nginx 从建站起就带
+`add_header X-Frame-Options DENY always;`。`DENY` 连本站自己嵌自己也一并禁止（`SAMEORIGIN` 才允许同源嵌套），
+所以面板里拿不到内容，Firefox 直接给出上面那段提示。第 84 条那轮的验证是在**本机实例**上做的——
+本地是 Python 直接服务、没有 nginx 这层响应头，所以这个只在线上出现的问题当时没被验出来。
+
+处理：
+- 服务器：`/etc/nginx/sites-available/errorjiang.conf` 里把 `X-Frame-Options DENY` 改成 `SAMEORIGIN`，
+  改前先 `cp -a` 备份成 `errorjiang.conf.bak-sameorigin`（更早的 DENY 版本仍在 `errorjiang.conf.bak-20261010-190447`），
+  然后 `nginx -t`（syntax is ok）→ `systemctl reload nginx`（不中断连接）。
+- 仓库：`deploy/nginx-errorjiang.conf`、`deploy/nginx-errorjiang-http.conf` 两份示例配置同步改成 `SAMEORIGIN`
+  并写上原因，避免以后照仓库里的例子恢复配置又把线上打回去。
+
+验证结果：
+```text
+响应头      -> https://zhexiyan.cc/books?embed=1 与 /downloads 均返回 200，X-Frame-Options: SAMEORIGIN
+真浏览器    -> 无头 Chrome 打开线上 https://zhexiyan.cc/downloads：
+               /music?embed=1 标题「歌单」、渲染出 15 条歌曲行、is-embed = true；
+               /books?embed=1 标题「书架」、/recommendations?embed=1 标题「推荐」，两个内嵌页都正常加载
+               （游客在这两栏看到 0 项是因为游客权限本身不返回书籍 / 推荐数据，登录后即有内容，
+                控制台里的 401 就是这两个接口的游客闸门）
+nginx       -> systemctl is-active nginx = active，errorjiang 未重启、/api/health = {"ok": true}
+```
+
+备注：`SAMEORIGIN` 只放开了「本站页面嵌本站页面」，外部站点依旧无法把站点套进自己的 iframe，
+安全边界没有松动。站长问「要不要干脆把三个页面整体搬进下载页、不用 iframe」——可以，但那不是复制粘贴：
+`music.html` 与 `books.html` 有 19 个重名 id（`uploadModal`、`editModal`、`uploadTitle` 这些全在弹窗里），
+三套 CSS 又各自带 `body`/`:root` 级规则和 `body[data-notify-module]` 选择器，合并需要给其中一套 id 改名、
+再统一页面级样式，属于独立一轮的改造（这轮先把线上恢复可用）。
