@@ -61,8 +61,8 @@ body {
   z-index: 1;
   max-width: 900px;
   margin: 0 auto;
-  /* 顶部状态栏已移除，这里留出舒适留白（并避开刘海屏安全区） */
-  padding: calc(20px + env(safe-area-inset-top, 0px)) 16px 64px;
+  /* 顶部导航栏已移除：只留一点舒适留白（并避开刘海屏安全区），不再叠旧占位 */
+  padding: calc(14px + env(safe-area-inset-top, 0px)) 16px 64px;
 }
 
 .mg-icon-btn {
@@ -85,7 +85,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  padding-top: 18px;
+  /* 原来这里是给已删除的顶部导航栏留的 18px 占位，去掉后内容紧贴安全区 */
+  padding-top: 0;
 }
 
 .mg-panel {
@@ -318,11 +319,16 @@ body {
 /* ---------- 留言筛选：常驻悬浮的下拉按钮 ---------- */
 .mg-filter-dock {
   position: sticky;
-  top: calc(12px + env(safe-area-inset-top, 0px));
+  top: calc(14px + env(safe-area-inset-top, 0px));
   z-index: 30;
   align-self: flex-start;
   display: flex;
+  align-items: center;
+  gap: 8px;
   justify-content: flex-start;
+  /* 往里收一点：别和卡片左侧那条描边严丝合缝地贴在一起 */
+  margin-left: 6px;
+  max-width: calc(100% - 6px);
 }
 
 .mg-filter-dock[hidden] {
@@ -365,6 +371,18 @@ body {
 
 .mg-filter-dock.is-open .mg-filter-btn svg {
   transform: rotate(180deg);
+}
+
+/* 「发送留言」悬浮按钮：只在编辑框滚出上方时渐显，只用 opacity，不做位移 / 缩放 */
+.mg-send-float {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.24s ease;
+}
+
+.mg-send-float.is-visible {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .mg-filter-menu {
@@ -849,13 +867,9 @@ button.mg-file {
   color: var(--mg-accent);
 }
 
-/* 已点赞：大拇指点亮主题色并填充；不再有点赞人数 */
+/* 已点赞：只把线框描边换成主题色，不做实心填充；不再有点赞人数 */
 .mg-like-btn.is-liked {
   color: var(--mg-accent);
-}
-
-.mg-like-btn.is-liked svg {
-  fill: currentColor;
 }
 
 .mg-like-btn:disabled {
@@ -1200,7 +1214,7 @@ button.mg-file {
   }
 
   .mg-app {
-    padding: calc(18px + env(safe-area-inset-top, 0px)) 12px 48px;
+    padding: calc(10px + env(safe-area-inset-top, 0px)) 12px 48px;
   }
 
   .mg-panel,
@@ -1272,6 +1286,9 @@ button.mg-file {
 body[data-notify-module="messages"] .site-back-top {
   flex-direction: column;
   gap: 2px;
+  /* 收进卡片内侧右下角：right = 卡片右缘到屏幕右边的距离 + 20px，再整体抬高留出底部空间 */
+  right: calc(max(12px, (100vw - 900px) / 2 + 16px) + 20px);
+  bottom: calc(var(--site-back-top-bottom, 22px) + 28px);
   width: 48px;
   height: 58px;
   border-radius: 10px;
@@ -1304,6 +1321,10 @@ body[data-notify-module="messages"] .site-back-top svg {
 
 @media (prefers-reduced-motion: reduce) {
   body[data-notify-module="messages"] .site-back-top {
+    transition: none;
+  }
+
+  .mg-send-float {
     transition: none;
   }
 }

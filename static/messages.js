@@ -1179,6 +1179,76 @@
     document.addEventListener("keydown", function (event) {
       if (event.key === "Escape") closeFilterMenu();
     });
+    initSendFloat();
+  }
+
+  /*
+   * 「发送留言」悬浮按钮：只有编辑框完全滚出视野上方时才渐显（纯 opacity）；
+   * 点它先淡出，再平滑滚回顶部并聚焦输入框，滚回顶部后按钮继续保持隐藏。
+   */
+  function setSendFloatVisible(visible) {
+    var btn = $("messageSendBtn");
+    if (!btn) return;
+    btn.classList.toggle("is-visible", Boolean(visible));
+    btn.setAttribute("aria-hidden", visible ? "false" : "true");
+    btn.tabIndex = visible ? 0 : -1;
+  }
+
+  function initSendFloat() {
+    var btn = $("messageSendBtn");
+    var composer = $("messageComposerPanel");
+    if (!btn || !composer) return;
+    setSendFloatVisible(false);
+    btn.addEventListener("click", function () {
+      setSendFloatVisible(false);
+      if (typeof window.scrollTo === "function") {
+        try {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        } catch (err) {
+          window.scrollTo(0, 0);
+        }
+      }
+      var area = $("msgContent");
+      if (!area) return;
+      // 等平滑滚动起步后再聚焦，并阻止聚焦把页面瞬间拽回输入框
+      window.setTimeout(function () {
+        try {
+          area.focus({ preventScroll: true });
+        } catch (err) {
+          area.focus();
+        }
+      }, 0);
+    });
+    if (typeof window.IntersectionObserver === "function") {
+      var observer = new IntersectionObserver(
+        function (entries) {
+          var entry = entries[entries.length - 1];
+          // bottom <= 0 即整块编辑框已经滚到视野上方
+          setSendFloatVisible(
+            !entry.isIntersecting && entry.boundingClientRect.bottom <= 0
+          );
+        },
+        { threshold: 0 }
+      );
+      observer.observe(composer);
+      return;
+    }
+    // 兜底：没有 IntersectionObserver 时用 rAF 节流的滚动监听
+    var ticking = false;
+    var update = function () {
+      ticking = false;
+      setSendFloatVisible(composer.getBoundingClientRect().bottom <= 0);
+    };
+    window.addEventListener(
+      "scroll",
+      function () {
+        if (ticking) return;
+        ticking = true;
+        window.requestAnimationFrame(update);
+      },
+      { passive: true }
+    );
+    update();
   }
 
   function renderRows() {

@@ -74,6 +74,12 @@
           <span class="mg-filter-label" id="messageFilterLabel">全部留言</span>
           <i data-lucide="chevron-down" aria-hidden="true"></i>
         </button>
+        <!-- 编辑框滚出上方后才渐显；点它平滑回到顶部并聚焦输入框 -->
+        <button class="mg-filter-btn mg-send-float" id="messageSendBtn" type="button"
+                aria-label="发送留言" aria-hidden="true" tabindex="-1">
+          <i data-lucide="send" aria-hidden="true"></i>
+          <span>发送留言</span>
+        </button>
         <div class="mg-filter-menu" id="messageFilterMenu" role="listbox" aria-label="留言筛选" hidden>
           <button class="mg-filter-option is-active" type="button" role="option" aria-selected="true" data-mg-filter="all">
             <span class="mg-filter-option-label">全部留言</span>
