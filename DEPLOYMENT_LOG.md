@@ -2919,3 +2919,53 @@ nginx       -> systemctl is-active nginx = active，errorjiang 未重启、/api/
 备注：这次只动前端静态文件（README 与两份日志除外），app.py 没有变化，所以线上生效只靠 `git pull`
 （static 目录每次请求都从磁盘读）；服务重启是跑更新日志导入流程时的常规动作。交互与渲染仍是**同一提交**
 的本地实例上用真浏览器（桌面 1440×620、手机 412×640 两档，含矮视口）验证的。
+
+## 87. 2026-10-12 14:55:40 足迹面板显示更多、搜索框严格对齐、图标提示点过即收
+
+需求（站长看着线上提的四件事）：分类面板别只显示一半、内容多时尽量多显示（但不能比检索结果区域大，让展开「美食」验证）；
+右上角搜索框和搜索按钮还是没「上下都对齐」；四枚工具按钮点完之后文字提示还挂着，要和左下角六枚同一套手感
+（悬停显示、点后取消）；移动端足迹里所有按钮都不许出现任何文字提示，无论是否点击。
+
+完成内容（`a47066d fix:map-panel-height-search-align-and-tip-suppression`，3 个文件，+58/−15）：
+- 面板高度：`applyPopHeight()` 里那条「别盖住右上角工具列」的护栏改成**只在横向真的重叠时才生效**
+  （比两边的 `getBoundingClientRect()`），桌面端面板在左、工具列在右，本来就不会重叠，于是高度直接放开到检索卡片高度；
+  手机端两边横向重叠，护栏保留（不然点「搜索 / 定位」会点到分类行上）。靠下对齐仍由 CSS 的 `bottom` 负责。
+- 搜索框对齐：`.mp-search-flyout` 自带 1px 边框，里面的搜索框因此比右侧按钮低 1px；把浮层 `top` 从 0 改成 −1px 之后，
+  搜索框与按钮的上下边缘在桌面（40px）与手机（38px）上都严格齐平。
+- 提示收起：原先挂在 `document` 上的委托收不到两类点击——「切换底图」自己 `event.stopPropagation()`、
+  有些按钮的处理函数会调 `lucide.createIcons()` 把图标重画（事件冒上去时 `event.target` 已脱离按钮）。
+  改成**直接绑在每一枚 `.mp-tip` 按钮上**（map.html 里共 10 枚，全部静态存在）：`click` 时加 `is-tip-off`
+  （CSS 里把它上面的 `::after` 压掉）、`pointerleave` 时移除，所以「移开再回来」提示照常；
+  `event.detail === 0`（键盘 Enter / 空格）不加，键盘与读屏用户仍能靠它认按钮。
+- 移动端：屏蔽条件从 `@media (hover: none)` 扩成 `@media (hover: none), (pointer: coarse)`
+  （挡住把自己报成 `hover: hover` 的移动浏览器），再加 `touchstart` 兜底把点过的按钮打上 `is-tip-off`。
+- 文档：README 的图标按钮那一条补上「点一下就收起 / 键盘触发不收 / 触摸设备不显示」。
+
+部署步骤：
+```text
+本地：python -m unittest discover -s tests -> 108 项全过；node --check static/map.js；git diff --check 干净
+      本机实例用 Playwright（桌面 1440x900 与矮视口 1440x620、手机 412x640）验证：
+      面板：展开「美食」后桌面面板 680px 高、上限 810px（= 检索卡片高度）、15 行全部可见且**不需要滚动**，
+            矮视口下到上限并内部滚动；面板与工具列不重叠，面板开着时点右上角「搜索」照样生效且面板自动收起
+      对齐：桌面搜索框与按钮 40 = 40，手机 38 = 38，topDelta / bottomDelta 都是 0
+      提示：四枚工具按钮逐个点过之后 ::after 都是 visibility: hidden + is-tip-off，鼠标移开再悬停又变回 visible；
+            键盘触发（detail = 0）不加 is-tip-off
+      手机：::after 的 display 恒为 none，tap 之后 is-tip-off = true（不会再冒出来）
+提交：a47066d（fetch/rebase 后 push，本地 == origin/main）
+备份：/data/errorjiang-backup/map-panel-tips-20261012-1457/（停服后复制 inventory.db 与 changelog-seed.json）
+服务器：git pull --ff-only 4dbcc1b -> a47066d -> runuser -u errorjiang -- python3 -c "import app; app.init_db()"（migration-ok）
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 一致）
+      import_changelog_moments.py --date 2026-10-12 --force -> 新增 6 条
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，/api/health = {"ok": true}，服务器 HEAD = a47066d
+更新日志    -> /api/moments 里 2026-10-12 14:55:40「足迹分类面板显示更多、搜索框对齐与提示收起」，kind = log
+静态资源    -> https://zhexiyan.cc 上的 static/map.js、static/map.css 与本机 SHA256 逐一相同
+服务端代码  -> 线上 map.js 里 is-tip-off 与 applyPopHeight 都在，mp-tip 绑定走的是逐按钮 addEventListener
+```
+
+备注：这次同样是纯前端静态文件改动，app.py 没变，线上生效只靠 `git pull`；服务重启是更新日志导入流程的常规动作。
+纯前端改动线上依旧按「静态文件逐字节一致 + 代码特征 + 更新日志入库 + 健康检查」确认，交互与像素级对齐是在
+**同一提交**的本地实例上用真浏览器量的（含 1440×620 这种矮视口，专门用来验面板上限与内部滚动）。
