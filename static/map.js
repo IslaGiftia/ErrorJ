@@ -132,8 +132,7 @@
     canFilterOwner: false,
     myUserId: "",
     signedIn: false,
-    activeTop: new Set(),
-    activeSubs: new Set(),
+    categoryFilter: null,
     expandedTops: new Set(),
     keyword: "",
     ownerFilter: "",
@@ -146,7 +145,10 @@
     rating: 0,
     photoFiles: [],
     photoUrls: [],
-    poiResults: []
+    searchOpen: false,
+    searchBusy: false,
+    searchResults: [],
+    searchPick: null
   };
 
   var VIEW_KEY = "errorMapView";
@@ -491,16 +493,16 @@
   // ---------- rendering ----------
   function visiblePlaces() {
     var keyword = state.keyword.trim().toLowerCase();
+    var categoryScope = state.categoryFilter
+      ? categorySubtreeIds(state.categoryFilter)
+      : null;
     return state.places.filter(function (place) {
       if (state.ownerFilter !== "" && String(place.created_by) !== state.ownerFilter) {
         return false;
       }
-      if (state.activeSubs.size) {
-        if (!state.activeSubs.has(place.category_id)) return false;
-      } else if (state.activeTop.size) {
-        var cat = categoryById(place.category_id);
-        var topId = cat ? cat.parent_id || cat.id : null;
-        if (!topId || !state.activeTop.has(topId)) return false;
+      if (categoryScope) {
+        // 选中某一级分类 = 这一级 + 它的所有下级
+        if (categoryScope.indexOf(place.category_id) < 0) return false;
       }
       if (!keyword) return true;
       var haystack = [
@@ -517,86 +519,6 @@
         .toLowerCase();
       return haystack.indexOf(keyword) >= 0;
     });
-  }
-
-  function categoryCounts() {
-    var counts = {};
-    state.places.forEach(function (place) {
-      if (place.category_id) counts[place.category_id] = (counts[place.category_id] || 0) + 1;
-    });
-    return counts;
-  }
-
-  function renderChips() {
-    var box = $("mapCategories");
-    if (!box) return;
-    var counts = categoryCounts();
-    var total = state.places.length;
-    var html =
-      '<button type="button" class="mp-chip' +
-      (state.activeTop.size === 0 ? " is-on" : "") +
-      '" data-top="all">' +
-      '<span class="mp-chip-num">全部</span><span class="mp-chip-num">' +
-      total +
-      "</span></button>";
-    topCategories().forEach(function (cat) {
-      var count = counts[cat.id] || 0;
-      childCategories(cat.id).forEach(function (child) {
-        count += counts[child.id] || 0;
-      });
-      html +=
-        '<button type="button" class="mp-chip' +
-        (state.activeTop.has(cat.id) ? " is-on" : "") +
-        '" data-top="' +
-        cat.id +
-        '" style="--chip-color:' +
-        esc(cat.color) +
-        '">' +
-        '<span class="mp-chip-dot">' +
-        esc(cat.glyph || "·") +
-        "</span><span>" +
-        esc(cat.name) +
-        '</span><span class="mp-chip-num">' +
-        count +
-        "</span></button>";
-    });
-    box.innerHTML = html;
-  }
-
-  function renderSubcats() {
-    var box = $("mapSubcats");
-    if (!box) return;
-    var subs = [];
-    topCategories().forEach(function (cat) {
-      if (!state.activeTop.has(cat.id)) return;
-      subs = subs.concat(childCategories(cat.id));
-    });
-    if (!subs.length) {
-      box.hidden = true;
-      box.innerHTML = "";
-      return;
-    }
-    var counts = categoryCounts();
-    box.hidden = false;
-    box.innerHTML = subs
-      .map(function (cat) {
-        return (
-          '<button type="button" class="mp-chip' +
-          (state.activeSubs.has(cat.id) ? " is-on" : "") +
-          '" data-sub="' +
-          cat.id +
-          '" style="--chip-color:' +
-          esc(cat.color) +
-          '"><span class="mp-chip-dot">' +
-          esc(cat.glyph || "·") +
-          "</span><span>" +
-          esc(cat.name) +
-          '</span><span class="mp-chip-num">' +
-          (counts[cat.id] || 0) +
-          "</span></button>"
-        );
-      })
-      .join("");
   }
 
   function renderList() {
@@ -673,6 +595,115 @@
 
   function closeOwnerPicker() {
     setOwnerPopOpen(false);
+  }
+
+  /* ---------- 分类筛选浮层（和添加者同一套外壳，内部是多级分类树） ---------- */
+
+  // 某一级分类 + 它的所有下级（最多再往下两级，够覆盖「一级 > 二级 > 三级」）
+  function categorySubtreeIds(rootId) {
+    var ids = [rootId];
+    var frontier = [rootId];
+    var guard = 0;
+    while (frontier.length && guard < 4) {
+      var next = [];
+      state.categories.forEach(function (cat) {
+        if (frontier.indexOf(cat.parent_id) >= 0) {
+          ids.push(cat.id);
+          next.push(cat.id);
+        }
+      });
+      frontier = next;
+      guard += 1;
+    }
+    return ids;
+  }
+
+  function categoryLabel(cat) {
+    if (!cat) return "全部分类";
+    var names = [cat.name];
+    var node = cat;
+    var guard = 0;
+    while (node && node.parent_id && guard < 2) {
+      node = categoryById(node.parent_id);
+      if (!node) break;
+      names.unshift(node.name);
+      guard += 1;
+    }
+    return names.join(" / ");
+  }
+
+  function categoryTreeHtml(list, depth, counts) {
+    var html = "";
+    list.forEach(function (cat) {
+      var count = 0;
+      categorySubtreeIds(cat.id).forEach(function (id) {
+        count += counts[id] || 0;
+      });
+      html +=
+        '<button type="button" class="mp-owner-option mp-cat-option' +
+        (state.categoryFilter === cat.id ? " is-active" : "") +
+        '" data-cat="' +
+        cat.id +
+        '" style="--cat-depth:' +
+        depth +
+        '">' +
+        '<i class="mp-cat-dot" style="--cat-color:' +
+        esc(cat.color) +
+        '">' +
+        esc(cat.glyph || "·") +
+        "</i><span>" +
+        esc(cat.name) +
+        "</span><em>" +
+        count +
+        " 个标记</em></button>";
+      html += categoryTreeHtml(childCategories(cat.id), depth + 1, counts);
+    });
+    return html;
+  }
+
+  function syncCatLabel() {
+    var button = $("mapCatBtn");
+    if (!button) return;
+    var cat = state.categoryFilter ? categoryById(state.categoryFilter) : null;
+    // 与「添加者」一致：悬停提示只写按钮名，当前筛的是哪一级走 aria-label，有色时按钮点亮
+    button.setAttribute("data-tip", "分类");
+    button.setAttribute("aria-label", "分类筛选：" + categoryLabel(cat));
+    button.classList.toggle("is-active", Boolean(state.categoryFilter));
+  }
+
+  function setCatPopOpen(open) {
+    var pop = $("mapCatPop");
+    if (pop) pop.hidden = !open;
+    var button = $("mapCatBtn");
+    if (button) button.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  function closeCatPicker() {
+    setCatPopOpen(false);
+  }
+
+  function renderCatFilter() {
+    var box = $("mapCatPopList");
+    if (!box) return;
+    if (state.categoryFilter && !categoryById(state.categoryFilter)) {
+      state.categoryFilter = null;
+    }
+    var counts = {};
+    state.places.forEach(function (place) {
+      if (place.category_id) {
+        counts[place.category_id] = (counts[place.category_id] || 0) + 1;
+      }
+    });
+    var html =
+      '<button type="button" class="mp-owner-option mp-cat-option' +
+      (state.categoryFilter ? "" : " is-active") +
+      '" data-cat="" style="--cat-depth:0">' +
+      '<i class="mp-cat-dot is-all">·</i><span>全部分类</span><em>' +
+      state.places.length +
+      " 个标记</em></button>";
+    html += categoryTreeHtml(topCategories(), 0, counts);
+    box.innerHTML = html;
+    syncCatLabel();
   }
 
   function ownerOptionsHtml() {
@@ -928,37 +959,9 @@
   }
 
   function renderAll() {
-    renderChips();
-    renderSubcats();
-    updateCatsToggle();
+    renderCatFilter();
     renderList();
     renderMarkers();
-  }
-
-  /*
-   * 桌面端分类默认只露 2.5 行（CSS 里 max-height: 82px），装不下才显示展开按钮；
-   * 移动端整块是横向滚动，不需要这个按钮。
-   */
-  function updateCatsToggle() {
-    var row = document.querySelector(".mp-chips-row");
-    var button = $("mapCatsToggle");
-    if (!row || !button) return;
-    if (isNarrowMap()) {
-      button.hidden = true;
-      row.classList.remove("is-expanded");
-      return;
-    }
-    var collapsed = 82;
-    if (row.scrollHeight <= collapsed + 4) {
-      button.hidden = true;
-      row.classList.remove("is-expanded");
-      button.setAttribute("aria-expanded", "false");
-      return;
-    }
-    button.hidden = false;
-    var expanded = row.classList.contains("is-expanded");
-    button.setAttribute("aria-expanded", expanded ? "true" : "false");
-    button.setAttribute("aria-label", expanded ? "收起分类" : "展开全部分类");
   }
 
   function fitAll() {
@@ -1022,15 +1025,9 @@
       state.categories.forEach(function (cat) {
         categoryIds[cat.id] = cat;
       });
-      state.activeTop.forEach(function (id) {
-        if (!categoryIds[id]) state.activeTop.delete(id);
-      });
-      state.activeSubs.forEach(function (id) {
-        var cat = categoryIds[id];
-        if (!cat || !cat.parent_id || !state.activeTop.has(cat.parent_id)) {
-          state.activeSubs.delete(id);
-        }
-      });
+      if (state.categoryFilter && !categoryIds[state.categoryFilter]) {
+        state.categoryFilter = null;
+      }
       state.expandedTops.forEach(function (id) {
         var cat = categoryIds[id];
         if (!cat || cat.parent_id) state.expandedTops.delete(id);
@@ -1145,41 +1142,76 @@
     }
   }
 
-  function clearPoiSearch() {
-    state.poiResults = [];
-    var input = $("placePoiSearch");
-    if (input) input.value = "";
-    var list = $("placePoiResults");
-    if (list) {
-      list.innerHTML = "";
-      list.hidden = true;
-    }
-    var hint = $("placePoiHint");
-    if (hint) {
+  /* ---------- 高德地点搜索（右上角按钮 + 向左滑出的输入框） ---------- */
+
+  /*
+   * 高德 POI 搜索的唯一入口：编辑弹窗里那份调用早就搬到这儿了，
+   * 别在别处再写一份（后端 /api/map/poi-search 自带缓存，避免重复消耗月配额）。
+   */
+  function searchAmapPoi(keywords) {
+    var words = String(keywords || "").trim();
+    if (!words) return Promise.reject(new Error("请输入要搜索的地点名称。"));
+    return api("/api/map/poi-search?keywords=" + encodeURIComponent(words));
+  }
+
+  function showMapSearchHint(text) {
+    var hint = $("mapSearchHint");
+    if (!hint) return;
+    if (text) {
+      hint.textContent = text;
+      hint.hidden = false;
+    } else {
       hint.textContent = "";
       hint.hidden = true;
     }
   }
 
-  function showPoiMessage(text) {
-    var hint = $("placePoiHint");
-    if (!hint) return;
-    hint.textContent = text;
-    hint.hidden = false;
+  function resetMapSearchResults() {
+    state.searchResults = [];
+    var list = $("mapSearchResults");
+    if (list) {
+      list.innerHTML = "";
+      list.hidden = true;
+      list.classList.remove("is-open");
+    }
+    showMapSearchHint("");
   }
 
-  function renderPoiResults(data) {
-    var list = $("placePoiResults");
-    if (!list) return;
-    var pois = (data && data.pois) || [];
-    state.poiResults = pois;
-    list.innerHTML = "";
-    if (!pois.length) {
-      list.hidden = true;
-      showPoiMessage("没有搜到匹配的地点，换个关键词试试。");
+  function setMapSearchOpen(open) {
+    state.searchOpen = Boolean(open);
+    var panel = $("mapSearchPanel");
+    var button = $("mapSearchBtn");
+    var input = $("mapPoiSearch");
+    if (panel) panel.classList.toggle("is-open", state.searchOpen);
+    if (button) {
+      button.classList.toggle("is-on", state.searchOpen);
+      button.setAttribute("aria-expanded", state.searchOpen ? "true" : "false");
+    }
+    if (!state.searchOpen) {
+      resetMapSearchResults();
+      if (input) input.blur();
       return;
     }
-    pois.forEach(function (poi, index) {
+    // 展开后自动聚焦，光标直接落在输入框里
+    if (input) {
+      window.setTimeout(function () {
+        input.focus();
+      }, 60);
+    }
+  }
+
+  function renderMapSearchResults(pois) {
+    var list = $("mapSearchResults");
+    if (!list) return;
+    state.searchResults = pois || [];
+    list.innerHTML = "";
+    list.classList.remove("is-open");
+    if (!state.searchResults.length) {
+      list.hidden = true;
+      showMapSearchHint("没有搜到匹配的地点，换个关键词试试。");
+      return;
+    }
+    state.searchResults.forEach(function (poi, index) {
       var item = document.createElement("li");
       var button = document.createElement("button");
       button.type = "button";
@@ -1195,55 +1227,69 @@
       item.appendChild(button);
       list.appendChild(item);
     });
+    showMapSearchHint("");
     list.hidden = false;
+    // 下一帧再加 is-open，结果面板才是从输入框下方展开出来的
+    window.requestAnimationFrame(function () {
+      list.classList.add("is-open");
+    });
   }
 
-  function searchPoi() {
-    var input = $("placePoiSearch");
-    if (!input) return;
+  function runMapSearch() {
+    var input = $("mapPoiSearch");
+    if (!input || state.searchBusy) return;
     var keywords = input.value.trim();
     if (!keywords) {
-      showPoiMessage("请输入要搜索的地点名称。");
+      showMapSearchHint("请输入要搜索的地点名称。");
       return;
     }
-    var button = $("placePoiSearchBtn");
-    if (button) button.disabled = true;
-    showPoiMessage("正在搜索高德地图…");
-    var list = $("placePoiResults");
+    state.searchBusy = true;
+    showMapSearchHint("正在搜索高德地图…");
+    var list = $("mapSearchResults");
     if (list) {
       list.hidden = true;
-      list.innerHTML = "";
+      list.classList.remove("is-open");
     }
-    api("/api/map/poi-search?keywords=" + encodeURIComponent(keywords))
+    searchAmapPoi(keywords)
       .then(function (data) {
-        var hint = $("placePoiHint");
-        if (hint) hint.hidden = true;
-        renderPoiResults(data);
+        renderMapSearchResults((data && data.pois) || []);
       })
       .catch(function (err) {
-        showPoiMessage(err.message);
+        showMapSearchHint(err.message);
       })
       .then(function () {
-        if (button) button.disabled = false;
+        state.searchBusy = false;
+        if (state.searchOpen && input) input.focus();
       });
   }
 
-  function applyPoi(index) {
-    var poi = state.poiResults[index];
+  /*
+   * 选中一条结果：搜索框向右收回 → 地图平滑移到该点 → 立刻进中心选点模式，
+   * 水滴就落在地图正中心（也就是这个地点）；确认后弹窗会自动带入它的名称和地址。
+   */
+  function pickMapSearchResult(index) {
+    var poi = state.searchResults[index];
     if (!poi) return;
-    var wgs = Geo.fromGcj(poi.lat, poi.lng);
-    $("placeName").value = poi.name || "";
-    if (poi.address) $("placeAddress").value = poi.address;
-    $("placeLat").value = wgs[0].toFixed(6);
-    $("placeLng").value = wgs[1].toFixed(6);
-    var list = $("placePoiResults");
-    if (list) list.hidden = true;
-    showPoiMessage(
-      "已选择：" + (poi.name || "地点") + "，可以继续补充分类和备注。"
-    );
+    if (!state.canAdd) {
+      toast(NO_PERMISSION_TIP);
+      return;
+    }
+    var wgs = Geo.fromGcj(Number(poi.lat), Number(poi.lng));
+    state.searchPick = {
+      name: poi.name || "",
+      address: poi.address || "",
+      lat: wgs[0],
+      lng: wgs[1]
+    };
+    setMapSearchOpen(false);
+    map.closePopup();
+    map.setView(displayLatLng(wgs[0], wgs[1]), Math.max(map.getZoom(), 16), {
+      animate: true
+    });
+    startPlacing();
   }
 
-  function openPlaceModal(place, coords) {
+  function openPlaceModal(place, coords, preset) {
     state.photoFiles.forEach(function (_file, index) {
       if (state.photoUrls[index]) URL.revokeObjectURL(state.photoUrls[index]);
     });
@@ -1253,9 +1299,12 @@
     state.status = place ? place.status || "" : "";
     state.rating = place && place.rating ? Number(place.rating) : 0;
     $("mapPlaceTitle").textContent = place ? "编辑标记" : "添加标记";
-    $("placeName").value = place ? place.name : "";
+    // preset：从右上角搜索选中的地点，确认落点后自动带入名称 / 地址
+    $("placeName").value = place ? place.name : (preset && preset.name) || "";
     $("placeSubtitle").value = place ? place.subtitle || "" : "";
-    $("placeAddress").value = place ? place.address || "" : "";
+    $("placeAddress").value = place
+      ? place.address || ""
+      : (preset && preset.address) || "";
     $("placeSignature").value = place ? place.signature || "" : "";
     $("placeTags").value = place ? place.tags || "" : "";
     $("placeNote").value = place ? place.note || "" : "";
@@ -1270,7 +1319,6 @@
     var photoInput = $("placePhotoInput");
     if (photoInput) photoInput.value = "";
     showFormError("");
-    clearPoiSearch();
     openModal("mapPlaceModal");
     setTimeout(function () {
       $("placeName").focus();
@@ -1608,8 +1656,7 @@
       function () {
         api("/api/map/categories/" + id, { method: "DELETE" })
           .then(function () {
-            state.activeTop.delete(id);
-            state.activeSubs.delete(id);
+            if (state.categoryFilter === id) state.categoryFilter = null;
             toast("分类已删除");
             return loadData(false).then(renderCatRows);
           })
@@ -1978,6 +2025,8 @@
     map.off("moveend", syncPinCenter);
     map.off("dragend", syncPinCenter);
     map.off("zoomend", syncPinCenter);
+    // 取消落点：搜索带过来的名称 / 地址也一起丢掉
+    state.searchPick = null;
   }
 
   function syncPinCenter() {
@@ -1987,9 +2036,21 @@
   function confirmPin() {
     if (!state.placing) return;
     var coords = pinCenterLatLng();
+    /*
+     * 落点就是刚搜到的那个地点时，把名称和地址带进弹窗；
+     * 如果用户把地图拖走了（偏离超过 200 米），就当他是另选地方，不预填。
+     */
+    var preset = state.searchPick;
+    if (preset) {
+      var away = map.distance(
+        displayLatLng(preset.lat, preset.lng),
+        map.getCenter()
+      );
+      if (away > 200) preset = null;
+    }
     stopPlacing();
     map.closePopup();
-    openPlaceModal(null, coords);
+    openPlaceModal(null, coords, preset);
   }
 
   var pinConfirmBtn = $("mapPinConfirm");
@@ -2056,50 +2117,32 @@
   map.on("movestart", cancelLongPress);
 
   // ---------- events ----------
-  var chips = $("mapCategories");
-  if (chips) {
-    chips.addEventListener("click", function (event) {
-      var chip = event.target.closest(".mp-chip");
-      if (!chip) return;
-      var value = chip.getAttribute("data-top");
-      if (value === "all") {
-        state.activeTop.clear();
-        state.activeSubs.clear();
-      } else {
-        var id = Number(value);
-        if (state.activeTop.has(id)) {
-          state.activeTop.delete(id);
-          state.activeSubs.forEach(function (subId) {
-            var sub = categoryById(subId);
-            if (sub && sub.parent_id === id) state.activeSubs.delete(subId);
-          });
-        } else {
-          state.activeTop.add(id);
-        }
+  /*
+   * 分类筛选入口（PC 与手机同一套）：点一下在按钮上方开出多级分类树，
+   * 选某一级就按「这一级 + 它的下级」过滤，再点一下收起。
+   */
+  var catEntry = $("mapCatBtn");
+  if (catEntry) {
+    catEntry.addEventListener("click", function () {
+      var pop = $("mapCatPop");
+      var willOpen = Boolean(pop && pop.hidden);
+      if (willOpen) {
+        closeOwnerPicker();
+        renderCatFilter();
       }
-      renderAll();
+      setCatPopOpen(willOpen);
     });
   }
 
-  // 桌面端分类的展开 / 收起（移动端整块横滑，用不到）
-  var catsToggle = $("mapCatsToggle");
-  if (catsToggle) {
-    catsToggle.addEventListener("click", function () {
-      var row = document.querySelector(".mp-chips-row");
-      if (!row) return;
-      row.classList.toggle("is-expanded");
-      updateCatsToggle();
-    });
-  }
-
-  var subcatsBox = $("mapSubcats");
-  if (subcatsBox) {
-    subcatsBox.addEventListener("click", function (event) {
-      var chip = event.target.closest("[data-sub]");
-      if (!chip) return;
-      var id = Number(chip.getAttribute("data-sub"));
-      if (state.activeSubs.has(id)) state.activeSubs.delete(id);
-      else state.activeSubs.add(id);
+  var catOptions = $("mapCatPopList");
+  if (catOptions) {
+    catOptions.addEventListener("click", function (event) {
+      var option = event.target.closest("[data-cat]");
+      if (!option) return;
+      var raw = option.getAttribute("data-cat");
+      state.categoryFilter = raw ? Number(raw) : null;
+      closeCatPicker();
+      syncCatLabel();
       renderAll();
     });
   }
@@ -2131,20 +2174,32 @@
       }
       var pop = $("mapOwnerPop");
       var willOpen = Boolean(pop && pop.hidden);
-      if (willOpen) renderOwnerFilter();
+      if (willOpen) {
+        closeCatPicker();
+        renderOwnerFilter();
+      }
       setOwnerPopOpen(willOpen);
     });
   }
 
-  // 点浮层和入口按钮以外的地方就把浮层收起来（Escape 走 closeOwnerPicker）
+  // 点浮层和入口按钮以外的地方就把浮层收起来（分类与添加者同一套；Escape 另见键盘处理）
   document.addEventListener("click", function (event) {
-    var pop = $("mapOwnerPop");
-    if (!pop || pop.hidden) return;
-    var inside =
-      event.target.closest &&
-      (event.target.closest("#mapOwnerPop") || event.target.closest("#mapOwnerBtn"));
-    if (inside) return;
-    setOwnerPopOpen(false);
+    var target = event.target;
+    if (!target || !target.closest) return;
+    var ownerPop = $("mapOwnerPop");
+    if (ownerPop && !ownerPop.hidden) {
+      var inOwner = target.closest("#mapOwnerPop") || target.closest("#mapOwnerBtn");
+      if (!inOwner) setOwnerPopOpen(false);
+    }
+    var catPop = $("mapCatPop");
+    if (catPop && !catPop.hidden) {
+      var inCat = target.closest("#mapCatPop") || target.closest("#mapCatBtn");
+      if (!inCat) setCatPopOpen(false);
+    }
+    if (state.searchOpen) {
+      var searchSlot = document.querySelector(".mp-search-slot");
+      if (searchSlot && !searchSlot.contains(target)) setMapSearchOpen(false);
+    }
   });
 
   var ownerOptions = $("mapOwnerPopList");
@@ -2313,6 +2368,49 @@
   var fitBtn = $("mapFitBtn");
   if (fitBtn) fitBtn.addEventListener("click", fitAll);
 
+  /*
+   * 右上角地点搜索：点按钮展开（输入框向左滑出 + 自动聚焦）；
+   * 已经展开时，输入框里有字就再搜一次，没字就收起。
+   * 回车等于"确认搜索"，失焦 / 点外部 / ESC 都会把输入框向右收回。
+   */
+  var searchBtn = $("mapSearchBtn");
+  var searchInput = $("mapPoiSearch");
+  var searchList = $("mapSearchResults");
+  if (searchBtn) {
+    searchBtn.addEventListener("click", function () {
+      if (!state.searchOpen) {
+        openBasePanel(false);
+        setMapSearchOpen(true);
+        return;
+      }
+      if (searchInput && searchInput.value.trim()) runMapSearch();
+      else setMapSearchOpen(false);
+    });
+  }
+  if (searchInput) {
+    searchInput.addEventListener("keydown", function (event) {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      runMapSearch();
+    });
+    searchInput.addEventListener("blur", function () {
+      window.setTimeout(function () {
+        if (!state.searchOpen) return;
+        // 焦点还在搜索这块（输入框、按钮、结果项）就当我还在用，不收
+        var active = document.activeElement;
+        if (active && active.closest && active.closest(".mp-search-slot")) return;
+        setMapSearchOpen(false);
+      }, 200);
+    });
+  }
+  if (searchList) {
+    searchList.addEventListener("click", function (event) {
+      var item = event.target.closest("[data-poi-index]");
+      if (!item) return;
+      pickMapSearchResult(Number(item.getAttribute("data-poi-index")));
+    });
+  }
+
   var addBtn = $("mapAddBtn");
   if (addBtn) {
     addBtn.addEventListener("click", function () {
@@ -2412,28 +2510,6 @@
 
   var placeForm = $("mapPlaceForm");
   if (placeForm) placeForm.addEventListener("submit", submitPlace);
-
-  var poiBtn = $("placePoiSearchBtn");
-  if (poiBtn) poiBtn.addEventListener("click", searchPoi);
-
-  var poiInput = $("placePoiSearch");
-  if (poiInput) {
-    poiInput.addEventListener("keydown", function (event) {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        searchPoi();
-      }
-    });
-  }
-
-  var poiList = $("placePoiResults");
-  if (poiList) {
-    poiList.addEventListener("click", function (event) {
-      var button = event.target.closest("[data-poi-index]");
-      if (!button) return;
-      applyPoi(Number(button.getAttribute("data-poi-index")));
-    });
-  }
 
   var placeDelete = $("mapPlaceDelete");
   if (placeDelete) {
@@ -2619,16 +2695,6 @@
     if (!app || !actions) return;
     // 权限已经确定（或请求失败兜底），操作栏可以现身了
     actions.classList.remove("is-pending");
-    var visible = Array.prototype.filter.call(actions.children, function (child) {
-      return (
-        child.classList.contains("mp-btn") &&
-        !child.hidden &&
-        !child.classList.contains("mp-actions-toggle")
-      );
-    }).length;
-    actions.classList.toggle("is-solo", visible === 0);
-    actions.classList.toggle("one-action", visible === 1);
-    actions.classList.toggle("single-row", visible <= 2);
     app.style.setProperty(
       "--mp-actions-h",
       Math.round(actions.getBoundingClientRect().height) + "px"
@@ -2663,6 +2729,8 @@
       closeModal("mapCatsModal");
       closeModal("mapImportModal");
       setOwnerPopOpen(false);
+      setCatPopOpen(false);
+      setMapSearchOpen(false);
       resolveConfirm(false);
       openBasePanel(false);
       closeSidebar();

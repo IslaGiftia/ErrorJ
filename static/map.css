@@ -193,25 +193,6 @@ body {
   cursor: pointer;
 }
 
-.mp-cats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 4px 12px 10px;
-  border-bottom: 1px solid var(--mp-border);
-  max-height: 118px;
-  overflow-y: auto;
-}
-
-.mp-subcats {
-  padding-left: 22px;
-  background: color-mix(in srgb, var(--mp-surface-2) 70%, transparent);
-}
-
-.mp-subcats[hidden] {
-  display: none;
-}
-
 .mp-owner-options {
   display: flex;
   flex-direction: column;
@@ -255,49 +236,6 @@ body {
 .mp-owner-option.is-active {
   border-color: var(--mp-accent);
   background: var(--mp-accent-soft);
-}
-
-.mp-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 10px 0 8px;
-  border: 1px solid var(--mp-border);
-  border-radius: 999px;
-  background: var(--mp-surface);
-  color: var(--mp-text);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.mp-chip:hover {
-  background: var(--mp-hover);
-}
-
-.mp-chip.is-on {
-  border-color: color-mix(in srgb, var(--chip-color, var(--mp-accent)) 55%, var(--mp-border));
-  background: color-mix(in srgb, var(--chip-color, var(--mp-accent)) 14%, var(--mp-surface));
-}
-
-.mp-chip-dot {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--chip-color, var(--mp-accent));
-  color: #fff;
-  font-size: 10px;
-  line-height: 1;
-}
-
-.mp-chip-num {
-  color: var(--mp-muted);
-  font-size: 11px;
 }
 
 .mp-list {
@@ -387,10 +325,13 @@ body {
   left: 16px;
   bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   display: grid;
-  /* 纯图标：列宽就是图标按钮的宽度，栏体缩到刚好包住它们 */
-  grid-template-columns: 36px repeat(2, 36px);
+  /*
+   * 六枚按钮等分整行：任何屏宽下都一样宽，不会一枚大一枚小（flex-1 的等价写法）。
+   * 宽度与检索卡片（.mp-sidebar）严格一致，上方的两个浮层才能和搜索框对齐。
+   */
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
-  width: max-content;
+  width: min(340px, calc(100vw - 32px));
   padding: 10px 12px;
   border: 1px solid var(--mp-border);
   border-radius: 8px;
@@ -415,64 +356,16 @@ body {
 }
 
 .mp-actions .mp-btn {
-  width: 36px;
+  width: 100%;
   height: 36px;
   min-width: 0;
   padding: 0;
 }
 
 /*
- * 操作卡片里从左到右：添加者、导入、分类、开合检索区、添加标记。
- * PC 与手机共用同一套顺序（PC 端五枚全显示，手机端按权限隐藏其中几枚）。
+ * 按钮顺序就是 DOM 顺序：分类 / 添加者 / 导入标记 / 分类管理 / 开合检索区 / 添加标记。
+ * 这里不再用 order 重排，也不用「开合键竖跨两行」那套两行网格——六枚一律等高。
  */
-.mp-actions #mapOwnerBtn {
-  order: 1;
-}
-
-.mp-actions #mapImportBtn {
-  order: 2;
-}
-
-.mp-actions #mapCatsBtn {
-  order: 3;
-}
-
-.mp-actions .mp-actions-toggle {
-  order: 4;
-}
-
-.mp-actions #mapAddBtn {
-  order: 5;
-}
-
-/* 开合键在桌面上竖跨两行，做成与整栏同高的把手（height: auto + span 2） */
-.mp-actions .mp-actions-toggle {
-  height: auto;
-}
-
-.mp-actions-toggle {
-  grid-row: span 2;
-  width: 36px;
-  height: auto;
-  padding: 0;
-}
-
-.mp-actions.one-action {
-  grid-template-columns: 36px 36px;
-}
-
-.mp-actions.is-solo {
-  grid-template-columns: 36px;
-}
-
-.mp-actions.is-solo .mp-actions-toggle {
-  grid-row: auto;
-  width: 36px;
-}
-
-.mp-actions.single-row .mp-actions-toggle {
-  grid-row: auto;
-}
 
 /* ---------- buttons & tools ---------- */
 
@@ -618,7 +511,12 @@ body {
   gap: 8px;
 }
 
-.mp-tools button {
+/*
+ * 只作用于工具列自己的按钮（含搜索槽里那一枚），
+ * 别管搜索面板里的结果项——它们是普通按钮，要撑满整行。
+ */
+.mp-tools > button,
+.mp-search-slot > button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -633,23 +531,21 @@ body {
   cursor: pointer;
 }
 
-.mp-tools button:hover {
+.mp-tools > button:hover,
+.mp-search-slot > button:hover {
   background: var(--mp-hover);
 }
 
-.mp-tools button.is-on {
+.mp-tools > button.is-on,
+.mp-search-slot > button.is-on {
   border-color: var(--mp-accent);
   color: var(--mp-accent);
 }
 
-.mp-tools svg {
+.mp-tools > button svg,
+.mp-search-slot > button svg {
   width: 18px;
   height: 18px;
-}
-
-.mp-tools button.is-on {
-  border-color: var(--mp-accent);
-  color: var(--mp-accent);
 }
 
 .mp-base-panel {
@@ -668,6 +564,105 @@ body {
 
 .mp-base-panel[hidden] {
   display: none;
+}
+
+/*
+ * 右上角地点搜索：按钮是工具列的第四枚，输入框从按钮左侧滑出（Slide Left）。
+ * 收起时向右缩回按钮方向；z-index 压过地图和工具列本身。
+ */
+.mp-search-slot {
+  position: relative;
+  display: block;
+}
+
+.mp-search-flyout {
+  position: absolute;
+  top: 0;
+  /* 贴着按钮左边 12px，宽度再按屏宽收一次 */
+  right: calc(100% + 12px);
+  z-index: 45;
+  width: min(320px, calc(100vw - 108px));
+  padding: 8px;
+  border: 1px solid var(--mp-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mp-surface) 96%, transparent);
+  box-shadow: var(--mp-shadow);
+  backdrop-filter: blur(10px);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(28px);
+  pointer-events: none;
+  transition:
+    opacity 0.18s ease,
+    transform 0.22s cubic-bezier(0.32, 0.72, 0, 1),
+    visibility 0.22s;
+}
+
+.mp-search-flyout.is-open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+.mp-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--mp-border);
+  border-radius: 8px;
+  background: var(--mp-surface-2);
+}
+
+.mp-search-bar:focus-within {
+  border-color: var(--mp-accent);
+  background: var(--mp-surface);
+}
+
+.mp-search-bar svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--mp-faint);
+}
+
+.mp-search-bar input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  border: 0;
+  background: none;
+  color: var(--mp-text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+/* 结果面板：从输入框下方平滑展开，而不是硬生生出现 */
+.mp-search-flyout .mp-poi-list {
+  max-height: 0;
+  margin-top: 0;
+  padding: 0;
+  border-color: transparent;
+  opacity: 0;
+  transition:
+    max-height 0.22s ease,
+    opacity 0.18s ease,
+    padding 0.22s ease,
+    margin-top 0.22s ease;
+}
+
+.mp-search-flyout .mp-poi-list.is-open {
+  max-height: 260px;
+  margin-top: 8px;
+  padding: 4px;
+  border-color: var(--mp-border);
+  opacity: 1;
+}
+
+.mp-search-flyout .mp-field-hint {
+  margin: 6px 2px 0;
 }
 
 .mp-base-item {
@@ -758,8 +753,12 @@ body {
   display: block;
   position: absolute;
   z-index: 70;
-  left: 0;
-  right: 0;
+  /*
+   * 卡片自己带 1px 边框，绝对定位是相对 padding box 的，
+   * 所以往外各让 1px，浮层宽度才和操作卡片（= 检索卡片）严格相等。
+   */
+  left: -1px;
+  right: -1px;
   bottom: calc(100% + 8px);
   max-height: min(46vh, 320px);
   overflow-y: auto;
@@ -775,14 +774,43 @@ body {
   overflow: visible;
 }
 
-.mp-owner-entry.is-active {
+/* 有筛选生效时按钮点亮（添加者 / 分类共用） */
+.mp-actions .mp-btn.is-active {
   border-color: var(--mp-accent);
   color: var(--mp-accent);
 }
 
 /* 浮层开着的时候别再叠一个悬停气泡上去 */
-.mp-owner-entry[aria-expanded="true"]::after {
+.mp-actions .mp-btn[aria-expanded="true"]::after {
   display: none;
+}
+
+/*
+ * 分类浮层：外壳与添加者浮层完全同一套（同一个 .mp-owner-pop 类），
+ * 里面按层级缩进的多级分类树：每深一级往右 14px。
+ */
+.mp-cat-option {
+  padding-left: calc(12px + var(--cat-depth, 0) * 14px);
+}
+
+.mp-cat-option .mp-cat-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--cat-color, var(--mp-accent));
+  color: #fff;
+  font-size: 10px;
+  line-height: 1;
+}
+
+/* 「全部分类」没有颜色，用一个灰点占位，左边距和其它行对齐 */
+.mp-cat-option .mp-cat-dot.is-all {
+  background: color-mix(in srgb, var(--mp-muted) 35%, transparent);
+  color: var(--mp-muted);
 }
 
 .mp-pin-mode {
@@ -1390,30 +1418,6 @@ body {
   font-size: 11.5px;
 }
 
-.mp-poi-search {
-  display: flex;
-  gap: 8px;
-}
-
-.mp-poi-search input {
-  flex: 1;
-  min-width: 0;
-  height: 36px;
-  padding: 0 11px;
-  border: 1px solid var(--mp-border);
-  border-radius: 8px;
-  background: var(--mp-surface-2);
-  color: var(--mp-text);
-  font: inherit;
-  font-size: 13px;
-  outline: none;
-}
-
-.mp-poi-search input:focus {
-  border-color: var(--mp-accent);
-  background: var(--mp-surface);
-}
-
 .mp-poi-list {
   display: flex;
   flex-direction: column;
@@ -1739,19 +1743,6 @@ body {
   height: 15px;
 }
 
-/*
- * 移动端改造用的包装层与专用元素。
- * 桌面端：包装层一律 display: contents「透明化」，子元素仍按原样参与布局，
- * 因此 PC 端的尺寸、间距、换行与改版前完全一致；专用元素全部不显示。
- */
-.mp-chips-row {
-  display: contents;
-}
-
-.mp-cats-toggle {
-  display: none;
-}
-
 /* ---------- responsive ---------- */
 
 @media (max-width: 860px) {
@@ -1799,12 +1790,8 @@ body {
     width: auto;
     gap: 6px;
     padding: 8px;
-    grid-template-columns: 44px repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     transition: opacity 0.18s ease;
-  }
-
-  .mp-actions.one-action {
-    grid-template-columns: 44px minmax(0, 1fr);
   }
 
   /*
@@ -1850,27 +1837,6 @@ body {
     height: 13px;
   }
 
-  .mp-cats {
-    padding: 3px 10px 5px;
-    gap: 4px;
-    max-height: 54px;
-  }
-
-  /*
-   * 分类胶囊只有 24–26px 高，不打算把视觉高度改大（否则省下的高度又还回去了），
-   * 改成用透明伪元素把上下各外扩 4px，点按热区变成 32px，看起来还是紧凑的一行胶囊。
-   */
-  .mp-cats .mp-chip {
-    position: relative;
-  }
-
-  .mp-cats .mp-chip::after {
-    content: "";
-    position: absolute;
-    inset: -4px 0;
-    border-radius: inherit;
-  }
-
   /* 弹窗：手机上限定在屏幕内，宽度一律「屏宽 - 24px」 */
   .mp-modal {
     padding: 12px;
@@ -1911,7 +1877,23 @@ body {
     right: 60px;
   }
 
-  .mp-tools button {
+  .mp-search-flyout {
+    right: calc(100% + 10px);
+    width: min(300px, calc(100vw - 96px));
+  }
+
+  .mp-search-bar input {
+    /* 手机上输入框小于 16px，聚焦时 iOS 会把整页放大 */
+    font-size: 16px;
+  }
+
+  /* 检索卡片滑出时工具列整条向右让位，搜索框跟着走，并且不能再吃点击 */
+  .mp-app.is-panel-open .mp-search-flyout {
+    pointer-events: none;
+  }
+
+  .mp-tools > button,
+  .mp-search-slot > button {
     width: 38px;
     height: 38px;
   }
@@ -1943,64 +1925,22 @@ body {
     padding: 10px 12px;
   }
 
-  /* 主分类 + 二级分类合成一条横滑轨道，隐藏滚动条 */
-  .mp-chips-row {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 3px 10px 5px;
-    border-bottom: 1px solid var(--mp-border);
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .mp-chips-row::-webkit-scrollbar {
-    display: none;
-  }
-
-  .mp-chips-row .mp-cats {
-    flex: 0 0 auto;
-    flex-wrap: nowrap;
-    gap: 4px;
-    max-height: none;
-    padding: 0;
-    border-bottom: 0;
-    overflow: visible;
-  }
-
-  .mp-chips-row .mp-subcats {
-    padding-left: 0;
-    background: none;
-  }
-
   /*
    * 底部操作卡片：常驻屏幕底部，和上方的检索卡片分开（中间留 10px）。
-   * 按钮平铺一排、等分整行，触控高度守 44px，和桌面端同一套顺序与显隐规则。
+   * 六枚按钮平铺一排、等分整行（与桌面端同一套顺序、同一套等分宽度），触控高度守 44px。
    */
-  .mp-actions,
-  .mp-actions.one-action,
-  .mp-actions.is-solo,
-  .mp-actions.single-row {
+  .mp-actions {
     left: 12px;
     right: 12px;
     bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     width: auto;
-    grid-template-columns: none;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 8px;
     padding: 8px;
   }
 
-  .mp-actions .mp-btn,
-  .mp-actions .mp-actions-toggle,
-  .mp-actions.is-solo .mp-actions-toggle,
-  .mp-actions.single-row .mp-actions-toggle {
-    grid-column: auto;
-    grid-row: auto;
-    width: auto;
+  .mp-actions .mp-btn {
+    width: 100%;
     height: 44px;
     min-height: 44px;
     min-width: 0;
@@ -2008,8 +1948,7 @@ body {
     border-radius: 10px;
   }
 
-  .mp-actions .mp-btn svg,
-  .mp-actions .mp-actions-toggle svg {
+  .mp-actions .mp-btn svg {
     width: 20px;
     height: 20px;
   }
@@ -2116,10 +2055,6 @@ body {
     grid-template-columns: 1fr;
     gap: 0;
   }
-
-  .mp-actions .mp-btn {
-    padding: 0 10px;
-  }
 }
 
 /* 平板竖屏 / 手机横屏（<=1024）也是触摸屏，输入框小于 16px 时 iOS 聚焦同样会放大整页 */
@@ -2160,7 +2095,7 @@ body {
     border-top-right-radius: 8px;
   }
 
-  /* ---------- 卡片内顺序：搜索框 → 分类 → 列表 ---------- */
+  /* ---------- 卡片内顺序：搜索框 → 列表 ---------- */
   .mp-sidebar > .mp-sidebar-head {
     order: 0;
   }
@@ -2169,74 +2104,8 @@ body {
     order: 1;
   }
 
-  .mp-chips-row {
-    order: 2;
-  }
-
   .mp-list {
     order: 10;
-  }
-
-  /* ---------- 分类：默认 1-2 行 + 底部渐隐 + 右下角展开按钮 ---------- */
-  .mp-chips-row {
-    display: block;
-    position: relative;
-    margin: 0 12px 8px;
-    /* 右侧留出悬浮箭头的宽度，标签不会跑到箭头底下 */
-    padding-right: 20px;
-    /* 2.5 行：第二行完整、第三行只露半截，配合底部渐隐暗示还能展开 */
-    max-height: 82px;
-    overflow: hidden;
-    transition: max-height 0.26s cubic-bezier(0.32, 0.72, 0, 1);
-  }
-
-  .mp-chips-row.is-expanded {
-    max-height: 320px;
-  }
-
-  .mp-chips-row .mp-cats {
-    max-height: none;
-    overflow: visible;
-    padding-left: 0;
-    padding-right: 0;
-  }
-
-  /* 折叠时底部 40% 渐隐，暗示下面还有 */
-  .mp-chips-row:not(.is-expanded) .mp-cats {
-    mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
-    -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
-  }
-
-  .mp-cats-toggle {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    position: absolute;
-    right: 0;
-    bottom: 0;
-    /* 浮在标签之上，纯图标，不带边框 / 底色 / 阴影 */
-    z-index: 3;
-    width: 22px;
-    height: 20px;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--mp-muted);
-    cursor: pointer;
-  }
-
-  .mp-cats-toggle:hover {
-    color: var(--mp-text);
-  }
-
-  .mp-cats-toggle svg {
-    width: 16px;
-    height: 16px;
-    transition: transform 0.2s ease-out;
-  }
-
-  .mp-chips-row.is-expanded .mp-cats-toggle svg {
-    transform: rotate(180deg);
   }
 
   /* ---------- 列表：更紧凑，副标题靠右当标签 ---------- */
@@ -2282,29 +2151,19 @@ body {
 
   /*
    * ---------- 操作卡片：一排纯图标按钮，与检索卡片同宽、尽量矮 ----------
-   * 卡片里从左到右是「添加者、导入、分类、展开/收起检索区、添加标记」，
-   * 可见按钮数量随权限变化，所以用 grid-auto-flow 让它们自己均分整行。
+   * 六枚按钮等分整行（分类 / 添加者 / 导入标记 / 分类管理 / 开合检索区 / 添加标记），
+   * 和手机端完全同一套顺序与等分规则。
    */
-  .mp-actions,
-  .mp-actions.one-action,
-  .mp-actions.is-solo,
-  .mp-actions.single-row {
+  .mp-actions {
     width: min(340px, calc(100vw - 32px));
-    grid-template-columns: none;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 6px;
     padding: 6px;
   }
 
-  /* 图标按钮：没有文字，所以给一个矮一点的正方形，五枚并排也不挤 */
-  .mp-actions .mp-btn,
-  .mp-actions .mp-actions-toggle,
-  .mp-actions.is-solo .mp-actions-toggle {
-    grid-column: auto;
-    grid-row: auto;
-    justify-self: stretch;
-    width: auto;
+  /* 图标按钮：没有文字，六枚并排也不挤 */
+  .mp-actions .mp-btn {
+    width: 100%;
     height: 34px;
     min-height: 34px;
     padding: 0;
