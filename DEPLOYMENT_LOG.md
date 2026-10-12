@@ -3160,3 +3160,60 @@ nginx       -> systemctl is-active nginx = active，errorjiang 未重启、/api/
 留言页的删除权限、九宫格、灯箱、悬浮筛选等实际交互是在**同一提交**的隔离实例上用真浏览器（桌面 / 手机、普通账号）量的；
 线上按「静态哈希一致 + 代码特征 + 权限接口 401 + 页面无报错 + 更新日志入库 + 健康检查」确认。留言内容需要登录，
 所以线上的筛选 / 菜单交互没有用管理员账号直接复测（不掌握线上口令）。
+
+## 91. 2026-10-12 20:00:24 留言页交互细节：悬浮发送按钮、按钮留白与点赞线框化
+
+需求（站长一次列了四条）：点赞改成只换描边、不实心填充；左上角筛选按钮旁加一枚「发送留言」悬浮按钮，
+编辑框滚出上方才纯渐变显示、点它回顶并聚焦输入框；左上角两枚按钮和右下角「顶部」按钮都往里收、留出舒适边距，
+「顶部」按钮移到卡片内侧右下角；修掉删除顶部导航栏后移动端残留的顶部空白。
+
+完成内容（`4c9228b feat:polish-messages-floating-actions-and-like-outline`，5 文件，+110/−13）：
+- 点赞线框化：删掉 `.mg-like-btn.is-liked svg { fill: currentColor }`，已点赞只把 `color` 换成主题色，
+  lucide 图标保持 `fill:none` 的线框；未点赞仍是 `--mg-faint` 灰线，取消后自动恢复。
+- 顶部空白：`.mg-main` 的 `padding-top: 18px` 是给已删除的顶部导航栏留的占位，改成 `0`；
+  `.mg-app` 顶部内边距从 20px（手机 18px）收到 14px（手机 10px），配合 `env(safe-area-inset-top)` 紧贴安全区。
+  实测内容首行 top：桌面 14px、手机 10px（原来分别是 38px / 36px）。
+- 按钮留白：`.mg-filter-dock` 加 `margin-left: 6px`、`gap: 8px`，`top` 由 12px 收到 14px + 安全区；
+  右下角「顶部」按钮改 `right: calc(max(12px, (100vw - 900px)/2 + 16px) + 20px)`（落在卡片右缘内侧 20px）、
+  `bottom` 抬高 28px（底部留白约 50px），仍在 `body[data-notify-module="messages"]` 下覆盖，不影响其它页面。
+- 发送悬浮按钮：筛选按钮旁新增 `#messageSendBtn`（同一套 `.mg-filter-btn` 样式，size / 圆角 / 毛玻璃一致）。
+  用 `IntersectionObserver`（threshold 0）观察 `#messageComposerPanel`：`!isIntersecting && boundingClientRect.bottom <= 0`
+  即编辑框完全滚出上方，才给按钮加 `.is-visible`；CSS 只做 `transition: opacity .24s`（`transform: none`，无位移 / 缩放），
+  隐藏时 `pointer-events: none` + `aria-hidden` + `tabindex=-1`。点它先淡出，再 `window.scrollTo({top:0, behavior:'smooth'})`，
+  随后 `msgContent.focus({preventScroll:true})`（兜底无 `preventScroll` 时退回 `focus()`）；没有 `IntersectionObserver` 的环境
+  用 rAF 节流的 scroll 监听兜底。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 109 项全过
+      python -m json.tool config/changelog-seed.json；node --check static/messages.js；git diff --check 干净
+      隔离实例（复制 inventory.db，端口 8100）Playwright 实测（桌面 1440x800 / 手机 412x800）：
+        顶部留白：mg-app padding-top 14px（手机 10px）、mg-main padding-top 0、内容首行 top 14 / 10px
+        按钮留白：dock left 292（桌面）/ 18（手机），比卡片左缘内收 6px；dock sticky top = 14px；
+                  「顶部」按钮右缘落在卡片右缘内侧 20px、距底 50px，z-index 39
+        发送按钮：scrollY=0 时 opacity 0 / pointer-events none；滚到编辑框 bottom<0 后 opacity 1；transitionProperty 只有 opacity、transform none
+                  点击后 opacity 淡出、scrollY 由 1200 回到 0、activeElement = msgContent、回到顶部后按钮保持隐藏
+        点赞：已点赞 color = rgb(123,104,238) 且 svg fill=none / stroke=同色；未点赞 color = rgb(164,172,185)、fill=none
+        筛选回归：菜单仍贴着筛选按钮下方展开、四选项与 ?filter= 联动正常
+      清理：临时实例与截图目录已删除，真实 inventory.db 未写入
+提交：4c9228b（fetch/push 后本地 == origin/main）
+备份：/data/errorjiang-backup/msgfloat-20261012-2001/（停服后复制 inventory.db 与 changelog-seed.json）
+服务器：git pull --ff-only 8642b04 -> 4c9228b（本轮没动 app.py，纯静态 + 文档）；changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 B9EC4AE2…3E24 一致）
+      import_changelog_moments.py --date 2026-10-12 --force -> 新增 10 条
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 4c9228b，/api/health = {"ok": true}
+更新日志    -> /api/moments 里 2026-10-12 20:00:24「留言页交互细节：悬浮发送按钮、按钮留白与点赞线框化」（id=361，kind=log）
+静态资源    -> messages.js / messages.css 与本机 SHA256 相同；messages.html（本机 CRLF）与线上 / git blob 逐字节一致
+代码特征    -> 线上 messages.html 有 messageSendBtn / mg-send-float；messages.js 有 initSendFloat / IntersectionObserver / preventScroll；
+              messages.css 有 mg-send-float、padding-top: 0、margin-left: 6px、(100vw - 900px) 公式，且已无 fill: currentColor
+线上页面    -> Playwright 打开 https://zhexiyan.cc/messages（桌面 1440x900 / 手机 412x915）：padding-top 实测 14px / 10px、
+              mg-main padding-top 0、筛选 dock 与发送按钮都在 DOM 里，无 JS / 控制台报错
+```
+
+备注：本轮是纯前端静态文件 + 文档（`app.py` 没动），线上生效靠 `git pull`；重启只是导入更新日志流程的常规动作。
+四条的实际表现（顶部留白、按钮留白、发送按钮显隐 / 回顶 / 聚焦、点赞线框）都是在**同一提交**的隔离实例上用真浏览器量的；
+线上按「静态哈希一致 + 代码特征 + 页面无报错 + 更新日志入库 + 健康检查」确认。留言页需要登录才能看到正文与悬浮按钮，
+所以线上的交互没有用管理员账号直接复测（不掌握线上口令）。
