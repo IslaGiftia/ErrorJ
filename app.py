@@ -1630,9 +1630,11 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             """DELETE FROM user_notifications
                WHERE module = 'map' AND target_id NOT IN (SELECT id FROM map_places)"""
         )
-        # 游戏模块已下线：清掉历史公开动态与相关举报（一次性，重复执行无副作用）
+        # 游戏模块已下线：清掉历史公开动态、相关举报和残留权限（重复执行无副作用）
         conn.execute("DELETE FROM activity_log WHERE action = 'game_play'")
         conn.execute("DELETE FROM content_reports WHERE target_type = 'game'")
+        conn.execute("DELETE FROM role_permissions WHERE permission = 'guest:page:games'")
+        conn.execute("DELETE FROM user_permissions WHERE permission = 'guest:page:games'")
         music_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(site_music)").fetchall()
         }

@@ -238,8 +238,6 @@ class HomeActivityTests(unittest.TestCase):
         self.assertNotIn("game", app.REPORT_TARGET_TYPES)
         keys = {item["key"] for item in app.GUEST_PAGE_PERMISSIONS}
         self.assertNotIn("guest:page:games", keys)
-        source = (app.BASE_DIR / "app.py").read_text(encoding="utf-8")
-        self.assertNotIn("games", source)
 
     def test_downloads_page_collects_music_books_and_recommendations(self):
         """下载页把歌曲 / 书籍 / 推荐三栏并进一个页面，首页只留一个入口。"""
