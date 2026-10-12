@@ -3526,3 +3526,79 @@ CSS 选择器从 `.mo-composer-foot > .mo-btn-primary` 改成 `.mo-composer-foot
 量的；线上是口令站点，游客看不到编辑区和悬浮区，所以线上侧用「已提交内容与线上静态文件逐字节一致 +
 真浏览器量两页容器几何」来确认。本轮 `app.py` 没有改动，因此前端 pull 完即生效，不需要重启服务，
 备份期间的短暂停服只是为了拿到一致的数据库副本。
+
+## 96. 2026-10-13 00:02:00 回复框统一、动态头像换透明立绘、分享卡改版
+
+这一版打包了三轮需求（都按「先提问再施工」的节奏走的）：
+
+① 输入 / 回复体验统一：留言页回复框直接移植动态页那一套；所有输入框的去装饰；筛选菜单展开时整排图标翻转。
+② 动态卡片头像改成透明底立绘，并要求与「Error酱」昵称中心水平对齐。
+③ 分享卡改版：歌曲卡放大封面 + 精简文案 + 复用播放页播放键；笔记卡去掉「笔记」小标签；
+   顺便修掉「分享生成的空正文动态无法置顶」的老问题。
+
+完成内容（提交 `c98176a feat:unify-reply-ui-avatar-art-and-share-cards`，9 文件，+245/−90）：
+
+- 留言页回复 UI（`messages.js` / `messages.css`）：`buildReplyForm()` 重写成「左边 textarea + 右边「发送」」
+  一行（桌面 flex、手机 grid），去掉 `<label>回复</label>`、去掉「公开 IP 属地」勾选（提交不再发 `show_region`）、
+  去掉「取消」按钮；展开 / 收起仍由「回复」按钮 toggle，并新增 `bindReplyToggle()` 让按钮在展开时变主题色
+  （`.mg-item-actions .mg-link-btn.is-active`，和动态页一致）。高度统一到 `--mg-input-h: 38px`，
+  两个控件同高（手机端不再被 `.mg-btn` 的 44px 最小高度撑开）。
+- 输入框去装饰（两页 CSS）：`textarea` 与灯箱舞台统一 `scrollbar-width: none` + `::-webkit-scrollbar{width/height:0}`，
+  滚动能力保留、右下角拖拽手柄保留。动态页评论框与「发送」统一 `--mo-input-h: 38px`
+  （手机端按钮 44 → 38，选择器提到 `.mo-comment-form .mo-comment-submit` 才压得住 `.mo-btn` 的 44px）。
+- 飞机动画（`moments.js` / `moments.css`）：`setFilterMenuOpen()` 同步给 `#momentDock` 加 `is-open`，
+  `.mo-dock.is-open .mo-send-float svg { transform: rotate(180deg) }` —— 和留言页「打开筛选菜单整排图标一起转」一致。
+- 动态头像（`moments.js` / `moments.css` / 新图）：源图是站长桌面的 `可爱Error酱.png`（1254×1254、RGBA，
+  本来就带透明通道），缩到 160×160 存为 `static/site/error-chan-avatar.png`（40KB，保留透明）；
+  `.mo-avatar` 去掉 `background: var(--mo-accent-soft)` 圆底、改 `object-fit: contain` + `align-self: start`，
+  新增 `--mo-avatar`（桌面 40px / 手机 36px）同时也用作 `.mo-item-head` 的 `min-height` ——
+  昵称那一行与头像同高且内容居中，两者中心自然重合。
+- 分享卡（`moments.js` / `moments.css`）：歌曲卡删除标签行、封面 46 → 52px（手机 44px，`--mo-share-cover`）
+  仍等比 `cover` 裁切并留在卡片内；播放键换成播放页 `.mu-icon-btn.mu-play` 的实心圆形样式（44 / 40px），
+  动画复用同一个 `static/site/morph-icons.js`（动态页新增 `<script type="module">`），
+  点击时 `ErrorMorph.morph(btn,"pause")` 做 play↔pause 描边形变，没有该模块时退回 lucide 硬切；
+  笔记卡也去掉标签行（书籍卡保留）。
+- 置顶修复（`app.py`）：`api_moment_item()` 的「无正文」校验原来只认 `moment_files`，
+  现在 `moment_files OR moment_shares` 都算有内容，分享生成的空正文动态可以正常置顶 / 编辑。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 109 项全过
+      node --check static/moments.js / messages.js / books.js / site/activity.js 全过；python -m json.tool seed；git diff --check 干净
+      隔离实例（端口 8001，同一份 inventory.db）真浏览器（桌面 1440x900 / 手机 412x915，浅色主题）：
+        回复 UI：labels=[] / 勾选框 0 / 按钮只有「发送」/ 输入框 = 按钮 = 38px（手机同样）/ 点开变主题色、收起恢复灰色
+        滚动条：输入框塞满 40 行后 offset-client 只剩 2px 边框；灯箱内容溢出（scrollWidth 1425）滚动条占位 0
+        飞机：打开菜单 transform = matrix(-1,0,0,-1,0,0)，关闭回到 none
+        头像：改前头像中心比昵称中心低 5px（手机高 1px），改后两档都是 0.0px；avatarBackground = rgba(0,0,0,0)
+        分享卡：封面 52/44、播放键 44/40、实心主题色 rgb(123,104,238)、svg 带 morph-icon、
+                歌名与歌手 left 相同、封面中心与文字块中心 0.0px；笔记卡无标签、书籍卡有标签
+        播放动画：真实鼠标点击后 data-icon play→pause、类名变 lucide-pause、
+                  path d 在 90ms 与 800ms 采样不同（确认是形变而非硬切）
+        置顶：对歌曲 / 笔记 / 书籍三条分享动态 PATCH {pinned:true} 全部 200 且 pinned=true
+      测试数据（3 条分享动态 + 分享记录 + 3 条 PATCH 操作日志 + 临时挂的封面）已全部还原，
+      真实 inventory.db 回到 19 条动态、分享 / 评论 / 点赞各 0、activity_log 46 条
+提交：c98176a（fetch/push 后本地 == origin/main == c98176a）
+备份：/data/errorjiang-backup/reply-ui-avatar-share-20261013-0002/（停服后复制 inventory.db 3657728 字节
+      与 changelog-seed.json 65211 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only 1e88c24 -> c98176a（app.py 有改动，靠 restart 生效）
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 463B4626…5BCC 一致）
+      import_changelog_moments.py --date 2026-10-12 --force -> 新增 15 条，覆盖 0 条
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务启动时间 00:01:31（在 git pull 之后），
+              服务器 HEAD = c98176a，/api/health = {"ok": true}
+更新日志    -> /api/moments 里 2026-10-12 23:59:35「回复框统一、动态头像换透明立绘、分享卡改版」（id=427，kind=log）
+静态资源    -> moments.html / moments.css / moments.js / messages.css / messages.js 的**已提交内容**与线上返回逐字节相同；
+              新增的 static/site/error-chan-avatar.png 线上返回正好 39629 字节（与本机文件同尺寸）
+线上页面    -> 游客打开 https://zhexiyan.cc/moments 与 /messages（桌面 1440x900 / 手机 412x915）：
+              两页内容区宽度 760 / 760（手机 412 / 412）、max-width 与左右内边距同值、无横向溢出、
+              无 JS 异常与 4xx / 5xx，动态页开发日志 76 行正常渲染
+```
+
+备注：本轮 `app.py` 有改动（空正文分享动态的置顶校验），线上生效靠 restart；静态文件每次请求读磁盘。
+登录态才能看到的那些（留言页回复框、分享卡、置顶按钮）是在隔离实例上用真浏览器逐个验证的 ——
+线上需要口令，游客视角只能确认「静态文件逐字节一致 + 两页无报错 + 更新日志入库 + 头像图可正常取到」。
+另外头像仍按 50% 圆角裁切（会切掉约 10% 的头发 / 肩膀边缘）；扁平化为一张 160×160 的透明 PNG 是为了避免
+每张卡片拖 1.28MB 的原图，显示尺寸不变。
