@@ -155,11 +155,21 @@
         <div class="mp-field-row">
           <div class="mp-field">
             <label for="placeCategoryTop">一级分类</label>
-            <select id="placeCategoryTop"></select>
+            <select id="placeCategoryTop" class="mp-cat-select"></select>
+            <button type="button" class="mp-cat-trigger" id="placeCategoryTopBtn"
+                    aria-haspopup="dialog" aria-controls="mapCatPickModal">
+              <span class="mp-cat-trigger-label">按文件里的分类</span>
+              <i data-lucide="chevron-down" aria-hidden="true"></i>
+            </button>
           </div>
           <div class="mp-field">
             <label for="placeCategorySub">二级分类</label>
-            <select id="placeCategorySub"></select>
+            <select id="placeCategorySub" class="mp-cat-select"></select>
+            <button type="button" class="mp-cat-trigger" id="placeCategorySubBtn"
+                    aria-haspopup="dialog" aria-controls="mapCatPickModal">
+              <span class="mp-cat-trigger-label">未分类</span>
+              <i data-lucide="chevron-down" aria-hidden="true"></i>
+            </button>
           </div>
         </div>
         <div class="mp-field">
@@ -302,6 +312,23 @@
         <button class="mp-btn" id="mapConfirmCancel" type="button">取消</button>
         <button class="mp-btn mp-btn-danger" id="mapConfirmOk" type="button">删除</button>
       </div>
+    </div>
+  </div>
+
+  <!--
+    移动端分类选择面板：点「一级分类 / 二级分类」从底部滑出，内部复用 PC
+    分类筛选弹窗的列表行样式。PC 上触发按钮不显示，字段直接用原生 <select>。
+  -->
+  <div class="mp-catpick" id="mapCatPickModal" hidden>
+    <div class="mp-catpick-backdrop" data-catpick-close></div>
+    <div class="mp-catpick-sheet" role="dialog" aria-modal="true" aria-labelledby="mapCatPickTitle">
+      <header class="mp-catpick-head">
+        <h2 id="mapCatPickTitle">选择分类</h2>
+        <button class="mp-icon-btn" type="button" id="mapCatPickClose" aria-label="关闭" data-catpick-close>
+          <i data-lucide="x"></i>
+        </button>
+      </header>
+      <div class="mp-owner-options mp-catpick-list" id="mapCatPickList"></div>
     </div>
   </div>
 

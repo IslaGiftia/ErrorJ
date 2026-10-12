@@ -649,6 +649,57 @@
   }
 
   /*
+   * 分类选项行的公共组件：PC 分类筛选弹窗和手机端分类选择面板共用同一份
+   * 结构与样式（.mp-owner-option.mp-cat-option：圆形色点 + 名称 + 选中高亮），
+   * 保证两端视觉一致。opts：
+   *   active     选中高亮（.is-active，主题色描边 + 主题色浅底）
+   *   hasKids    有下级，行上带展开箭头
+   *   expanded   展开态（配 hasKids）
+   *   dataCat    行上的 data-cat；不传时用分类 id（「无分类」行传 ""）
+   *   dotAll     没有分类色，用「全部分类」那种灰点占位
+   *   label      文字，默认分类名
+   *   meta       右侧小字，默认不显示
+   *   extraAttrs 追加到按钮上的额外属性
+   */
+  function catOptionButtonHtml(cat, opts) {
+    opts = opts || {};
+    var hasKids = Boolean(opts.hasKids);
+    var attrs =
+      'data-cat="' + (opts.dataCat != null ? opts.dataCat : cat ? cat.id : "") + '"';
+    if (hasKids) {
+      attrs +=
+        ' data-cat-parent="' +
+        cat.id +
+        '" aria-expanded="' +
+        (opts.expanded ? "true" : "false") +
+        '"';
+    }
+    if (opts.extraAttrs) attrs += opts.extraAttrs;
+    var dot = opts.dotAll
+      ? '<i class="mp-cat-dot is-all">·</i>'
+      : '<i class="mp-cat-dot" style="--cat-color:' +
+        esc(cat.color) +
+        '">' +
+        esc(cat.glyph || "·") +
+        "</i>";
+    return (
+      '<button type="button" class="mp-owner-option mp-cat-option' +
+      (opts.active ? " is-active" : "") +
+      (hasKids ? " is-parent" : "") +
+      '" ' +
+      attrs +
+      ">" +
+      dot +
+      "<span>" +
+      esc(opts.label != null ? opts.label : cat.name) +
+      "</span>" +
+      (opts.meta != null ? "<em>" + esc(opts.meta) + "</em>" : "") +
+      (hasKids ? '<i class="mp-cat-caret" aria-hidden="true"></i>' : "") +
+      "</button>"
+    );
+  }
+
+  /*
    * 分类树：默认只露一级，含下级的节点点一下展开 / 折叠（本身不参与筛选），
    * 叶子节点点一下才过滤。展开状态记在 state.expandedKeys 里，
    * 所以折叠 / 展开只动这一棵子树（隐藏 children 容器），不重建整棵树。
@@ -664,27 +715,12 @@
       var expanded = state.expandedKeys.has(cat.id);
       html +=
         '<div class="mp-cat-node" style="--cat-depth:' + depth + '">' +
-        '<button type="button" class="mp-owner-option mp-cat-option' +
-        (state.categoryFilter === cat.id ? " is-active" : "") +
-        (kids.length ? " is-parent" : "") +
-        '" data-cat="' +
-        cat.id +
-        '"' +
-        (kids.length
-          ? ' data-cat-parent="' + cat.id + '" aria-expanded="' + (expanded ? "true" : "false") + '"'
-          : "") +
-        ">" +
-        '<i class="mp-cat-dot" style="--cat-color:' +
-        esc(cat.color) +
-        '">' +
-        esc(cat.glyph || "·") +
-        "</i><span>" +
-        esc(cat.name) +
-        "</span><em>" +
-        count +
-        " 个标记</em>" +
-        (kids.length ? '<i class="mp-cat-caret" aria-hidden="true"></i>' : "") +
-        "</button>";
+        catOptionButtonHtml(cat, {
+          active: state.categoryFilter === cat.id,
+          hasKids: kids.length > 0,
+          expanded: expanded,
+          meta: count + " 个标记"
+        });
       if (kids.length) {
         html +=
           '<div class="mp-cat-kids" data-kids="' +
@@ -771,13 +807,14 @@
         counts[place.category_id] = (counts[place.category_id] || 0) + 1;
       }
     });
-    var html =
-      '<button type="button" class="mp-owner-option mp-cat-option' +
-      (state.categoryFilter ? "" : " is-active") +
-      '" data-cat="" style="--cat-depth:0">' +
-      '<i class="mp-cat-dot is-all">·</i><span>全部分类</span><em>' +
-      state.places.length +
-      " 个标记</em></button>";
+    var html = catOptionButtonHtml(null, {
+      active: !state.categoryFilter,
+      dataCat: "",
+      dotAll: true,
+      label: "全部分类",
+      meta: state.places.length + " 个标记",
+      extraAttrs: ' style="--cat-depth:0"'
+    });
     html += categoryTreeHtml(topCategories(), 0, counts);
     box.innerHTML = html;
     applyPopHeight($("mapCatPop"));
@@ -1199,6 +1236,7 @@
     });
     topSelect.innerHTML = html;
     fillSubSelect(topId, subId);
+    syncCatTriggers();
   }
 
   function placeFormCategoryId() {
@@ -1207,6 +1245,117 @@
     if (sub && !sub.disabled && sub.value) return Number(sub.value);
     if (top && top.value) return Number(top.value);
     return null;
+  }
+
+  /* ---------- 移动端分类选择面板 ---------- */
+  /*
+   * PC 上「一级分类 / 二级分类」就是表单里的原生 <select>，位置和交互都不动；
+   * 手机上换成点一下从底部滑出的面板，行直接复用 PC 分类筛选弹窗的
+   * catOptionButtonHtml（.mp-owner-option.mp-cat-option + 圆形色点 + 选中高亮）。
+   * 面板只负责改 <select> 的值、复刻原生 select 的联动，数据绑定逻辑完全一致。
+   */
+  var catPick = { field: "top" };
+
+  function catPickTitle(field) {
+    return field === "sub" ? "选择二级分类" : "选择一级分类";
+  }
+
+  function renderCatPick() {
+    var list = $("mapCatPickList");
+    var title = $("mapCatPickTitle");
+    if (!list) return;
+    var field = catPick.field;
+    if (title) title.textContent = catPickTitle(field);
+    var current;
+    var html = "";
+    if (field === "sub") {
+      var topSelect = $("placeCategoryTop");
+      var topId = topSelect && topSelect.value ? Number(topSelect.value) : null;
+      if (!topId) {
+        list.innerHTML = '<p class="mp-catpick-hint">请先选择一级分类。</p>';
+        return;
+      }
+      current = $("placeCategorySub") ? $("placeCategorySub").value : "";
+      html += catOptionButtonHtml(null, {
+        active: !current,
+        dataCat: "",
+        dotAll: true,
+        label: "不指定（直接用一级分类）"
+      });
+      childCategories(topId).forEach(function (cat) {
+        html += catOptionButtonHtml(cat, { active: String(cat.id) === current });
+      });
+    } else {
+      current = $("placeCategoryTop") ? $("placeCategoryTop").value : "";
+      html += catOptionButtonHtml(null, {
+        active: !current,
+        dataCat: "",
+        dotAll: true,
+        label: "按文件里的分类"
+      });
+      topCategories().forEach(function (cat) {
+        var kids = childCategories(cat.id).length;
+        html += catOptionButtonHtml(cat, {
+          active: String(cat.id) === current,
+          meta: kids ? kids + " 个子类" : null
+        });
+      });
+    }
+    list.innerHTML = html;
+  }
+
+  function openCatPick(field) {
+    // 只在窄屏（和页面其它移动端逻辑同一档断点）用这套面板；PC 走原生 select
+    if (!isNarrowMap()) return;
+    catPick.field = field === "sub" ? "sub" : "top";
+    renderCatPick();
+    var modal = $("mapCatPickModal");
+    if (modal) modal.hidden = false;
+  }
+
+  function closeCatPick() {
+    var modal = $("mapCatPickModal");
+    if (modal) modal.hidden = true;
+  }
+
+  function optionText(select) {
+    var opt = select && select.options ? select.options[select.selectedIndex] : null;
+    return opt ? opt.textContent : "";
+  }
+
+  // 把两个 <select> 的当前值同步到移动端触发按钮的文字上
+  function syncCatTriggers() {
+    var top = $("placeCategoryTop");
+    var sub = $("placeCategorySub");
+    var topBtn = $("placeCategoryTopBtn");
+    var subBtn = $("placeCategorySubBtn");
+    if (top && topBtn) {
+      topBtn.querySelector(".mp-cat-trigger-label").textContent = optionText(top);
+      topBtn.classList.toggle("is-active", Boolean(top.value));
+    }
+    if (sub && subBtn) {
+      var off = sub.disabled;
+      subBtn.classList.toggle("is-disabled", off);
+      subBtn.setAttribute("aria-disabled", off ? "true" : "false");
+      subBtn.querySelector(".mp-cat-trigger-label").textContent = optionText(sub);
+      subBtn.classList.toggle("is-active", !off && Boolean(sub.value));
+    }
+  }
+
+  function pickCatValue(raw) {
+    if (catPick.field === "sub") {
+      var sub = $("placeCategorySub");
+      if (sub && !sub.disabled) sub.value = raw;
+    } else {
+      var top = $("placeCategoryTop");
+      if (top) {
+        top.value = raw;
+        // 和原生 select 的 change 一样：换一级就清空二级、重建二级列表
+        fillSubSelect(raw ? Number(raw) : null, null);
+      }
+    }
+    syncCatTriggers();
+    closeCatPick();
   }
 
   function showFormError(message) {
@@ -1521,6 +1670,7 @@
       .then(function (data) {
         var targetId = editing || data.id;
         return uploadPendingPhotos(targetId).then(function () {
+          closeCatPick();
           closeModal("mapPlaceModal");
           notifyDockRefresh();
           toast(editing ? "标记已更新" : "标记已添加");
@@ -2322,6 +2472,36 @@
   if (placeTopSelect) {
     placeTopSelect.addEventListener("change", function () {
       fillSubSelect(placeTopSelect.value ? Number(placeTopSelect.value) : null, null);
+      syncCatTriggers();
+    });
+  }
+
+  // 移动端：点分类字段从底部滑出选择面板（PC 上触发按钮不显示，走原生 select）
+  [["placeCategoryTopBtn", "top"], ["placeCategorySubBtn", "sub"]].forEach(
+    function (pair) {
+      var btn = $(pair[0]);
+      if (btn) {
+        btn.addEventListener("click", function () {
+          openCatPick(pair[1]);
+        });
+      }
+    }
+  );
+
+  var catPickList = $("mapCatPickList");
+  if (catPickList) {
+    catPickList.addEventListener("click", function (event) {
+      var row = event.target.closest("[data-cat]");
+      if (row) pickCatValue(row.getAttribute("data-cat"));
+    });
+  }
+
+  var catPickModal = $("mapCatPickModal");
+  if (catPickModal) {
+    catPickModal.addEventListener("click", function (event) {
+      if (event.target === catPickModal || event.target.closest("[data-catpick-close]")) {
+        closeCatPick();
+      }
     });
   }
 
@@ -2607,6 +2787,7 @@
   if (placeDelete) {
     placeDelete.addEventListener("click", function () {
       var place = placeById(state.editingId);
+      closeCatPick();
       closeModal("mapPlaceModal");
       deletePlace(place);
     });
@@ -2660,14 +2841,20 @@
     ["mapCatsDone", "mapCatsModal"],
    ["mapImportClose", "mapImportModal"], ["mapImportCancel", "mapImportModal"]].forEach(function (pair) {
     var btn = $(pair[0]);
-    if (btn) btn.addEventListener("click", function () { closeModal(pair[1]); });
+    if (btn) btn.addEventListener("click", function () {
+      closeModal(pair[1]);
+      if (pair[1] === "mapPlaceModal") closeCatPick();
+    });
   });
 
    ["mapPlaceModal", "mapCatsModal", "mapImportModal"].forEach(function (id) {
     var modal = $(id);
     if (!modal) return;
     modal.addEventListener("click", function (event) {
-      if (event.target === modal) closeModal(id);
+      if (event.target === modal) {
+        closeModal(id);
+        if (id === "mapPlaceModal") closeCatPick();
+      }
     });
   });
 
@@ -2853,6 +3040,7 @@
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape") {
       stopPlacing();
+      closeCatPick();
       closeModal("mapPlaceModal");
       closeModal("mapCatsModal");
       closeModal("mapImportModal");

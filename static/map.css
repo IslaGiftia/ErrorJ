@@ -2283,3 +2283,154 @@ body {
   }
 
 }
+
+/* ============================================================
+ * 移动端分类选择面板（只在 <=860px 生效，PC 完全不受影响）
+ * PC 上「一级分类 / 二级分类」是表单里的原生 <select>；手机上换成触发按钮 +
+ * 从底部滑出的面板，面板内部复用分类筛选弹窗的 .mp-owner-option 行样式。
+ * ============================================================ */
+
+/* 触发按钮：桌面端不出现，PC 保持原生下拉 */
+.mp-cat-trigger {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--mp-border);
+  border-radius: 8px;
+  background: var(--mp-surface-2);
+  color: var(--mp-text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mp-cat-trigger .mp-cat-trigger-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mp-muted);
+}
+
+.mp-cat-trigger.is-active .mp-cat-trigger-label {
+  color: var(--mp-text);
+}
+
+.mp-cat-trigger svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--mp-muted);
+}
+
+.mp-cat-trigger.is-disabled {
+  opacity: 0.6;
+}
+
+/* 底部滑出面板 */
+.mp-catpick {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.mp-catpick[hidden] {
+  display: none;
+}
+
+.mp-catpick-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(12, 15, 22, 0.52);
+}
+
+.mp-catpick-sheet {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 560px;
+  max-height: 76vh;
+  border: 1px solid var(--mp-border);
+  border-bottom: 0;
+  border-top-left-radius: 14px;
+  border-top-right-radius: 14px;
+  background: var(--mp-surface);
+  box-shadow: var(--mp-shadow);
+  animation: mp-catpick-in 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@keyframes mp-catpick-in {
+  from {
+    transform: translateY(100%);
+  }
+
+  to {
+    transform: none;
+  }
+}
+
+.mp-catpick-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--mp-border);
+}
+
+.mp-catpick-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.mp-catpick-head .mp-icon-btn {
+  margin-left: auto;
+}
+
+/* 列表：内部滚动，行高守 48px 方便手指点 */
+.mp-catpick-list {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  gap: 6px;
+  padding: 10px 14px calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+.mp-catpick-list .mp-owner-option {
+  min-height: 48px;
+  padding: 12px 14px;
+}
+
+.mp-catpick-hint {
+  margin: 4px 2px;
+  color: var(--mp-muted);
+  font-size: 13px;
+}
+
+@media (max-width: 860px) {
+  /* 手机：隐藏原生 <select>，改用触发按钮 + 底部面板 */
+  .mp-field select.mp-cat-select {
+    display: none;
+  }
+
+  .mp-cat-trigger {
+    display: flex;
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-catpick-sheet {
+    animation: none;
+  }
+}
