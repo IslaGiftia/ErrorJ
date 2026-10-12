@@ -1,3 +1,20 @@
+/*
+ * 圆盘下方的「N 个标记」标签：浅色主题用浅底深字，深色主题保持原来的深底白字。
+ * 换色只走这两个变量（做法同 books.css 封面上的浮层），尺寸、圆角、内边距、
+ * 字号和绝对定位都不动。
+ */
+:root {
+  --dock-count-bg: rgba(255, 255, 255, 0.86);
+  --dock-count-ink: #1b1f27;
+  --dock-count-border: rgba(24, 31, 45, 0.14);
+}
+
+:root[data-theme="dark"] {
+  --dock-count-bg: rgba(12, 16, 22, 0.72);
+  --dock-count-ink: #ffffff;
+  --dock-count-border: rgba(255, 255, 255, 0.45);
+}
+
 .map-dock {
   position: fixed;
   right: 20px;
@@ -91,15 +108,18 @@
   transform: translateX(-50%);
   min-width: 2.2em;
   padding: 0 0.65em;
-  border: 1px solid rgba(255, 255, 255, 0.45);
+  border: 1px solid var(--dock-count-border);
   border-radius: 999px;
-  background: rgba(12, 16, 22, 0.72);
-  color: #fff;
+  background: var(--dock-count-bg);
+  color: var(--dock-count-ink);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   font-size: 0.85em;
   font-weight: 800;
   line-height: 1.65em;
   text-align: center;
   white-space: nowrap;
+  /* 标签本身不吃事件：点它等于点圆盘，底图拖拽也不受影响 */
   pointer-events: none;
 }
 
