@@ -133,6 +133,8 @@
     myUserId: "",
     signedIn: false,
     categoryFilter: null,
+    // 分类树里哪些节点是展开的（默认全折叠，只露一级分类）
+    expandedKeys: new Set(),
     expandedTops: new Set(),
     keyword: "",
     ownerFilter: "",
@@ -591,6 +593,7 @@
     if (pop) pop.hidden = !open;
     var button = $("mapOwnerBtn");
     if (button) button.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) applyPopHeight(pop);
   }
 
   function closeOwnerPicker() {
@@ -632,21 +635,32 @@
     return names.join(" / ");
   }
 
+  /*
+   * 分类树：默认只露一级，含下级的节点点一下展开 / 折叠（本身不参与筛选），
+   * 叶子节点点一下才过滤。展开状态记在 state.expandedKeys 里，
+   * 所以折叠 / 展开只动这一棵子树（隐藏 children 容器），不重建整棵树。
+   */
   function categoryTreeHtml(list, depth, counts) {
     var html = "";
     list.forEach(function (cat) {
+      var kids = childCategories(cat.id);
       var count = 0;
       categorySubtreeIds(cat.id).forEach(function (id) {
         count += counts[id] || 0;
       });
+      var expanded = state.expandedKeys.has(cat.id);
       html +=
+        '<div class="mp-cat-node" style="--cat-depth:' + depth + '">' +
         '<button type="button" class="mp-owner-option mp-cat-option' +
         (state.categoryFilter === cat.id ? " is-active" : "") +
+        (kids.length ? " is-parent" : "") +
         '" data-cat="' +
         cat.id +
-        '" style="--cat-depth:' +
-        depth +
-        '">' +
+        '"' +
+        (kids.length
+          ? ' data-cat-parent="' + cat.id + '" aria-expanded="' + (expanded ? "true" : "false") + '"'
+          : "") +
+        ">" +
         '<i class="mp-cat-dot" style="--cat-color:' +
         esc(cat.color) +
         '">' +
@@ -655,8 +669,20 @@
         esc(cat.name) +
         "</span><em>" +
         count +
-        " 个标记</em></button>";
-      html += categoryTreeHtml(childCategories(cat.id), depth + 1, counts);
+        " 个标记</em>" +
+        (kids.length ? '<i class="mp-cat-caret" aria-hidden="true"></i>' : "") +
+        "</button>";
+      if (kids.length) {
+        html +=
+          '<div class="mp-cat-kids" data-kids="' +
+          cat.id +
+          '"' +
+          (expanded ? "" : " hidden") +
+          ">" +
+          categoryTreeHtml(kids, depth + 1, counts) +
+          "</div>";
+      }
+      html += "</div>";
     });
     return html;
   }
@@ -676,10 +702,34 @@
     if (pop) pop.hidden = !open;
     var button = $("mapCatBtn");
     if (button) button.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) applyPopHeight(pop);
   }
 
   function closeCatPicker() {
     setCatPopOpen(false);
+  }
+
+  /*
+   * 浮层高度上限 = 上方检索卡片的高度（够不到就按内容自适应，靠下对齐由 CSS 的 bottom 负责），
+   * 再额外压一条：别长到盖住右上角的工具列——盖过去的话，用户点「搜索 / 定位」实际会点到分类行上。
+   * 卡片本身有多高随视口变，所以在打开时和窗口尺寸变化时各算一次。
+   */
+  function applyPopHeight(pop) {
+    var node = pop || $("mapCatPop");
+    var sidebar = $("mapSidebar");
+    if (!node || !sidebar) return;
+    var limit = Math.round(sidebar.getBoundingClientRect().height);
+    var tools = document.querySelector(".mp-tools");
+    var actions = $("mapActions");
+    if (tools && actions) {
+      var room =
+        actions.getBoundingClientRect().top -
+        8 -
+        tools.getBoundingClientRect().bottom -
+        12;
+      if (room > 0) limit = Math.min(limit, Math.round(room));
+    }
+    node.style.maxHeight = Math.max(160, limit) + "px";
   }
 
   function renderCatFilter() {
@@ -687,6 +737,14 @@
     if (!box) return;
     if (state.categoryFilter && !categoryById(state.categoryFilter)) {
       state.categoryFilter = null;
+    }
+    // 选中的若是下级分类，把它上面的层级一并展开，重新打开时能看到自己选的是哪一条
+    var node = state.categoryFilter ? categoryById(state.categoryFilter) : null;
+    var guard = 0;
+    while (node && node.parent_id && guard < 3) {
+      state.expandedKeys.add(node.parent_id);
+      node = categoryById(node.parent_id);
+      guard += 1;
     }
     var counts = {};
     state.places.forEach(function (place) {
@@ -703,6 +761,7 @@
       " 个标记</em></button>";
     html += categoryTreeHtml(topCategories(), 0, counts);
     box.innerHTML = html;
+    applyPopHeight($("mapCatPop"));
     syncCatLabel();
   }
 
@@ -2137,6 +2196,20 @@
   var catOptions = $("mapCatPopList");
   if (catOptions) {
     catOptions.addEventListener("click", function (event) {
+      // 有下级的节点：这一下只负责展开 / 折叠，不触发筛选
+      var parentRow = event.target.closest("[data-cat-parent]");
+      if (parentRow) {
+        var parentId = Number(parentRow.getAttribute("data-cat-parent"));
+        var kids = catOptions.querySelector('[data-kids="' + parentId + '"]');
+        var open = !state.expandedKeys.has(parentId);
+        if (open) state.expandedKeys.add(parentId);
+        else state.expandedKeys.delete(parentId);
+        if (kids) kids.hidden = !open;
+        parentRow.setAttribute("aria-expanded", open ? "true" : "false");
+        // 只翻了这一棵子树的 display，整棵树不重建
+        applyPopHeight($("mapCatPop"));
+        return;
+      }
       var option = event.target.closest("[data-cat]");
       if (!option) return;
       var raw = option.getAttribute("data-cat");
@@ -2714,6 +2787,13 @@
     });
   }
   window.addEventListener("resize", syncMapActions);
+  // 视口变了，浮层的高度上限（= 检索卡片高度）也要跟着重算
+  window.addEventListener("resize", function () {
+    var openCat = $("mapCatPop");
+    if (openCat && !openCat.hidden) applyPopHeight(openCat);
+    var openOwner = $("mapOwnerPop");
+    if (openOwner && !openOwner.hidden) applyPopHeight(openOwner);
+  });
 
   var listBoxMobile = $("mapList");
   if (listBoxMobile) {

@@ -244,6 +244,31 @@ body {
   padding: 8px;
 }
 
+/*
+ * 足迹页所有会滚动的地方都隐藏原生滚动条：
+ * 检索结果列表、分类 / 添加者浮层、搜索结果列表、站内弹窗。
+ * 只藏视觉——滚轮滚动、触摸滑动、键盘翻页都照常。
+ * Firefox 认 scrollbar-width，Chrome / Edge / Safari 认 ::-webkit-scrollbar。
+ */
+.mp-list,
+.mp-owner-pop,
+.mp-owner-options,
+.mp-poi-list,
+.mp-dialog {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.mp-list::-webkit-scrollbar,
+.mp-owner-pop::-webkit-scrollbar,
+.mp-owner-options::-webkit-scrollbar,
+.mp-poi-list::-webkit-scrollbar,
+.mp-dialog::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
 .mp-empty {
   padding: 28px 16px;
   color: var(--mp-muted);
@@ -509,6 +534,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* 工具按钮的统一高度：搜索框也用这个值，两者才会严格等高 */
+  --mp-tools-btn: 40px;
 }
 
 /*
@@ -520,8 +547,8 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: var(--mp-tools-btn);
+  height: var(--mp-tools-btn);
   border: 1px solid var(--mp-border);
   border-radius: 8px;
   background: color-mix(in srgb, var(--mp-surface) 94%, transparent);
@@ -546,6 +573,22 @@ body {
 .mp-search-slot > button svg {
   width: 18px;
   height: 18px;
+}
+
+/*
+ * 搜索按钮：主题色填充，和操作卡片里的「+ 添加标记」同一个风格。
+ * 放在通用悬停 / is-on 之后，才盖得住上面那两条。
+ */
+.mp-search-slot > button,
+.mp-search-slot > button.is-on {
+  border-color: var(--mp-accent);
+  background: var(--mp-accent);
+  color: #fff;
+}
+
+.mp-search-slot > button:hover,
+.mp-search-slot > button.is-on:hover {
+  background: var(--mp-accent-hover);
 }
 
 .mp-base-panel {
@@ -609,10 +652,13 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  /* 高度跟右上角那枚搜索按钮严格一致 */
+  height: var(--mp-tools-btn, 40px);
   padding: 0 10px;
   border: 1px solid var(--mp-border);
   border-radius: 8px;
   background: var(--mp-surface-2);
+  box-sizing: border-box;
 }
 
 .mp-search-bar:focus-within {
@@ -630,7 +676,8 @@ body {
 .mp-search-bar input {
   flex: 1;
   min-width: 0;
-  height: 36px;
+  height: 100%;
+  padding: 0;
   border: 0;
   background: none;
   color: var(--mp-text);
@@ -811,6 +858,34 @@ body {
 .mp-cat-option .mp-cat-dot.is-all {
   background: color-mix(in srgb, var(--mp-muted) 35%, transparent);
   color: var(--mp-muted);
+}
+
+/*
+ * 分类树的折叠：父节点右侧一个小箭头，子级放在可折叠容器里。
+ * 展开 / 折叠只翻容器的 hidden，不动整棵树的 DOM。
+ */
+.mp-cat-node {
+  display: block;
+}
+
+.mp-cat-kids[hidden] {
+  display: none;
+}
+
+.mp-cat-caret {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-right: 3px;
+  border-right: 1.6px solid var(--mp-muted);
+  border-bottom: 1.6px solid var(--mp-muted);
+  /* 收起时箭头朝下（点开），展开时朝上（点收） */
+  transform: rotate(45deg);
+  transition: transform 0.18s ease;
+}
+
+.mp-cat-option.is-parent[aria-expanded="true"] .mp-cat-caret {
+  transform: rotate(-135deg);
 }
 
 .mp-pin-mode {
@@ -1892,10 +1967,9 @@ body {
     pointer-events: none;
   }
 
-  .mp-tools > button,
-  .mp-search-slot > button {
-    width: 38px;
-    height: 38px;
+  .mp-tools {
+    /* 手机上工具按钮小一号，搜索框跟着一起变，仍然严格等高 */
+    --mp-tools-btn: 38px;
   }
 
   .mp-toast {
