@@ -3375,3 +3375,92 @@ nginx       -> systemctl is-active nginx = active，errorjiang 未重启、/api/
 和游客切「我的动态」栏没有直接复测——本机是本地模式恒为管理员，线上也不掌握普通账号口令。
 另外测试里按旧行为写的三处断言一并更新：评论提醒 target 改成评论 id、补断言 `target_kinds`、
 CSS 选择器从 `.mo-composer-foot > .mo-btn-primary` 改成 `.mo-composer-foot .mo-btn-primary`。
+
+## 94. 2026-10-12 22:40:00 动态页第二轮打磨：筛选重构、评论回复与按钮对齐
+
+需求（站长四条，要求按模块分步实施）：
+① 顶部三个按钮高度必须完全一致、彻底去掉数字角标、悬停文字提示要跟主题；② 筛选改成
+「全部动态 / 分享 / 评论 / 点赞」并把这组按钮挪到「动态编辑区」和「动态卡片」中间、和「写动态」同一行，
+挪完不能留空；③ 开发日志删掉「展开全部 / 收起全部」并且不留空位；④ 排查评论回复为什么缺失并补齐。
+第二轮追加四条：评论按钮只在自己写的内容上显示「删除」；「写动态」改回滚出视野才渐显并靠左和其他三个按钮排在一起；
+四个按钮高度要和留言页一致；卡片「三个点」菜单移到右上角与昵称 / 时间 / 属地同一行。
+
+完成内容（提交 `8c6bd64 feat:polish-moments-filters-replies-and-card-actions`，6 文件，+328/−186）：
+
+- 悬浮操作区换位（`moments.html`）：DOM 顺序改成 `momentForm → momentDock → momentList`，操作区夹在
+  编辑区和卡片列表中间（和留言页「全部动态」同一位置）。挪走后编辑区直接贴页面顶部的 14px / 手机 6px 留白，
+  没有残留占位或多余 margin。
+- 按钮统一（`moments.css`）：新增 `--mo-dock-btn-h: 35px`，四个按钮共用；方形图标按钮从 38px 收到 35px。
+  35px 是实测留言页 `.mg-filter-btn` 的高度（PC / 手机都是 35px，内容是 15px 图标 + 9px 上下内边距 + 边框）。
+  删掉 `.mo-kind-num` 角标样式和 `updateKindCounts()`（含调用），两枚图标按钮不再有数字。
+- 悬停提示（`moments.css`）：左侧两枚图标按钮去掉原生 `title`，改用地图页 `.mp-tip` 那套 `data-tip` + `::after`，
+  新增 `--mo-tip-bg/ink/border`（浅色浅底深字、深色深底浅字）；提示挂在按钮**下方**——这排吸顶时上方没有空间，
+  挂上面会被视口裁掉；`(hover: none)/(pointer: coarse)` 不渲染。
+- 筛选重构（`moments.js` + `app.py`）：选项改成「全部动态 / 分享 / 评论 / 点赞」。「分享」= 该动态有
+  `moment_shares` 记录；「评论 / 点赞」的语义从「我自己」改成「任何账号（含管理员自己）」，后端在
+  `api_moments` 里补行级 `has_comments` / `has_likes`（`like_count > 0`）。前端对缺失字段用
+  `comments` / `like_count` 兜底，静态文件先上线、后端没重启时也不会筛出一片空白。筛选只作用于「我的动态」，
+  否则切到开发日志会整页空白。
+- 评论回复（`moments.js`）：后端 `moment_comments.parent_id` 本来就完整（含校验与通知），缺的是前端——
+  原 `buildCommentNode` 从未渲染子回复。新增 `groupComments()` 把评论拍平成两层（回复的回复并回顶层，
+  不出现三层缩进），每条评论下面挂一个行内回复框（`ctx` 统一管理，同一时间只展开一个），提交走原有
+  `POST /api/moments/<id>/comments` + `parent_id`；子回复缩进渲染并标「回复 @某某」。
+- 评论按钮（`moments.js`）：判定从后端的 `can_delete`（管理员可删任意评论）换成 `mine`——自己写的评论 /
+  回复显示「删除」，别人的评论只显示「回复」，不再在别人的评论下面挂删除按钮。
+- 「写动态」（`moments.js` / `moments.html`）：恢复 `setSendFloatVisible` + `IntersectionObserver` 的悬浮逻辑
+  （只改 opacity、不做位移缩放），点击淡出 + 回顶 + 聚焦；按钮回到靠左、跟在另三个按钮后面。
+- 「三个点」（`moments.js` / `moments.css`）：`buildMoreMenu` 的挂载点从卡片底部 `.mo-item-actions` 改成卡片头部行
+  （`margin-left:auto` 贴右），`.mo-item-head` 改 `align-items: center`；菜单从向上开改成向下开（按钮在顶部，
+  往上开会顶出卡片）。编辑框锚点同步从 `body.insertBefore(box, actionsRow)` 改成 `body.appendChild(box)`（位置等价）。
+- 开发日志（`moments.js` / `moments.css`）：删掉「展开全部 / 收起全部」按钮及其 CSS，列表紧接操作区；
+  手机端月份吸顶偏移按新按钮高度从 52px 校正到 49px。
+- 顺手修 `moment_comments_map()` 空列表时 `return {}, set(), set()` 的多返回值（调用方解包两个，会 500）。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 109 项全过
+      node --check static/moments.js / messages.js / books.js / site/activity.js 全过；python -m json.tool seed；git diff --check 干净
+      隔离实例（端口 8001，同一份 inventory.db）：tmp/mo-verify/check2.mjs 在 1280x900 / 390x844 / 320x680
+        三档、明暗两套主题各跑一遍，全部通过：
+        按钮：四个按钮高度都是 35px（和留言页实测 35px 一致）、top 完全一致、写动态靠左且与筛选间距 8px
+        悬浮：顶部 opacity 0 / aria-hidden true -> 滚过编辑区 opacity 1 -> 点击 scrollY=0 + 输入框聚焦 + 回到 opacity 0
+        角标：.mo-kind-num / #kindNumPost / #kindNumLog 节点数 0；提示 data-tip 存在、title 为空、::after 跟随主题
+        筛选：all=2 / share=1 / commented=1 / liked=1 张卡片（本地造的分享 + 点赞 + 评论数据）
+        评论：管理员自己的评论只有「删除」、普通用户（user_id=99）的评论只有「回复」；
+              点「回复」展开「回复 @测试用户…」，前端提交后新增子回复缩进显示并带「回复 @某人」
+        「⋯」：在 .mo-item-head 内、与头部同一行、菜单向下开 6px；.mo-item-actions 节点数 0
+        日志：无 .mo-log-tool 节点，列表首元素距操作区底部 12-14px（就是 mo-main 的 gap）
+      测试数据（3 条评论 + 3 条前端提交的回复 + 1 点赞 + 1 分享 + activity_log / user_notifications）已按 id 精确清理，
+      真实 inventory.db 回到 19 条动态、评论 / 点赞 / 分享各 0
+提交：8c6bd64（fetch/push 后本地 == origin/main == 8c6bd64）
+备份：/data/errorjiang-backup/moments-polish-20261012-2240/（停服后复制 inventory.db 3637248 字节与
+      changelog-seed.json 63012 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only 36816b5 -> 8c6bd64（app.py 有改动，靠 restart 生效）；本轮无 schema 变更，未跑 init_db
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 2373442A…D43B 一致）
+      import_changelog_moments.py --date 2026-10-12 --force -> 新增 13 条，覆盖 0 条
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务启动时间 22:38:12（在 git pull 之后），
+              服务器 HEAD = 8c6bd64，/api/health = {"ok": true}
+更新日志    -> /api/moments 里 2026-10-12 22:36:09「动态页第二轮打磨：筛选重构、评论回复与按钮对齐」
+              （id=398，kind=log）
+静态资源    -> moments.js 421b1c68…、moments.css 7b0dd82f…、moments.html ee26abab… 与本机 SHA256 逐一相同
+代码特征    -> 服务器 app.py 有 has_comments / row["has_likes"] / return {}, set()；
+              线上 moments.html 有 mo-send-float / mo-tip / data-mo-filter="share"，已无 mo-send-btn、mo-kind-num
+线上页面    -> 游客打开 https://zhexiyan.cc/moments（桌面 1440x900 / 手机 412x915，浅色主题）：
+              默认落在「开发日志」，两枚图标按钮都是 35px、data-tip 就位且没有 title、页面无角标节点、
+              筛选与「写动态」按设计隐藏、无「展开全部 / 收起全部」按钮、无 .mo-item-actions；
+              开发日志渲染 74 行 / 3 个月份分组，列表首元素紧接操作区（桌面 63 / 手机 55，就是 mo-main 的 gap）；
+              筛选菜单选项顺序为 all / share / commented / liked；无 JS 异常、无 4xx / 5xx
+```
+
+备注：本轮 `app.py` 有改动（`has_comments` / `has_likes` 与一处多返回值修复），线上生效靠 restart；
+静态文件每次请求读磁盘，所以 pull 完前端立刻生效。登录态的「我的动态」视图（筛选四个选项的实际命中、
+评论回复交互、「⋯」菜单、写动态悬浮）是在隔离实例上用真浏览器逐个验证的——线上需要口令，游客视角只能
+验证到「操作区位置 / 按钮高度 / 无角标 / 无日志工具按钮 / 开发日志渲染 / 无报错」这些。
+另外本轮开始时本地 8000 端口的开发服务已经不在跑了（没有任何 python 进程在监听），验证用的实例起在
+8001 并在结束后关闭；第一次线上复测时桌面视口在冷启动下比探针慢了一拍，探针改成轮询「列表已渲染且
+开发日志栏已激活」后复测通过；游客的 `hidden` 打在筛选包裹层上，探针一开始查的是按钮自身的
+`computed display`，属于探针误报，已改正。
