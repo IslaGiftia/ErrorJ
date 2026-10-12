@@ -10728,7 +10728,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def moment_comments_map(self, moment_ids, viewer_id, can_manage, viewer_signed_in):
         """按动态分组返回评论，并标出每一条能不能删。"""
         if not moment_ids:
-            return {}, set(), set()
+            return {}, set()
         placeholders = ",".join("?" for _ in moment_ids)
         rows = query(
             f"""SELECT id, moment_id, parent_id, user_id, actor, content, created_at
@@ -10898,6 +10898,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 comment.get("liked") for comment in row["comments"]
             )
             row["commented_by_me"] = int(row["id"]) in comment_moment_ids
+            # 「评论 / 点赞」两个筛选看的是「有没有任何用户（含管理员）动过」，
+            # 不再只看自己——所以这里直接给出行级的布尔标记。
+            row["has_comments"] = bool(row["comments"])
+            row["has_likes"] = int(row["like_count"] or 0) > 0
             row["like_users"] = like_user_map.get(int(row["id"]), [])[:12]
             row["pinned"] = bool(row["pinned"])
             # post = 手动发布的动态，log = 更新日志；前端按这个字段分流成两个标签页

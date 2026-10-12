@@ -34,50 +34,6 @@
 
   <div class="mo-app">
     <main class="mo-main">
-      <!--
-        悬浮操作区（和留言页同一套外壳）：栏位切换（我的动态 / 开发日志，只留图标）+
-        筛选下拉 + 写动态。吸在内容区左上角，距卡片边缘的留白和留言页一致。
-      -->
-      <div class="mo-dock" id="momentDock" hidden>
-        <div class="mo-kind-switch" id="momentKinds" role="group" aria-label="动态分类">
-          <button class="mo-filter-btn mo-kind-btn is-active" type="button" data-mo-kind="post"
-                  aria-pressed="true" aria-label="我的动态" title="我的动态">
-            <i data-lucide="message-square" aria-hidden="true"></i>
-            <em class="mo-kind-num" id="kindNumPost"></em>
-          </button>
-          <button class="mo-filter-btn mo-kind-btn" type="button" data-mo-kind="log"
-                  aria-pressed="false" aria-label="开发日志" title="开发日志">
-            <i data-lucide="git-commit-vertical" aria-hidden="true"></i>
-            <em class="mo-kind-num" id="kindNumLog"></em>
-          </button>
-        </div>
-        <div class="mo-filter-wrap" id="momentFilterWrap">
-          <button class="mo-filter-btn" id="momentFilterBtn" type="button"
-                  aria-haspopup="listbox" aria-expanded="false" aria-controls="momentFilterMenu">
-            <span class="mo-filter-label" id="momentFilterLabel">全部动态</span>
-            <i data-lucide="chevron-down" aria-hidden="true"></i>
-          </button>
-          <div class="mo-filter-menu" id="momentFilterMenu" role="listbox" aria-label="动态筛选" hidden>
-            <button class="mo-filter-option is-active" type="button" role="option" aria-selected="true" data-mo-filter="all">
-              <span class="mo-filter-option-label">全部动态</span>
-              <span class="mo-filter-check" aria-hidden="true"><i data-lucide="check"></i></span>
-            </button>
-            <button class="mo-filter-option" type="button" role="option" aria-selected="false" data-mo-filter="liked">
-              <span class="mo-filter-option-label">点赞</span>
-              <span class="mo-filter-check" aria-hidden="true"><i data-lucide="check"></i></span>
-            </button>
-            <button class="mo-filter-option" type="button" role="option" aria-selected="false" data-mo-filter="commented">
-              <span class="mo-filter-option-label">评论</span>
-              <span class="mo-filter-check" aria-hidden="true"><i data-lucide="check"></i></span>
-            </button>
-          </div>
-        </div>
-        <button class="mo-filter-btn mo-send-float" id="momentSendBtn" type="button"
-                aria-label="写动态" aria-hidden="true" tabindex="-1">
-          <i data-lucide="send" aria-hidden="true"></i>
-          <span>写动态</span>
-        </button>
-      </div>
       <form class="mo-card mo-composer" id="momentForm" hidden>
         <textarea id="momentContent" maxlength="2000" placeholder="今天在折腾什么？记录一句，或者直接粘贴截图…"></textarea>
         <div class="mo-tag-input">
@@ -101,6 +57,55 @@
         </div>
         <input type="file" id="imageInput" accept="image/*" multiple hidden>
       </form>
+
+      <!--
+        悬浮操作区：夹在「动态编辑区」和「动态卡片」中间（位置和留言页的「全部动态」一致）。
+        从左到右：栏位切换（我的动态 / 开发日志，只留图标）、筛选下拉、「写动态」；
+        四个按钮统一高度（和留言页 .mg-filter-btn 一致）、同一行靠左，右上角不再有数字角标，
+        悬停提示改走 .mo-tip；「写动态」和留言页的「发送留言」一样，编辑框滚出视野上方才渐显。
+      -->
+      <div class="mo-dock" id="momentDock" hidden>
+        <div class="mo-kind-switch" id="momentKinds" role="group" aria-label="动态分类">
+          <button class="mo-filter-btn mo-kind-btn mo-tip is-active" type="button" data-mo-kind="post"
+                  aria-pressed="true" aria-label="我的动态" data-tip="我的动态">
+            <i data-lucide="message-square" aria-hidden="true"></i>
+          </button>
+          <button class="mo-filter-btn mo-kind-btn mo-tip" type="button" data-mo-kind="log"
+                  aria-pressed="false" aria-label="开发日志" data-tip="开发日志">
+            <i data-lucide="git-commit-vertical" aria-hidden="true"></i>
+          </button>
+        </div>
+        <div class="mo-filter-wrap" id="momentFilterWrap">
+          <button class="mo-filter-btn" id="momentFilterBtn" type="button"
+                  aria-haspopup="listbox" aria-expanded="false" aria-controls="momentFilterMenu">
+            <span class="mo-filter-label" id="momentFilterLabel">全部动态</span>
+            <i data-lucide="chevron-down" aria-hidden="true"></i>
+          </button>
+          <div class="mo-filter-menu" id="momentFilterMenu" role="listbox" aria-label="动态筛选" hidden>
+            <button class="mo-filter-option is-active" type="button" role="option" aria-selected="true" data-mo-filter="all">
+              <span class="mo-filter-option-label">全部动态</span>
+              <span class="mo-filter-check" aria-hidden="true"><i data-lucide="check"></i></span>
+            </button>
+            <button class="mo-filter-option" type="button" role="option" aria-selected="false" data-mo-filter="share">
+              <span class="mo-filter-option-label">分享</span>
+              <span class="mo-filter-check" aria-hidden="true"><i data-lucide="check"></i></span>
+            </button>
+            <button class="mo-filter-option" type="button" role="option" aria-selected="false" data-mo-filter="commented">
+              <span class="mo-filter-option-label">评论</span>
+              <span class="mo-filter-check" aria-hidden="true"><i data-lucide="check"></i></span>
+            </button>
+            <button class="mo-filter-option" type="button" role="option" aria-selected="false" data-mo-filter="liked">
+              <span class="mo-filter-option-label">点赞</span>
+              <span class="mo-filter-check" aria-hidden="true"><i data-lucide="check"></i></span>
+            </button>
+          </div>
+        </div>
+        <button class="mo-filter-btn mo-send-float" id="momentSendBtn" type="button"
+                aria-label="写动态" aria-hidden="true" tabindex="-1">
+          <i data-lucide="send" aria-hidden="true"></i>
+          <span>写动态</span>
+        </button>
+      </div>
 
       <section class="mo-list" id="momentList"></section>
     </main>

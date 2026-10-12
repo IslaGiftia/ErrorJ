@@ -7,6 +7,8 @@ html {
   /* 页面左右内边距 + 悬浮按钮离卡片边缘的留白：左右两侧共用，和留言页一致 */
   --mo-page-pad: 16px;
   --mo-float-inset: 12px;
+  /* 悬浮操作区按钮高度：和留言页 .mg-filter-btn 的实际高度（35px）对齐 */
+  --mo-dock-btn-h: 35px;
   --mo-bg: #f5f6f8;
   --mo-surface: #ffffff;
   --mo-text: #1f2329;
@@ -23,6 +25,10 @@ html {
   --mo-toast-bg: rgba(255, 255, 255, 0.97);
   --mo-toast-ink: #1b1f27;
   --mo-toast-border: rgba(24, 31, 45, 0.14);
+  /* 纯图标按钮的悬停提示：浅色主题浅底深字（和地图页 .mp-tip 同一套配色） */
+  --mo-tip-bg: rgba(255, 255, 255, 0.98);
+  --mo-tip-ink: #1b1f27;
+  --mo-tip-border: rgba(24, 31, 45, 0.16);
   color-scheme: light;
 }
 
@@ -43,6 +49,9 @@ html {
   --mo-toast-bg: #0f0f10;
   --mo-toast-ink: #ffffff;
   --mo-toast-border: transparent;
+  --mo-tip-bg: #2b2b31;
+  --mo-tip-ink: #f4f4f5;
+  --mo-tip-border: transparent;
   color-scheme: dark;
 }
 
@@ -304,7 +313,9 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 9px 14px;
+  /* 四个按钮共用同一个高度，保证视觉上绝对平齐 */
+  height: var(--mo-dock-btn-h);
+  padding: 0 14px;
   border: 1px solid color-mix(in srgb, var(--mo-border) 78%, transparent);
   border-radius: 10px;
   background: color-mix(in srgb, var(--mo-surface) 78%, transparent);
@@ -338,8 +349,8 @@ body {
 .mo-kind-btn {
   position: relative;
   justify-content: center;
-  width: 38px;
-  height: 38px;
+  width: var(--mo-dock-btn-h);
+  height: var(--mo-dock-btn-h);
   padding: 0;
 }
 
@@ -358,27 +369,6 @@ body {
   color: var(--mo-accent);
 }
 
-.mo-kind-num {
-  position: absolute;
-  top: -5px;
-  right: -5px;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 999px;
-  background: var(--mo-accent);
-  color: #fff;
-  font-size: 10.5px;
-  font-style: normal;
-  font-weight: 600;
-  line-height: 16px;
-  text-align: center;
-}
-
-.mo-kind-num:empty {
-  display: none;
-}
-
 .mo-filter-wrap.is-open > .mo-filter-btn {
   border-color: color-mix(in srgb, var(--mo-accent) 46%, var(--mo-border));
 }
@@ -387,7 +377,7 @@ body {
   transform: rotate(180deg);
 }
 
-/* 「写动态」：编辑框滚出视野上方才渐显，只改透明度，不做位移 / 缩放 */
+/* 「写动态」：和另外三个按钮同一行、靠左；编辑框滚出视野上方才渐显（同留言页「发送留言」） */
 .mo-send-float {
   opacity: 0;
   pointer-events: none;
@@ -397,6 +387,51 @@ body {
 .mo-send-float.is-visible {
   opacity: 1;
   pointer-events: auto;
+}
+
+/*
+ * 纯图标按钮的悬停提示（和地图页 .mp-tip 同一套做法）：
+ * 文字放在 data-tip 上，用 ::after 画出来；浅色主题浅底深字、深色主题深底浅字。
+ * 提示挂在按钮下方——这一排吸顶时上方没有空间，挂上面会被视口裁掉。
+ */
+.mo-tip {
+  position: relative;
+}
+
+.mo-tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  z-index: 60;
+  left: 0;
+  top: calc(100% + 8px);
+  padding: 5px 9px;
+  border: 1px solid var(--mo-tip-border);
+  border-radius: 6px;
+  background: var(--mo-tip-bg);
+  color: var(--mo-tip-ink);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.35;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-2px);
+  transition: opacity 0.14s ease-out, transform 0.14s ease-out, visibility 0s linear 0.14s;
+}
+
+.mo-tip:hover::after,
+.mo-tip:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+/* 触摸设备不渲染文字提示：点一下会留下「卡住的 hover」，反而碍事 */
+@media (hover: none), (pointer: coarse) {
+  .mo-tip::after {
+    display: none;
+  }
 }
 
 .mo-filter-menu {
@@ -493,7 +528,8 @@ body {
 
 .mo-item-head {
   display: flex;
-  align-items: baseline;
+  /* 这一行现在还有「⋯」按钮，居中对齐比基线对齐稳 */
+  align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
@@ -931,6 +967,26 @@ button.mo-share:hover {
   display: none;
 }
 
+/* 「回复」按钮展开中时给个主题色，和下面的行内回复框对上 */
+.mo-comment-actions .mo-link-btn.is-active {
+  color: var(--mo-accent);
+}
+
+/* 子回复：往右缩进一档，左侧一条细线把「评论 → 回复」的关系画出来 */
+.mo-comment-replies {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-left: 8px;
+  padding-left: 10px;
+  border-left: 2px solid color-mix(in srgb, var(--mo-border) 80%, transparent);
+}
+
+.mo-comment-reply-to {
+  color: var(--mo-accent);
+  font-size: 12.5px;
+}
+
 .mo-comment-form {
   display: flex;
   align-items: flex-end;
@@ -1072,6 +1128,10 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
   }
 
   .mo-send-float {
+    transition: none;
+  }
+
+  .mo-tip::after {
     transition: none;
   }
 }
@@ -1252,15 +1312,7 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
   display: none;
 }
 
-.mo-item-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  margin-top: 10px;
-}
-
-/* ---------- 卡片右下角「三个点」菜单（同留言页） ---------- */
+/* ---------- 卡片右上角「三个点」菜单（和 Error酱 / 时间 / 属地同一行，同留言页） ---------- */
 .mo-more {
   position: relative;
   display: flex;
@@ -1321,7 +1373,8 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
 .mo-more-menu {
   position: absolute;
   right: 0;
-  bottom: calc(100% + 6px);
+  /* 按钮在卡片右上角，菜单只能往下开，否则会顶出卡片外面 */
+  top: calc(100% + 6px);
   z-index: 6;
   display: flex;
   flex-direction: column;
@@ -1439,6 +1492,22 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
     font-size: 12.5px;
   }
 }
+
+/* 超窄屏（360px 及以下）：把这一行的内边距和间距各收一档，别让按钮被迫换行 */
+@media (max-width: 360px) {
+  .mo-dock {
+    gap: 6px;
+  }
+
+  .mo-dock .mo-filter-btn {
+    padding: 0 10px;
+  }
+
+  .mo-dock .mo-kind-btn {
+    padding: 0;
+  }
+}
+
 [hidden] {
   display: none !important;
 }
@@ -1460,29 +1529,6 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
 /* ---------- 动态分栏：我的动态 / 开发日志 ---------- */
 
 /* ---------- 开发日志：按月份折叠的紧凑列表（无卡片无阴影） ---------- */
-
-.mo-log-tools {
-  display: flex;
-  gap: 8px;
-  margin: 0 0 8px;
-}
-
-.mo-log-tool {
-  min-height: 34px;
-  padding: 0 12px;
-  border: 1px solid var(--mo-border);
-  border-radius: 8px;
-  background: var(--mo-surface);
-  color: var(--mo-muted);
-  font: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-}
-
-.mo-log-tool:hover {
-  color: var(--mo-text);
-  border-color: var(--mo-muted);
-}
 
 .mo-log-month-group + .mo-log-month-group {
   margin-top: 2px;
@@ -1645,16 +1691,12 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
 }
 
 @media (max-width: 640px) {
-  /* 月份标题吸在悬浮操作区下方（按钮 38px + 上方 8px + 间隙 6px），展开区够大 */
+  /* 月份标题吸在悬浮操作区下方（按钮 35px + 上方 8px + 间隙 6px），展开区够大 */
   .mo-log-month {
     position: sticky;
-    top: calc(52px + env(safe-area-inset-top, 0px));
+    top: calc(49px + env(safe-area-inset-top, 0px));
     z-index: 4;
     background: var(--mo-bg);
-  }
-
-  .mo-log-tool {
-    min-height: 44px;
   }
 
   /* 日志排版再压一档：竖屏地方宝贵 */

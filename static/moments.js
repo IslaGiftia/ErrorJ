@@ -778,6 +778,21 @@
     return more;
   }
 
+  /* 手机上聚焦评论框时把它滚到键盘上方（桌面端浏览器自己会处理） */
+  function focusCommentArea(area) {
+    if (!window.matchMedia("(max-width: 640px)").matches) return;
+    window.setTimeout(function () {
+      if (document.activeElement !== area) return;
+      var viewportHeight = window.visualViewport
+        ? window.visualViewport.height
+        : window.innerHeight;
+      var rect = area.getBoundingClientRect();
+      if (rect.bottom > viewportHeight - 24 || rect.top < 16) {
+        area.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 320);
+  }
+
   function buildCommentForm(moment, parentId, placeholder) {
     var form = el("form", "mo-comment-form");
     var area = document.createElement("textarea");
@@ -790,17 +805,7 @@
     form.appendChild(submit);
     if (parentId) form.hidden = true;
     area.addEventListener("focus", function () {
-      if (!window.matchMedia("(max-width: 640px)").matches) return;
-      window.setTimeout(function () {
-        if (document.activeElement !== area) return;
-        var viewportHeight = window.visualViewport
-          ? window.visualViewport.height
-          : window.innerHeight;
-        var rect = area.getBoundingClientRect();
-        if (rect.bottom > viewportHeight - 24 || rect.top < 16) {
-          area.scrollIntoView({ behavior: "smooth", block: "center" });
-        }
-      }, 320);
+      focusCommentArea(area);
     });
     form.addEventListener("submit", function (event) {
       event.preventDefault();
@@ -822,12 +827,52 @@
     return form;
   }
 
-  /* 评论：只保留正文和作者可删的「删除」，不再有点赞和回复（楼中楼一并去掉） */
-  function buildCommentNode(moment, comment, freshIds) {
+  /*
+   * 评论树：后端 moment_comments 用 parent_id 记录「回复了谁」。
+   * 这里拍平成两层显示——顶层评论 + 挂在它下面的子回复，回复的回复也挂回顶层，
+   * 避免出现第三层缩进把卡片撑乱。
+   */
+  function groupComments(comments) {
+    var byId = {};
+    (comments || []).forEach(function (comment) {
+      byId[String(comment.id)] = comment;
+    });
+    var roots = [];
+    var replies = {};
+    (comments || []).forEach(function (comment) {
+      var parent = comment.parent_id ? byId[String(comment.parent_id)] : null;
+      if (!parent) {
+        roots.push(comment);
+        return;
+      }
+      var guard = 0;
+      while (parent.parent_id && byId[String(parent.parent_id)] && guard < 50) {
+        parent = byId[String(parent.parent_id)];
+        guard += 1;
+      }
+      var key = String(parent.id);
+      if (!replies[key]) replies[key] = [];
+      replies[key].push(comment);
+    });
+    return { roots: roots, replies: replies, byId: byId };
+  }
+
+  /*
+   * 单条评论：正文 + 「回复」（就地展开行内回复框）+ 作者 / 管理员可用的「删除」。
+   * 回复框由 ctx 统一管着，同一时间只展开一个。
+   */
+  function buildCommentNode(moment, comment, freshIds, grouped, ctx) {
     var row = el("div", "mo-comment");
     row.dataset.commentId = String(comment.id);
     var head = el("div", "mo-comment-head");
     head.appendChild(el("span", "mo-comment-actor", comment.actor || "匿名"));
+    var parent = comment.parent_id ? grouped.byId[String(comment.parent_id)] : null;
+    if (parent) {
+      // 回复：带上被回复人，肉眼能看出这条挂在谁下面
+      head.appendChild(
+        el("span", "mo-comment-reply-to", "回复 @" + (parent.actor || "匿名"))
+      );
+    }
     head.appendChild(el("span", "mo-comment-time", formatTime(comment.created_at)));
     row.appendChild(head);
     var text = el("p", "mo-comment-text", comment.content);
@@ -837,27 +882,50 @@
       freshIds.push(comment.id);
     }
     row.appendChild(text);
-    if (comment.can_delete) {
+    /*
+     * 行动区二选一：自己写的（管理员自己评论 / 回复的内容）能删，
+     * 别人的评论只给「回复」——不在别人的评论下面挂删除按钮。
+     */
+    if (canInteract) {
       var actions = el("div", "mo-comment-actions");
-      var deleteBtn = el("button", "mo-link-btn is-danger", "删除");
-      deleteBtn.type = "button";
-      deleteBtn.addEventListener("click", async function () {
-        var confirmed = await window.ErrorDialog.confirm(
-          "确定要删除这条评论吗？",
-          { title: "删除评论", confirmText: "删除", danger: true }
+      if (comment.mine) {
+        var deleteBtn = el("button", "mo-link-btn is-danger", "删除");
+        deleteBtn.type = "button";
+        deleteBtn.addEventListener("click", async function () {
+          var confirmed = await window.ErrorDialog.confirm(
+            "确定要删除这条评论吗？",
+            { title: "删除评论", confirmText: "删除", danger: true }
+          );
+          if (!confirmed) return;
+          api("/api/site/moment-comments/" + comment.id, { method: "DELETE" })
+            .then(function () {
+              toast("评论已删除");
+              return loadMoments();
+            })
+            .catch(function (err) {
+              toast(err.message || "删除失败");
+            });
+        });
+        actions.appendChild(deleteBtn);
+        row.appendChild(actions);
+      } else {
+        var replyBtn = el("button", "mo-link-btn", "回复");
+        replyBtn.type = "button";
+        replyBtn.setAttribute("aria-expanded", "false");
+        replyBtn.addEventListener("click", function () {
+          ctx.toggleReply(comment, replyBtn);
+        });
+        actions.appendChild(replyBtn);
+        row.appendChild(actions);
+        // 回复框挂在被回复的评论下面，提交后由 loadMoments() 重新渲染出子回复
+        var form = buildCommentForm(
+          moment,
+          comment.id,
+          "回复 @" + (comment.actor || "匿名") + "…"
         );
-        if (!confirmed) return;
-        api("/api/site/moment-comments/" + comment.id, { method: "DELETE" })
-          .then(function () {
-            toast("评论已删除");
-            return loadMoments();
-          })
-          .catch(function (err) {
-            toast(err.message || "删除失败");
-          });
-      });
-      actions.appendChild(deleteBtn);
-      row.appendChild(actions);
+        ctx.replies[String(comment.id)] = form;
+        row.appendChild(form);
+      }
     }
     return row;
   }
@@ -865,10 +933,50 @@
   function buildComments(moment, freshIds) {
     var comments = moment.comments || [];
     var box = el("div", "mo-comments");
+    var grouped = groupComments(comments);
+    var ctx = { replies: {}, active: null };
+    ctx.closeReply = function () {
+      var active = ctx.active;
+      if (!active) return;
+      active.form.hidden = true;
+      active.form.reset();
+      active.btn.classList.remove("is-active");
+      active.btn.setAttribute("aria-expanded", "false");
+      ctx.active = null;
+    };
+    ctx.toggleReply = function (comment, btn) {
+      var key = String(comment.id);
+      var form = ctx.replies[key];
+      if (!form) return;
+      if (ctx.active && ctx.active.key === key) {
+        ctx.closeReply();
+        return;
+      }
+      ctx.closeReply();
+      ctx.active = { key: key, form: form, btn: btn };
+      form.hidden = false;
+      btn.classList.add("is-active");
+      btn.setAttribute("aria-expanded", "true");
+      var area = form.querySelector("textarea");
+      if (!area) return;
+      try {
+        area.focus({ preventScroll: true });
+      } catch (err) {
+        area.focus();
+      }
+      area.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    };
     if (comments.length) {
       var list = el("div", "mo-comment-list");
-      comments.forEach(function (comment) {
-        list.appendChild(buildCommentNode(moment, comment, freshIds));
+      grouped.roots.forEach(function (comment) {
+        list.appendChild(buildCommentNode(moment, comment, freshIds, grouped, ctx));
+        var children = grouped.replies[String(comment.id)] || [];
+        if (!children.length) return;
+        var nest = el("div", "mo-comment-replies");
+        children.forEach(function (child) {
+          nest.appendChild(buildCommentNode(moment, child, freshIds, grouped, ctx));
+        });
+        list.appendChild(nest);
       });
       box.appendChild(list);
     }
@@ -928,10 +1036,9 @@
     body.appendChild(buildComments(moment, freshCommentIds));
 
     /*
-     * 右下角「⋯」：举报（别人发的动态）或 置顶 / 编辑 / 删除（管理员），
-     * 和留言页一样收进菜单，不再平铺一行按钮。
+     * 右上角「⋯」（和 Error酱 / 时间 / 属地同一行）：举报（别人发的动态）
+     * 或 置顶 / 编辑 / 删除（管理员），和留言页一样收进菜单，不平铺按钮。
      */
-    var actionsRow = el("div", "mo-item-actions");
     var menuItems = [];
 
     function togglePin() {
@@ -965,7 +1072,7 @@
       save.type = "button";
       row.append(cancel, save);
       box.append(area, tagInput, row);
-      body.insertBefore(box, actionsRow);
+      body.appendChild(box);
       area.focus();
 
       cancel.addEventListener("click", function () {
@@ -1013,8 +1120,7 @@
       menuItems.push({ label: "举报", report: moment });
     }
     if (menuItems.length) {
-      actionsRow.appendChild(buildMoreMenu(menuItems));
-      body.appendChild(actionsRow);
+      head.appendChild(buildMoreMenu(menuItems));
     }
 
     item.appendChild(body);
@@ -1091,11 +1197,12 @@
   }
 
   // ---------- 筛选 ----------
-  var MOMENT_FILTER_VALUES = ["all", "liked", "commented"];
+  var MOMENT_FILTER_VALUES = ["all", "share", "commented", "liked"];
   var MOMENT_FILTER_LABELS = {
     all: "全部动态",
-    liked: "点赞",
+    share: "分享",
     commented: "评论",
+    liked: "点赞",
   };
   var MOMENT_KIND_VALUES = ["post", "log"];
   var currentMomentKind = "post";
@@ -1106,16 +1213,29 @@
     ) >= 0;
   var canManageMoments = false;
   var MOMENT_FILTER_EMPTY_TEXT = {
-    liked: "还没有你点赞过的动态。",
-    commented: "还没有你评论过的动态。",
+    share: "还没有从 Error酱分享过的资源。",
+    commented: "还没有被评论过的动态。",
+    liked: "还没有被点赞过的动态。",
   };
   var currentMomentFilter = "all";
   var latestMomentRows = [];
   var momentsRequireLogin = false;
 
   function momentMatchesFilter(row) {
-    if (currentMomentFilter === "liked") return Boolean(row.liked_by_me);
-    if (currentMomentFilter === "commented") return Boolean(row.commented_by_me);
+    // 分享 = 从 Error酱分享过去的资源；评论 / 点赞 = 任何用户（含管理员）动过的动态
+    if (currentMomentFilter === "share") return Boolean(row.share);
+    // has_comments / has_likes 是后端按行算好的标记；静态文件先上线、后端还没重启时，
+    // 用同一份响应里的 comments / like_count 兜底，避免筛出来一片空白。
+    if (currentMomentFilter === "commented") {
+      return typeof row.has_comments === "boolean"
+        ? row.has_comments
+        : Boolean((row.comments || []).length);
+    }
+    if (currentMomentFilter === "liked") {
+      return typeof row.has_likes === "boolean"
+        ? row.has_likes
+        : Number(row.like_count || 0) > 0;
+    }
     return true;
   }
 
@@ -1233,19 +1353,6 @@
     closeFilterMenu();
   }
 
-  function updateKindCounts() {
-    var post = 0;
-    var log = 0;
-    latestMomentRows.forEach(function (row) {
-      if ((row.kind || "post") === "log") log += 1;
-      else post += 1;
-    });
-    var postNum = $("kindNumPost");
-    var logNum = $("kindNumLog");
-    if (postNum) postNum.textContent = post ? String(post) : "";
-    if (logNum) logNum.textContent = log ? String(log) : "";
-  }
-
   function initMomentKinds() {
     var dock = $("momentDock");
     if (!dock) return;
@@ -1266,8 +1373,8 @@
   }
 
   /*
-   * 「写动态」悬浮按钮：只有发布框完全滚出视野上方时才渐显（纯 opacity）；
-   * 点它先淡出，再平滑滚回顶部并聚焦输入的文本域。
+   * 「写动态」悬浮按钮：只有发布框完全滚出视野上方时才渐显（纯 opacity），
+   * 和留言页的「发送留言」一致；点它先淡出，再平滑滚回顶部并聚焦输入的文本域。
    */
   function setSendFloatVisible(visible) {
     var btn = $("momentSendBtn");
@@ -1436,14 +1543,6 @@
     // 默认展开最近 1 个月；用户手动开合过就沿用他的选择
     if (!Object.keys(logMonthOpen).length) logMonthOpen[order[0]] = true;
 
-    var tools = el("div", "mo-log-tools");
-    var expandAll = el("button", "mo-log-tool", "展开全部");
-    expandAll.type = "button";
-    var collapseAll = el("button", "mo-log-tool", "收起全部");
-    collapseAll.type = "button";
-    tools.append(expandAll, collapseAll);
-    list.appendChild(tools);
-
     var panels = [];
     order.forEach(function (key) {
       var section = el("section", "mo-log-month-group");
@@ -1472,16 +1571,6 @@
     panels.forEach(function (panel) {
       applyLogMonth(panel, Boolean(logMonthOpen[panel.key]));
     });
-    expandAll.addEventListener("click", function () {
-      panels.forEach(function (panel) {
-        applyLogMonth(panel, true);
-      });
-    });
-    collapseAll.addEventListener("click", function () {
-      panels.forEach(function (panel) {
-        applyLogMonth(panel, false);
-      });
-    });
   }
 
   function momentEmptyText() {
@@ -1499,12 +1588,14 @@
   function renderMomentRows() {
     var list = $("momentList");
     if (!list) return;
-    // 先按 kind 分流，再套用「全部 / 我点赞过 / 我评论过」的筛选
+    // 先按 kind 分流，再套用「全部 / 分享 / 评论 / 点赞」的筛选
     var rows = latestMomentRows.filter(function (row) {
       return (row.kind || "post") === currentMomentKind;
     });
-    if (currentMomentFilter !== "all") rows = rows.filter(momentMatchesFilter);
-    updateKindCounts();
+    // 开发日志不参与筛选（日志没有分享 / 点赞 / 评论），否则切到日志会整页空白
+    if (currentMomentKind !== "log" && currentMomentFilter !== "all") {
+      rows = rows.filter(momentMatchesFilter);
+    }
     list.innerHTML = "";
     if (!rows.length) {
       list.appendChild(el("div", "mo-empty", momentEmptyText()));
