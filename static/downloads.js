@@ -2,7 +2,8 @@
  * 下载页：三张 Tab 分别装歌曲 / 书籍 / 推荐，内容仍是各自原来的页面（?embed=1 只藏掉品牌条）。
  *
  * - 面板懒加载：第一次切到某个 Tab 才创建 iframe，切回来不重建，所以歌曲切走也不会中断播放。
- * - 角标与呼吸沿用站点通知：/api/site/notifications/summary 里的 music / books / recommendations。
+ * - 角标与呼吸沿用站点通知：/api/site/notifications/summary 里的 music / books / recommendations
+ *   （先问一次 /api/auth/status，游客不请求这些登录接口，省掉一串 401）。
  * - 打开某个 Tab 就算读过这一栏，首页「下载」入口的角标随之减少。
  */
 (function () {
@@ -20,6 +21,8 @@
   var mounted = {};
   var activeKey = "";
   var busy = false;
+  // null = 还没问到；站内通知只有登录账号有，游客不用去问（否则控制台一堆 401）
+  var authed = null;
 
   function $(id) {
     return document.getElementById(id);
@@ -85,6 +88,7 @@
 
   function markSeen(key) {
     clearTab(key);
+    if (authed !== true) return;
     fetch("/api/site/notifications/seen", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -120,7 +124,7 @@
   }
 
   function loadCounts() {
-    if (busy) return Promise.resolve();
+    if (authed !== true || busy) return Promise.resolve();
     busy = true;
     return fetch("/api/site/notifications/summary", { cache: "no-store" })
       .then(function (response) {
@@ -182,6 +186,20 @@
     }, 5000);
   }
 
+  function loadAuth() {
+    return fetch("/api/auth/status", { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (data) {
+        authed = Boolean(data && data.authenticated);
+        if (authed) loadCounts();
+      })
+      .catch(function () {
+        authed = false;
+      });
+  }
+
   function init() {
     if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
     bind();
@@ -192,7 +210,7 @@
       wanted = "";
     }
     activate(wanted || TAB_KEYS[0], { keepUrl: !wanted });
-    loadCounts();
+    loadAuth();
   }
 
   if (document.readyState === "loading") {
