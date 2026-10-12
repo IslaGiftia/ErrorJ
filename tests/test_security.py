@@ -223,13 +223,48 @@ class HomeActivityTests(unittest.TestCase):
     def test_notification_unread_api_is_public(self):
         self.assertIn("/api/site/notifications/unread", app.ALWAYS_PUBLIC_APIS)
 
-    def test_game_activity_api_is_public(self):
-        self.assertIn("/api/site/game-play", app.ALWAYS_PUBLIC_APIS)
-
     def test_public_activity_uses_generic_content_labels(self):
         self.assertEqual(app.PUBLIC_ACTIVITY_LABELS["message_create"], "发表了留言")
         self.assertEqual(app.PUBLIC_ACTIVITY_LABELS["book_upload"], "上架了一本电子书")
         self.assertEqual(app.PUBLIC_ACTIVITY_LABELS["map_place_create"], "新增了一个足迹")
+
+    def test_game_module_is_gone(self):
+        """游戏模块整体下线：页面、接口、权限点与公开动态事件都不再存在。"""
+        self.assertFalse((app.STATIC_DIR / "games").exists())
+        self.assertFalse((app.STATIC_DIR / "site" / "game-activity.js").exists())
+        self.assertFalse(hasattr(app.InventoryHandler, "api_site_game_play"))
+        self.assertNotIn("/api/site/game-play", app.ALWAYS_PUBLIC_APIS)
+        self.assertNotIn("game_play", app.PUBLIC_ACTIVITY_LABELS)
+        self.assertNotIn("game", app.REPORT_TARGET_TYPES)
+        keys = {item["key"] for item in app.GUEST_PAGE_PERMISSIONS}
+        self.assertNotIn("guest:page:games", keys)
+        source = (app.BASE_DIR / "app.py").read_text(encoding="utf-8")
+        self.assertNotIn("games", source)
+
+    def test_downloads_page_collects_music_books_and_recommendations(self):
+        """下载页把歌曲 / 书籍 / 推荐三栏并进一个页面，首页只留一个入口。"""
+        home = (app.STATIC_DIR / "site" / "site.html").read_text(encoding="utf-8")
+        self.assertIn('href="/downloads"', home)
+        self.assertIn('id="downloadsEntry"', home)
+        self.assertIn('id="downloadsPending"', home)
+        for gone in ('href="/music"', 'href="/books"', 'href="/recommendations"'):
+            self.assertNotIn(gone, home)
+        self.assertNotIn("游戏", home)
+
+        page = (app.STATIC_DIR / "downloads.html").read_text(encoding="utf-8")
+        for key in ("music", "books", "recommendations"):
+            self.assertIn('data-tab="%s"' % key, page)
+            self.assertIn('data-panel="%s"' % key, page)
+        for label in ("歌曲", "书籍", "推荐"):
+            self.assertIn(label, page)
+
+        self.assertEqual(app.GUEST_PAGE_RULES.get("/downloads"), "guest:page:downloads")
+        labels = {item["key"]: item["label"] for item in app.GUEST_PAGE_PERMISSIONS}
+        self.assertEqual(labels["guest:page:downloads"], "下载")
+        for name in ("music.html", "books.html", "recommendations.html"):
+            text = (app.STATIC_DIR / name).read_text(encoding="utf-8")
+            self.assertIn("/static/site/embed.css", text)
+            self.assertIn("/static/site/embed.js", text)
 
     def test_download_request_notification_event_exists(self):
         events = {item["key"]: item for item in app.NOTIFY_EVENTS}
@@ -243,7 +278,6 @@ class HomeActivityTests(unittest.TestCase):
         labels = {item["key"]: item["label"] for item in app.GUEST_PAGE_PERMISSIONS}
         self.assertEqual(labels["guest:page:moments"], "动态")
         self.assertEqual(labels["guest:page:recommendations"], "推荐")
-        self.assertEqual(labels["guest:page:games"], "游戏")
 
         groups = {group["key"]: group["label"] for group in app.PERMISSION_GROUPS}
         self.assertEqual(groups["bookmarks"], "书签")
@@ -1463,9 +1497,9 @@ class HomeActivityAlertTests(unittest.TestCase):
                 for _ in range(70):
                     app.write_activity(
                         {"kind": "owner", "user_id": 0, "username": "管理员"},
-                        "game_play",
-                        "玩了一局2048",
-                        target_type="game",
+                        "music_upload",
+                        "上传了一首歌",
+                        target_type="music",
                     )
                 app.add_user_notification(
                     2, "place_like", "map", 999, "牛大能", "牛大能 点赞了你的标记点"
@@ -1502,9 +1536,9 @@ class HomeActivityAlertTests(unittest.TestCase):
                 for _ in range(70):
                     app.write_activity(
                         {"kind": "owner", "user_id": 0, "username": "管理员"},
-                        "game_play",
-                        "玩了一局2048",
-                        target_type="game",
+                        "music_upload",
+                        "上传了一首歌",
+                        target_type="music",
                     )
                 stamp = app.now_text()
                 app.execute(
@@ -1840,13 +1874,6 @@ class ComplianceWorkflowTests(unittest.TestCase):
         with patch.object(app, "notify_async", return_value=False):
             guest.api_site_report_create(
                 {
-                    "target_type": "game",
-                    "target_key": "2048",
-                    "reason": "违法违规",
-                }
-            )
-            guest.api_site_report_create(
-                {
                     "target_type": "book",
                     "target_key": str(self.book_id),
                     "reason": "侵权或隐私",
@@ -1866,12 +1893,11 @@ class ComplianceWorkflowTests(unittest.TestCase):
                     "reason": "违法违规",
                 }
             )
-        self.assertEqual(guest.responses[-4][0], 200)
         self.assertEqual(guest.responses[-3][0], 200)
         self.assertEqual(guest.responses[-2][0], 200)
         self.assertEqual(guest.responses[-1][0], 401)
         self.assertEqual(
-            app.query_one("SELECT COUNT(*) AS n FROM content_reports")["n"], 3
+            app.query_one("SELECT COUNT(*) AS n FROM content_reports")["n"], 2
         )
 
     def test_log_retention_default_is_six_months(self):
@@ -1884,11 +1910,6 @@ class ComplianceWorkflowTests(unittest.TestCase):
             "music.html",
             "books.html",
             "recommendations.html",
-            "games/index.html",
-            "games/2048/index.html",
-            "games/memory/index.html",
-            "games/minesweeper/index.html",
-            "games/caro/index.html",
         )
         for page in pages:
             text = (app.STATIC_DIR / page).read_text(encoding="utf-8")
@@ -1905,7 +1926,6 @@ class ComplianceWorkflowTests(unittest.TestCase):
 
     def test_routed_pages_do_not_use_native_dialogs(self):
         files = (
-            "games/index.html",
             "messages.js",
             "moments.js",
             "prompts.js",
@@ -1933,7 +1953,6 @@ class ComplianceWorkflowTests(unittest.TestCase):
             "references.html",
             "reader.html",
             "workbench.html",
-            "games/index.html",
         )
         for relative in files:
             text = (app.STATIC_DIR / relative).read_text(encoding="utf-8")
@@ -1966,7 +1985,7 @@ class ComplianceWorkflowTests(unittest.TestCase):
         app.execute(
             """INSERT INTO content_reports
                    (target_type, target_key, target_title, reason, status, created_at)
-               VALUES ('game', '2048', '2048', '违法违规', 'pending', ?)""",
+               VALUES ('recommendation', '1', '测试推荐', '违法违规', 'pending', ?)""",
             (stamp,),
         )
         app.execute(

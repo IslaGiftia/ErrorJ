@@ -1,0 +1,270 @@
+/* 下载页：顶部一枚品牌条 + 三个 Tab，下面整块留给内嵌的模块页面 */
+
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:root {
+  --dl-bg: #f5f6f8;
+  --dl-surface: #ffffff;
+  --dl-text: #1f2329;
+  --dl-muted: #7b8494;
+  --dl-border: #e3e6eb;
+  --dl-hover: #eef0f4;
+  --dl-accent: #7b68ee;
+  --dl-accent-soft: #efedff;
+  --dl-shadow: 0 1px 3px rgba(24, 31, 45, 0.06);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --dl-bg: #171717;
+  --dl-surface: #262626;
+  --dl-text: #f4f4f5;
+  --dl-muted: #a1a1aa;
+  --dl-border: #3f3f46;
+  --dl-hover: #323238;
+  --dl-accent: #a78bfa;
+  --dl-accent-soft: #322d4c;
+  --dl-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  background: var(--dl-bg);
+  color: var(--dl-text);
+  font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  overflow: hidden;
+}
+
+.dl-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px max(16px, calc((100% - 980px) / 2));
+  background: color-mix(in srgb, var(--dl-bg) 90%, transparent);
+  border-bottom: 1px solid var(--dl-border);
+}
+
+.dl-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: inherit;
+  text-decoration: none;
+  font-size: 15px;
+}
+
+.dl-brand-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--dl-accent-soft);
+  color: var(--dl-accent);
+}
+
+.dl-brand-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.dl-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dl-link-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--dl-border);
+  border-radius: 8px;
+  background: var(--dl-surface);
+  color: var(--dl-text);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.dl-link-btn:hover {
+  background: var(--dl-hover);
+}
+
+.dl-app {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px max(12px, calc((100% - 980px) / 2)) 0;
+}
+
+.dl-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  padding-bottom: 10px;
+}
+
+.dl-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 96px;
+  height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--dl-border);
+  border-radius: 10px;
+  background: var(--dl-surface);
+  color: var(--dl-muted);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.dl-tab svg {
+  width: 16px;
+  height: 16px;
+}
+
+.dl-tab:hover {
+  background: var(--dl-hover);
+}
+
+.dl-tab.is-active {
+  border-color: color-mix(in srgb, var(--dl-accent) 55%, var(--dl-border));
+  background: color-mix(in srgb, var(--dl-accent) 10%, var(--dl-surface));
+  color: var(--dl-accent);
+}
+
+.dl-tab.has-pending {
+  border-color: color-mix(in srgb, var(--dl-accent) 60%, var(--dl-border));
+  --dl-tab-shadow: var(--dl-shadow);
+  animation: dlTabPulse 3.6s ease-in-out infinite;
+}
+
+.dl-tab-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  z-index: 2;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--dl-accent);
+  color: #fff;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 20px;
+  text-align: center;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--dl-accent) 55%, transparent);
+}
+
+.dl-tab-badge[hidden] {
+  display: none;
+}
+
+@keyframes dlTabPulse {
+  0%,
+  100% {
+    box-shadow: var(--dl-tab-shadow);
+  }
+
+  50% {
+    box-shadow:
+      var(--dl-tab-shadow),
+      0 0 0 3px color-mix(in srgb, var(--dl-accent) 16%, transparent),
+      0 0 18px color-mix(in srgb, var(--dl-accent) 36%, transparent);
+  }
+}
+
+.dl-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  border: 1px solid var(--dl-border);
+  border-radius: 12px 12px 0 0;
+  background: var(--dl-surface);
+  overflow: hidden;
+}
+
+.dl-panel {
+  height: 100%;
+}
+
+.dl-panel[hidden] {
+  display: none;
+}
+
+.dl-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--dl-surface);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dl-tab.has-pending {
+    animation: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .dl-header {
+    padding: 10px 12px;
+  }
+
+  .dl-app {
+    padding: 10px 10px 0;
+  }
+
+  .dl-tabs {
+    gap: 6px;
+  }
+
+  .dl-tab {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 38px;
+    padding: 0 8px;
+    font-size: 13px;
+  }
+
+  .dl-tab-badge {
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    font-size: 10px;
+    line-height: 18px;
+  }
+}

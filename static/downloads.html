@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <title>下载</title>
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=3">
+  <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=3">
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
+  <link rel="stylesheet" href="/static/fonts.css">
+  <link rel="stylesheet" href="/static/downloads.css">
+</head>
+<body>
+  <header class="dl-header">
+    <a class="dl-brand" href="/">
+      <span class="dl-brand-icon"><i data-lucide="download"></i></span>
+      <strong>下载</strong>
+    </a>
+    <div class="dl-header-actions">
+      <a class="dl-link-btn" href="/reporting">举报与投诉</a>
+    </div>
+  </header>
+
+  <div class="dl-app">
+    <nav class="dl-tabs" id="dlTabs" role="tablist" aria-label="下载分类">
+      <button class="dl-tab" id="dlTabMusic" type="button" role="tab" data-tab="music" aria-selected="true" aria-controls="dlPanelMusic">
+        <i data-lucide="music"></i>
+        <span class="dl-tab-label">歌曲</span>
+        <em class="dl-tab-badge" id="dlBadgeMusic" hidden></em>
+      </button>
+      <button class="dl-tab" id="dlTabBooks" type="button" role="tab" data-tab="books" aria-selected="false" aria-controls="dlPanelBooks">
+        <i data-lucide="book-open"></i>
+        <span class="dl-tab-label">书籍</span>
+        <em class="dl-tab-badge" id="dlBadgeBooks" hidden></em>
+      </button>
+      <button class="dl-tab" id="dlTabRecommendations" type="button" role="tab" data-tab="recommendations" aria-selected="false" aria-controls="dlPanelRecommendations">
+        <i data-lucide="sparkles"></i>
+        <span class="dl-tab-label">推荐</span>
+        <em class="dl-tab-badge" id="dlBadgeRecommendations" hidden></em>
+      </button>
+    </nav>
+
+    <main class="dl-body" id="dlBody">
+      <section class="dl-panel" id="dlPanelMusic" role="tabpanel" data-panel="music" aria-labelledby="dlTabMusic"></section>
+      <section class="dl-panel" id="dlPanelBooks" role="tabpanel" data-panel="books" aria-labelledby="dlTabBooks" hidden></section>
+      <section class="dl-panel" id="dlPanelRecommendations" role="tabpanel" data-panel="recommendations" aria-labelledby="dlTabRecommendations" hidden></section>
+    </main>
+  </div>
+
+  <script src="/static/vendor/lucide.min.js"></script>
+  <script src="/static/downloads.js"></script>
+</body>
+</html>

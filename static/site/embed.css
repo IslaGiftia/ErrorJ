@@ -1,0 +1,20 @@
+/* 下载页内嵌模式（?embed=1）：只藏掉页面自己的品牌返回条，其余内容原样保留。 */
+
+html.is-embed .mu-brand,
+html.is-embed .bk-brand {
+  display: none;
+}
+
+html.is-embed .rec-brand .rec-brand-icon,
+html.is-embed .rec-brand strong {
+  display: none;
+}
+
+html.is-embed .rec-header-actions a[href="/"] {
+  display: none;
+}
+
+/* 外层下载页已经有「举报与投诉」，内嵌页不再重复一个 */
+html.is-embed a[href="/reporting"] {
+  display: none;
+}

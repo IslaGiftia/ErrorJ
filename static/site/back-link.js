@@ -1,15 +1,14 @@
 /*
- * 游戏页的“返回”链接：能确定是从上一级页面点进来的，就真的调用浏览器后退，
- * 否则用 location.replace 直接跳到上一级页面。
+ * 页面上的“返回”链接：能确定是从上一级页面点进来的，就真的调用浏览器后退，
+ * 否则用 location.replace 直接跳到上一级页面（默认回首页）。
  *
- * 两种方式都**不会新增历史记录**，避免出现“返回大厅 → 返回首页 → 再点返回又回到大厅”
- * 这种历史栈里堆着一串返回页的情况。
+ * 两种方式都**不会新增历史记录**，避免在历史栈里堆出一串返回页。
  */
 (function () {
   "use strict";
 
   function parentPath(link) {
-    return link.getAttribute("data-back-parent") || "/games";
+    return link.getAttribute("data-back-parent") || "/";
   }
 
   function cameFrom(expected) {

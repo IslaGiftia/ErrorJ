@@ -101,6 +101,7 @@ AUTH_STATE = {"enabled": False, "password_hash": "", "secret": ""}
 GUEST_PAGE_RULES = {
     "/messages": "guest:page:messages",
     "/moments": "guest:page:moments",
+    "/downloads": "guest:page:downloads",
     "/recommendations": "guest:page:recommendations",
     "/music": "guest:page:music",
     "/books": "guest:page:books",
@@ -133,7 +134,6 @@ ALWAYS_PUBLIC_PAGES = {
 ALWAYS_PUBLIC_APIS = {
     "/api/health",
     "/api/site/activity",
-    "/api/site/game-play",
     "/api/site/reports",
     "/api/site/upload-limits",
     "/api/site/notifications/unread",
@@ -152,7 +152,6 @@ SITE_MEMBER_PAGES = {
     "/books",
     "/references",
 }
-SITE_MEMBER_PAGE_PREFIXES = ("/games/",)
 SITE_MEMBER_APIS = {
     "/api/site/messages",
     "/api/moments",
@@ -264,10 +263,10 @@ ROLE_LABELS = {"guest": "游客", "member": "普通账户", "admin": "管理员"
 GUEST_PAGE_PERMISSIONS = (
     {"key": "guest:page:messages", "label": "留言"},
     {"key": "guest:page:moments", "label": "动态"},
+    {"key": "guest:page:downloads", "label": "下载"},
     {"key": "guest:page:recommendations", "label": "推荐"},
     {"key": "guest:page:music", "label": "歌单"},
     {"key": "guest:page:books", "label": "书架"},
-    {"key": "guest:page:games", "label": "游戏"},
     {"key": "guest:page:references", "label": "参考项目"},
 )
 GUEST_PAGE_PERMISSION_KEYS = tuple(item["key"] for item in GUEST_PAGE_PERMISSIONS)
@@ -409,19 +408,14 @@ PAGE_VIEW_PATHS = {
     "/references",
     "/moments",
     "/map",
+    "/downloads",
     "/recommendations",
     "/music",
     "/reporting",
-    "/games",
-    "/games/gomoku",
-    "/games/2048",
-    "/games/minesweeper",
-    "/games/memory",
 }
 PUBLIC_ACTIVITY_LABELS = {
     "message_create": "发表了留言",
     "message_reply": "回复了留言",
-    "game_play": "玩了一局游戏",
     "moment_create": "更新了一条动态",
     "moment_update": "更新了动态",
     "book_upload": "上架了一本电子书",
@@ -442,12 +436,11 @@ MESSAGE_FILE_MAX_BYTES = 5 * 1024 * 1024
 MESSAGE_FILE_TOTAL_MAX_BYTES = 15 * 1024 * 1024
 MESSAGE_FILE_MAX_COUNT = 3
 MESSAGE_DAILY_LIMIT = 9
-REPORT_TARGET_TYPES = ("message", "moment", "game", "book", "recommendation")
+REPORT_TARGET_TYPES = ("message", "moment", "book", "recommendation")
 REPORT_LOGIN_REQUIRED_TARGETS = {"message", "moment"}
 REPORT_TARGET_LABELS = {
     "message": "留言",
     "moment": "动态",
-    "game": "游戏",
     "book": "电子书",
     "recommendation": "推荐",
 }
@@ -1637,6 +1630,9 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             """DELETE FROM user_notifications
                WHERE module = 'map' AND target_id NOT IN (SELECT id FROM map_places)"""
         )
+        # 游戏模块已下线：清掉历史公开动态与相关举报（一次性，重复执行无副作用）
+        conn.execute("DELETE FROM activity_log WHERE action = 'game_play'")
+        conn.execute("DELETE FROM content_reports WHERE target_type = 'game'")
         music_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(site_music)").fetchall()
         }
@@ -1873,6 +1869,20 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             )
             conn.execute(
                 "INSERT INTO app_meta (key, value) VALUES ('books_guest_page_v1', ?)",
+                (now_text(),),
+            )
+        guest_downloads = conn.execute(
+            "SELECT value FROM app_meta WHERE key = 'downloads_guest_page_v1'"
+        ).fetchone()
+        if not guest_downloads:
+            conn.execute(
+                """INSERT OR IGNORE INTO role_permissions
+                       (role, permission, granted_by, granted_at)
+                   VALUES (?, ?, ?, ?)""",
+                (ROLE_GUEST, "guest:page:downloads", "系统初始化", now_text()),
+            )
+            conn.execute(
+                "INSERT INTO app_meta (key, value) VALUES ('downloads_guest_page_v1', ?)",
                 (now_text(),),
             )
         reference_seeded = conn.execute(
@@ -5440,7 +5450,7 @@ def required_permission(path, method):
         # 记录「已看到标记」是读状态，任何登录账号都可以
         return ""
     # 公开站点模块：游客能否访问由游客角色权限控制；登录账号一律可以浏览
-    if path in SITE_MEMBER_PAGES or path == "/games" or path.startswith(SITE_MEMBER_PAGE_PREFIXES):
+    if path in SITE_MEMBER_PAGES:
         return ""
     if path == "/api/site/messages" or path.startswith("/api/site/messages/"):
         # 留言：游客只能浏览；登录账号可以发表留言，删除仍仅管理员。
@@ -5563,8 +5573,6 @@ def guest_page_permission_for_path(path):
         return GUEST_PAGE_RULES[path]
     if path in GUEST_API_RULES:
         return GUEST_API_RULES[path]
-    if path == "/games":
-        return "guest:page:games"
     if path.startswith("/api/site/message-files/"):
         return "guest:page:messages"
     for prefix, rule in GUEST_RULE_PREFIXES:
@@ -8660,20 +8668,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.send_file("music.html")
             elif path == "/books":
                 self.send_file("books.html")
+            elif path == "/downloads":
+                self.send_file("downloads.html")
             elif path == "/books/read":
                 self.send_file("reader.html")
             elif path == "/books/shared":
                 self.send_file("reader.html")
-            elif path == "/games/gomoku":
-                self.send_file("games/caro/index.html")
-            elif path == "/games":
-                self.send_file("games/index.html")
-            elif path == "/games/2048":
-                self.send_file("games/2048/index.html")
-            elif path == "/games/minesweeper":
-                self.send_file("games/minesweeper/index.html")
-            elif path == "/games/memory":
-                self.send_file("games/memory/index.html")
             elif path == "/favicon.ico":
                 self.send_file("site/error-chan-favicon.png")
             elif path.startswith("/static/"):
@@ -8877,8 +8877,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_message_create(payload)
             elif path == "/api/site/reports":
                 self.api_site_report_create(payload)
-            elif path == "/api/site/game-play":
-                self.api_site_game_play(payload)
             elif path == "/api/site/messages/seen":
                 self.api_site_message_mark_seen()
             elif path == "/api/site/likes":
@@ -13817,11 +13815,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "id": f"activity-{row['id']}",
                     "created_at": row["created_at"],
                     "actor": actor,
-                    "text": (
-                        str(row.get("summary") or PUBLIC_ACTIVITY_LABELS[row["action"]])[:80]
-                        if row["action"] == "game_play"
-                        else PUBLIC_ACTIVITY_LABELS[row["action"]]
-                    ),
+                    "text": PUBLIC_ACTIVITY_LABELS[row["action"]],
                     "alert": False,
                     "_action": str(row.get("action") or ""),
                     "_target_type": row.get("target_type") or "",
@@ -14049,24 +14043,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
             },
         )
 
-    def api_site_game_play(self, payload):
-        game = str(payload.get("game") or "").strip()[:20]
-        if game not in ("五子棋", "2048", "扫雷", "记忆翻牌"):
-            api_error(self, 400, "未知游戏。")
-            return
-        if self.session_identity() is None:
-            self.send_json(200, {"ok": True, "recorded": False})
-            return
-        if not rate_allow("game_play", self.client_ip(), 10, 3600):
-            api_error(self, 429, "游戏记录太频繁，请稍后再试。")
-            return
-        self.log_activity(
-            "game_play",
-            f"玩了一局{game}",
-            target_type="game",
-        )
-        self.send_json(200, {"ok": True, "recorded": True})
-
     def report_target(self, target_type, target_key, identity):
         """校验举报对象并返回可长期保存的内容快照。"""
         target_type = str(target_type or "").strip()
@@ -14117,17 +14093,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "created_at": row.get("created_at") or "",
                 },
             )
-
-        if target_type == "game":
-            games = {
-                "gomoku": "五子棋",
-                "2048": "2048",
-                "minesweeper": "扫雷",
-                "memory": "记忆翻牌",
-            }
-            if target_key not in games:
-                raise ValueError("举报对象不正确。")
-            return (games[target_key], {"slug": target_key, "title": games[target_key]})
 
         if target_type == "book":
             if not target_key.isdigit():

@@ -178,16 +178,9 @@
     applyModuleBadge("momentsEntry", "momentsPending", count);
   }
 
-  function applyMusicBadge(count) {
-    applyModuleBadge("musicEntry", "musicPending", count);
-  }
-
-  function applyBooksBadge(count) {
-    applyModuleBadge("booksEntry", "booksPending", count);
-  }
-
-  function applyRecommendationsBadge(count) {
-    applyModuleBadge("recommendationsEntry", "recommendationsPending", count);
+  // 下载入口把歌曲 / 书籍 / 推荐三栏的未读合成一个数字
+  function applyDownloadsBadge(count) {
+    applyModuleBadge("downloadsEntry", "downloadsPending", count);
   }
 
   var notificationSummaryBusy = false;
@@ -196,9 +189,7 @@
     if (!authState.authenticated) {
       applyMessagesBadge(0);
       applyMomentsBadge(0);
-      applyMusicBadge(0);
-      applyBooksBadge(0);
-      applyRecommendationsBadge(0);
+      applyDownloadsBadge(0);
       applyPendingBadge(0);
       return Promise.resolve();
     }
@@ -213,9 +204,11 @@
       .then(function (data) {
         applyMessagesBadge(Number(data.messages) || 0);
         applyMomentsBadge(Number(data.moments) || 0);
-        applyMusicBadge(Number(data.music) || 0);
-        applyBooksBadge(Number(data.books) || 0);
-        applyRecommendationsBadge(Number(data.recommendations) || 0);
+        applyDownloadsBadge(
+          (Number(data.music) || 0) +
+            (Number(data.books) || 0) +
+            (Number(data.recommendations) || 0)
+        );
         applyPendingBadge(Number(data.workbench) || 0);
       })
       .catch(function () {})
