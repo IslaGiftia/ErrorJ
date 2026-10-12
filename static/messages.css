@@ -111,7 +111,7 @@ body {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  margin: 10px 0 2px;
+  margin: 0;
   color: var(--mg-muted);
   font-size: 12.5px;
   line-height: 1.5;
@@ -129,7 +129,8 @@ body {
 }
 
 .mg-quota {
-  margin: 10px 0 0;
+  margin: 0;
+  margin-left: auto;
   color: var(--mg-muted);
   font-size: 12.5px;
   text-align: right;
@@ -176,6 +177,22 @@ body {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+/* 「发布留言」贴到「添加附件」同一行的右侧，撤掉原来的独立操作行 */
+.mg-compose-row .mg-send-btn {
+  margin-left: auto;
+}
+
+/* 「额度提示」贴到「公开 IP 属地」同一行的右侧 */
+.mg-compose-meta {
+  align-items: center;
+  margin-top: 10px;
+}
+
+.mg-compose-meta .mg-region-toggle {
+  flex: 1;
+  min-width: 0;
 }
 
 .mg-btn {
@@ -292,51 +309,143 @@ body {
   color: var(--mg-danger);
 }
 
-.mg-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 14px;
-}
-
 .mg-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.mg-filters {
+/* ---------- 留言筛选：常驻悬浮的下拉按钮 ---------- */
+.mg-filter-dock {
+  position: sticky;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  z-index: 30;
+  align-self: flex-start;
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 4px;
+  justify-content: flex-start;
 }
 
-.mg-filters[hidden] {
+.mg-filter-dock[hidden] {
   display: none;
 }
 
-.mg-filter {
-  height: 30px;
-  padding: 0 13px;
-  border: 1px solid var(--mg-border);
-  border-radius: 999px;
-  background: var(--mg-surface);
-  color: var(--mg-muted);
-  font-size: 13px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.mg-filter:hover {
-  background: var(--mg-hover);
+.mg-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border: 1px solid color-mix(in srgb, var(--mg-border) 78%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--mg-surface) 78%, transparent);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   color: var(--mg-text);
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(24, 31, 45, 0.08);
 }
 
-.mg-filter.is-active {
-  border-color: color-mix(in srgb, var(--mg-accent) 55%, var(--mg-border));
+.mg-filter-btn:hover {
+  background: color-mix(in srgb, var(--mg-surface) 92%, transparent);
+}
+
+.mg-filter-btn svg {
+  width: 15px;
+  height: 15px;
+  color: var(--mg-muted);
+  transition: transform 0.18s ease;
+}
+
+.mg-filter-dock.is-open .mg-filter-btn {
+  border-color: color-mix(in srgb, var(--mg-accent) 46%, var(--mg-border));
+}
+
+.mg-filter-dock.is-open .mg-filter-btn svg {
+  transform: rotate(180deg);
+}
+
+.mg-filter-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 31;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 168px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid var(--mg-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--mg-surface) 96%, transparent);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 12px 32px rgba(24, 31, 45, 0.18);
+  animation: mgFilterMenuIn 0.16s ease;
+}
+
+.mg-filter-menu[hidden] {
+  display: none;
+}
+
+@keyframes mgFilterMenuIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.mg-filter-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--mg-text);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mg-filter-option:hover {
   background: var(--mg-accent-soft);
+}
+
+.mg-filter-option.is-active {
   color: var(--mg-accent);
   font-weight: 600;
+}
+
+.mg-filter-option.is-active:hover {
+  background: var(--mg-accent-soft);
+}
+
+.mg-filter-check {
+  display: inline-flex;
+  margin-left: auto;
+  opacity: 0;
+}
+
+.mg-filter-check svg {
+  width: 15px;
+  height: 15px;
+}
+
+.mg-filter-option.is-active .mg-filter-check {
+  opacity: 1;
 }
 
 .mg-item {
@@ -369,16 +478,48 @@ body {
   word-break: break-word;
 }
 
-.mg-files {
+/* 附件区：图片九宫格在上，非图片文件条在下 */
+.mg-attachments {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 10px;
   margin-top: 12px;
 }
 
-.mg-thumb {
+.mg-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+}
+
+/* 朋友圈式九宫格：2-4 张两列、5-9 张三列，格子一律正方裁剪 */
+.mg-gallery {
+  display: grid;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.mg-gallery.cols-1 {
+  display: block;
+  width: 100%;
+  max-width: 260px;
+}
+
+.mg-gallery.cols-2,
+.mg-gallery.cols-3 {
+  width: min(100%, 320px);
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.mg-gallery.cols-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.mg-gallery-cell {
   position: relative;
   display: block;
+  width: 100%;
   padding: 0;
   border: 1px solid var(--mg-border);
   border-radius: 8px;
@@ -388,10 +529,35 @@ body {
   color: inherit;
   background: var(--mg-bg);
   cursor: zoom-in;
+  aspect-ratio: 1 / 1;
 }
 
-.mg-thumb.is-pending::after {
-  content: "审核中";
+/* 单图保持原比例，不裁剪 */
+.mg-gallery.cols-1 .mg-gallery-cell {
+  aspect-ratio: auto;
+}
+
+.mg-gallery-cell img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mg-gallery.cols-1 .mg-gallery-cell img {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+.mg-gallery-cell.no-save img {
+  pointer-events: none;
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+.mg-gallery-badge {
   position: absolute;
   left: 6px;
   bottom: 6px;
@@ -403,19 +569,19 @@ body {
   line-height: 18px;
 }
 
-.mg-thumb img {
-  display: block;
-  max-width: 180px;
-  max-height: 180px;
-  width: auto;
-  height: auto;
-}
-
-.mg-thumb.no-save img {
-  pointer-events: none;
-  -webkit-user-drag: none;
-  -webkit-touch-callout: none;
-  user-select: none;
+/* 超过 9 张时，第九格右下角压一个「+剩余数量」 */
+.mg-gallery-more {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 6px 8px;
+  background: rgba(12, 16, 22, 0.35);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .mg-media-guard {
@@ -423,7 +589,7 @@ body {
   inset: 0;
 }
 
-.mg-thumb.can-save .mg-media-guard {
+.mg-gallery-cell.can-save .mg-media-guard {
   display: none;
 }
 
@@ -506,6 +672,7 @@ button.mg-file {
 
 .mg-item-actions {
   display: flex;
+  align-items: center;
   gap: 6px;
   margin-top: 12px;
 }
@@ -529,6 +696,107 @@ button.mg-file {
 .mg-link-btn.is-danger:hover {
   background: var(--mg-danger-soft);
   color: var(--mg-danger);
+}
+
+/* ---------- 卡片右下角「三个点」菜单 ---------- */
+.mg-more {
+  position: relative;
+  display: flex;
+  margin-left: auto;
+}
+
+.mg-more-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--mg-muted);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.mg-more-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.mg-more-btn:hover {
+  background: var(--mg-hover);
+  color: var(--mg-text);
+}
+
+.mg-more.is-open .mg-more-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* PC：悬停留言卡片才显示，移出隐藏（也和键盘焦点联动） */
+@media (hover: hover) and (pointer: fine) {
+  .mg-item:hover .mg-more-btn,
+  .mg-item:focus-within .mg-more-btn {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+/* 移动端没有 hover：三个点常驻显示，点击区域放大到 36px */
+@media (hover: none), (pointer: coarse) {
+  .mg-more-btn {
+    width: 36px;
+    height: 36px;
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.mg-more-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  min-width: 112px;
+  padding: 4px;
+  border: 1px solid var(--mg-border);
+  border-radius: 8px;
+  background: var(--mg-surface);
+  box-shadow: 0 10px 28px rgba(24, 31, 45, 0.18);
+}
+
+.mg-more-menu[hidden] {
+  display: none;
+}
+
+.mg-more-item {
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mg-text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mg-more-item:hover {
+  background: var(--mg-hover);
+}
+
+.mg-more-item.is-danger {
+  color: var(--mg-danger);
+}
+
+.mg-more-item.is-danger:hover {
+  background: var(--mg-danger-soft);
 }
 
 .mg-replies {
@@ -557,16 +825,23 @@ button.mg-file {
 }
 
 .mg-like-btn {
-  padding: 2px 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--mg-faint);
   font: inherit;
-  font-size: 15px;
   line-height: 1;
   cursor: pointer;
   transition: color 0.15s ease, background 0.15s ease;
+}
+
+.mg-like-btn svg {
+  width: 17px;
+  height: 17px;
 }
 
 .mg-like-btn:hover {
@@ -574,27 +849,18 @@ button.mg-file {
   color: var(--mg-accent);
 }
 
+/* 已点赞：大拇指点亮主题色并填充；不再有点赞人数 */
 .mg-like-btn.is-liked {
-  color: #e2557b;
+  color: var(--mg-accent);
+}
+
+.mg-like-btn.is-liked svg {
+  fill: currentColor;
 }
 
 .mg-like-btn:disabled {
   opacity: 0.6;
   cursor: default;
-}
-
-.mg-like-count {
-  color: var(--mg-muted);
-  font-size: 12.5px;
-}
-
-.mg-like-names {
-  min-width: 0;
-  color: var(--mg-muted);
-  font-size: 12.5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .mg-reply-to {
@@ -713,10 +979,127 @@ button.mg-file {
   backdrop-filter: blur(4px);
 }
 
+/* 图片灯箱铺满整屏，不要白色弹窗外壳的留白 */
+.mg-viewer.is-image {
+  padding: 0;
+}
+
 .mg-viewer[hidden] {
   display: none;
 }
 
+/* ---------- 图片灯箱：原图独立展示，无边框、无多余元素 ---------- */
+.mg-viewer-gallery {
+  position: absolute;
+  inset: 0;
+}
+
+.mg-viewer-gallery[hidden] {
+  display: none;
+}
+
+.mg-viewer-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow: auto;
+  /*
+   * 双击交给 image-zoom.js；pan-x pan-y 保留放大后的单指平移，
+   * 双指捏合缩放留给脚本自己算。
+   */
+  touch-action: pan-x pan-y;
+}
+
+.mg-viewer-stage img {
+  display: block;
+  margin: auto;
+  max-width: 100%;
+  max-height: 100%;
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+  cursor: zoom-in;
+}
+
+.mg-viewer-stage img.is-zoomed {
+  cursor: zoom-out;
+}
+
+.mg-viewer-stage.is-panning img {
+  cursor: grabbing;
+}
+
+.mg-viewer-close,
+.mg-viewer-nav {
+  position: absolute;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(20, 24, 32, 0.55);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.mg-viewer-close:hover,
+.mg-viewer-nav:hover {
+  background: rgba(20, 24, 32, 0.8);
+}
+
+.mg-viewer-close {
+  top: calc(14px + env(safe-area-inset-top, 0px));
+  right: 16px;
+  width: 40px;
+  height: 40px;
+}
+
+.mg-viewer-nav {
+  top: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translateY(-50%);
+}
+
+.mg-viewer-nav.is-prev {
+  left: 14px;
+}
+
+.mg-viewer-nav.is-next {
+  right: 14px;
+}
+
+.mg-viewer-nav[hidden] {
+  display: none;
+}
+
+.mg-viewer-close svg,
+.mg-viewer-nav svg {
+  width: 24px;
+  height: 24px;
+}
+
+.mg-viewer-counter {
+  position: absolute;
+  left: 50%;
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  z-index: 2;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(20, 24, 32, 0.55);
+  color: #fff;
+  font-size: 13px;
+}
+
+.mg-viewer-counter[hidden] {
+  display: none;
+}
+
+/* ---------- 附件（PDF / 文本）弹窗 ---------- */
 .mg-viewer-dialog {
   display: flex;
   flex-direction: column;
@@ -726,6 +1109,10 @@ button.mg-file {
   border-radius: 10px;
   background: var(--mg-surface);
   overflow: hidden;
+}
+
+.mg-viewer-dialog[hidden] {
+  display: none;
 }
 
 .mg-viewer-head {
@@ -744,40 +1131,11 @@ button.mg-file {
   white-space: nowrap;
 }
 
-/* 看图的时候弹窗跟着图片收窄，不留一圈白边；iframe 等其它内容仍用固定宽度 */
-.mg-viewer-dialog:has(.mg-viewer-body img) {
-  width: fit-content;
-}
-
 .mg-viewer-body {
   flex: 1;
   min-height: 0;
   overflow: auto;
   text-align: center;
-  /*
-   * 双击交给 image-zoom.js 处理；pan-x pan-y 保留放大后的单指平移，
-   * 双指捏合缩放留给脚本自己算。
-   */
-  touch-action: pan-x pan-y;
-}
-
-.mg-viewer-body img {
-  display: block;
-  max-width: 100%;
-  max-height: 76vh;
-  margin: 0 auto;
-  -webkit-user-drag: none;
-  -webkit-touch-callout: none;
-  user-select: none;
-  cursor: zoom-in;
-}
-
-.mg-viewer-body img.is-zoomed {
-  cursor: zoom-out;
-}
-
-.mg-viewer-body.is-panning img {
-  cursor: grabbing;
 }
 
 .mg-viewer-body iframe {
@@ -850,18 +1208,46 @@ button.mg-file {
     padding: 14px;
   }
 
-  .mg-thumb img {
-    max-width: 132px;
-    max-height: 132px;
-  }
-
   .mg-file-name {
     max-width: 170px;
   }
 
-  .mg-actions .mg-btn {
-    width: 100%;
-    justify-content: center;
+  /* 手机：附件提示、属地说明各占满一行，发布留言仍和添加附件同一行 */
+  .mg-compose-row .mg-attach-hint {
+    order: 3;
+    flex: 1 1 100%;
+  }
+
+  .mg-compose-row .mg-send-btn {
+    order: 2;
+  }
+
+  .mg-compose-meta .mg-region-toggle {
+    flex: 1 1 100%;
+  }
+
+  /* 手机：九宫格收窄一点，单图别顶满整行 */
+  .mg-gallery.cols-1 {
+    max-width: 220px;
+  }
+
+  .mg-gallery.cols-2,
+  .mg-gallery.cols-3 {
+    width: min(100%, 288px);
+  }
+
+  /* 灯箱的左右切换按钮靠边一点，别挡到图 */
+  .mg-viewer-nav {
+    width: 40px;
+    height: 40px;
+  }
+
+  .mg-viewer-nav.is-prev {
+    left: 8px;
+  }
+
+  .mg-viewer-nav.is-next {
+    right: 8px;
   }
 }
 
@@ -876,5 +1262,48 @@ button.mg-file {
   /* 手机上主按钮点起来大一点（原来约 38px） */
   .mg-btn {
     min-height: 44px;
+  }
+}
+
+/* ============================================================
+ * 留言页：把右下角的返回顶部按钮换成 B 站风格的方形「顶部」按钮
+ * （back-to-top 是全站公共组件，只在本页用更高权重覆盖样式）
+ * ============================================================ */
+body[data-notify-module="messages"] .site-back-top {
+  flex-direction: column;
+  gap: 2px;
+  width: 48px;
+  height: 58px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--mg-border) 85%, transparent);
+  background: color-mix(in srgb, var(--mg-surface) 86%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  color: var(--mg-text);
+  box-shadow: 0 6px 20px rgba(24, 31, 45, 0.18);
+}
+
+body[data-notify-module="messages"] .site-back-top::after {
+  content: "顶部";
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+body[data-notify-module="messages"] .site-back-top svg {
+  width: 18px;
+  height: 18px;
+}
+
+@media (max-width: 640px) {
+  body[data-notify-module="messages"] .site-back-top {
+    width: 44px;
+    height: 52px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-notify-module="messages"] .site-back-top {
+    transition: none;
   }
 }

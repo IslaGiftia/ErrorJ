@@ -10,7 +10,6 @@
   var toastTimer = null;
   var canPost = false;
   var isAdmin = false;
-  var viewerLikeName = "";
   var freshTargets = {};
   var jumpBtn = null;
   var jumpFrame = null;
@@ -380,29 +379,120 @@
     });
   });
 
-  // ---- 列表 ----
+  // ---- 附件查看器 ----
+  /*
+   * 图片走「灯箱」：原图独占屏幕、左右切换，没有白色外框；非图片附件仍用
+   * 原来的白色弹窗 + iframe。image-zoom 只绑定一次（换图靠改 src + 清缩放），
+   * 免得反复 bind 往同一个容器上叠滚轮 / 触摸监听。
+   */
+  var galleryFiles = [];
+  var galleryIndex = 0;
+  var viewerImg = null;
+  var viewerZoomBound = false;
+
+  function viewerImageEl() {
+    var stage = $("fileViewerStage");
+    if (!stage) return null;
+    if (!viewerImg) {
+      viewerImg = document.createElement("img");
+      viewerImg.alt = "";
+      viewerImg.draggable = false;
+      stage.appendChild(viewerImg);
+    }
+    if (!viewerZoomBound && window.ErrorImageZoom) {
+      window.ErrorImageZoom.bind(stage, viewerImg);
+      viewerZoomBound = true;
+    }
+    return viewerImg;
+  }
+
+  // 换图 / 关闭时清掉上一张的缩放与滚动，白框和位移都不残留
+  function resetViewerZoom() {
+    var stage = $("fileViewerStage");
+    if (viewerImg) {
+      viewerImg._ezBase = null;
+      viewerImg._ezScale = 1;
+      viewerImg.style.width = "";
+      viewerImg.style.height = "";
+      viewerImg.style.maxWidth = "";
+      viewerImg.style.maxHeight = "";
+      viewerImg.classList.remove("is-zoomed");
+    }
+    if (stage) {
+      stage.scrollLeft = 0;
+      stage.scrollTop = 0;
+      stage.classList.remove("is-panning");
+    }
+  }
+
+  function renderViewerImage() {
+    var image = viewerImageEl();
+    var file = galleryFiles[galleryIndex];
+    if (!image || !file) return;
+    resetViewerZoom();
+    image.src = file.url;
+    image.alt = file.file_name || "";
+    var multiple = galleryFiles.length > 1;
+    var prev = $("fileViewerPrev");
+    var next = $("fileViewerNext");
+    var counter = $("fileViewerCounter");
+    if (prev) prev.hidden = !multiple;
+    if (next) next.hidden = !multiple;
+    if (counter) {
+      counter.hidden = !multiple;
+      counter.textContent = galleryIndex + 1 + " / " + galleryFiles.length;
+    }
+  }
+
+  function openImageViewer(files, index) {
+    var images = (files || []).filter(function (file) {
+      return file && file.is_image && file.visible !== false && file.url;
+    });
+    var viewer = $("fileViewer");
+    if (!viewer || !images.length) return;
+    galleryFiles = images;
+    galleryIndex = Math.max(0, Math.min(Number(index) || 0, images.length - 1));
+    var gallery = $("fileViewerGallery");
+    var dialog = $("fileViewerDialog");
+    var body = $("fileViewerBody");
+    if (gallery) gallery.hidden = false;
+    if (dialog) dialog.hidden = true;
+    if (body) body.innerHTML = "";
+    viewer.classList.add("is-image");
+    viewer.hidden = false;
+    renderViewerImage();
+    refreshIcons();
+  }
+
+  function stepViewerImage(delta) {
+    if (galleryFiles.length < 2) return;
+    galleryIndex =
+      (galleryIndex + delta + galleryFiles.length) % galleryFiles.length;
+    renderViewerImage();
+  }
+
   function openFileViewer(file) {
     var viewer = $("fileViewer");
+    if (!viewer || !file) return;
+    if (file.is_image && file.visible !== false && file.url) {
+      openImageViewer([file], 0);
+      return;
+    }
     var body = $("fileViewerBody");
     var title = $("fileViewerTitle");
-    if (!viewer || !body) return;
-    // 图片不显示文件名（一堆 Screenshot_xxx.jpg 没什么用），附件保留名字方便确认
-    if (title) title.textContent = file.is_image ? "查看图片" : file.file_name || "查看附件";
+    var gallery = $("fileViewerGallery");
+    var dialog = $("fileViewerDialog");
+    if (!body) return;
+    if (title) title.textContent = file.file_name || "查看附件";
     body.innerHTML = "";
-    if (file.is_image) {
-      var image = document.createElement("img");
-      image.src = file.url;
-      image.alt = file.file_name || "";
-      image.draggable = false;
-      body.appendChild(image);
-      if (window.ErrorImageZoom) window.ErrorImageZoom.bind(body, image);
-    } else {
-      var frame = document.createElement("iframe");
-      frame.src = file.url;
-      frame.title = file.file_name || "附件预览";
-      frame.setAttribute("referrerpolicy", "no-referrer");
-      body.appendChild(frame);
-    }
+    var frame = document.createElement("iframe");
+    frame.src = file.url;
+    frame.title = file.file_name || "附件预览";
+    frame.setAttribute("referrerpolicy", "no-referrer");
+    body.appendChild(frame);
+    if (gallery) gallery.hidden = true;
+    if (dialog) dialog.hidden = false;
+    viewer.classList.remove("is-image");
     viewer.hidden = false;
   }
 
@@ -411,11 +501,67 @@
     var body = $("fileViewerBody");
     if (viewer) viewer.hidden = true;
     if (body) body.innerHTML = "";
+    galleryFiles = [];
+    galleryIndex = 0;
+    resetViewerZoom();
+  }
+
+  // ---- 列表 ----
+  // 图片附件按朋友圈九宫格排（1 张等比例、2-4 张两列、5-9 张三列），超过 9 张
+  // 第九格压一个「+剩余数量」；非图片附件仍是原来的文件条。
+  function buildImageGallery(images) {
+    var count = images.length;
+    var cols = count === 1 ? 1 : count <= 4 ? 2 : 3;
+    var gallery = el("div", "mg-gallery cols-" + cols);
+    var shown = images.slice(0, 9);
+    var extra = count - shown.length;
+    shown.forEach(function (file, index) {
+      var canSave = Boolean(file.can_save);
+      var cell = el(
+        "button",
+        "mg-gallery-cell " + (canSave ? "can-save" : "no-save")
+      );
+      cell.type = "button";
+      cell.title = file.pending
+        ? file.file_name + "（审核中，仅你和管理员可见）"
+        : canSave
+          ? file.file_name
+          : file.file_name + "（仅可查看）";
+      if (file.pending) cell.classList.add("is-pending");
+      var image = document.createElement("img");
+      image.src = file.url;
+      image.alt = file.file_name || "";
+      image.loading = "lazy";
+      image.draggable = false;
+      cell.appendChild(image);
+      cell.appendChild(el("span", "mg-media-guard", ""));
+      if (file.pending) cell.appendChild(el("span", "mg-gallery-badge", "审核中"));
+      if (extra > 0 && index === shown.length - 1) {
+        cell.appendChild(el("span", "mg-gallery-more", "+" + extra));
+      }
+      cell.addEventListener("click", function () {
+        openImageViewer(images, index);
+      });
+      gallery.appendChild(cell);
+    });
+    return gallery;
   }
 
   function buildFiles(files) {
-    var wrap = el("div", "mg-files");
-    files.forEach(function (file) {
+    var wrap = el("div", "mg-attachments");
+    var previewable = function (file) {
+      return Boolean(file.is_image && !file.locked && file.visible !== false);
+    };
+    var images = files.filter(previewable);
+    var others = files.filter(function (file) {
+      return !previewable(file);
+    });
+    if (images.length) {
+      wrap.appendChild(buildImageGallery(images));
+    }
+    if (!others.length) return wrap;
+    var chips = el("div", "mg-files");
+    others.forEach(function (file) {
       if (file.locked) {
         var locked = el("span", "mg-file mg-file-locked");
         var lockIcon = document.createElement("i");
@@ -423,7 +569,7 @@
         locked.appendChild(lockIcon);
         locked.appendChild(el("span", "mg-file-name", file.file_name || "附件"));
         locked.appendChild(el("span", "mg-file-size", "登录后可查看"));
-        wrap.appendChild(locked);
+        chips.appendChild(locked);
         return;
       }
       if (file.visible === false) {
@@ -433,33 +579,11 @@
         pending.appendChild(pendingIcon);
         pending.appendChild(el("span", "mg-file-name", "附件审核中"));
         pending.title = "审核通过后其他人才能看到";
-        wrap.appendChild(pending);
+        chips.appendChild(pending);
         return;
       }
       var url = file.url;
       var canSave = Boolean(file.can_save);
-      if (file.is_image) {
-        var thumb = el("button", "mg-thumb " + (canSave ? "can-save" : "no-save"));
-        thumb.type = "button";
-        thumb.title = file.pending
-          ? file.file_name + "（审核中，仅你和管理员可见）"
-          : canSave
-            ? file.file_name
-            : file.file_name + "（仅可查看）";
-        if (file.pending) thumb.classList.add("is-pending");
-        var image = document.createElement("img");
-        image.src = url;
-        image.alt = file.file_name;
-        image.loading = "lazy";
-        image.draggable = false;
-        thumb.appendChild(image);
-        thumb.appendChild(el("span", "mg-media-guard", ""));
-        thumb.addEventListener("click", function () {
-          openFileViewer(file);
-        });
-        wrap.appendChild(thumb);
-        return;
-      }
       var node;
       if (canSave) {
         node = el("a", "mg-file");
@@ -484,8 +608,9 @@
       }
       node.appendChild(el("span", "mg-file-size", formatSize(file.file_size)));
       if (!canSave) node.appendChild(el("span", "mg-file-view-tag", "查看"));
-      wrap.appendChild(node);
+      chips.appendChild(node);
     });
+    wrap.appendChild(chips);
     return wrap;
   }
 
@@ -556,31 +681,14 @@
 
   function buildLikeControl(targetType, target) {
     var wrap = el("div", "mg-like");
-    var btn = el("button", "mg-like-btn", "♥");
-    var count = el("span", "mg-like-count", String(target.like_count || 0));
-    var names = el("span", "mg-like-names", "");
+    var btn = el("button", "mg-like-btn");
     btn.type = "button";
-    function syncNames() {
-      var users = (target.like_users || []).slice();
-      if (!users.length) {
-        names.hidden = true;
-        names.textContent = "";
-        return;
-      }
-      var shown = users.slice(0, 3).join("、");
-      names.hidden = false;
-      names.textContent =
-        users.length > 3 ? shown + " 等 " + users.length + " 人" : shown;
-    }
+    // 大拇指图标：未点赞跟随默认灰，点赞后点亮主题色；不再显示点赞人数
+    btn.innerHTML = '<i data-lucide="thumbs-up" aria-hidden="true"></i>';
     function sync() {
       btn.classList.toggle("is-liked", Boolean(target.liked));
       btn.title = target.liked ? "取消点赞" : "点赞";
-      count.textContent = String(target.like_count || 0);
-      count.hidden = !target.like_count && !target.liked;
-      syncNames();
     }
-    count.hidden = true;
-    names.hidden = true;
     sync();
     btn.addEventListener("click", function () {
       if (!canPost) {
@@ -598,14 +706,6 @@
       }).then(function (data) {
         target.liked = Boolean(data && data.liked);
         target.like_count = Number(data && data.count) || 0;
-        var users = Array.isArray(target.like_users) ? target.like_users : [];
-        var own = viewerLikeName;
-        if (own) {
-          var index = users.indexOf(own);
-          if (target.liked && index < 0) users.unshift(own);
-          if (!target.liked && index >= 0) users.splice(index, 1);
-        }
-        target.like_users = users;
         sync();
       }).catch(function (err) {
         toast(err.message || "操作失败");
@@ -614,8 +714,6 @@
       });
     });
     wrap.appendChild(btn);
-    wrap.appendChild(count);
-    wrap.appendChild(names);
     return wrap;
   }
 
@@ -685,6 +783,92 @@
     { passive: true }
   );
 
+  // ---------- 卡片右下角「更多」菜单（删除 / 举报）----------
+  function closeAllMoreMenus() {
+    Array.prototype.forEach.call(
+      document.querySelectorAll(".mg-more.is-open"),
+      function (node) {
+        node.classList.remove("is-open");
+        var menu = node.querySelector(".mg-more-menu");
+        if (menu) menu.hidden = true;
+        var btn = node.querySelector(".mg-more-btn");
+        if (btn) btn.setAttribute("aria-expanded", "false");
+      }
+    );
+  }
+
+  function buildMoreMenu(message, canDelete, canReport) {
+    var more = el("div", "mg-more");
+    var btn = el("button", "mg-more-btn");
+    btn.type = "button";
+    btn.title = "更多操作";
+    btn.setAttribute("aria-haspopup", "true");
+    btn.setAttribute("aria-expanded", "false");
+    btn.setAttribute("aria-label", "更多操作");
+    btn.innerHTML = '<i data-lucide="ellipsis" aria-hidden="true"></i>';
+    var menu = el("div", "mg-more-menu");
+    menu.hidden = true;
+    menu.setAttribute("role", "menu");
+    if (canDelete) {
+      var delBtn = el("button", "mg-more-item is-danger", "删除");
+      delBtn.type = "button";
+      delBtn.setAttribute("role", "menuitem");
+      delBtn.addEventListener("click", function () {
+        closeAllMoreMenus();
+        deleteMessage(message);
+      });
+      menu.appendChild(delBtn);
+    }
+    if (canReport) {
+      var reportBtn = el("button", "mg-more-item", "举报");
+      reportBtn.type = "button";
+      reportBtn.setAttribute("role", "menuitem");
+      reportBtn.setAttribute("data-report-type", "message");
+      reportBtn.setAttribute("data-report-key", message.id);
+      reportBtn.setAttribute(
+        "data-report-title",
+        "留言：" + (message.content || "").slice(0, 40)
+      );
+      reportBtn.setAttribute("data-report-login", "1");
+      // report.js 的全局点击委托会接着弹举报框，这里只负责收起菜单
+      reportBtn.addEventListener("click", function () {
+        closeAllMoreMenus();
+      });
+      menu.appendChild(reportBtn);
+    }
+    btn.addEventListener("click", function (event) {
+      event.stopPropagation();
+      var willOpen = menu.hidden;
+      closeAllMoreMenus();
+      menu.hidden = !willOpen;
+      btn.setAttribute("aria-expanded", willOpen ? "true" : "false");
+      more.classList.toggle("is-open", willOpen);
+    });
+    more.append(btn, menu);
+    return more;
+  }
+
+  function deleteMessage(message) {
+    var hint = (message.replies || []).length
+      ? "这条留言下面的回复也会一起删除。"
+      : "删除后无法恢复。";
+    window.ErrorDialog.confirm("确定要删除这条留言吗？\n" + hint, {
+      title: "删除留言",
+      confirmText: "删除",
+      danger: true,
+    }).then(function (confirmed) {
+      if (!confirmed) return;
+      return api("/api/site/messages/" + message.id, { method: "DELETE" })
+        .then(function () {
+          toast("已删除");
+          return loadMessages();
+        })
+        .catch(function (err) {
+          toast(err.message);
+        });
+    });
+  }
+
   function buildMessage(message) {
     var item = el("article", "mg-item " + (message.can_save ? "can-save" : "no-save"));
     markFreshCard(item, message.id);
@@ -692,7 +876,7 @@
     head.appendChild(el("span", "mg-nick", message.nickname || "匿名"));
     head.appendChild(el("span", "mg-time", formatTime(message.created_at)));
     if (message.region) {
-      head.appendChild(el("span", "mg-region", "IP 属地：" + message.region));
+      head.appendChild(el("span", "mg-region", message.region));
     }
     if (message.pending_review) {
       head.appendChild(el("span", "mg-status is-pending", "待审核"));
@@ -713,7 +897,6 @@
 
     var repliesBox = el("div", "mg-replies");
     var rootForm = null;
-    var deleteBtn = null;
     if (canPost) {
       var actions = el("div", "mg-item-actions");
       var replyBtn = null;
@@ -722,19 +905,12 @@
         replyBtn.type = "button";
         actions.append(replyBtn);
       }
-      if (message.status === "approved") {
-        var reportBtn = el("button", "mg-link-btn", "举报");
-        reportBtn.type = "button";
-        reportBtn.setAttribute("data-report-type", "message");
-        reportBtn.setAttribute("data-report-key", message.id);
-        reportBtn.setAttribute("data-report-title", "留言：" + (message.content || "").slice(0, 40));
-        reportBtn.setAttribute("data-report-login", "1");
-        actions.append(reportBtn);
-      }
-      if (message.can_delete) {
-        deleteBtn = el("button", "mg-link-btn is-danger", "删除");
-        deleteBtn.type = "button";
-        actions.append(deleteBtn);
+      // 举报/删除收进右下角的「三个点」，和「回复」同一行；自己发的不能举报，
+      // 只有管理员或作者本人能删。
+      var canDelete = Boolean(message.can_delete);
+      var canReport = message.status === "approved" && !message.mine;
+      if (canDelete || canReport) {
+        actions.append(buildMoreMenu(message, canDelete, canReport));
       }
       item.appendChild(actions);
       if (replyBtn) {
@@ -763,7 +939,7 @@
       }
       replyHead.appendChild(el("span", "mg-time", formatTime(reply.created_at)));
       if (reply.region) {
-        replyHead.appendChild(el("span", "mg-region", "IP 属地：" + reply.region));
+        replyHead.appendChild(el("span", "mg-region", reply.region));
       }
       row.appendChild(replyHead);
       if (reply.content) {
@@ -773,7 +949,6 @@
       if (replyFiles.length) {
         row.appendChild(buildFiles(replyFiles));
       }
-      row.appendChild(buildLikeControl("message", reply));
       if (canPost) {
         var replyActions = el("div", "mg-item-actions");
         var subReplyBtn = el("button", "mg-link-btn", "回复");
@@ -795,23 +970,6 @@
       }
       repliesBox.appendChild(row);
     });
-
-    if (deleteBtn) {
-      deleteBtn.addEventListener("click", async function () {
-        var hint = (message.replies || []).length ? "这条留言下面的回复也会一起删除。" : "删除后无法恢复。";
-        var confirmed = await window.ErrorDialog.confirm(
-          "确认删除这条留言？\n" + hint,
-          { title: "删除留言", confirmText: "删除", danger: true }
-        );
-        if (!confirmed) return;
-        api("/api/site/messages/" + message.id, { method: "DELETE" }).then(function () {
-          toast("已删除");
-          return loadMessages();
-        }).catch(function (err) {
-          toast(err.message);
-        });
-      });
-    }
 
     item.appendChild(repliesBox);
     if (rootForm) {
@@ -907,7 +1065,13 @@
   }
 
   // ---------- 筛选 ----------
-  var FILTER_VALUES = ["all", "mine", "liked", "replied"];
+  var FILTER_VALUES = ["all", "mine", "replied", "liked"];
+  var FILTER_LABELS = {
+    all: "全部留言",
+    mine: "我的",
+    replied: "评论",
+    liked: "点赞",
+  };
   var FILTER_EMPTY_TEXT = {
     mine: "你还没有发表过留言。",
     liked: "还没有你点赞过的留言。",
@@ -915,6 +1079,41 @@
   };
   var currentMessageFilter = "all";
   var latestMessageRows = [];
+
+  // 悬浮按钮的文字 + 菜单里的选中态保持同步
+  function syncFilterControl() {
+    var label = $("messageFilterLabel");
+    if (label) {
+      label.textContent = FILTER_LABELS[currentMessageFilter] || FILTER_LABELS.all;
+    }
+    Array.prototype.forEach.call(
+      document.querySelectorAll("#messageFilterMenu [data-mg-filter]"),
+      function (node) {
+        var active =
+          node.getAttribute("data-mg-filter") === currentMessageFilter;
+        node.classList.toggle("is-active", active);
+        node.setAttribute("aria-selected", active ? "true" : "false");
+      }
+    );
+  }
+
+  function filterMenuOpen() {
+    var menu = $("messageFilterMenu");
+    return Boolean(menu && !menu.hidden);
+  }
+
+  function setFilterMenuOpen(open) {
+    var menu = $("messageFilterMenu");
+    var btn = $("messageFilterBtn");
+    var dock = $("messageFilter");
+    if (menu) menu.hidden = !open;
+    if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (dock) dock.classList.toggle("is-open", open);
+  }
+
+  function closeFilterMenu() {
+    if (filterMenuOpen()) setFilterMenuOpen(false);
+  }
 
   function messageEmptyText() {
     if (currentMessageFilter !== "all") {
@@ -941,15 +1140,7 @@
   function setMessageFilter(value) {
     if (FILTER_VALUES.indexOf(value) < 0) value = "all";
     currentMessageFilter = value;
-    var filterBox = $("messageFilters");
-    if (filterBox) {
-      filterBox.querySelectorAll("[data-mg-filter]").forEach(function (node) {
-        node.classList.toggle(
-          "is-active",
-          node.getAttribute("data-mg-filter") === value
-        );
-      });
-    }
+    syncFilterControl();
     var url = new URL(window.location.href);
     if (value === "all") url.searchParams.delete("filter");
     else url.searchParams.set("filter", value);
@@ -957,16 +1148,36 @@
   }
 
   function initMessageFilters() {
-    var filterBox = $("messageFilters");
-    if (!filterBox || !canPost) return;
-    filterBox.hidden = false;
-    filterBox.addEventListener("click", function (event) {
-      var btn = event.target.closest("[data-mg-filter]");
-      if (!btn) return;
-      var value = btn.getAttribute("data-mg-filter");
-      if (value === currentMessageFilter) return;
-      setMessageFilter(value);
-      renderRows();
+    var dock = $("messageFilter");
+    if (!dock || !canPost) return;
+    dock.hidden = false;
+    syncFilterControl();
+    var btn = $("messageFilterBtn");
+    if (btn) {
+      btn.addEventListener("click", function () {
+        setFilterMenuOpen(!filterMenuOpen());
+      });
+    }
+    var menu = $("messageFilterMenu");
+    if (menu) {
+      menu.addEventListener("click", function (event) {
+        var option = event.target.closest("[data-mg-filter]");
+        if (!option) return;
+        var value = option.getAttribute("data-mg-filter");
+        setFilterMenuOpen(false);
+        if (value === currentMessageFilter) return;
+        setMessageFilter(value);
+        renderRows();
+      });
+    }
+    // 点菜单以外的地方关掉；Esc 同样收起
+    document.addEventListener("click", function (event) {
+      var target = event.target;
+      if (target && target.closest && target.closest("#messageFilter")) return;
+      closeFilterMenu();
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") closeFilterMenu();
     });
   }
 
@@ -1019,6 +1230,17 @@
   }
 
   var fileViewer = $("fileViewer");
+  var fileViewerGallery = $("fileViewerGallery");
+  var fileViewerStage = $("fileViewerStage");
+
+  // 点菜单以外的地方就收起「三个点」菜单
+  document.addEventListener("click", function (event) {
+    if (event.target && event.target.closest && event.target.closest(".mg-more")) {
+      return;
+    }
+    closeAllMoreMenus();
+  });
+
   if (fileViewer) {
     fileViewer.addEventListener("click", function (event) {
       if (event.target === fileViewer) closeFileViewer();
@@ -1027,20 +1249,48 @@
       event.preventDefault();
     });
   }
+  // 灯箱模式下点图片周围的空白（stage / gallery 本身）也退出
+  if (fileViewerGallery) {
+    fileViewerGallery.addEventListener("click", function (event) {
+      if (event.target === fileViewerGallery || event.target === fileViewerStage) {
+        closeFileViewer();
+      }
+    });
+  }
   var fileViewerClose = $("fileViewerClose");
   if (fileViewerClose) {
     fileViewerClose.addEventListener("click", closeFileViewer);
   }
+  var fileViewerCloseImg = $("fileViewerCloseImg");
+  if (fileViewerCloseImg) {
+    fileViewerCloseImg.addEventListener("click", closeFileViewer);
+  }
+  var fileViewerPrev = $("fileViewerPrev");
+  if (fileViewerPrev) {
+    fileViewerPrev.addEventListener("click", function () {
+      stepViewerImage(-1);
+    });
+  }
+  var fileViewerNext = $("fileViewerNext");
+  if (fileViewerNext) {
+    fileViewerNext.addEventListener("click", function () {
+      stepViewerImage(1);
+    });
+  }
   document.addEventListener("keydown", function (event) {
-    if (event.key === "Escape") closeFileViewer();
+    if (event.key === "Escape") {
+      closeAllMoreMenus();
+      closeFileViewer();
+    } else if (event.key === "ArrowLeft" && fileViewer && !fileViewer.hidden) {
+      stepViewerImage(-1);
+    } else if (event.key === "ArrowRight" && fileViewer && !fileViewer.hidden) {
+      stepViewerImage(1);
+    }
   });
 
   api("/api/auth/status").then(function (status) {
     canPost = Boolean(status.authenticated);
     isAdmin = Boolean(status.admin || status.owner);
-    viewerLikeName = status.owner
-      ? "管理员"
-      : String(status.username || status.nickname || "");
     $("messageComposerPanel").hidden = !canPost;
     if (canPost) {
       initMessageFilters();

@@ -12,19 +12,69 @@ import app
 
 
 class MessageDeletePermissionTests(unittest.TestCase):
-    def test_required_permission_marks_message_delete_admin_only(self):
-        self.assertIsNone(app.required_permission("/api/site/messages/12", "DELETE"))
+    def test_required_permission_allows_signed_in_message_delete(self):
+        # 删除的细分权限（管理员可删任意 / 普通账号只能删自己的）在处理器里判，
+        # 权限映射层对登录账号放行；游客仍会被 guard 拦下。
+        self.assertEqual(
+            app.required_permission("/api/site/messages/12", "DELETE"), ""
+        )
 
-    def test_message_delete_handler_rejects_non_admin(self):
+    def test_message_delete_handler_rejects_other_users_message(self):
         handler = object.__new__(app.InventoryHandler)
         handler.is_admin = lambda: False
+        handler.session_identity = lambda: {
+            "kind": "member",
+            "user_id": 7,
+            "username": "tester",
+        }
 
-        with patch.object(app, "api_error") as api_error:
+        with patch.object(
+            app,
+            "query_one",
+            return_value={"id": 12, "content": "别人的留言", "user_id": 9},
+        ):
+            with patch.object(app, "api_error") as api_error:
+                handler.api_site_message_delete("/api/site/messages/12")
+
+        api_error.assert_called_once_with(handler, 403, "只能删除自己的留言。")
+
+    def test_message_delete_handler_allows_own_message(self):
+        handler = object.__new__(app.InventoryHandler)
+        handler.is_admin = lambda: False
+        handler.session_identity = lambda: {
+            "kind": "member",
+            "user_id": 7,
+            "username": "tester",
+        }
+        handler.log_activity = lambda *args, **kwargs: None
+        handler.notification_actor_name = lambda identity: "tester"
+        sent = []
+        handler.send_json = lambda status, payload: sent.append((status, payload))
+
+        with patch.object(
+            app,
+            "query_one",
+            return_value={"id": 12, "content": "自己的留言", "user_id": 7},
+        ), patch.object(app, "query", return_value=[]), patch.object(
+            app, "execute"
+        ) as execute, patch.object(
+            app, "notify_async"
+        ), patch.object(
+            app, "remove_data_file"
+        ), patch.object(
+            app, "api_error"
+        ) as api_error:
             handler.api_site_message_delete("/api/site/messages/12")
 
-        api_error.assert_called_once_with(
-            handler, 403, "只有管理员可以删除留言。"
-        )
+        api_error.assert_not_called()
+        self.assertEqual(sent, [(200, {"ok": True})])
+        delete_calls = [
+            call
+            for call in execute.call_args_list
+            if call.args and call.args[0] == "DELETE FROM site_messages WHERE id = ?"
+        ]
+        self.assertEqual(len(delete_calls), 1)
+        self.assertEqual(delete_calls[0].args[1], (12,))
 
     def test_workbench_is_admin_only(self):
         self.assertIsNone(app.required_permission("/workbench", "GET"))

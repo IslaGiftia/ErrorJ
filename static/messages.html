@@ -40,41 +40,86 @@
             <label for="msgContent">内容</label>
             <textarea id="msgContent" maxlength="1000" placeholder="想说的话，也可以直接把截图粘贴进来…"></textarea>
           </div>
+          <input type="file" id="fileInput" multiple hidden>
+          <!--
+            底部两行对齐：「发布留言」贴到「添加附件」右侧，额度提示贴到「公开 IP 属地」右侧，
+            原来的独立操作行整条撤掉，编辑区底部更紧凑。
+          -->
           <div class="mg-compose-row">
             <button class="mg-btn mg-btn-ghost" id="pickFileBtn" type="button">
               <i data-lucide="paperclip"></i><span>添加附件</span>
             </button>
             <span class="mg-attach-hint" id="attachHint">支持图片、PDF、TXT、MD（附件会先送审核）</span>
-          </div>
-          <input type="file" id="fileInput" multiple hidden>
-          <ul class="mg-file-list" id="pendingList"></ul>
-          <label class="mg-region-toggle">
-            <input type="checkbox" id="msgShowRegion">
-            <span>公开 IP 属地（国内显示省份，国外显示国家 / 地区；完整 IP 不会对外显示）</span>
-          </label>
-          <div class="mg-actions">
             <button class="mg-btn mg-btn-primary mg-send-btn" id="submitBtn" type="submit">
               <i data-lucide="send"></i><span>发布留言</span>
             </button>
           </div>
-          <p class="mg-quota" id="messageQuota" hidden></p>
+          <ul class="mg-file-list" id="pendingList"></ul>
+          <div class="mg-compose-row mg-compose-meta">
+            <label class="mg-region-toggle">
+              <input type="checkbox" id="msgShowRegion">
+              <span>公开 IP 属地（国内显示省份，国外显示国家 / 地区；完整 IP 不会对外显示）</span>
+            </label>
+            <p class="mg-quota" id="messageQuota" hidden></p>
+          </div>
         </form>
       </section>
 
-      <nav class="mg-filters" id="messageFilters" hidden aria-label="留言筛选">
-        <button class="mg-filter" type="button" data-mg-filter="all">全部</button>
-        <button class="mg-filter" type="button" data-mg-filter="mine">我的留言</button>
-        <button class="mg-filter" type="button" data-mg-filter="liked">我点赞过</button>
-        <button class="mg-filter" type="button" data-mg-filter="replied">我评论过</button>
-      </nav>
+      <!--
+        筛选：常驻悬浮的下拉按钮，滚到哪儿都停在内容区左上角；四个选项对应原来的四个胶囊。
+      -->
+      <div class="mg-filter-dock" id="messageFilter" hidden>
+        <button class="mg-filter-btn" id="messageFilterBtn" type="button"
+                aria-haspopup="listbox" aria-expanded="false" aria-controls="messageFilterMenu">
+          <span class="mg-filter-label" id="messageFilterLabel">全部留言</span>
+          <i data-lucide="chevron-down" aria-hidden="true"></i>
+        </button>
+        <div class="mg-filter-menu" id="messageFilterMenu" role="listbox" aria-label="留言筛选" hidden>
+          <button class="mg-filter-option is-active" type="button" role="option" aria-selected="true" data-mg-filter="all">
+            <span class="mg-filter-option-label">全部留言</span>
+            <span class="mg-filter-check" aria-hidden="true"><i data-lucide="check"></i></span>
+          </button>
+          <button class="mg-filter-option" type="button" role="option" aria-selected="false" data-mg-filter="mine">
+            <span class="mg-filter-option-label">我的</span>
+            <span class="mg-filter-check" aria-hidden="true"><i data-lucide="check"></i></span>
+          </button>
+          <button class="mg-filter-option" type="button" role="option" aria-selected="false" data-mg-filter="replied">
+            <span class="mg-filter-option-label">评论</span>
+            <span class="mg-filter-check" aria-hidden="true"><i data-lucide="check"></i></span>
+          </button>
+          <button class="mg-filter-option" type="button" role="option" aria-selected="false" data-mg-filter="liked">
+            <span class="mg-filter-option-label">点赞</span>
+            <span class="mg-filter-check" aria-hidden="true"><i data-lucide="check"></i></span>
+          </button>
+        </div>
+      </div>
       <section class="mg-list" id="messageList"></section>
     </main>
   </div>
 
   <div class="mg-toast" id="toast" hidden></div>
 
+  <!--
+    附件查看器：图片走「灯箱」模式（原图独占屏幕、左右切换、无白框），
+    非图片附件仍走原来的白色弹窗 + iframe 预览。
+  -->
   <div class="mg-viewer" id="fileViewer" hidden>
-    <div class="mg-viewer-dialog" role="dialog" aria-modal="true" aria-labelledby="fileViewerTitle">
+    <div class="mg-viewer-gallery" id="fileViewerGallery" role="dialog" aria-modal="true"
+         aria-label="图片查看" hidden>
+      <div class="mg-viewer-stage" id="fileViewerStage"></div>
+      <button class="mg-viewer-nav is-prev" id="fileViewerPrev" type="button" aria-label="上一张">
+        <i data-lucide="chevron-left"></i>
+      </button>
+      <button class="mg-viewer-nav is-next" id="fileViewerNext" type="button" aria-label="下一张">
+        <i data-lucide="chevron-right"></i>
+      </button>
+      <span class="mg-viewer-counter" id="fileViewerCounter" hidden></span>
+      <button class="mg-viewer-close" id="fileViewerCloseImg" type="button" aria-label="关闭">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+    <div class="mg-viewer-dialog" id="fileViewerDialog" role="dialog" aria-modal="true"
+         aria-labelledby="fileViewerTitle" hidden>
       <header class="mg-viewer-head">
         <strong id="fileViewerTitle">查看</strong>
         <button class="mg-icon-btn" id="fileViewerClose" type="button" aria-label="关闭">

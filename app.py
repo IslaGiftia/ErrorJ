@@ -5452,9 +5452,8 @@ def required_permission(path, method):
     if path in SITE_MEMBER_PAGES:
         return ""
     if path == "/api/site/messages" or path.startswith("/api/site/messages/"):
-        # 留言：游客只能浏览；登录账号可以发表留言，删除仍仅管理员。
-        if method == "DELETE":
-            return None
+        # 留言：游客只能浏览；登录账号可以发表留言。
+        # 删除先放行到处理器，那里再判「管理员可删任意 / 普通账号只能删自己的」。
         if method == "POST":
             return ""
         return ""
@@ -10292,7 +10291,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
         }
         liked_ids = liked_target_ids(viewer_id, "message", [row["id"] for row in rows])
         viewer_signed_in = True
-        can_delete = is_admin
         user_ids = sorted(
             {row["user_id"] for row in rows if row.get("user_id") not in (None, 0)}
         )
@@ -10346,25 +10344,24 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 )
                 row["ip_region"] = region
         for row in rows:
+            # 管理员可删任意留言；普通账号只能删自己发的（user_id 匹配）
+            owner_match = (
+                viewer_id not in (None, 0)
+                and int(row.get("user_id") or 0) == int(viewer_id)
+            )
+            can_delete_row = bool(is_admin or owner_match)
             row["files"] = files.get(row["id"], [])
             row["like_count"] = like_count_map.get(int(row["id"]), 0)
             row["liked"] = int(row["id"]) in liked_set
             row["like_users"] = like_user_map.get(int(row["id"]), [])[:12]
-            row["can_delete"] = can_delete
+            row["can_delete"] = can_delete_row
             row["can_review"] = is_admin
             row["nickname"] = display_names.get(int(row["id"]), "匿名")
             reply_to = row.get("parent_id")
             row["reply_to"] = (
                 display_names.get(int(reply_to), "") if reply_to else ""
             )
-            row["can_save"] = bool(
-                can_delete
-                or (
-                    viewer_id is not None
-                    and row.get("user_id") is not None
-                    and row.get("user_id") == viewer_id
-                )
-            )
+            row["can_save"] = can_delete_row
             row["region"] = (
                 normalize_region(row.get("ip_region")) if row.get("show_region") else ""
             )
@@ -13517,10 +13514,27 @@ class InventoryHandler(BaseHTTPRequestHandler):
         self.send_json(200, {"id": row_id})
 
     def api_site_message_delete(self, path):
-        if not self.is_admin():
-            api_error(self, 403, "只有管理员可以删除留言。")
+        identity = self.session_identity()
+        if not identity:
+            api_error(self, 401, "请先登录。")
             return
         item_id = int(path.split("/")[4])
+        target = query_one(
+            "SELECT id, content, user_id FROM site_messages WHERE id = ?",
+            (item_id,),
+        )
+        if not target:
+            api_error(self, 404, "留言不存在。")
+            return
+        # 管理员可删任意留言；普通账号只能删自己发的
+        viewer_id = (
+            0 if identity.get("kind") == "owner" else int(identity.get("user_id") or 0)
+        )
+        if not self.is_admin() and (
+            viewer_id == 0 or int(target.get("user_id") or 0) != viewer_id
+        ):
+            api_error(self, 403, "只能删除自己的留言。")
+            return
         rows = query(
             """SELECT file_path FROM site_message_files
                WHERE message_id = ?
@@ -13542,11 +13556,19 @@ class InventoryHandler(BaseHTTPRequestHandler):
         execute("DELETE FROM site_messages WHERE id = ?", (item_id,))
         for row in rows:
             remove_data_file(row.get("file_path"))
+        excerpt = (target.get("content") or "（仅附件）")[:40]
         self.log_activity(
             "message_delete",
-            f"删除留言 #{item_id}",
+            f"删除留言 #{item_id}：{excerpt}",
             target_type="message",
             target_id=item_id,
+            actor=identity,
+        )
+        # 走现有的推送通道记一条；是否真的外发由通知设置决定
+        notify_async(
+            "message",
+            "Error酱：留言已删除",
+            f"{self.notification_actor_name(identity)} 删除了留言 #{item_id}：{excerpt}",
         )
         self.send_json(200, {"ok": True})
 
