@@ -2969,3 +2969,57 @@ nginx       -> systemctl is-active nginx = active，errorjiang 未重启、/api/
 备注：这次同样是纯前端静态文件改动，app.py 没变，线上生效只靠 `git pull`；服务重启是更新日志导入流程的常规动作。
 纯前端改动线上依旧按「静态文件逐字节一致 + 代码特征 + 更新日志入库 + 健康检查」确认，交互与像素级对齐是在
 **同一提交**的本地实例上用真浏览器量的（含 1440×620 这种矮视口，专门用来验面板上限与内部滚动）。
+
+## 88. 2026-10-12 17:41:34 留言 / 动态 / 下载去顶栏、Tab 吸顶，足迹搜索框收尾
+
+需求（站便签续批，两件一起发）：把「留言 / 动态 / 下载」三个页面顶部的状态栏（模块名 + 图标 +「共 X 条」+
+「举报与投诉」入口）彻底删掉并修复留白，再把动态的两栏标签、下载的三个 Tab 改成吸顶（带主题底色的毛玻璃底与
+极浅底影）；另外把首页入口顺序改成「留言 / 动态 / 下载」。发布前还夹带了上一轮做完未发的**足迹搜索框尺寸**
+修复（白底与按钮等高、紫框与文字收小）。
+
+完成内容（`3c82a71 fix:size-search-box-to-match-tools-button` 与
+`1c10a2c feat:drop-page-headers-and-pin-module-tabs` 两笔，共 11 个文件，+62/−247）：
+- 顶部状态栏：三个页面的 `<header class="mg-header / mo-header / dl-header">` 整块从 DOM 删除（不是隐藏），
+  `messages.js` 里两处 `messageCount`、`moments.js` 里一处 `momentCount` 的赋值一并删掉，避免指向不存在的节点；
+  死样式 `.mg-header / .mg-brand* / .mg-header-actions / .mg-count`、`.mo-*` 同族、`.dl-header / .dl-brand* / .dl-link-btn`
+  全部清理（含各自的移动端覆盖）。留白改成 `padding: calc(16~20px + env(safe-area-inset-top))`。
+- Tab 吸顶：`.mo-kinds` 与 `.dl-tabs` 加 `position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20`，
+  背景用 `color-mix()` 取主题底色（桌面 86% / 手机 94% 与 88%）+ `backdrop-filter: blur(14px / 10px)` +
+  `box-shadow: 0 6px 14px -12px rgba(0,0,0,.45)`；按钮尺寸 / 间距 / 圆角一行没动。
+- 顺带修掉手机端一个旧坑：`.mo-kinds` 的移动端覆盖里写死 `top: 57px`（当年给顶部栏让位），顶栏删掉后它被顶下去
+  压住第一张卡片（实测重叠 19px）；改成贴顶后，`.mo-log-month` 的吸顶高度也从 `117px` 改成 `60px + 安全区`。
+- 搜索框尺寸：白底面板改 `padding: 4px` + `box-sizing: border-box`，紫框高度取 `calc(按钮高度 − 10px)`，
+  圆角 8→6px、图标 15→13px、字号 13→12.5px（手机仍 16px，避免 iOS 聚焦放大整页），并撤掉上一轮为对齐紫框加的
+  `top: -1px`。
+- 文档：README 更新首页入口顺序、动态标签吸顶说明，并新增两条（三页无顶栏 + 吸顶规则）。
+
+部署步骤：
+```text
+本地：python -m unittest discover -s tests -> 108 项全过；node --check messages.js / moments.js / downloads.js / map.js
+      git diff --check 干净
+      本机实例用 Playwright（桌面 1440x900、手机 412x915）验证三页 + 足迹搜索框：
+      三页：DOM 里 .mg-header / .mo-header / .dl-header 均为 0、#messageCount / #momentCount 为 0、页内 href="/reporting" 为 0，
+            控制台与 pageerror 均为 0；第一个内容块距顶 20px（桌面）/ 18px（手机）
+      吸顶：动态 nav position=sticky、top=0px、z-index=20、背景半透明 + blur(14px/10px) + 底影，
+            滚到 scrollY=600 时仍在 top=0；标签底与第一条内容间距 26px（桌面）/ 22px（手机）；祖先 overflow 检查为空
+      下载：三个 Tab 同样 sticky + z-index=20 + blur(14px)，位置 18px（桌面）/ 16px（手机）
+      搜索框：白底 40/38 与按钮等高（上下偏差 0/0），紫框 30/28、文字 12.5px（手机 16px）
+提交：3c82a71 / 1c10a2c + 记录提交（fetch/rebase 后 push，本地 == origin/main）
+备份：/data/errorjiang-backup/page-headers-20261012-1743/（停服后复制 inventory.db 与 changelog-seed.json）
+服务器：git pull --ff-only 1001838 -> 1c10a2c -> runuser -u errorjiang -- python3 -c "import app; app.init_db()"（migration-ok）
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 一致）
+      import_changelog_moments.py --date 2026-10-12 --force -> 新增 7 条
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，/api/health = {"ok": true}，服务器 HEAD = 1c10a2c
+更新日志    -> /api/moments 里 2026-10-12 17:41:34「留言 / 动态 / 下载去掉顶部状态栏、Tab 吸顶，顺带收拾足迹搜索框」
+静态资源    -> 线上 messages.html / messages.js / messages.css / moments.html / moments.js / moments.css /
+              downloads.html / downloads.css / site/site.html / map.css 与本机 SHA256 逐一相同
+服务端代码  -> 线上三份 HTML 里 mg-header / mo-header / dl-header 均 0 处；moments.css 里 .mo-kinds 的 top 不再写死 57px
+```
+
+备注：这轮全是前端静态文件（README / 两份日志 / seed 除外），app.py 没动，线上生效靠 `git pull`（static 每次请求读磁盘）；
+服务重启是导入更新日志流程的常规动作。三页的实际渲染、吸顶位移（scrollY 600 时仍贴顶）与祖先 overflow 检查都是在
+**同一提交**的本地实例上用真浏览器量的，线上按「静态哈希一致 + 代码特征 + 更新日志入库 + 健康检查」确认。
