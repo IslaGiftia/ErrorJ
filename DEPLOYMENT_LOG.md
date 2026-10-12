@@ -2672,3 +2672,74 @@ git commit 节点图标）、手机端标签吸顶；顺带把地图悬浮组「
 用真浏览器（Chrome + Playwright，1440 / 412 两档视口，手机档带触摸）逐项验证的；线上做的是「静态文件哈希
 逐字节一致 + 服务端代码特征串 + 更新日志入库 + 健康检查」四重确认。`/map` 对游客返回 200 是因为
 `Invoke-WebRequest` 会自动跟随 `/login` 跳转（上一轮用 `curl` 看到的是 302）。
+
+## 83. 2026-10-12 12:06:14 移除游戏模块、「下载」页整合歌单 / 书架 / 推荐
+
+需求（站便签后续批次）：站点定位收敛到学习与工作，删掉游戏模块；把歌单 / 书架 / 推荐三个入口合并成一个
+**下载**页（`/downloads`），页内用「歌曲 / 书籍 / 推荐」三个 Tab；有新内容时首页入口和对应 Tab 要呼吸 + 数字角标，
+点开即已读。开工前按站长的答复定下三条口径：旧地址保留可用、通知沿用现有 `user_notifications` 机制（管理员自己
+上传不产生提醒）、游戏历史数据一并清掉。
+
+完成内容（`9d417f0 feat:remove-games-and-add-downloads-hub` +
+`3704806 fix:drop-stale-game-permission-rows`，38 个文件，+700/-2406）：
+- 游戏下线：删掉 `static/games/`（17 个文件）与 `static/site/game-activity.js`；`app.py` 删掉 `/games` 与四个子页面路由、
+  `SITE_MEMBER_PAGE_PREFIXES`、`guest:page:games` 权限点、`/api/site/game-play` 接口与处理器、`game_play` 公开动态事件、
+  举报的 `game` 目标类型和 `report_target` 里的游戏分支。`init_db()` 负责一次性清理历史：`game_play` 动态、
+  `target_type='game'` 的举报、残留的 `guest:page:games` 权限行（本次线上实际清掉 2 条动态、0 条举报、1 条权限行）。
+  另外 `workbench.js` 的举报目标标签、`reporting.html`、`references.html`、`back-link.js`（默认返回改首页）、
+  `rain.js` 注释里的游戏字样一起收拾干净；首页只剩「留言 / 下载 / 动态」三个入口。
+- 下载页：新增 `static/downloads.html` / `.css` / `.js`。三个 Tab 懒加载 `/music?embed=1`、`/books?embed=1`、
+  `/recommendations?embed=1`，切走只隐藏、不重建 iframe，所以歌曲切换 Tab 也不会中断播放；新增
+  `static/site/embed.css` + `embed.js`，内嵌模式下只藏掉页面自带的品牌返回条、`返回首页` 和重复的举报链接，
+  并让 `notify-seen.js` 不在内嵌页自行上报已读（由外层 Tab 决定）。三套页面存在 19 个重名 id
+  （`uploadModal`、`editModal` 等）和各自的 `body` 级样式，所以这次没有强行合并 DOM/CSS——**三个模块的代码一行逻辑没改**。
+  `/downloads` 进游客页面开关，新增权限点 `guest:page:downloads`（默认放行，老站用 `downloads_guest_page_v1` 补授）。
+- 通知：首页「下载」入口的角标 = `music + books + recommendations` 三个模块未读数之和（沿用
+  `/api/site/notifications/summary`，`site.js` 里三处入口角标合成一处）；下载页三个 Tab 各自显示未读数字并按
+  `3.6s` 呼吸，点开某栏立刻 `POST /api/site/notifications/seen {module}` 清掉该栏角标，首页角标同步减少。
+  按站长要求沿用现有机制：管理员自己上传的内容不产生提醒，只有普通账号收得到。
+- 文档：README（首页入口、新的「下载」章节、游客权限表、目录树、界面约定、公开动态文案）、
+  PROJECT_SUMMARY（2.7 游戏大厅 → 2.7 下载）、`config/changelog-seed.json` 新增一条动态。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 108 项全过
+      node --check（downloads.js / site.js / embed.js / notify-seen.js / back-link.js / workbench.js / map.js 等）
+      python -m json.tool config/changelog-seed.json；git diff --check 干净
+      本机实例（重启后加载新 app.py）用 Playwright（Chrome headless）验证：
+      桌面 1440 / 手机 412（触摸）：/downloads 三个 Tab 文案「歌曲 / 书籍 / 推荐」、面板懒加载（先 1 个 iframe，
+      切书籍再 1 个，切推荐共 3 个）、地址栏变成 ?tab=recommendations；内嵌页 .mu-brand / .bk-brand display=none、
+      推荐页品牌图标与标题隐藏但「N 项」计数保留、搜索框都在、window.ErrorNotifySeen 不存在；
+      首页三个入口「留言 / 下载 / 动态」、页面内 a[href^="/games"] = 0；手机端 Tab 127×38、角标 18×18 不溢出
+      角标打桩（summary music=2 / books=1 / recommendations=3）：首页「下载」角标 6 且 repoPendingPulse 呼吸，
+      下载页「书籍」1、「推荐」3 都是 dlTabPulse；点「书籍」后该 Tab 角标清空、其余两栏不变，并发出 {"module":"books"}
+      游客实例（INVENTORY_PASSWORD，8010 端口）：首页三个入口都可见（下载未被隐藏）、/downloads = 200、
+      歌曲 Tab 内嵌页不显示上传按钮
+      老地址 /music、/books、/recommendations 本机 200；/games 本机 404
+提交：9d417f0 + 3704806（fetch/rebase 后 push，本地 == origin/main）
+备份：/data/errorjiang-backup/no-games-downloads-20261012-1215/（停服后复制 inventory.db 3489792 字节与 changelog-seed.json）
+服务器：git pull --ff-only 8990dde -> 9d417f0 -> 3704806 -> runuser -u errorjiang -- python3 -c "import app; app.init_db()"（migration-ok）
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 = a14aedf…96e2）
+      import_changelog_moments.py --date 2026-10-12 --force -> 完成：新增 3 条，覆盖 0 条，跳过 0 条
+      第二笔提交后再次 init_db 清理残留权限行并重启服务
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，/api/health = {"ok": true}，服务器 HEAD = 3704806
+              服务重启时间 2026-10-12 12:10:06 CST
+更新日志    -> /api/moments 里 id 312 = 2026-10-12 12:06:14「移除游戏模块，歌单 / 书架 / 推荐整合为「下载」页」，
+              kind = log（进「开发日志」栏），当天三条（00:38:56 / 07:38:49 / 12:06:14）无重复时间戳，游客接口共 82 条
+静态资源    -> https://zhexiyan.cc 上的 static/downloads.html、downloads.js、downloads.css、site/embed.js、site/embed.css、
+              site/site.html、site/site.js 与本机文件 SHA256 逐一相同
+              （d2287c64 / b65db27a / 924dd8a5 / f4f6b7eb / 0a262a4d / 225e07c3 / 9b1efefa）
+路由        -> 服务器 static/ 下已无 games 目录；app.py 里 '/games' 与 'guest:page:games' 各出现 0 次；
+              /downloads 对游客 200 且返回里含三个 data-tab；/music、/books、/recommendations、/books/read 仍是 200
+数据清理    -> activity_log 中 action='game_play' 2 -> 0；content_reports 中 target_type='game' 0 -> 0；
+              role_permissions 中 guest:page:games 1 -> 0；guest:page:downloads 已补授 1 行
+```
+
+备注：线上 `/games` 对游客返回的是一次 302（`/login?next=/games`），不是 404——游客请求会先被角色闸门拦下，
+而 `Invoke-WebRequest` 默认跟随跳转，所以看起来像 200。路由确实删掉的证据是服务器 `app.py` 里 0 处 `/games`，
+以及同提交的本地实例上 `/games` 返回 404。下载页的三个 Tab 是内嵌原页面而不是重写，这是刻意取舍：三套页面有
+19 个重名 id 和各自的 body 级/`:root` 样式，硬并成一页会把两个模块的表单互相抢走 DOM，风险远大于收益。
