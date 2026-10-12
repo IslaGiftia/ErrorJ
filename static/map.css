@@ -630,14 +630,17 @@ body {
 
 .mp-search-flyout {
   position: absolute;
-  /* 面板自带 1px 边框，往上让 1px 后，里面的搜索框上边缘才和右侧按钮上边缘齐平 */
-  top: -1px;
+  top: 0;
   /* 贴着按钮左边 12px，宽度再按屏宽收一次 */
   right: calc(100% + 12px);
   z-index: 45;
   width: min(320px, calc(100vw - 108px));
-  /* 顶部不留内边距：搜索框的上边缘才能和右侧搜索按钮的上边缘严格对齐 */
-  padding: 0 8px 8px;
+  /*
+   * 白底（含 1px 边框与 4px 内边距）整体高度 = 右侧搜索按钮高度；
+   * 里面那圈紫色输入框再矮一圈（见 .mp-search-bar），只出结果时白底才往下长。
+   */
+  padding: 4px;
+  box-sizing: border-box;
   border: 1px solid var(--mp-border);
   border-radius: 8px;
   background: color-mix(in srgb, var(--mp-surface) 96%, transparent);
@@ -663,12 +666,12 @@ body {
 .mp-search-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  /* 高度跟右上角那枚搜索按钮严格一致 */
-  height: var(--mp-tools-btn, 40px);
-  padding: 0 10px;
+  gap: 6px;
+  /* 比白底再矮 10px（上下各 4px 内边距 + 1px 边框），紫框因此比按钮小一圈 */
+  height: calc(var(--mp-tools-btn, 40px) - 10px);
+  padding: 0 8px;
   border: 1px solid var(--mp-border);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--mp-surface-2);
   box-sizing: border-box;
 }
@@ -680,8 +683,8 @@ body {
 
 .mp-search-bar svg {
   flex: none;
-  width: 15px;
-  height: 15px;
+  width: 13px;
+  height: 13px;
   color: var(--mp-faint);
 }
 
@@ -689,12 +692,12 @@ body {
   flex: 1;
   min-width: 0;
   height: 100%;
-  padding: 0;
+  padding: 0 1px;
   border: 0;
   background: none;
   color: var(--mp-text);
   font: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
   outline: none;
 }
 
