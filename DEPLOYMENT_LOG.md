@@ -3716,3 +3716,67 @@ CSS 选择器从 `.mo-composer-foot > .mo-btn-primary` 改成 `.mo-composer-foot
 浏览器可能仍显示缓存的旧图标，强制刷新一次或重开浏览器就会换过来（版本号变化能让大多数情况自动更新）。
 iOS「添加到主屏幕」用的 `error-chan-touch.png`（180px）按站长要求没动 —— 它不是标签页缩略图，
 需要的话可以按同一套流程再加。
+
+## 99. 2026-10-13 01:31:11 「推荐」页重构：四个子页、封面播放与阅读器下线
+
+背景：站长要求把「下载」页重构成「推荐」页 —— 左上角常驻四枚纯图标按钮（歌曲 / 书籍 / 网页 / 站内资源），
+右上角常驻一枚随子页渐入渐出的「新增」按钮；歌曲页删掉搜索与底部播放条、改成点封面播放 / 暂停并加呼吸特效；
+书籍页删掉检索框与阅读器、只留下载；网页 / 站内资源沿用原来推荐页的卡片；中间内容区对齐留言 / 动态页；
+顺带删掉推荐页那块 hero 统计卡、优化 PC 端上传弹窗，并按要求收尾执行发布流程。
+
+完成内容（提交 `80a2e79 feat:rebuild-downloads-page-as-recommend-hub`，56 文件，+943/−101408）：
+
+- 外壳 `static/downloads.*`：`/downloads` 改名「推荐」。左上角四枚 35px 方形图标按钮（尺寸 / 位置严格对齐
+  留言、动态页的悬浮按钮），右上角一枚 35px 高的「新增」按钮，文字随子页渐入渐出（+歌曲 / +书籍 / +网页 /
+  +站内，仅站长可见）；四个子页的 iframe 一次全部加载，切换只翻转显隐，所以来回点不会重新加载、也不会打断
+  正在播放的歌曲；页面底色 / 雨景 / 760px 内容列宽与留言、动态页一致。新增入口由父页通过同源 iframe 调用
+  子页暴露的 `window.ErrorRecommendTab.openAdd()`，直接打开子页自己的上传 / 新增弹窗。
+- 歌曲页：删掉顶栏搜索框与整条底部播放条（音量、进度、随机、循环等全部相关 DOM / CSS / JS 一并清理），
+  改成**点专辑封面播放 / 暂停**，播放中封面外圈亮起 2px 主题色方框并按 3.6s `muCoverPulse` 呼吸，暂停或播完消失。
+- 书籍页：删掉检索框与阅读进度，点卡片（或封面上的下载按钮）直接下载；上传 / 编辑 / 分享 / 举报保留。
+- 站内书籍阅读器整体下线：删除 `static/reader.html / reader.css / reader.js`、`/books/read`、`/books/shared`、
+  `/api/books/<id>/content|progress|bookmarks|annotations`、`/api/shared/books/*`、`static/vendor/foliate/`
+  （32 个文件，含 PDF.js、zip.js、fflate）以及 `books:read` 权限点和它的初始化授权；站内分享的电子书卡片
+  现在直接指向下载地址。
+- 推荐内容页：删掉 hero 统计卡与其全部样式；新增 `?view=web`（网站与工具）与 `?view=resource`（站内资源）
+  两种卡片视图，子页模式下隐藏内层分类页签与「新增推荐」；「+站内」打开新的分享选择弹窗（分笔记 / 歌曲 /
+  电子书三栏挑一条，调用 `/api/admin/share-content` 分享成站内资源卡片）。
+- PC 上传弹窗：音乐 / 书籍弹窗宽度 560 → 760 / 680，加大内边距与圆角、毛玻璃遮罩、拖拽落地区域加高；
+  推荐编辑器保持 720px。
+- 文档：`README.md`、`PROJECT_SUMMARY.md`、`static/references.html` 同步改名与新流程。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 109 项全过
+      node --check books / music / downloads / recommendations.js 全过；python -m json.tool seed；git diff --check 干净
+      本地起服务 + Playwright（游客 / 站长模拟，桌面 1440x900 / 手机 412x915）：
+        外壳：4 个面板 + 4 个 Tab；图标按钮 35x35、位于 (356,14)；游客 actionHidden=true，站长可见且文字
+              随子页切到 歌曲 / 书籍 / 网页 / 站内
+        弹窗：+歌曲 760x423、+书籍 680x421、+网页 720x787、+站内 720x597，均由父页常驻按钮打开
+        封面：播放中 is-playing + muCoverPulse + 2px 主题色描边；暂停后 box-shadow 归零
+        站内资源卡片链接：电子书 → 下载、笔记 → 阅读、歌曲 → 去歌单
+        移动端无横向溢出（scrollW == vw == 412），无 JS 异常
+提交：80a2e79（fetch/push 后本地 == origin/main == 80a2e79）
+备份：/data/errorjiang-backup/recommend-hub-20261013-0131/（停服后复制 inventory.db 3682304 字节
+      与 changelog-seed.json 68497 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only 0314a66 -> 80a2e79；本轮没有表结构变更，未跑额外迁移
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 5c54b2b8…55e7 一致）
+      import_changelog_moments.py --date 2026-10-13 --force -> 新增 3 条（该日期三条都重建，时间戳唯一）
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 80a2e79，/api/health = {"ok": true}
+更新日志    -> /api/moments 里 2026-10-13 01:31:11「「推荐」页重构：四个子页与歌曲封面播放」（id=433，kind=log）；
+              该日期三条日志时间戳唯一，没有重复
+静态资源    -> 线上 downloads.html / downloads.css / downloads.js / music.js / books.js / recommendations.js
+              的 SHA256 与本机文件逐字节相同
+线上页面    -> 游客打开 /downloads（桌面 1440x900 / 手机 412x915）：标题「推荐」，4 个 Tab 与 4 个预加载面板，
+              图标按钮 35x35 @ (356,14)，游客不显示「新增」，无横向溢出与 JS 异常
+              歌曲子页 10 行、无搜索框、无播放条、顶栏隐藏、封面不是按钮（游客锁定）
+              书籍子页 6 张卡片、无搜索框、顶栏隐藏
+              网页子页 4 张网站卡片且内层分类页签隐藏；站内资源子页 0 张（尚未分享过）
+```
+
+备注：`config/changelog-seed.json` 按仓库约定仍不入库，只本地编辑 + SCP 上传；本轮 `app.py` 改动需要
+`systemctl restart errorjiang` 才生效（已在部署流程里停服备份后重启）。
