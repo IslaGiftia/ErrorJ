@@ -3087,3 +3087,76 @@ nginx       -> systemctl is-active nginx = active，errorjiang 未重启、/api/
 六项的实际表现（初始无跳变、控件已删、反色配色、浅深两套提示色值、取消按钮、手机让位与回位）都是在**同一提交**的
 本地实例上用真浏览器按「桌面 / 手机 × 浅色 / 深色」四种组合量的；线上按「静态哈希一致 + 代码特征 + 更新日志入库 +
 健康检查」确认。
+
+## 90. 2026-10-12 19:36:48 留言页体验重构（菜单收纳 / 权限 / 九宫格 / 悬浮筛选）与足迹手机端分类面板
+
+需求（跨两次提出，合并发布）：一是重构留言页的编辑区排版、卡片操作菜单、删除权限、点赞、IP 属地、图片九宫格与查看器、
+返回顶部按钮；二是把留言页的四个筛选胶囊整合成常驻悬浮的下拉筛选按钮。另外还有一条独立需求：足迹「编辑标记点」里
+手机端的「一级 / 二级分类」不要再用原生 `<select>`，改为复用电脑端分类列表样式的底部滑出面板（电脑端保持原生下拉不动）。
+
+完成内容（两个提交：`b9f1fff feat:reuse-pc-category-list-as-mobile-bottom-sheet`、
+`156a28d feat:refactor-messages-page-and-floating-filter`）：
+
+足迹（`b9f1fff`，静态 3 文件）：
+- 把电脑端分类筛选面板的选项行抽成公共函数 `catOptionButtonHtml()`（`.mp-owner-option.mp-cat-option` + 圆形色点 + `is-active` 主题色高亮），
+  分类筛选面板改为调用它，输出与原来一致；手机端新增底部滑出面板 `#mapCatPickModal`，复用同一套行样式。
+- 手机端「一级 / 二级分类」在原生的 `<select>` 上叠一个触发按钮，`@media (max-width: 860px)` 隐藏 `<select>`、
+  显示按钮（44px 触控高度）；点开底部面板选分类，选一级会清空二级并按新一级重建二级列表，选完回填到 `<select>` 并收起面板。
+  电脑端触发按钮 `display:none`，仍是原生下拉，位置与交互不变。
+
+留言（`156a28d`，静态 3 文件 + `app.py` + 测试 + README / references.html）：
+- 编辑区：「发布留言」并入「添加附件」同一行右侧，剩余条数提示贴到「公开 IP 属地」那一行右侧，撤掉原来的独立操作行。
+- 卡片操作：底部「举报 / 删除」链接改为右下角「三个点」菜单，和「回复」同一行；电脑悬停留言卡片才显示、移出隐藏，
+  触摸设备常驻；点菜单外或 Esc 收起。
+- 删除权限：`required_permission()` 对登录账号放行，处理器再判——管理员可删任意留言，普通账号只能删自己发的（user_id 匹配），
+  别人的只能举报；删除前弹「确定要删除这条留言吗？」二次确认，确认后调用 `log_activity()` 记一条内容事件，并走 `notify_async()` 推送通道记一条。
+- 点赞：爱心换成大拇指（lucide `thumbs-up`），未点赞灰色、点赞后主题紫并填充，可取消；移除点赞人数与点赞者名单；子回复删掉点赞、只留「回复」。
+- IP 属地：主楼与回复都不再写「IP 属地：」前缀，直接显示属地名（如「陕西」）。
+- 图片附件：按朋友圈九宫格排（1 张等比例、2-4 张两列、5-9 张三列，格子正方裁剪，超过 9 张第九格右下角显示「+剩余数量」）；
+  查看器改成全屏灯箱——原图独立展示、无白色外框、左右切换按钮 + 计数 + 关闭，Esc / 方向键可用；PDF / 文本仍走原来的白色弹窗。
+- 返回顶部：留言页右下角按钮改成方形毛玻璃「顶部」按钮（上箭头 + 文字），用 `body[data-notify-module="messages"]` 覆盖公共样式，不影响其它页面。
+- 筛选：四个胶囊合并为左上角常驻悬浮的下拉按钮 `#messageFilter`（`position: sticky; top: 12px; z-index: 30`），
+  毛玻璃底 + `chevron-down`（展开时翻转 180°）；菜单四个选项「全部留言 / 我的 / 评论 / 点赞」对应 `all / mine / replied / liked`，
+  `max-height: 60vh` 内部滚动，悬停浅紫底、当前项主题紫 + 打勾；选中后按钮文字与菜单标记同步、URL 写入 `?filter=`、`renderRows()` 重渲染；
+  点外部 / Esc 关闭；旧的 `.mg-filters` / `.mg-filter` 胶囊 DOM 与 CSS 一并删除。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 109 项全过
+      node --check static/messages.js / map.js / books.js / moments.js / site/activity.js 全过
+      python -m json.tool config/changelog-seed.json；git diff --check 干净
+      隔离实例（复制 inventory.db，端口 8100）用 Playwright 实测：
+        筛选：按钮 sticky / z=30 / top=12px、菜单 4 项顺序与选中态、selected 打勾、
+              点选项后按钮文字与 ?filter= 同步、点赞 / 我的 / 评论分别命中 2 / 3 / 1 条留言、点外部关闭；
+              加高页面后滚到 scrollY=900，按钮仍停在 top=12（sticky 生效）；
+              首条留言 top（432 / 548）> 按钮 bottom（414 / 530）——不遮挡首行
+        留言页：编辑区两行对齐、「三个点」菜单内容（自己的只有删除、别人的只有举报）、二次确认文案、
+              点赞大拇指无人数、属地无前缀、九宫格 1/3/6/12 张列数与 +3、灯箱无白框与左右切换、
+              删除自己的 200 / 删别人的 403、返回顶部按钮
+        足迹：分类触发按钮 44px、底部面板行高 48px、联动（改一级清空二级）、PC 原生 `<select>` 不变
+      清理：临时实例与截图目录已删除，真实 inventory.db 未写入（无测试用户 / 留言）
+提交：b9f1fff + 156a28d（fetch/rebase 后 push，本地 == origin/main == 156a28d）
+备份：/data/errorjiang-backup/msgfilter-20261012-1937/（停服后复制 inventory.db 与 changelog-seed.json）
+服务器：git pull --ff-only be53c47 -> 156a28d；无 schema 变更，未跑 init_db
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 1675C57B…50F 一致）
+      import_changelog_moments.py --date 2026-10-12 --force -> 新增 9 条
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 156a28d，/api/health = {"ok": true}
+更新日志    -> /api/moments 里 2026-10-12 19:36:48「留言页体验重构，足迹手机端分类选择」（id=351，kind=log）
+静态资源    -> messages.js / messages.css / map.js / map.css / map.html 与本机 SHA256 逐一相同；
+              messages.html（本机工作副本是 CRLF）按 CRLF→LF 归一后与线上 / git blob 一致（c1cdc5e4…471b）
+代码特征    -> 线上 messages.html 有 mg-filter-dock / messageFilterMenu / messageFilterBtn / mg-viewer-stage，旧 mg-filters 已 0 处；
+              messages.js 有 setFilterMenuOpen / buildImageGallery / buildMoreMenu / thumbs-up；
+              messages.css 有 mg-filter-dock / position: sticky / max-height: 60vh / site-back-top 覆盖
+权限接口    -> 游客 DELETE /api/site/messages/999999 返回 401「请先登录。」（改为处理器内判权限后的预期行为）
+线上页面    -> Playwright 打开 https://zhexiyan.cc/messages（桌面 1440x900 / 手机 412x915）：标题「留言」、列表与
+              游客锁定卡片正常渲染，新增的筛选 dock 对游客按设计隐藏，无 JS / 控制台报错
+```
+
+备注：本轮改动含 `app.py`（删除权限 + 删除日志 / 推送），所以线上生效需要 `systemctl restart errorjiang`；静态文件仍旧每次请求读磁盘。
+留言页的删除权限、九宫格、灯箱、悬浮筛选等实际交互是在**同一提交**的隔离实例上用真浏览器（桌面 / 手机、普通账号）量的；
+线上按「静态哈希一致 + 代码特征 + 权限接口 401 + 页面无报错 + 更新日志入库 + 健康检查」确认。留言内容需要登录，
+所以线上的筛选 / 菜单交互没有用管理员账号直接复测（不掌握线上口令）。
