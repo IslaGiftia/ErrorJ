@@ -2867,3 +2867,55 @@ nginx       -> systemctl is-active nginx = active，errorjiang 未重启、/api/
 `music.html` 与 `books.html` 有 19 个重名 id（`uploadModal`、`editModal`、`uploadTitle` 这些全在弹窗里），
 三套 CSS 又各自带 `body`/`:root` 级规则和 `body[data-notify-module]` 选择器，合并需要给其中一套 id 改名、
 再统一页面级样式，属于独立一轮的改造（这轮先把线上恢复可用）。
+
+## 86. 2026-10-12 14:33:59 足迹分类面板折叠化、滚动条清理与搜索框细节
+
+需求（站长列的三步）：分类面板要严格跟检索卡片同宽、高度不超过卡片、靠下对齐；多级分类改成树状折叠
+（默认只露一级，点父节点展开 / 折叠、点叶子才筛选，用 `expandedKeys` 记状态）；把检索区、分类 / 添加者浮层、
+搜索结果列表的滚动条全部隐藏（只藏视觉、不影响滚轮与触摸）；右上角搜索按钮改成主题色、和搜索框严格等高。
+
+完成内容（`aa24c7b feat:foldable-category-tree-and-hidden-map-scrollbars`，3 个文件，+169/−14）：
+- 分类树折叠：`static/map.js` 里 `categoryTreeHtml()` 重写成「父节点按钮 + 折叠子容器」的嵌套结构，
+  展开状态存在 `state.expandedKeys`；点带下级的节点只翻那棵子树的 `hidden` 并同步 `aria-expanded`（整棵树不重建），
+  点没有下级的节点才设置 `state.categoryFilter`、收起面板并重绘列表；选中的若是下级分类，`renderCatFilter()`
+  会把它上面的层级自动展开，重新打开时能看到自己选的是哪一条。原来的「默认全展开」渲染逻辑与相关判断一并删除。
+- 面板尺寸：新增 `applyPopHeight()`，上限取「检索卡片高度」——另外加了一条护栏，不让面板长到盖住右上角工具列
+  （实测不管的话，点「搜索」会点到分类行上）。分类浮层与添加者浮层共用这套上限，打开时和窗口 resize 时各算一次；
+  靠下对齐由原来的 `bottom: calc(100% + 8px)` 保证。
+- 滚动条：`.mp-list`、`.mp-owner-pop`、`.mp-owner-options`、`.mp-poi-list`、`.mp-dialog` 统一加
+  `scrollbar-width: none` + `-ms-overflow-style: none`，并配 `::-webkit-scrollbar { display: none; width: 0; height: 0 }`；
+  `overflow-y: auto` 不动，所以滚轮、触摸滑动、键盘翻页照旧。
+- 搜索 UI：新增 `--mp-tools-btn`（桌面 40px / 手机 38px）统一工具按钮与搜索框高度，`.mp-search-bar` 高度取同一个值、
+  输入框 `height: 100%` 且 `padding: 0`；`.mp-search-slot > button` 用主题色填充（与 `.mp-btn-primary` 同一风格），
+  规则放在通用悬停 / `is-on` 之后才盖得住。
+- 文档：README 更新分类面板、隐藏滚动条、搜索按钮与等高这三处描述。
+
+部署步骤：
+```text
+本地：python -m unittest discover -s tests -> 108 项全过；node --check static/map.js；git diff --check 干净
+      本机实例（矮视口 1440x620 / 手机 412x640，故意让内容超过上限）用 Playwright 验证：
+      分类：面板宽 340/340、388/388 与检索卡片一致，距工具栏 7px，上限 336px / 358px 且内部可滚（scrollTop 0->120）；
+            默认可见 5/15 行（全部分类 + 4 个一级），点父节点后 15 行可见、筛选列表仍是 314 条、
+            给 DOM 节点打的自定义标记仍在（证明没重建整棵树）；点叶子后 314 -> 7 条、面板收起、
+            按钮点亮、aria-label = 「分类筛选：美食 / 早市与美食街」；重开面板时这一支保持展开
+     滚动条：检索列表 clientWidth == offsetWidth（无占位），滚轮后 scrollTop 0 -> 601；分类 / 添加者浮层、
+            搜索结果列表 computed scrollbar-width 均为 none
+     搜索框：搜索框与按钮高度 40 = 40（手机 38 = 38）、顶边对齐，按钮背景 rgb(105,86,229) + 白图标，输入框 padding 0
+提交：aa24c7b（fetch/rebase 后 push，本地 == origin/main）
+备份：/data/errorjiang-backup/map-cat-tree-20261012-1436/（停服后复制 inventory.db 与 changelog-seed.json）
+服务器：git pull --ff-only ae17f0b -> aa24c7b -> runuser -u errorjiang -- python3 -c "import app; app.init_db()"（migration-ok）
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 一致）
+      import_changelog_moments.py --date 2026-10-12 --force -> 新增 5 条
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，/api/health = {"ok": true}，服务器 HEAD = aa24c7b
+更新日志    -> /api/moments 里 2026-10-12 14:33:59「足迹分类面板改成可折叠的多级树，并清理滚动条与搜索框细节」，kind = log
+静态资源    -> https://zhexiyan.cc 上的 static/map.js、static/map.css 与本机 SHA256 逐一相同
+服务端代码  -> 线上 map.js 里 expandedKeys / applyPopHeight 都在，mp-chips（旧胶囊）相关代码仍为 0 处
+```
+
+备注：这次只动前端静态文件（README 与两份日志除外），app.py 没有变化，所以线上生效只靠 `git pull`
+（static 目录每次请求都从磁盘读）；服务重启是跑更新日志导入流程时的常规动作。交互与渲染仍是**同一提交**
+的本地实例上用真浏览器（桌面 1440×620、手机 412×640 两档，含矮视口）验证的。
