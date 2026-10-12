@@ -3665,3 +3665,54 @@ CSS 选择器从 `.mo-composer-foot > .mo-btn-primary` 改成 `.mo-composer-foot
 备注：本轮没有改 `app.py`，前端 pull 完即生效，不需要重启服务。登录态才能看到的头像渐隐、封面尺寸、
 播放方框呼吸与不循环，都是在隔离实例上用真浏览器逐个验证的；线上侧用「已提交内容与线上返回逐字节一致 +
 两页无报错 + 更新日志入库」确认。播放方框复用的是站内已有的 `moFreshPulse` 关键帧，没有引入新的动效依赖。
+
+## 98. 2026-10-13 00:30:00 全站标签页图标加上底部渐隐
+
+站长要求：浏览器标签页上那张 Error酱 缩略图也加上动态头像那套底部渐隐，而且是**所有页面**，
+包括在新标签页里打开的页面。
+
+完成内容（提交 `7e9c96d style:add-bottom-fade-to-site-favicon`，21 文件，+38/−38）：
+
+- 标签页图标不能用 CSS 遮罩，所以渐隐**直接烤进 PNG 的透明通道**：还是用桌面那张 `可爱Error酱.png`，
+  缩到 128×128 后按行乘 alpha，比例和头像的 mask 完全一致（70% 处仍不透明，往下线性淡到 0）。
+  重新生成的 `static/site/error-chan-favicon.png` 26679 → 29515 字节。
+- 浏览器对标签页图标缓存很顽固，所以把 19 个页面里的 `?v=3` 全部提到 `?v=4`（35 处），
+  并给 `static/note-read.html` 那行**没带版本号**的 icon 链接补上 `?v=4`。
+  `python -m unittest`、`node --check`、`git diff --check` 都在改动后复跑过。
+- `/favicon.ico` 这条路由本来就 `send_file("site/error-chan-favicon.png")`（app.py:8704），
+  走裸 favicon 请求的场景（书签、没有 icon 链接的页面）自动跟着一起变，不需要改后端。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 109 项全过
+      node --check 四个前端文件全过；python -m json.tool seed；git diff --check 干净
+      隔离实例（端口 8001）实测：
+        图标文件：128×128、带 alpha；逐行 alpha 均值 70% 处仍是 196，之后 167 → 129 → 87 → 41 → … → 最后几行 12 → 6 → 0
+        路由：/static/site/error-chan-favicon.png?v=4 与 /favicon.ico 都是 200 / 29515 字节（同一份新图）
+        页面链接：/、/moments、/messages、/workbench 的 <link rel=icon> 都是 ?v=4，全站已无 ?v=3 残留
+        预览：把新图标缩到 32px / 16px（模拟标签页大小）叠在浅色底上看过，底部是柔和淡出、没有硬平口
+提交：7e9c96d（fetch/push 后本地 == origin/main == 7e9c96d）
+备份：/data/errorjiang-backup/favicon-fade-20261013-0030/（停服后复制 inventory.db 3670016 字节
+      与 changelog-seed.json 67813 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only 1e9320f -> 7e9c96d；本轮 `app.py` 未改动，不需要靠重启生效
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 F43C8398…BE03 一致）
+      import_changelog_moments.py --date 2026-10-13 --force -> 新增 2 条（该日期两条都重建，时间戳唯一）
+      为了一致性备份数据库，服务在备份期间短暂停止，随后已 start
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 7e9c96d，/api/health = {"ok": true}
+更新日志    -> /api/moments 里 2026-10-13 00:28:50「全站标签页图标加上底部渐隐」（id=430，kind=log）；
+              该日期两条日志（00:18:40 / 00:28:50）时间戳唯一，没有重复
+图标资源    -> 线上 /static/site/error-chan-favicon.png 与 /favicon.ico 都是 200 / 29515 字节，
+              SHA256 与本机文件逐字节相同（69BB22E0…C3B4）
+页面链接    -> 线上 /、/moments、/workbench、/login 的 icon 链接都是 ?v=4
+线上页面    -> 游客打开 /moments 与 /messages（桌面 1440x900 / 手机 412x915）：内容区宽度 760 / 760
+              （手机 412 / 412）、无横向溢出、无 JS 异常与 4xx / 5xx，开发日志 78 行正常渲染
+```
+
+备注：标签页图标本身没法写样式，渐隐只能烤进图片，所以这次是重新生成 PNG + 提升各页版本号；
+浏览器可能仍显示缓存的旧图标，强制刷新一次或重开浏览器就会换过来（版本号变化能让大多数情况自动更新）。
+iOS「添加到主屏幕」用的 `error-chan-touch.png`（180px）按站长要求没动 —— 它不是标签页缩略图，
+需要的话可以按同一套流程再加。
