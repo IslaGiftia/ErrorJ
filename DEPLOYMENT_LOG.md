@@ -3290,3 +3290,88 @@ nginx       -> systemctl is-active nginx = active，errorjiang 未重启、/api/
 补充说明（排查记录）：隔离实例第一次复测时发现「重新加载页面后未读提醒就没了」，原因是页面加载的 `static/site/notify-seen.js`
 会在 `pagehide` 时把整模块的提醒标记为已读（原有设计：离开页面即算已读）。测试改成每个场景用全新 context +
 每次重新写入提醒后，行为全部符合预期；线上真实使用（一直停在页面上）不受影响。
+
+## 93. 2026-10-12 21:24:52 动态页按留言页同构重构，留言点赞恢复用户名
+
+需求：站长要求「以同样的方式、逻辑对动态页面进行重构」，和留言页在 UI / 交互 / 功能 / 新内容提示上保持高度一致，
+连「左上、右下按钮距卡片边缘的距离」这种细节也要对齐。先出方案再提问，站长拍板三条：
+① 我的动态 / 开发日志去掉文字、只留图标按钮，和其他功能按钮一起放左上角；② 评论区点赞和回复全删掉；
+③ 允许改后端，把新评论提醒精确到那条评论。
+
+完成内容（两个提交：`cc1a320 fix:show-like-user-names-on-messages`、
+`d7f2952 feat:rebuild-moments-page-to-match-messages`，9 文件，+1339/−478）：
+
+留言（`cc1a320`，静态 2 文件）：
+- 恢复点赞用户名：`.mg-like-names`（最多 3 个名字，超出收成「等 N 人」）+ 点赞后本地即时把自己名字插进去；
+  单独的数字统计（`.mg-like-count`）仍然不显示。
+
+动态（`d7f2952`）：
+- 顶部悬浮区：删掉 `.mo-kinds` 文字标签栏，改成左上角 sticky dock＝两枚只带图标的方形按钮
+  （我的动态 / 开发日志，右上角带条数角标）+ 筛选下拉（全部动态 / 点赞 / 评论）+「写动态」。
+  新增 `--mo-page-pad` / `--mo-float-inset`（16/12px，手机 12/12），`.mo-app` 左右内边距、dock 的
+  `margin-left`、右下角按钮的 `right` 全部引用它们。「写动态」用 `IntersectionObserver` 判断发布框是否滚出上方，
+  只在滚出后纯 opacity 渐显，点击淡出 + 平滑回顶 + 聚焦输入框；「开发日志」栏没有可筛的赞 / 评论、也不能发布，
+  筛选和「写动态」在那一栏自动收起。
+- 右下角：删掉 `.mo-jump-btn` 和公共组件的紫色圆钮样式，改成留言页同款方形毛玻璃「↑ 顶部」，
+  `right: calc(max(0px, (100vw - 760px) / 2) + var(--mo-page-pad) + var(--mo-float-inset))`、
+  `bottom` 抬高 28px。
+- 新内容提示：复用 `back-to-top.js` 的 `setPending`——有未读时变成「↓ 评论」+ `moFreshPulse` 呼吸，
+  点它平滑滚到那条评论，滚到后自动恢复「↑ 顶部」；新评论正文 `.mo-comment-text.is-new-comment`
+  （桌面 `infinite`、`(hover:none)/(pointer:coarse)` 下 3 次）+ 整张卡片方框呼吸。
+- 后端（新评论定位的关键）：评论类提醒（`moment_comment` / `comment_reply` / `comment_like`）的 `target_id`
+  从动态 id 改成评论 id；`NOTIFICATION_TARGET_TABLES["moments"]` 改成 `("moments", "moment_comments")` 元组，
+  `prune_notification_targets()` 支持多表；`/api/site/moments/unread` 新增 `target_kinds`。
+  原因：动态 id 和评论 id 是两张自增表的主键、会撞号——隔离实例第一轮就踩到了（评论 #1 与动态 #1 同号，
+  同号动态被误标成「有新内容」），所以前端要靠 kind 区分「动态本体」和「某条评论」。
+- 卡片操作：举报 / 置顶 / 编辑 / 删除全部收进右下角「⋯」菜单（管理员看到 置顶 / 编辑 / 删除，
+  其他登录账号看到 举报），PC 悬停卡片才显示、触摸设备常驻。
+- 评论：删掉点赞与楼中楼回复（旧回复数据仍保留在库里，前端按平铺列表渲染，不隐藏数据），
+  保留作者 / 管理员可删的「删除」，确认文案统一成「确定要删除这条评论吗？」。
+- 图片：改成朋友圈九宫格（1 张等比、2-4 两列、5-9 三列、超 9 张第九格右下角「+N」）+ 全屏灯箱
+  （原图无白框、左右切换 + 计数、方向键翻页），和留言页同一套。
+- 其它：点赞换成线框大拇指（`fill: none`，已点赞只换描边色）+ 点赞人名字、不显示数字；属地去掉「IP 属地：」前缀；
+  手机端 `.mo-app` 顶部压到 6px（不叠 safe-area）、dock `top` 8px、`.mo-log-month` 吸顶偏移跟着改成 52px。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 109 项全过
+      node --check static/moments.js / messages.js / site/back-to-top.js / map.js 全过；python -m json.tool seed；git diff --check 干净
+      隔离实例（复制 inventory.db，端口 8100，用改动后的 app.py）Playwright 实测（桌面 1440x900 / 手机 412x915）：
+        留白与对称：桌面 mg 类 = .mo-app padding-top 14px / dock top 14px、手机 6px / 8px；左右内缩都是 12px
+        悬浮区：dock 可见、两枚图标按钮无文字（kindHasText=false）、筛选菜单贴着筛选按钮展开、
+                选「点赞」后按钮文字与 ?filter= 同步、开发日志栏 filter/send 自动隐藏
+        「⋯」菜单：管理员看到 置顶 / 编辑 / 删除；触摸设备常驻、PC 悬停显示
+        评论：无点赞、无回复表单、只剩「删除」，评论行 data-comment-id 就位、缩进 0
+        九宫格：1 张 cols-1（不裁剪）/ 3 张 cols-2 / 12 张 cols-3 且只渲染 9 格、第九格「+3」
+        灯箱：padding 0、无 .mo-viewer-dialog、计数 1/12、左右切换可用
+        新评论：卡片 is-fresh + kind=comment、正文 moCommentBlink（桌面 infinite / 手机 3）、
+                「顶部」按钮 is-pending + 文案「评论」+ 箭头 matrix(-1,0,0,-1,0,0)；点击后滚到评论并恢复「顶部」
+        「写动态」：opacity 0 ->（滚过发布框）1 ->（点击）0 + focus=momentContent + scrollY=0，transform 始终 none
+      清理：临时实例与截图目录已删除，真实 inventory.db 未写入
+提交：cc1a320 + d7f2952（fetch/push 后本地 == origin/main == d7f2952）
+备份：/data/errorjiang-backup/moments-rebuild-20261012-2125/（停服后复制 inventory.db 与 changelog-seed.json）
+服务器：git pull --ff-only 11596ea -> d7f2952（app.py 有改动，所以 restart 生效）；无 schema 变更，未跑 init_db
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 5E853FE6…0B17 一致）
+      import_changelog_moments.py --date 2026-10-12 --force -> 新增 12 条
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = d7f2952，/api/health = {"ok": true}
+更新日志    -> /api/moments 里 2026-10-12 21:24:52「动态页按留言页同构重构，留言点赞恢复用户名」（id=385，kind=log）
+静态资源    -> moments.js / moments.css / moments.html / messages.js / messages.css / site/back-to-top.js
+              与本机 SHA256 逐一相同
+代码特征    -> 线上 moments.html 有 momentDock / mo-kind-btn / momentFilterMenu / momentSendBtn / momentViewerStage 且已无 .mo-kinds；
+              moments.js 有 freshCardBelow / is-new-comment / mo-gallery 且已无 mo-jump-btn；
+              moments.css 有 --mo-float-inset / padding: 6px var(--mo-page-pad) / .site-back-top.is-pending / mo-gallery
+线上页面    -> 游客打开 https://zhexiyan.cc/moments（桌面 1440x900 / 手机 412x915）：dock 可见且两枚栏位按钮都没有文字、
+              筛选与「写动态」按设计隐藏、旧的「↓」按钮不存在、开发日志 73 行正常渲染、无 JS / 控制台报错；
+              实测 padding-top 14px（手机 6px）、dock top 14px（手机 8px）
+```
+
+备注：本轮 `app.py` 有改动（评论提醒的 target 与 target_kinds），线上生效靠 restart；静态文件每次请求读磁盘。
+留白对称、悬浮区、九宫格、灯箱、新评论定位与「写动态」都是在**同一提交**的隔离实例上用真浏览器量的；
+线上按「静态哈希一致 + 代码特征 + 页面无报错 + 更新日志入库 + 健康检查」确认。普通账号视角（「⋯」里只有举报）
+和游客切「我的动态」栏没有直接复测——本机是本地模式恒为管理员，线上也不掌握普通账号口令。
+另外测试里按旧行为写的三处断言一并更新：评论提醒 target 改成评论 id、补断言 `target_kinds`、
+CSS 选择器从 `.mo-composer-foot > .mo-btn-primary` 改成 `.mo-composer-foot .mo-btn-primary`。
