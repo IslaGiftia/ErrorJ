@@ -3602,3 +3602,66 @@ CSS 选择器从 `.mo-composer-foot > .mo-btn-primary` 改成 `.mo-composer-foot
 线上需要口令，游客视角只能确认「静态文件逐字节一致 + 两页无报错 + 更新日志入库 + 头像图可正常取到」。
 另外头像仍按 50% 圆角裁切（会切掉约 10% 的头发 / 肩膀边缘）；扁平化为一张 160×160 的透明 PNG 是为了避免
 每张卡片拖 1.28MB 的原图，显示尺寸不变。
+
+## 97. 2026-10-13 00:20:00 动态头像去圆角加渐隐、分享卡封面放大与播放特效
+
+站长看完上一版后的四条反馈：
+① 头像不要圆形裁剪，就像浏览器标签页那样整张显示；
+② 立绘底部那道被原图裁断的平口，加渐隐；
+③ 歌曲分享卡的封面再放大一点；
+④ 播放时封面四周那圈紫色方框「显示不全」，要完整方框 + 和「有新内容」入口按钮一样的呼吸闪烁，
+   而且只在播放时出现、播完不循环。
+
+完成内容（提交 `1dbe22f style:polish-avatar-fade-share-cover-and-play-ring`，4 文件，+21/−9）：
+
+- 头像（`moments.css`）：删掉 `border-radius: 50%`，整张透明立绘原样显示；
+  再加 `mask-image: linear-gradient(to bottom, #000 70%, transparent 100%)`（带 `-webkit-` 前缀）
+  把立绘底部约 30% 渐隐掉 —— 源图本身就是底部被裁断的胸像，这样不会出现一道生硬的平口。
+  头像尺寸（40 / 36px）、透明底、与「Error酱」中心对齐的规则都没动。
+- 封面（`moments.css`）：`--mo-share-cover` 52 → **60px**，手机 44 → **50px**；仍然 `object-fit: cover`
+  等比裁切、留在卡片内（卡片随封面长到 82px，上下各留 11px）。
+- 播放方框（`moments.css`）：原来只有一条 2px 静态描边（量下来其实是完整的，只是又细又不动，
+  容易被看成缺角）。现在改成 `--mo-fresh-base: 0 0 0 2px var(--mo-accent)` + 复用站内
+  `@keyframes moFreshPulse`（**3.6s ease-in-out infinite**）——和「有新内容」入口按钮同一个关键帧、
+  同一节奏，播放时方框呼吸闪烁（峰值带一圈同色柔光）；`prefers-reduced-motion` 下只保留静态方框。
+  方框只在 `.is-playing` 时存在，暂停 / 播完立刻消失。
+- 不循环（`moments.js`）：显式写 `audio.loop = false`（原本也没设过循环，这次写清楚并加注释）。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 109 项全过
+      node --check static/moments.js / messages.js / books.js / site/activity.js 全过；python -m json.tool seed；git diff --check 干净
+      隔离实例（端口 8001）真浏览器（桌面 1440x900 / 手机 412x915，浅色主题）：
+        封面：60x60（手机 50x50）、卡片 82px、上下各留 11px、object-fit 仍是 cover
+        方框：播放中 box-shadow = rgb(123,104,238) 0 0 0 2px + 柔光层，animation = moFreshPulse 3.6s；
+              放大 6 倍截图确认四面（含 9px 圆角）都完整，没有被裁
+        暂停 / 播完：box-shadow none、animation none、data-icon 回到 play
+        不循环：把 currentTime 拖到时长前 0.25s 自然播完 -> loop=false / paused=true / ended=true /
+                currentTime==时长，没有重播
+        头像：mask-image 生效（linear-gradient(#000 70%, transparent)）、border-radius 0px、40px、
+              与昵称中心仍然 0.0px 对齐
+      scripts/mobile-audit.mjs（360x800 / 412x915 / 1440x900）：0px 横向溢出，无新增问题
+      测试数据（3 条分享动态 + 分享记录 + 临时封面）已还原，真实 inventory.db 回到 19 条动态、分享 / 评论 / 点赞各 0
+提交：1dbe22f（fetch/push 后本地 == origin/main == 1dbe22f）
+备份：/data/errorjiang-backup/avatar-fade-share-ring-20261013-0020/（停服后复制 inventory.db 3670016 字节
+      与 changelog-seed.json 66963 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only c08e475 -> 1dbe22f；本轮 `app.py` 未改动，不需要靠重启生效
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 DA406DB9…E937 一致）
+      import_changelog_moments.py --date 2026-10-13 --force -> 新增 1 条，覆盖 0 条
+      为了一致性备份数据库，服务在备份期间短暂停止，随后已 start
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 1dbe22f，/api/health = {"ok": true}
+更新日志    -> /api/moments 里 2026-10-13 00:18:40「动态头像去圆角加渐隐、分享卡封面再放大与播放特效」（id=428，kind=log）
+静态资源    -> moments.css / moments.js / references.html 的**已提交内容**与线上返回逐字节相同（SHA256 一致）；
+              线上 moments.css 已含 --mo-share-cover: 60px / 50px、animation: moFreshPulse 3.6s、mask-image 渐隐
+线上页面    -> 游客打开 https://zhexiyan.cc/moments 与 /messages（桌面 1440x900 / 手机 412x915）：
+              两页内容区宽度 760 / 760（手机 412 / 412）、无横向溢出、无 JS 异常与 4xx / 5xx，
+              动态页开发日志 77 行正常渲染
+```
+
+备注：本轮没有改 `app.py`，前端 pull 完即生效，不需要重启服务。登录态才能看到的头像渐隐、封面尺寸、
+播放方框呼吸与不循环，都是在隔离实例上用真浏览器逐个验证的；线上侧用「已提交内容与线上返回逐字节一致 +
+两页无报错 + 更新日志入库」确认。播放方框复用的是站内已有的 `moFreshPulse` 关键帧，没有引入新的动效依赖。
