@@ -14,7 +14,7 @@ html {
   /* 动态卡片头像的尺寸（手机端在下面收一档），也用作头部那一行的最小高度 */
   --mo-avatar: 40px;
   /* 分享卡专辑封面尺寸（手机端在下面收一档），不超出整张分享卡的高度 */
-  --mo-share-cover: 52px;
+  --mo-share-cover: 60px;
   --mo-bg: #f5f6f8;
   --mo-surface: #ffffff;
   --mo-text: #1f2329;
@@ -546,16 +546,19 @@ body {
 }
 
 /*
- * 头像：透明底的角色立绘（和标签页图标同一张画），不再垫主题色圆底；
+ * 头像：透明底的角色立绘（和标签页图标同一张画），不垫底色、也不做圆形裁剪——
+ * 整张立绘原样显示，和浏览器标签页里看到的一致；
  * 顶部对齐 + 头部那一行用同一个高度做 min-height，昵称 / 时间 / 属地的中心就和头像中心水平对齐。
  */
 .mo-avatar {
   width: var(--mo-avatar);
   height: var(--mo-avatar);
   align-self: start;
-  border-radius: 50%;
   object-fit: contain;
   background: transparent;
+  /* 立绘本身就是一张底部被裁断的胸像，底部渐隐一下，免得出现一道生硬的平口 */
+  -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 70%, transparent 100%);
 }
 
 .mo-item-head {
@@ -873,9 +876,15 @@ button.mo-share:hover {
   height: 21px;
 }
 
-/* 播放中：封面加一圈主题色描边 */
+/*
+ * 播放中：封面四周一圈完整的主题色方框（2px，画在封面外侧，不占布局、不会被裁），
+ * 并且按「有新内容」的入口按钮那套 3.6s 呼吸节奏一起闪烁；
+ * 暂停 / 播完之后 .is-playing 被摘掉，方框和呼吸一起消失。
+ */
 .mo-share.is-playing .mo-share-cover {
-  box-shadow: 0 0 0 2px var(--mo-accent);
+  --mo-fresh-base: 0 0 0 2px var(--mo-accent);
+  box-shadow: var(--mo-fresh-base);
+  animation: moFreshPulse 3.6s ease-in-out infinite;
 }
 
 .mo-like {
@@ -1168,6 +1177,7 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
   .mo-item.is-fresh,
   .mo-comment-text.is-new-comment,
   .mo-like-btn.is-pop,
+  .mo-share.is-playing .mo-share-cover,
   body[data-notify-module="moments"] .site-back-top {
     animation: none;
   }
@@ -1473,7 +1483,7 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
     /* 头像收一档，同时和「⋯」按钮（36px）等高，头部那一行的中心仍然对齐 */
     --mo-avatar: 36px;
     /* 分享卡封面在手机上收一档，播放键跟着收，保持卡片不被撑开 */
-    --mo-share-cover: 44px;
+    --mo-share-cover: 50px;
   }
 
   .mo-app {

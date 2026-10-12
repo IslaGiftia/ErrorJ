@@ -618,6 +618,8 @@
       if (window.ErrorMorph) window.ErrorMorph.set(play, "play");
       var audio = new Audio();
       audio.preload = "none";
+      // 播完就停，不循环：结束时 ended 事件会把图标和呼吸方框一起复位
+      audio.loop = false;
       audio.src = share.url;
       function sync(playing) {
         var icon = playing ? "pause" : "play";
