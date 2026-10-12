@@ -178,7 +178,7 @@
     applyModuleBadge("momentsEntry", "momentsPending", count);
   }
 
-  // 下载入口把歌曲 / 书籍 / 推荐三栏的未读合成一个数字
+  // 「推荐」入口把歌曲 / 书籍 / 推荐内容的未读合成一个数字
   function applyDownloadsBadge(count) {
     applyModuleBadge("downloadsEntry", "downloadsPending", count);
   }

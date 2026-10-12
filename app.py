@@ -226,7 +226,6 @@ PERMISSION_GROUPS = (
         "label": "站点内容",
         "items": (
             {"key": "music:write", "label": "上传、编辑歌单"},
-            {"key": "books:read", "label": "阅读书架电子书"},
             {"key": "books:write", "label": "上传、编辑、删除书架电子书"},
             {"key": "links:write", "label": "管理宝藏网站链接"},
             {"key": "photos:write", "label": "管理照片墙"},
@@ -249,7 +248,7 @@ PERMISSION_LABELS = {
     for group in PERMISSION_GROUPS
     for item in group["items"]
 }
-DEFAULT_MEMBER_PERMISSIONS = ("map:write", "books:read")
+DEFAULT_MEMBER_PERMISSIONS = ("map:write",)
 GRANTABLE_PERMISSIONS = tuple(
     item["key"]
     for group in PERMISSION_GROUPS
@@ -263,8 +262,8 @@ ROLE_LABELS = {"guest": "游客", "member": "普通账户", "admin": "管理员"
 GUEST_PAGE_PERMISSIONS = (
     {"key": "guest:page:messages", "label": "留言"},
     {"key": "guest:page:moments", "label": "动态"},
-    {"key": "guest:page:downloads", "label": "下载"},
-    {"key": "guest:page:recommendations", "label": "推荐"},
+    {"key": "guest:page:downloads", "label": "推荐"},
+    {"key": "guest:page:recommendations", "label": "推荐内容"},
     {"key": "guest:page:music", "label": "歌单"},
     {"key": "guest:page:books", "label": "书架"},
     {"key": "guest:page:references", "label": "参考项目"},
@@ -1845,20 +1844,6 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             conn.execute(
                 "INSERT INTO app_meta (key, value) VALUES ('role_permissions_v1', ?)",
                 (stamp,),
-            )
-        books_role = conn.execute(
-            "SELECT value FROM app_meta WHERE key = 'books_permissions_v1'"
-        ).fetchone()
-        if not books_role:
-            conn.execute(
-                """INSERT OR IGNORE INTO role_permissions
-                       (role, permission, granted_by, granted_at)
-                   VALUES (?, ?, ?, ?)""",
-                (ROLE_MEMBER, "books:read", "系统初始化", now_text()),
-            )
-            conn.execute(
-                "INSERT INTO app_meta (key, value) VALUES ('books_permissions_v1', ?)",
-                (now_text(),),
             )
         guest_books = conn.execute(
             "SELECT value FROM app_meta WHERE key = 'books_guest_page_v1'"
@@ -5496,11 +5481,6 @@ def required_permission(path, method):
         return "music:write" if method in ("POST", "PATCH", "DELETE") else ""
     if path == "/api/books" or path.startswith("/api/books/"):
         # 书架：游客和普通账号只能看；上传、编辑、删除仅管理员。
-        # 进度 / 书签 / 批注属于"个人的阅读数据"，登录账号都能写，处理器里再要求登录。
-        if re.fullmatch(r"/api/books/\d+/(progress|bookmarks|annotations)(/\d+)?", path):
-            return ""
-        if re.fullmatch(r"/api/books/\d+/content", path):
-            return "books:read"
         if re.fullmatch(r"/api/books/\d+/download", path):
             return ""
         if path == "/api/books/upload" or re.fullmatch(r"/api/books/\d+", path):
@@ -5508,15 +5488,10 @@ def required_permission(path, method):
         if path == "/api/books" and method == "GET":
             return ""
         return None
-    if path == "/books/read":
-        return "books:read"
-    if path == "/books/shared":
-        # 站内分享的电子书：登录账号都能读，处理器里再校验是否真的被分享
-        return ""
     if path == "/notes/read":
         # 站内分享的笔记：登录账号都能读，处理器里再校验是否真的被分享
         return ""
-    if re.fullmatch(r"/api/shared/(notes|books)/\d+(/content)?", path):
+    if re.fullmatch(r"/api/shared/notes/\d+", path):
         return ""
     if path.startswith("/api/admin"):
         return None
@@ -6609,8 +6584,8 @@ def shared_resource_info(resource_type, resource_id):
                         if row.get("cover_path")
                         else ""
                     ),
-                    "url": f"/books/shared?id={resource_id}",
-                    "page_url": f"/books/shared?id={resource_id}",
+                    "url": f"/api/books/{resource_id}/download",
+                    "page_url": f"/api/books/{resource_id}/download",
                     "available": True,
                 }
             )
@@ -8696,10 +8671,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.send_file("books.html")
             elif path == "/downloads":
                 self.send_file("downloads.html")
-            elif path == "/books/read":
-                self.send_file("reader.html")
-            elif path == "/books/shared":
-                self.send_file("reader.html")
             elif path == "/favicon.ico":
                 self.send_file("site/error-chan-favicon.png")
             elif path.startswith("/static/"):
@@ -8792,16 +8763,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_music_download(int(path.split("/")[4]))
             elif path == "/api/books":
                 self.api_books(query)
-            elif re.fullmatch(r"/api/books/\d+/progress", path):
-                self.api_book_progress(int(path.split("/")[3]))
-            elif re.fullmatch(r"/api/books/\d+/bookmarks", path):
-                self.api_book_bookmarks(int(path.split("/")[3]))
-            elif re.fullmatch(r"/api/books/\d+/annotations", path):
-                self.api_book_annotations(int(path.split("/")[3]))
             elif re.fullmatch(r"/api/books/\d+/download", path):
                 self.api_book_download(int(path.split("/")[3]))
-            elif re.fullmatch(r"/api/books/\d+/content", path):
-                self.api_book_content(int(path.split("/")[3]))
             elif path == "/api/site/links":
                 self.api_site_links(query)
             elif path == "/api/prompts":
@@ -8812,10 +8775,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_note_export(path)
             elif re.fullmatch(r"/api/shared/notes/\d+", path):
                 self.api_shared_note(int(path.split("/")[4]))
-            elif re.fullmatch(r"/api/shared/books/\d+/content", path):
-                self.api_shared_book_content(int(path.split("/")[4]))
-            elif re.fullmatch(r"/api/shared/books/\d+", path):
-                self.api_shared_book(int(path.split("/")[4]))
             elif path == "/api/workbench/summary":
                 self.api_workbench_summary()
             elif path == "/api/workbench/assets":
@@ -8975,12 +8934,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_music_upload(payload)
             elif path == "/api/books/upload":
                 self.api_book_upload(payload)
-            elif re.fullmatch(r"/api/books/\d+/progress", path):
-                self.api_book_progress(int(path.split("/")[3]))
-            elif re.fullmatch(r"/api/books/\d+/bookmarks", path):
-                self.api_book_bookmarks(int(path.split("/")[3]))
-            elif re.fullmatch(r"/api/books/\d+/annotations", path):
-                self.api_book_annotations(int(path.split("/")[3]))
             elif path == "/api/site/links":
                 self.api_site_link_create(payload)
             elif path == "/api/prompts":
@@ -9050,8 +9003,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_note_item(path)
             elif re.fullmatch(r"/api/books/\d+", path):
                 self.api_book_item(path)
-            elif re.fullmatch(r"/api/books/\d+/annotations/\d+", path):
-                self.api_book_annotation_item(path)
             elif re.fullmatch(r"/api/moments/\d+", path):
                 self.api_moment_item(path)
             elif re.fullmatch(r"/api/map/categories/\d+", path):
@@ -9068,10 +9019,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_bookmark_folder_item(path)
             elif re.fullmatch(r"/api/books/\d+", path):
                 self.api_book_item(path)
-            elif re.fullmatch(r"/api/books/\d+/bookmarks/\d+", path):
-                self.api_book_bookmark_item(path)
-            elif re.fullmatch(r"/api/books/\d+/annotations/\d+", path):
-                self.api_book_annotation_item(path)
             elif re.fullmatch(r"/api/prompts/\d+", path):
                 self.api_prompt_item(path)
             elif re.fullmatch(r"/api/site/music/\d+", path):
@@ -11456,7 +11403,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             {
                 "ok": True,
                 "recommendation_id": recommendation_id,
-                "url": "/recommendations",
+                "url": "/downloads?tab=resource",
             },
         )
 
@@ -11477,37 +11424,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 404, "笔记不存在。")
             return
         self.send_json(200, row)
-
-    def api_shared_book(self, book_id):
-        identity = self.session_identity()
-        if not identity:
-            api_error(self, 401, "请先登录。")
-            return
-        if not self.is_admin() and not resource_is_shared("book", book_id):
-            api_error(self, 403, "这本电子书没有在站内分享。")
-            return
-        row = query_one("SELECT * FROM books WHERE id = ?", (book_id,))
-        if not row:
-            api_error(self, 404, "电子书不存在。")
-            return
-        item = self.book_payload(row, self.book_user_id())
-        item["file_url"] = f"/api/shared/books/{book_id}/content"
-        item.pop("file_path", None)
-        self.send_json(200, item)
-
-    def api_shared_book_content(self, book_id):
-        identity = self.session_identity()
-        if not identity:
-            api_error(self, 401, "请先登录。")
-            return
-        if not self.is_admin() and not resource_is_shared("book", book_id):
-            api_error(self, 403, "这本电子书没有在站内分享。")
-            return
-        row = query_one("SELECT file_path FROM books WHERE id = ?", (book_id,))
-        if not row:
-            api_error(self, 404, "电子书不存在。")
-            return
-        self.send_data_file(row.get("file_path") or "", allow_range=True)
 
     def api_admin_share_link_create(self, payload):
         resource_type = str(payload.get("resource_type") or "").strip()
@@ -12204,42 +12120,19 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     # ---------- 书架 ----------
 
-    def book_user_id(self, identity=None):
-        """书架里个人的进度 / 书签 / 批注归属：站长记 0，其它登录账号记 user_id。"""
-        identity = identity if identity is not None else self.session_identity()
-        if not identity:
-            return None
-        if identity.get("kind") == "owner":
-            return 0
-        return identity.get("user_id")
-
-    def book_payload(self, row, user_id=None, can_read=True):
+    def book_payload(self, row):
         item = dict(row)
-        if can_read:
-            item["file_url"] = f"/api/books/{item['id']}/content"
-        else:
-            item.pop("file_url", None)
-        item["requires_login"] = not can_read
         item["cover_url"] = "/site-files/" + item["cover_path"] if item.get("cover_path") else ""
-        item["progress"] = None
-        if user_id is not None:
-            progress = query_one(
-                """SELECT location, percent, updated_at FROM book_progress
-                   WHERE user_id = ? AND book_id = ?""",
-                (user_id, item["id"]),
-            )
-            if progress:
-                item["progress"] = dict(progress)
+        # 阅读器已下线，书架只提供下载；游客拿不到文件，标记出来让前端提示登录。
+        item["requires_login"] = self.session_identity() is None
         return item
 
     def api_books(self, params):
         rows = query("SELECT * FROM books ORDER BY sort_order, id")
-        user_id = self.book_user_id()
-        identity = self.session_identity()
         is_admin = self.is_admin()
         items = []
         for row in rows:
-            item = self.book_payload(row, user_id, can_read=identity is not None)
+            item = self.book_payload(row)
             if not is_admin:
                 item.pop("file_path", None)
             items.append(item)
@@ -12336,7 +12229,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         self.notify_members_new_content(
             "book_new", "books", row_id, "管理员", "上架了一本电子书"
         )
-        self.send_json(200, self.book_payload(row, self.book_user_id()))
+        self.send_json(200, self.book_payload(row))
 
     def api_book_download(self, book_id):
         resource = self.download_resource("book", book_id)
@@ -12359,16 +12252,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
             allow_range=True,
         )
 
-    def api_book_content(self, book_id):
-        row = query_one(
-            "SELECT file_path FROM books WHERE id = ?",
-            (book_id,),
-        )
-        if not row:
-            api_error(self, 404, "电子书不存在。")
-            return
-        self.send_data_file(row.get("file_path") or "", allow_range=True)
-
     def api_book_item(self, path):
         item_id = int(path.rstrip("/").rsplit("/", 1)[-1])
         current = query_one("SELECT * FROM books WHERE id = ?", (item_id,))
@@ -12387,9 +12270,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
             if current.get("cover_path"):
                 remove_data_file(current["cover_path"])
             execute("DELETE FROM books WHERE id = ?", (item_id,))
-            execute("DELETE FROM book_progress WHERE book_id = ?", (item_id,))
-            execute("DELETE FROM book_bookmarks WHERE book_id = ?", (item_id,))
-            execute("DELETE FROM book_annotations WHERE book_id = ?", (item_id,))
             execute(
                 # 下载申请功能已下线，这里只清理历史行，避免删书后留下孤儿记录
                 "DELETE FROM download_requests WHERE resource_type = 'book' AND resource_id = ?",
@@ -12432,166 +12312,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
             target_id=item_id,
         )
         self.send_json(200, {"id": item_id})
-
-    def api_book_progress(self, book_id):
-        user_id = self.book_user_id()
-        if user_id is None:
-            api_error(self, 401, "登录后可以同步阅读进度。")
-            return
-        if not query_one("SELECT id FROM books WHERE id = ?", (book_id,)):
-            api_error(self, 404, "电子书不存在。")
-            return
-        if self.command == "GET":
-            row = query_one(
-                """SELECT location, percent, updated_at FROM book_progress
-                   WHERE user_id = ? AND book_id = ?""",
-                (user_id, book_id),
-            )
-            self.send_json(200, dict(row) if row else {"location": "", "percent": 0, "updated_at": ""})
-            return
-        payload = get_payload(self)
-        if payload is None:
-            return
-        location = str(payload.get("location") or "")[:2000]
-        try:
-            percent = float(payload.get("percent") or 0)
-        except (TypeError, ValueError):
-            percent = 0.0
-        percent = max(0.0, min(1.0, percent))
-        execute(
-            """INSERT INTO book_progress (user_id, book_id, location, percent, updated_at)
-               VALUES (?, ?, ?, ?, ?)
-               ON CONFLICT(user_id, book_id) DO UPDATE SET
-                   location = excluded.location,
-                   percent = excluded.percent,
-                   updated_at = excluded.updated_at""",
-            (user_id, book_id, location, percent, now_text()),
-        )
-        self.send_json(200, {"ok": True})
-
-    def api_book_bookmarks(self, book_id):
-        user_id = self.book_user_id()
-        if user_id is None:
-            api_error(self, 401, "登录后可以保存书签。")
-            return
-        if not query_one("SELECT id FROM books WHERE id = ?", (book_id,)):
-            api_error(self, 404, "电子书不存在。")
-            return
-        if self.command == "GET":
-            rows = query(
-                """SELECT id, location, label, percent, created_at FROM book_bookmarks
-                   WHERE user_id = ? AND book_id = ? ORDER BY percent, id""",
-                (user_id, book_id),
-            )
-            self.send_json(200, rows)
-            return
-        payload = get_payload(self)
-        if payload is None:
-            return
-        location = str(payload.get("location") or "")[:2000]
-        if not location:
-            api_error(self, 400, "书签位置为空。")
-            return
-        label = str(payload.get("label") or "").strip()[:200]
-        try:
-            percent = float(payload.get("percent") or 0)
-        except (TypeError, ValueError):
-            percent = 0.0
-        bookmark_id = execute(
-            """INSERT INTO book_bookmarks (user_id, book_id, location, label, percent, created_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (user_id, book_id, location, label or None, max(0.0, min(1.0, percent)), now_text()),
-        )
-        self.send_json(200, {"id": bookmark_id})
-
-    def api_book_bookmark_item(self, path):
-        parts = path.rstrip("/").split("/")
-        book_id = int(parts[3])
-        bookmark_id = int(parts[5])
-        user_id = self.book_user_id()
-        if user_id is None:
-            api_error(self, 401, "请先登录。")
-            return
-        execute(
-            "DELETE FROM book_bookmarks WHERE id = ? AND book_id = ? AND user_id = ?",
-            (bookmark_id, book_id, user_id),
-        )
-        self.send_json(200, {"ok": True})
-
-    def api_book_annotations(self, book_id):
-        user_id = self.book_user_id()
-        if user_id is None:
-            api_error(self, 401, "登录后可以保存划线批注。")
-            return
-        if not query_one("SELECT id FROM books WHERE id = ?", (book_id,)):
-            api_error(self, 404, "电子书不存在。")
-            return
-        if self.command == "GET":
-            rows = query(
-                """SELECT id, location, text, note, color, percent, created_at
-                   FROM book_annotations WHERE user_id = ? AND book_id = ?
-                   ORDER BY percent, id""",
-                (user_id, book_id),
-            )
-            self.send_json(200, rows)
-            return
-        payload = get_payload(self)
-        if payload is None:
-            return
-        location = str(payload.get("location") or "")[:2000]
-        if not location:
-            api_error(self, 400, "划线位置为空。")
-            return
-        color = str(payload.get("color") or "yellow")[:20]
-        text = str(payload.get("text") or "")[:500]
-        note = str(payload.get("note") or "")[:1000]
-        try:
-            percent = float(payload.get("percent") or 0)
-        except (TypeError, ValueError):
-            percent = 0.0
-        annotation_id = execute(
-            """INSERT INTO book_annotations
-                   (user_id, book_id, location, text, note, color, percent, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                user_id,
-                book_id,
-                location,
-                text or None,
-                note or None,
-                color,
-                max(0.0, min(1.0, percent)),
-                now_text(),
-            ),
-        )
-        self.send_json(200, {"id": annotation_id})
-
-    def api_book_annotation_item(self, path):
-        parts = path.rstrip("/").split("/")
-        book_id = int(parts[3])
-        annotation_id = int(parts[5])
-        user_id = self.book_user_id()
-        if user_id is None:
-            api_error(self, 401, "请先登录。")
-            return
-        if self.command == "PATCH":
-            payload = get_payload(self)
-            if payload is None:
-                return
-            note = str(payload.get("note") or "")[:1000]
-            color = str(payload.get("color") or "yellow")[:20]
-            execute(
-                """UPDATE book_annotations SET note = ?, color = ?
-                   WHERE id = ? AND book_id = ? AND user_id = ?""",
-                (note or None, color, annotation_id, book_id, user_id),
-            )
-            self.send_json(200, {"ok": True})
-            return
-        execute(
-            "DELETE FROM book_annotations WHERE id = ? AND book_id = ? AND user_id = ?",
-            (annotation_id, book_id, user_id),
-        )
-        self.send_json(200, {"ok": True})
 
     def api_site_links(self, params):
         rows = query("SELECT * FROM site_links ORDER BY category, sort_order, id")

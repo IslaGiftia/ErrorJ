@@ -1,4 +1,4 @@
-/* 听Error酱的歌单：顶栏功能区 + 中部歌单 + 底部播放条 */
+/* 听Error酱的歌单：顶栏 + 歌单列表；点封面播放 / 暂停（内嵌到推荐页时顶栏隐藏） */
 
 :root {
   --mu-bg: #f4f5f8;
@@ -14,7 +14,6 @@
   --mu-accent-soft: #efedff;
   --mu-danger: #d64545;
   --mu-shadow: 0 12px 32px rgba(24, 31, 45, 0.16);
-  --mu-player-h: 104px;
   color-scheme: light;
 }
 
@@ -63,7 +62,7 @@ body {
 
 .mu-app {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   height: 100vh;
   height: 100dvh;
   max-width: none;
@@ -110,72 +109,6 @@ body {
   font-size: 16px;
   font-weight: 650;
   white-space: nowrap;
-}
-
-.mu-search {
-  position: relative;
-  display: flex;
-  align-items: center;
-  flex: 1 1 240px;
-  max-width: 440px;
-}
-
-.mu-search > svg {
-  position: absolute;
-  left: 10px;
-  width: 16px;
-  height: 16px;
-  color: var(--mu-faint);
-  pointer-events: none;
-}
-
-.mu-search input {
-  width: 100%;
-  height: 36px;
-  padding: 0 34px 0 32px;
-  border: 1px solid var(--mu-line);
-  border-radius: 8px;
-  background: var(--mu-surface-2);
-  color: var(--mu-text);
-  font: inherit;
-  font-size: 13px;
-  outline: none;
-}
-
-.mu-search input::placeholder {
-  color: var(--mu-faint);
-}
-
-.mu-search input:focus {
-  border-color: var(--mu-accent);
-  background: var(--mu-surface);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mu-accent) 18%, transparent);
-}
-
-.mu-search-clear {
-  position: absolute;
-  right: 6px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--mu-faint);
-  cursor: pointer;
-}
-
-.mu-search-clear:hover {
-  background: var(--mu-hover);
-  color: var(--mu-text);
-}
-
-.mu-search-clear svg {
-  width: 14px;
-  height: 14px;
 }
 
 .mu-count {
@@ -300,9 +233,12 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
   width: 44px;
   height: 44px;
+  padding: 0;
   overflow: hidden;
+  border: 0;
   border-radius: 8px;
   background: linear-gradient(
     145deg,
@@ -310,6 +246,41 @@ body {
     var(--mu-surface-2)
   );
   color: color-mix(in srgb, var(--mu-accent) 72%, var(--mu-text));
+}
+
+/* 封面就是播放键：点它开始播放，再点一次暂停 */
+button.mu-row-cover {
+  font: inherit;
+  cursor: pointer;
+}
+
+button.mu-row-cover:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mu-accent) 30%, transparent);
+}
+
+/*
+ * 播放中：封面外圈一整圈主题色方框，并按「有新内容」的入口按钮那套 3.6s 呼吸节奏闪烁
+ * （和动态页分享卡上的歌曲封面完全一致）；暂停 / 播完方框和呼吸一起消失。
+ */
+.mu-row.is-playing .mu-row-cover {
+  --mu-cover-ring: 0 0 0 2px var(--mu-accent);
+  box-shadow: var(--mu-cover-ring);
+  animation: muCoverPulse 3.6s ease-in-out infinite;
+}
+
+@keyframes muCoverPulse {
+  0%,
+  100% {
+    box-shadow: var(--mu-cover-ring);
+  }
+
+  50% {
+    box-shadow:
+      var(--mu-cover-ring),
+      0 0 0 3px color-mix(in srgb, var(--mu-accent) 16%, transparent),
+      0 0 18px color-mix(in srgb, var(--mu-accent) 36%, transparent);
+  }
 }
 
 .mu-row-cover img {
@@ -407,247 +378,6 @@ body {
   font-size: 12.5px;
 }
 
-/* ---------- 底部播放条 ---------- */
-
-.mu-bar {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  border-top: 1px solid var(--mu-line);
-  background: var(--mu-surface);
-  box-shadow: 0 -6px 20px rgba(20, 24, 35, 0.06);
-}
-
-:root[data-theme="dark"] .mu-bar {
-  box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.35);
-}
-
-.mu-bar-inner {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  grid-template-areas:
-    "progress progress progress"
-    "now controls side";
-  align-items: center;
-  gap: 6px 16px;
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 10px 16px 12px;
-}
-
-.mu-progress {
-  display: grid;
-  grid-area: progress;
-  grid-template-columns: 44px minmax(0, 1fr) 44px;
-  align-items: center;
-  gap: 10px;
-  color: var(--mu-muted);
-  font-size: 11.5px;
-  font-variant-numeric: tabular-nums;
-}
-
-.mu-progress .mu-time:last-child {
-  text-align: right;
-}
-
-.mu-now {
-  display: flex;
-  grid-area: now;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.mu-now-cover {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 46px;
-  height: 46px;
-  overflow: hidden;
-  border-radius: 8px;
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, var(--mu-accent) 24%, var(--mu-surface-2)),
-    var(--mu-surface-2)
-  );
-  color: color-mix(in srgb, var(--mu-accent) 72%, var(--mu-text));
-}
-
-.mu-now-cover img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-/* 有封面时藏掉占位音符（lucide 会把 <i> 换成 svg，用容器 class 控制最稳） */
-.mu-now-cover.has-cover svg,
-.mu-now-cover.has-cover i {
-  display: none;
-}
-
-.mu-now-cover svg {
-  width: 20px;
-  height: 20px;
-}
-
-.mu-now-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.mu-now-title {
-  overflow: hidden;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mu-now-meta {
-  overflow: hidden;
-  color: var(--mu-muted);
-  font-size: 12.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mu-controls {
-  display: flex;
-  grid-area: controls;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-}
-
-.mu-side {
-  display: flex;
-  grid-area: side;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-/* ---------- 音量：默认只有按钮，悬停/聚焦后展开调节区 ---------- */
-
-.mu-volume {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-  .mu-volume-pop {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 10px);
-  z-index: 8;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 176px;
-  padding: 10px 12px;
-  border: 1px solid var(--mu-line);
-  border-radius: 8px;
-  background: var(--mu-surface);
-  box-shadow: var(--mu-shadow);
-  opacity: 0;
-  visibility: hidden;
-  transform: translateY(6px);
-  transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s linear;
-  pointer-events: none;
-}
-
-.mu-volume-pop::after {
-  content: "";
-  position: absolute;
-  right: 12px;
-  bottom: -6px;
-  width: 10px;
-  height: 10px;
-  border-right: 1px solid var(--mu-line);
-  border-bottom: 1px solid var(--mu-line);
-  background: var(--mu-surface);
-  transform: rotate(45deg);
-}
-
-.mu-volume:hover .mu-volume-pop,
-.mu-volume:focus-within .mu-volume-pop,
-.mu-volume.is-open .mu-volume-pop {
-  opacity: 1;
-  visibility: visible;
-  transform: translateY(0);
-  pointer-events: auto;
-}
-
-.mu-volume-pop input[type="range"] {
-  flex: 1 1 auto;
-}
-
-.mu-volume-num {
-  flex: 0 0 auto;
-  min-width: 34px;
-  color: var(--mu-muted);
-  font-size: 12px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-/* ---------- 通用控件 ---------- */
-
-input[type="range"] {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 18px;
-  margin: 0;
-  background: transparent;
-  outline: none;
-  cursor: pointer;
-  --mu-range-bg: linear-gradient(
-    to right,
-    var(--mu-accent) var(--mu-fill, 0%),
-    color-mix(in srgb, var(--mu-line) 86%, var(--mu-text)) var(--mu-fill, 0%)
-  );
-}
-
-input[type="range"]::-webkit-slider-runnable-track {
-  height: 4px;
-  border-radius: 999px;
-  background: var(--mu-range-bg);
-}
-
-input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 13px;
-  height: 13px;
-  margin-top: -4.5px;
-  border: 2px solid var(--mu-surface);
-  border-radius: 50%;
-  background: var(--mu-accent);
-  box-shadow: 0 1px 4px rgba(15, 20, 30, 0.32);
-}
-
-input[type="range"]::-moz-range-track {
-  height: 4px;
-  border-radius: 999px;
-  background: var(--mu-range-bg);
-}
-
-input[type="range"]::-moz-range-thumb {
-  width: 13px;
-  height: 13px;
-  border: 2px solid var(--mu-surface);
-  border-radius: 50%;
-  background: var(--mu-accent);
-  box-shadow: 0 1px 4px rgba(15, 20, 30, 0.32);
-}
-
-input[type="range"]:focus-visible {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mu-accent) 22%, transparent);
-  border-radius: 999px;
-}
-
 .mu-icon-btn {
   display: inline-flex;
   align-items: center;
@@ -681,25 +411,6 @@ input[type="range"]:focus-visible {
   width: 18px;
   height: 18px;
 }
-
-.mu-icon-btn.mu-play {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: var(--mu-accent);
-  color: #fff;
-}
-
-.mu-icon-btn.mu-play:hover {
-  background: var(--mu-accent-hover);
-  color: #fff;
-}
-
-.mu-icon-btn.mu-play svg {
-  width: 21px;
-  height: 21px;
-}
-
 .mu-btn {
   display: inline-flex;
   align-items: center;
@@ -763,31 +474,33 @@ input[type="range"]:focus-visible {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 18px;
-  background: rgba(12, 15, 21, 0.55);
+  padding: 24px;
+  background: rgba(12, 15, 21, 0.6);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
 }
 
 .mu-dialog {
-  width: min(560px, 100%);
-  max-height: 88vh;
+  width: min(760px, 100%);
+  max-height: min(860px, calc(100vh - 48px));
   overflow-y: auto;
-  padding: 18px;
+  padding: 22px;
   border: 1px solid var(--mu-line);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--mu-surface);
-  box-shadow: var(--mu-shadow);
+  box-shadow: 0 24px 60px rgba(10, 14, 24, 0.34);
 }
 
 .mu-dialog-head {
   position: sticky;
-  /* 抵消 .mu-dialog 的 18px 内边距，滚动时标题栏贴住弹窗顶边 */
-  top: -18px;
+  /* 抵消 .mu-dialog 的内边距，滚动时标题栏贴住弹窗顶边 */
+  top: -22px;
   z-index: 4;
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: -18px -18px 14px;
-  padding: 16px 18px 12px;
+  margin: -22px -22px 16px;
+  padding: 18px 22px 13px;
   border-bottom: 1px solid var(--mu-line);
   background: var(--mu-surface);
 }
@@ -860,10 +573,10 @@ input[type="range"]:focus-visible {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 92px;
-  padding: 16px;
+  min-height: 112px;
+  padding: 18px;
   border: 1px dashed var(--mu-line);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--mu-surface-2);
   color: var(--mu-muted);
 }
@@ -910,13 +623,13 @@ input[type="range"]:focus-visible {
 
 .mu-dialog-actions {
   position: sticky;
-  bottom: -18px;
+  bottom: -22px;
   z-index: 4;
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 14px -18px -18px;
-  padding: 12px 18px;
+  margin: 16px -22px -22px;
+  padding: 13px 22px;
   border-top: 1px solid var(--mu-line);
   background: var(--mu-surface);
 }
@@ -928,7 +641,7 @@ input[type="range"]:focus-visible {
 .mu-toast {
   position: fixed;
   left: 50%;
-  bottom: calc(var(--mu-player-h, 104px) + 16px);
+  bottom: 22px;
   z-index: 120;
   max-width: min(480px, calc(100vw - 32px));
   padding: 10px 16px;
@@ -974,15 +687,6 @@ input[type="range"]:focus-visible {
     font-size: 16px;
   }
 
-  .mu-bar-inner {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      "progress progress"
-      "now side"
-      "controls controls";
-    gap: 8px 12px;
-  }
-
   .mu-row {
     grid-template-columns: 44px minmax(0, 1fr) 48px var(--mu-row-extra);
     gap: 10px;
@@ -992,10 +696,6 @@ input[type="range"]:focus-visible {
     display: none;
   }
 
-  .mu-now-cover {
-    width: 40px;
-    height: 40px;
-  }
 }
 
 @media (max-width: 560px) {
@@ -1011,18 +711,8 @@ input[type="range"]:focus-visible {
     font-size: 15px;
   }
 
-  .mu-search {
-    order: 9;
-    flex-basis: 100%;
-    max-width: none;
-  }
-
   .mu-stage-inner {
     padding: 8px 12px 22px;
-  }
-
-  .mu-bar-inner {
-    padding: 8px 12px 10px;
   }
 
   .mu-row {
@@ -1056,8 +746,8 @@ input[type="range"]:focus-visible {
     animation: none;
   }
 
-.mu-volume-pop {
-    transition: none;
+  .mu-row.is-playing .mu-row-cover {
+    animation: none;
   }
 }
 
@@ -1068,4 +758,21 @@ input[type="range"]:focus-visible {
   body[data-notify-module="music"] select {
     font-size: 16px;
   }
+}
+
+/*
+ * 内嵌到推荐页（?embed=1）：顶栏交给外层常驻按钮，这里只留歌单本身；
+ * 底色透明，让外层的页面底色 / 雨景透上来，正文列宽对齐留言与动态页的 760px。
+ */
+html.is-embed .mu-top {
+  display: none;
+}
+
+html.is-embed body {
+  background: transparent;
+}
+
+html.is-embed .mu-stage-inner {
+  max-width: 760px;
+  padding: 14px 16px 64px;
 }

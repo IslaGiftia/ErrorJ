@@ -94,12 +94,13 @@
 - 页面同样带下雨动画、跟随首页主题、支持标签页复用（`ej-moments`）。
 - 参考项目：Memos（MIT，63.4k★，卡片式时间线 + 置顶 + 标签）、Ech0（AGPL，2.1k★，同类中文实现）、Artitalk（MIT，326★，轻量说说的输入与图片交互）。只借鉴交互，代码为本项目自行实现。
 
-### 2.7 下载
+### 2.7 推荐
 
-- 首页公共入口收敛成「留言 / 下载 / 动态」三个，`/downloads` 用三个 Tab 装下原来的歌单、书架、推荐（文案为**歌曲 / 书籍 / 推荐**）。
-- 三个 Tab 是懒加载的内嵌页面（`/music?embed=1`、`/books?embed=1`、`/recommendations?embed=1`），`static/site/embed.css` + `embed.js` 在内嵌模式下只藏掉页面自带的品牌条和重复的举报链接，内容、数据与权限判断一行没改；切走再切回不会重建 iframe，所以歌曲播放不会中断。
-- 原来的 `/music`、`/books`、`/recommendations` 路由和页面继续可用，`/books/read` 阅读器与 `/books/shared` 分享页不变。
-- 角标与呼吸复用站点通知（`music` / `books` / `recommendations` 三个模块）：Tab 上显示该栏未读数，点开即上报 `notifications/seen` 清除；首页「下载」入口的数字是三栏之和。
+- 首页公共入口收敛成「留言 / 推荐 / 动态」三个，`/downloads` 把歌曲 / 书籍 / 网页 / 站内资源四个子页装进一个页面：左上角是四枚常驻的纯图标按钮（尺寸 / 位置对齐留言、动态页的悬浮按钮），右上角是随子页渐入渐出的常驻「新增」按钮（+歌曲 / +书籍 / +网页 / +站内，仅站长可见）。正文列宽、页面底色与雨景对齐留言和动态页（760px 居中），推荐页自身也不再是带边框的内嵌盒子。
+- 四个子页**一次全部加载**（`/music?embed=1`、`/books?embed=1`、`/recommendations?embed=1&view=web`、`/recommendations?embed=1&view=resource`），切换只翻转显隐，所以来回点不会重新加载、也不会打断正在播放的歌曲；`static/site/embed.css` + `embed.js` 在内嵌模式下藏掉子页自带的顶栏与重复入口，内容与数据逻辑保持不变。
+- 原来的 `/music`、`/books`、`/recommendations` 路由和页面继续可用。子页本身也重做了：歌曲页删掉搜索框和底部播放条，改成点专辑封面播放 / 暂停并给封面加主题色方框呼吸；书籍页删掉检索框与阅读器，卡片只负责下载；推荐页把原来三栏里的「网站与工具」和「站内资源」拆成两个卡片视图（`?view=web` / `?view=resource`），删掉了原来那块占地方的 hero 统计卡。
+- 站内书籍阅读器整体下线：删掉 `reader.html / reader.css / reader.js`、`/books/read`、`/books/shared`、阅读进度 / 书签 / 批注接口、`/api/shared/books/*`、`static/vendor/foliate/` 与 `books:read` 权限点；站内分享的电子书卡片改为直接指向下载。
+- 角标与呼吸复用站点通知（`music` / `books` / `recommendations` 三个模块）：图标按钮上显示该栏未读数，点开即上报 `notifications/seen` 清除；首页「推荐」入口的数字是三栏之和。新增入口里，「+站内」打开的是分享选择弹窗（分笔记 / 歌曲 / 电子书三栏挑一条分享成站内资源卡片）。
 - `static/site/back-link.js` 仍供参考项目与源码页使用，默认返回目标改成首页。
 
 ### 2.8 工作台
@@ -120,7 +121,7 @@
 - 访问密码：设置环境变量 `INVENTORY_PASSWORD`，或运行 `python tools/set_password.py` 写入 `data/auth.json`（只存 PBKDF2-SHA256 哈希）。未设置时保持免登录，局域网自用行为不变。
 - 注册审批：访客通过 `/register` 提交用户名和密码，账号状态为 `pending`；管理员使用 `tools/manage_users.py` 在服务器批准、拒绝、停用或重置密码。
 - 角色权限：新增 `role_permissions` 表维护「游客 / 普通账户」两套角色默认权限，管理员固定全部权限、不可收回。「账号权限 → 全部权限」按角色分配：游客只控制公开页面开关；普通账户只列写 / 管理类权限，默认 `map:write`；查看类权限不参与角色分配，仍在「全部账户」里按账号单独授予。`user_permissions` 增加 `mode` 列（`allow` / `deny`），单个账号可以“继承角色 / 允许 / 禁止”三态覆盖，有效权限 = 角色默认 + 允许 − 禁止。
-- 公开访问：游客默认可以进入首页 `/`、参考项目 `/references`、留言 `/messages`、Error酱动态 `/moments` 和下载页 `/downloads`（内含歌曲 `/music`、书籍 `/books`、推荐 `/recommendations`）；但留言和动态正文、歌曲播放流、书籍内容和推荐链接均要求登录。页面开放范围由「全部权限 → 游客」逐项开关控制，地图对游客完全关闭。
+- 公开访问：游客默认可以进入首页 `/`、参考项目 `/references`、留言 `/messages`、Error酱动态 `/moments` 和推荐页 `/downloads`（内含歌曲 `/music`、书籍 `/books` 与推荐内容的网页 / 站内资源两个视图）；但留言和动态正文、歌曲播放流、电子书下载和推荐链接均要求登录。页面开放范围由「全部权限 → 游客」逐项开关控制，地图对游客完全关闭。
 - 管理员专属模块：`/inventory`、`/bookmarks`、`/notes`、`/workbench` 和 `/prompts` 均仅管理员访问。未登录访问会跳转 `/login`，普通账号会跳回首页，无权限接口返回 401 或 403。
 - 公共附件：留言附件、日常配图、照片墙、音乐文件和推荐封面允许公开访问；笔记图片、元件图片、书签图标、工作台文件和 BOM 报告继续受保护。
 - 登录入口：首页右上角状态按钮通过 `/api/auth/status` 判断游客/管理员，并调用 `/api/login` 完成弹窗登录；独立登录页 `/login` 继续保留。退出登录访问 `/logout`。
@@ -277,7 +278,7 @@
 | `static/site/theme.js` / `tabname.js` | 全站主题同步 / 标签页名字认领 |
 | `static/site/back-link.js` | “返回上一级”链接的统一处理（优先 history.back，不堆积历史记录） |
 | `static/moments.html` / `moments.css` / `moments.js` | 日常（说说 / 日志）页面 |
-| `static/downloads.*` | 下载页外壳（三个 Tab + 懒加载内嵌面板 + 角标呼吸）；每个 Tab 里仍是 `music` / `books` / `recommendations` 的原页面 |
+| `static/downloads.*` | 推荐页外壳（四枚常驻图标按钮 + 常驻新增按钮 + 预加载的四个内嵌子页 + 角标）；子页分别是改过的 `music` / `books` 和 `recommendations` 的网页 / 站内资源视图 |
 | `static/hub.html` | 小屋页面（留言/照片墙/音乐/推荐） |
 | `static/messages.html` / `messages.css` / `messages.js` | 留言页面（文字 + 附件） |
 | `static/site/error-chan-favicon.png` / `error-chan-touch.png` | 全站统一图标（128 / 180） |
@@ -400,7 +401,7 @@
 - 首页改为游客可直接访问，仓库、网页收藏、笔记、工作台和 AI 提示词五个业务入口要求管理员登录。
 - 新增右上角游客/已登录状态和无头像登录弹窗；无权限模块入口保持普通外观，点击后提示仅管理员可访问。
 - 首页私有模块卡片不再显示“登录后查看 / 仅管理员”字样：未登录时显示中性的模块名，点击受限入口后才提示；有权限时显示真实数量。
-- 公开留言、日常、下载、参考项目和源码页面。
+- 公开留言、日常、推荐、参考项目和源码页面。
 - 游客只能看到留言锁屏、动态时间和公开内容元数据；登录账号可查看已审核内容并发表留言，删除留言、发布/编辑日常和推荐仅管理员可用。
 - 移除留言、动态、地图和登录弹窗里的静态权限提示文案，只在用户点击受限入口或按钮后给出提示。
 - 注册页只保留用户名和密码两项，昵称默认显示用户名，登录后可在账号菜单里修改；注册页配色跟随全站明暗主题。

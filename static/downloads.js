@@ -1,31 +1,41 @@
 /*
- * 下载页：三张 Tab 分别装歌曲 / 书籍 / 推荐，内容仍是各自原来的页面（?embed=1 只藏掉品牌条）。
+ * 「推荐」页外壳：四个子页面（歌曲 / 书籍 / 网页 / 站内资源）一开始就全部加载好，
+ * 切换时只翻转显隐，所以来回点不会重新加载、也不会打断正在播放的歌曲。
  *
- * - 面板懒加载：第一次切到某个 Tab 才创建 iframe，切回来不重建，所以歌曲切走也不会中断播放。
- * - 角标与呼吸沿用站点通知：/api/site/notifications/summary 里的 music / books / recommendations
- *   （先问一次 /api/auth/status，游客不请求这些登录接口，省掉一串 401）。
- * - 打开某个 Tab 就算读过这一栏，首页「下载」入口的角标随之减少。
+ * - 左上角：四个纯图标按钮，切换子页面。
+ * - 右上角：常驻「新增」按钮（+歌曲 / +书籍 / +网页 / +站内），文字随子页渐入渐出；
+ *   只有站长看得到、点得动，点击后通过同源 iframe 调用子页的 ErrorRecommendTab.openAdd()。
+ * - 角标：沿用 /api/site/notifications/summary 里的歌曲 / 书籍 / 推荐三个计数（游客不请求）。
  */
 (function () {
   "use strict";
 
   var TABS = [
-    { key: "music", src: "/music?embed=1" },
-    { key: "books", src: "/books?embed=1" },
-    { key: "recommendations", src: "/recommendations?embed=1" }
+    { key: "music", label: "歌曲", module: "music", badge: true },
+    { key: "books", label: "书籍", module: "books", badge: true },
+    { key: "web", label: "网页", module: "recommendations", badge: true },
+    { key: "resource", label: "站内", module: "recommendations", badge: false }
   ];
   var TAB_KEYS = TABS.map(function (tab) {
     return tab.key;
   });
   var counts = {};
-  var mounted = {};
   var activeKey = "";
   var busy = false;
+  var actionTimer = null;
   // null = 还没问到；站内通知只有登录账号有，游客不用去问（否则控制台一堆 401）
   var authed = null;
+  var isOwner = false;
 
   function $(id) {
     return document.getElementById(id);
+  }
+
+  function specOf(key) {
+    for (var i = 0; i < TABS.length; i++) {
+      if (TABS[i].key === key) return TABS[i];
+    }
+    return null;
   }
 
   function tabEl(key) {
@@ -36,29 +46,23 @@
     return document.querySelector('.dl-panel[data-panel="' + key + '"]');
   }
 
-  function normalizeTab(value) {
-    var key = String(value || "").toLowerCase();
-    if (key === "music" || key === "song" || key === "songs") return "music";
-    if (key === "books" || key === "book") return "books";
-    if (key === "recommendations" || key === "recommendation" || key === "picks") {
-      return "recommendations";
+  function frameWindow(key) {
+    var panel = panelEl(key);
+    var frame = panel ? panel.querySelector(".dl-frame") : null;
+    try {
+      return frame && frame.contentWindow ? frame.contentWindow : null;
+    } catch (err) {
+      return null;
     }
-    return "";
   }
 
-  function mount(key) {
-    if (mounted[key]) return;
-    var panel = panelEl(key);
-    var tab = TABS.filter(function (item) {
-      return item.key === key;
-    })[0];
-    if (!panel || !tab) return;
-    var frame = document.createElement("iframe");
-    frame.className = "dl-frame";
-    frame.setAttribute("title", "下载内容");
-    frame.src = tab.src;
-    panel.appendChild(frame);
-    mounted[key] = true;
+  // 子页面第一次显示（0×0 布局里渲染）后重新派发一次 resize，让卡片网格按真实宽度重排
+  function requestRelayout(key) {
+    var win = frameWindow(key);
+    if (!win) return;
+    try {
+      win.dispatchEvent(new win.Event("resize"));
+    } catch (err) {}
   }
 
   function paintBadges() {
@@ -66,33 +70,44 @@
       var node = tabEl(tab.key);
       if (!node) return;
       var badge = node.querySelector(".dl-tab-badge");
-      var count = Number(counts[tab.key]) || 0;
-      node.classList.toggle("has-pending", count > 0);
       if (!badge) return;
+      var count = tab.badge ? Number(counts[tab.module]) || 0 : 0;
       badge.hidden = count <= 0;
       badge.textContent = count > 0 ? (count > 99 ? "99+" : String(count)) : "";
     });
   }
 
-  function clearTab(key) {
-    counts[key] = 0;
-    var node = tabEl(key);
-    if (!node) return;
-    node.classList.remove("has-pending");
-    var badge = node.querySelector(".dl-tab-badge");
-    if (badge) {
-      badge.hidden = true;
-      badge.textContent = "";
+  function paintAction(key) {
+    var button = $("dlAction");
+    var label = $("dlActionLabel");
+    if (!button || !label) return;
+    var spec = specOf(key) || TABS[0];
+    if (!isOwner) {
+      button.hidden = true;
+      label.textContent = spec.label;
+      return;
     }
+    button.hidden = false;
+    if (label.textContent === spec.label) return;
+    // 渐出 → 换文字 → 渐入
+    button.classList.add("is-fading");
+    clearTimeout(actionTimer);
+    actionTimer = setTimeout(function () {
+      label.textContent = spec.label;
+      button.classList.remove("is-fading");
+    }, 140);
   }
 
   function markSeen(key) {
-    clearTab(key);
     if (authed !== true) return;
+    var spec = specOf(key);
+    if (!spec || !spec.badge) return;
+    counts[spec.module] = 0;
+    paintBadges();
     fetch("/api/site/notifications/seen", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ module: key }),
+      body: JSON.stringify({ module: spec.module }),
       cache: "no-store"
     }).catch(function () {});
   }
@@ -107,18 +122,23 @@
 
   function activate(key, options) {
     if (TAB_KEYS.indexOf(key) < 0) key = TAB_KEYS[0];
+    if (activeKey === key && (!options || !options.force)) {
+      if (!options || !options.keepUrl) updateUrl(key);
+      return;
+    }
     activeKey = key;
     TABS.forEach(function (tab) {
+      var on = tab.key === key;
       var node = tabEl(tab.key);
       var panel = panelEl(tab.key);
-      var on = tab.key === key;
       if (node) {
         node.classList.toggle("is-active", on);
-        node.setAttribute("aria-selected", on ? "true" : "false");
+        node.setAttribute("aria-pressed", on ? "true" : "false");
       }
-      if (panel) panel.hidden = !on;
+      if (panel) panel.classList.toggle("is-active", on);
     });
-    mount(key);
+    paintAction(key);
+    requestRelayout(key);
     markSeen(key);
     if (!options || !options.keepUrl) updateUrl(key);
   }
@@ -138,13 +158,20 @@
           recommendations: Number(data.recommendations) || 0
         };
         // 正在看的这一栏已经算读过
-        if (activeKey) counts[activeKey] = 0;
+        var spec = specOf(activeKey);
+        if (spec && spec.badge) counts[spec.module] = 0;
         paintBadges();
       })
       .catch(function () {})
       .then(function () {
         busy = false;
       });
+  }
+
+  function openAdd() {
+    var win = frameWindow(activeKey);
+    var api = win && win.ErrorRecommendTab;
+    if (api && typeof api.openAdd === "function") api.openAdd();
   }
 
   function moveTab(step) {
@@ -174,6 +201,8 @@
         }
       });
     }
+    var action = $("dlAction");
+    if (action) action.addEventListener("click", openAdd);
     window.addEventListener("pageshow", function () {
       loadCounts();
     });
@@ -193,11 +222,24 @@
       })
       .then(function (data) {
         authed = Boolean(data && data.authenticated);
+        isOwner = Boolean(data && data.owner);
+        paintAction(activeKey);
         if (authed) loadCounts();
       })
       .catch(function () {
         authed = false;
+        isOwner = false;
+        paintAction(activeKey);
       });
+  }
+
+  function normalizeTab(value) {
+    var key = String(value || "").toLowerCase();
+    if (key === "music" || key === "song" || key === "songs") return "music";
+    if (key === "books" || key === "book") return "books";
+    if (key === "web" || key === "site" || key === "sites") return "web";
+    if (key === "resource" || key === "resources" || key === "recommendations") return "resource";
+    return "";
   }
 
   function init() {
@@ -209,7 +251,8 @@
     } catch (err) {
       wanted = "";
     }
-    activate(wanted || TAB_KEYS[0], { keepUrl: !wanted });
+    // 先无条件点亮一次，保证首屏按钮 / 面板状态正确，再按 URL 参数切换
+    activate(wanted || TAB_KEYS[0], { keepUrl: !wanted, force: true });
     loadAuth();
   }
 

@@ -1,10 +1,17 @@
+/*
+ * 歌曲页（推荐页的「歌曲」子页）：
+ * - 没有搜索框、没有底部播放条；只剩歌单本身。
+ * - 点某首歌的专辑封面开始播放，再点一次暂停；播放中封面外圈是主题色方框 + 呼吸闪光
+ *   （和动态页分享卡上的歌曲封面同一套节奏）。
+ * - 上传 / 编辑 / 分享 / 下载 都在行尾的小按钮里；上传弹窗既可以从本页的「+歌曲」打开，
+ *   也可以由外层推荐页的常驻按钮通过 window.ErrorRecommendTab.openAdd() 打开。
+ */
 (function () {
   "use strict";
 
   var audio = document.getElementById("audioEl");
   if (!audio) return;
 
-  var VOLUME_KEY = "errorMusicVolume";
   var LAST_KEY = "errorMusicLast";
   var MAX_MUSIC_BYTES = 60 * 1024 * 1024;
   var MAX_MUSIC_COUNT = 20;
@@ -28,22 +35,14 @@
         "；会尝试读取文件里的歌名、歌手、专辑和内嵌封面，没有标签时按文件名猜（例如「茶汤-郁可唯」）。";
     }
   }
-  var FINE_POINTER = window.matchMedia
-    ? window.matchMedia("(hover: hover) and (pointer: fine)").matches
-    : true;
 
   var state = {
     tracks: [],
     canManage: false,
     authenticated: false,
     currentId: null,
-    shuffle: false,
-    repeat: "off",
-    keyword: "",
     editingId: null,
-    seeking: false,
     deleteArmed: false,
-    lastVolume: 0.8,
   };
 
   function $(id) {
@@ -92,11 +91,6 @@
     return mins + ":" + (secs < 10 ? "0" : "") + secs;
   }
 
-  function paintRange(input, ratio) {
-    var percent = Math.max(0, Math.min(1, ratio || 0)) * 100;
-    input.style.setProperty("--mu-fill", percent.toFixed(1) + "%");
-  }
-
   function trackById(id) {
     for (var i = 0; i < state.tracks.length; i++) {
       if (state.tracks[i].id === id) return state.tracks[i];
@@ -104,67 +98,48 @@
     return null;
   }
 
-  function currentTrack() {
-    return state.currentId ? trackById(state.currentId) : null;
-  }
-
   function isPlaying() {
     return !audio.paused && !audio.ended && Boolean(state.currentId);
-  }
-
-  function visibleTracks() {
-    var keyword = state.keyword.trim().toLowerCase();
-    if (!keyword) return state.tracks;
-    return state.tracks.filter(function (track) {
-      return [track.title, track.artist, track.album]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .indexOf(keyword) >= 0;
-    });
-  }
-
-  function updateSearchClear() {
-    $("searchClear").hidden = !state.keyword;
   }
 
   // ---------- 歌单渲染 ----------
 
   function emptyHtml() {
-    if (state.tracks.length) {
-      return (
-        '<li class="mu-empty"><i data-lucide="search-x"></i><p>没有匹配的歌曲</p>' +
-        '<button class="mu-btn" type="button" data-search-clear>清空搜索</button></li>'
-      );
-    }
     return (
       '<li class="mu-empty"><i data-lucide="music-4"></i><p>歌单还是空的</p>' +
       "<small>" +
-      (state.canManage ? "点右上角「上传歌曲」把喜欢的歌放进来。" : "等管理员上传歌曲后就能听了。") +
+      (state.canManage ? "点右上角「+歌曲」把喜欢的歌放进来。" : "等管理员上传歌曲后就能听了。") +
       "</small></li>"
     );
   }
 
   function coverHtml(track) {
-    if (track.cover_url) {
-      return '<span class="mu-row-cover"><img src="' + esc(track.cover_url) + '" alt="" loading="lazy"></span>';
+    var inner = track.cover_url
+      ? '<img src="' + esc(track.cover_url) + '" alt="" loading="lazy">'
+      : '<i data-lucide="music"></i>';
+    if (!state.authenticated) {
+      return '<span class="mu-row-cover">' + inner + "</span>";
     }
-    return '<span class="mu-row-cover"><i data-lucide="music"></i></span>';
+    var label = (isPlaying() && track.id === state.currentId ? "暂停 " : "播放 ") +
+      (track.title || "歌曲");
+    return (
+      '<button class="mu-row-cover" type="button" data-music-cover="' +
+      track.id +
+      '" aria-label="' +
+      esc(label) +
+      '" title="' +
+      esc(label) +
+      '">' +
+      inner +
+      "</button>"
+    );
   }
 
   function renderList() {
     var box = $("musicList");
-    var tracks = visibleTracks();
+    var tracks = state.tracks;
     var count = $("musicCount");
-    if (count) {
-      if (!state.tracks.length) {
-        count.textContent = "";
-      } else if (state.keyword) {
-        count.textContent = tracks.length + " / " + state.tracks.length + " 首";
-      } else {
-        count.textContent = state.tracks.length + " 首";
-      }
-    }
+    if (count) count.textContent = tracks.length ? tracks.length + " 首" : "";
     box.classList.toggle("is-manager", state.canManage);
     box.classList.toggle(
       "has-actions",
@@ -174,7 +149,6 @@
             return track.source_type === "file";
           }))
     );
-    updateSearchClear();
 
     if (!tracks.length) {
       box.innerHTML = emptyHtml();
@@ -206,7 +180,6 @@
             track.id +
             '" title="删除歌曲"><i data-lucide="trash-2"></i></button>';
         } else if (state.authenticated && track.source_type === "file") {
-          // 登录后直接下载，不再需要申请和审核
           actionButtons +=
             '<button class="mu-icon-btn" type="button" data-music-download="' +
             track.id +
@@ -223,10 +196,7 @@
           (state.authenticated
             ? 'data-music-play="' + track.id + '"'
             : 'data-music-locked="' + track.id + '"') +
-          ' role="button" tabindex="0" aria-label="' +
-          (state.authenticated ? "播放 " : "登录后播放 ") +
-          esc(track.title) +
-          '">' +
+          ">" +
           '<span class="mu-row-index">' +
           (active
             ? '<span class="mu-eq" aria-hidden="true"><i></i><i></i><i></i></span>'
@@ -267,62 +237,7 @@
     });
   }
 
-  // 有封面时隐藏占位图标：不能给 svg 设 .hidden（SVG 元素没有 hidden 属性，
-  // 设了也不会写进 HTML 属性），而且 lucide 每次都会重建这个节点，所以在容器上打 class
-  function setCoverFallback(hasCover) {
-    var wrap = $("playerCoverImg") && $("playerCoverImg").closest(".mu-now-cover");
-    if (wrap) wrap.classList.toggle("has-cover", Boolean(hasCover));
-  }
-
-  function renderPlayer() {
-    var track = currentTrack();
-    var coverImg = $("playerCoverImg");
-    if (!track) {
-      $("playerTitle").textContent = "还没有选择歌曲";
-      $("playerMeta").textContent = state.tracks.length
-        ? "点歌单里的歌曲开始播放"
-        : state.canManage
-          ? "上传后点歌单里的歌曲开始播放"
-          : "歌单还是空的";
-      coverImg.hidden = true;
-      coverImg.removeAttribute("src");
-      setCoverFallback(false);
-      $("playerCurrent").textContent = "0:00";
-      $("playerDuration").textContent = "0:00";
-      $("playerSeek").value = "0";
-      paintRange($("playerSeek"), 0);
-      return;
-    }
-    $("playerTitle").textContent = track.title || "未命名歌曲";
-    $("playerMeta").textContent =
-      [track.artist, track.album].filter(Boolean).join(" · ") || "未知歌手";
-    if (track.cover_url) {
-      coverImg.src = track.cover_url;
-      coverImg.hidden = false;
-      setCoverFallback(true);
-    } else {
-      coverImg.hidden = true;
-      coverImg.removeAttribute("src");
-      setCoverFallback(false);
-    }
-    $("playerDuration").textContent = formatTime(track.duration || audio.duration);
-  }
-
-  function updatePlayButton() {
-    var playing = !audio.paused && !audio.ended;
-    var btn = $("btnPlay");
-    var icon = playing ? "pause" : "play";
-    if (btn.getAttribute("data-icon") !== icon) {
-      btn.setAttribute("data-icon", icon);
-      // 有 morphicons 就做形变（play↔pause），没有就退回原来的硬切
-      if (!(window.ErrorMorph && window.ErrorMorph.morph(btn, icon))) {
-        btn.innerHTML = '<i data-lucide="' + icon + '"></i>';
-        if (window.lucide) lucide.createIcons();
-      }
-    }
-    btn.title = playing ? "暂停" : "播放";
-    btn.setAttribute("aria-label", playing ? "暂停" : "播放");
-  }
+  // ---------- 播放控制 ----------
 
   function updateMediaSession(track) {
     if (!("mediaSession" in navigator)) return;
@@ -347,18 +262,6 @@
       pause: function () {
         audio.pause();
       },
-      previoustrack: function () {
-        prevTrack();
-      },
-      nexttrack: function () {
-        nextTrack(false);
-      },
-      seekbackward: function () {
-        audio.currentTime = Math.max(0, audio.currentTime - 10);
-      },
-      seekforward: function () {
-        audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 10);
-      },
     };
     Object.keys(handlers).forEach(function (name) {
       try {
@@ -367,9 +270,7 @@
     });
   }
 
-  // ---------- 播放控制 ----------
-
-  function playTrack(id, autoplay) {
+  function playTrack(id) {
     var track = trackById(id);
     if (!track) return;
     var changed = state.currentId !== track.id;
@@ -381,161 +282,23 @@
         localStorage.setItem(LAST_KEY, String(track.id));
       } catch (err) {}
     }
-    renderPlayer();
     renderList();
     scrollActiveIntoView();
-    if (autoplay !== false) {
-      var promise = audio.play();
-      if (promise && promise.catch) {
-        promise.catch(function () {
-          toast("播放失败，可能是浏览器拦截或文件无法解码");
-        });
-      }
-    }
-  }
-
-  function togglePlay() {
-    if (!state.currentId) {
-      var first = visibleTracks()[0];
-      if (!first) {
-        toast(state.tracks.length ? "没有匹配的歌曲" : "歌单还是空的");
-        return;
-      }
-      playTrack(first.id, true);
-      return;
-    }
-    if (audio.paused) {
-      audio.play().catch(function () {
-        toast("播放失败");
+    var promise = audio.play();
+    if (promise && promise.catch) {
+      promise.catch(function () {
+        toast("播放失败，可能是浏览器拦截或文件无法解码");
       });
-    } else {
+    }
+  }
+
+  function toggleTrack(id) {
+    if (!trackById(id)) return;
+    if (state.currentId === id && !audio.paused && !audio.ended) {
       audio.pause();
-    }
-  }
-
-  function nextIndex(step) {
-    var tracks = state.tracks;
-    if (!tracks.length) return -1;
-    var index = tracks.indexOf(currentTrack());
-    if (state.shuffle && tracks.length > 1) {
-      var pick = index;
-      while (pick === index) pick = Math.floor(Math.random() * tracks.length);
-      return pick;
-    }
-    return (index + step + tracks.length) % tracks.length;
-  }
-
-  function nextTrack(auto) {
-    if (!state.tracks.length) return;
-    var index = nextIndex(1);
-    if (index < 0) return;
-    if (auto && state.repeat === "one") {
-      audio.currentTime = 0;
-      audio.play().catch(function () {});
       return;
     }
-    playTrack(state.tracks[index].id, true);
-  }
-
-  function prevTrack() {
-    if (audio.currentTime > 3) {
-      audio.currentTime = 0;
-      return;
-    }
-    var index = nextIndex(-1);
-    if (index >= 0) playTrack(state.tracks[index].id, true);
-  }
-
-  function renderRepeatButton() {
-    var btn = $("btnRepeat");
-    var icon = state.repeat === "one" ? "repeat-1" : "repeat";
-    btn.classList.toggle("is-on", state.repeat !== "off");
-    btn.title =
-      state.repeat === "off" ? "循环：关闭" : state.repeat === "all" ? "循环：列表" : "循环：单曲";
-    btn.setAttribute("aria-label", btn.title);
-    if (btn.getAttribute("data-icon") !== icon) {
-      btn.setAttribute("data-icon", icon);
-      // 循环列表 ↔ 单曲（单曲那个带 “1” 角标，形变比硬切更能说明状态变了）
-      if (!(window.ErrorMorph && window.ErrorMorph.morph(btn, icon))) {
-        btn.innerHTML = '<i data-lucide="' + icon + '"></i>';
-        if (window.lucide) lucide.createIcons();
-      }
-    }
-  }
-
-  function cycleRepeat() {
-    state.repeat = state.repeat === "off" ? "all" : state.repeat === "all" ? "one" : "off";
-    renderRepeatButton();
-  }
-
-  function setShuffle(on) {
-    state.shuffle = on;
-    var btn = $("btnShuffle");
-    btn.classList.toggle("is-on", on);
-    btn.setAttribute("aria-pressed", on ? "true" : "false");
-  }
-
-  // ---------- 音量：滚轮 + 悬停浮层 ----------
-
-  function saveVolume(value) {
-    try {
-      localStorage.setItem(VOLUME_KEY, String(value));
-    } catch (err) {}
-  }
-
-  function updateVolumeIcon() {
-    var muted = audio.muted || audio.volume === 0;
-    var percent = Math.round((muted ? 0 : audio.volume) * 100);
-    var slider = $("playerVolume");
-    slider.value = String(percent);
-    paintRange(slider, percent / 100);
-    $("volumeNum").textContent = percent + "%";
-
-    var icon = muted ? "volume-x" : audio.volume < 0.5 ? "volume-1" : "volume-2";
-    var btn = $("btnMute");
-    if (btn.getAttribute("data-icon") !== icon) {
-      btn.setAttribute("data-icon", icon);
-      // 音量三态 morph：volume-2 ↔ volume-1 ↔ volume-x
-      if (!(window.ErrorMorph && window.ErrorMorph.morph(btn, icon))) {
-        btn.innerHTML = '<i data-lucide="' + icon + '"></i>';
-        if (window.lucide) lucide.createIcons();
-      }
-    }
-    btn.classList.toggle("is-on", muted);
-    btn.title = muted
-      ? "已静音（滚轮调节音量）"
-      : "音量 " + percent + "%（滚轮调节，点击静音）";
-  }
-
-  function setVolume(value, persist) {
-    var next = Math.max(0, Math.min(1, value));
-    if (audio.muted) audio.muted = false;
-    audio.volume = next;
-    if (next > 0) state.lastVolume = next;
-    if (persist !== false) saveVolume(next);
-    updateVolumeIcon();
-  }
-
-  var volumeFlashTimer = null;
-  function flashVolume() {
-    var wrap = $("volumeWrap");
-    wrap.classList.add("is-open");
-    clearTimeout(volumeFlashTimer);
-    volumeFlashTimer = setTimeout(function () {
-      wrap.classList.remove("is-open");
-    }, 1400);
-  }
-
-  function toggleMute() {
-    if (audio.muted || audio.volume === 0) {
-      audio.muted = false;
-      if (audio.volume === 0) audio.volume = state.lastVolume || 0.5;
-      saveVolume(audio.volume);
-    } else {
-      state.lastVolume = audio.volume;
-      audio.muted = true;
-    }
-    updateVolumeIcon();
+    playTrack(id);
   }
 
   // ---------- 上传 / 编辑 ----------
@@ -832,9 +595,7 @@
         state.currentId = null;
       }
       renderList();
-      renderPlayer();
-      if (!state.currentId && state.tracks.length) {
-        if (!state.authenticated) return;
+      if (!state.currentId && state.tracks.length && state.authenticated) {
         var last = null;
         try {
           last = Number(localStorage.getItem(LAST_KEY) || 0);
@@ -843,7 +604,6 @@
         if (target) {
           state.currentId = target.id;
           audio.src = target.url;
-          renderPlayer();
           renderList();
           scrollActiveIntoView();
         }
@@ -857,142 +617,50 @@
         state.canManage = Boolean(status.owner);
         state.authenticated = Boolean(status.authenticated);
         $("musicUploadBtn").hidden = !state.canManage;
-        $("playerBar").hidden = !state.authenticated;
         if (!state.authenticated) {
           audio.pause();
           audio.removeAttribute("src");
           audio.load();
           state.currentId = null;
         }
-        renderPlayer();
         renderList();
       })
       .catch(function () {
         state.canManage = false;
         state.authenticated = false;
-        $("playerBar").hidden = true;
       });
   }
 
+  // 外层推荐页的「+歌曲」按钮通过它打开上传弹窗
+  function openUpload() {
+    $("uploadFiles").value = "";
+    updateUploadLabel();
+    if (uploadBusy.rows) uploadBusy.rows.reset();
+    $("uploadModal").hidden = false;
+    if (window.lucide) lucide.createIcons();
+  }
+  window.ErrorRecommendTab = { key: "music", openAdd: openUpload };
+
   // ---------- 事件 ----------
 
-  $("btnPlay").addEventListener("click", togglePlay);
-  $("btnNext").addEventListener("click", function () {
-    nextTrack(false);
+  audio.addEventListener("play", renderList);
+  audio.addEventListener("pause", renderList);
+  audio.addEventListener("playing", renderList);
+  audio.addEventListener("ended", renderList);
+  audio.addEventListener("error", function () {
+    if (audio.src) toast("这首歌无法播放，可能是格式不受支持或文件缺失");
   });
-  $("btnPrev").addEventListener("click", prevTrack);
-  $("btnShuffle").addEventListener("click", function () {
-    setShuffle(!state.shuffle);
-  });
-  $("btnRepeat").addEventListener("click", cycleRepeat);
-
-  // 音量按钮：鼠标悬停展示调节区（纯 CSS），滚轮直接调节音量，点击静音。
-  $("btnMute").addEventListener("click", function () {
-    if (FINE_POINTER) {
-      toggleMute();
-      return;
-    }
-    $("volumeWrap").classList.toggle("is-open");
-  });
-
-  $("volumeWrap").addEventListener(
-    "wheel",
-    function (event) {
-      event.preventDefault();
-      var step = event.shiftKey ? 0.1 : 0.05;
-      var base = audio.muted ? 0 : audio.volume;
-      setVolume(base + (event.deltaY < 0 ? step : -step));
-      flashVolume();
-    },
-    { passive: false }
-  );
-
-  document.addEventListener("click", function (event) {
-    if (event.target.closest && event.target.closest(".mu-volume")) return;
-    $("volumeWrap").classList.remove("is-open");
-  });
-
-  $("playerVolume").addEventListener("input", function (event) {
-    setVolume(Number(event.target.value) / 100);
-  });
-
-  var seek = $("playerSeek");
-  seek.addEventListener("input", function () {
-    state.seeking = true;
-    if (audio.duration) {
-      var ratio = Number(seek.value) / 1000;
-      paintRange(seek, ratio);
-      $("playerCurrent").textContent = formatTime(ratio * audio.duration);
-    }
-  });
-  seek.addEventListener("change", function () {
-    if (audio.duration) {
-      audio.currentTime = (Number(seek.value) / 1000) * audio.duration;
-    }
-    state.seeking = false;
-  });
-
-  audio.addEventListener("play", function () {
-    updatePlayButton();
-    renderList();
-  });
-  audio.addEventListener("pause", function () {
-    updatePlayButton();
-    renderList();
-  });
-  audio.addEventListener("playing", function () {
-    updatePlayButton();
-    renderList();
-  });
-  audio.addEventListener("volumechange", updateVolumeIcon);
-  audio.addEventListener("ended", function () {
-    updatePlayButton();
-    renderList();
-    if (state.repeat === "one") {
-      audio.currentTime = 0;
-      audio.play().catch(function () {});
-      return;
-    }
-    var index = nextIndex(1);
-    var isLast = state.tracks.indexOf(currentTrack()) === state.tracks.length - 1;
-    if (state.repeat === "off" && !state.shuffle && isLast) {
-      updatePlayButton();
-      renderList();
-      return;
-    }
-    if (index >= 0) playTrack(state.tracks[index].id, true);
-  });
-  audio.addEventListener("timeupdate", function () {
-    if (state.seeking || !audio.duration) return;
-    var ratio = audio.currentTime / audio.duration;
-    $("playerCurrent").textContent = formatTime(audio.currentTime);
-    seek.value = String(Math.round(ratio * 1000));
-    paintRange(seek, ratio);
-  });
-  function updateAudioDuration() {
+  audio.addEventListener("loadedmetadata", function () {
     if (!isFinite(audio.duration) || audio.duration <= 0) return;
-    $("playerDuration").textContent = formatTime(audio.duration);
-    var track = currentTrack();
+    var track = trackById(state.currentId);
     if (track && !track.duration) {
       track.duration = audio.duration;
       renderList();
     }
-  }
-
-  audio.addEventListener("loadedmetadata", updateAudioDuration);
-  audio.addEventListener("durationchange", updateAudioDuration);
-  audio.addEventListener("loadeddata", updateAudioDuration);
-  audio.addEventListener("error", function () {
-    if (audio.src) toast("这首歌无法播放，可能是格式不受支持或文件缺失");
   });
 
   $("musicList").addEventListener("click", function (event) {
     if (event.target.closest("[data-report-type]")) return;
-    var clear = event.target.closest("[data-search-clear]");
-    if (clear) {
-      clearSearch();
-      return;
-    }
     var edit = event.target.closest("[data-music-edit]");
     if (edit) {
       event.stopPropagation();
@@ -1023,49 +691,25 @@
         "/api/site/music/" + download.getAttribute("data-music-download") + "/download";
       return;
     }
-    var row = event.target.closest("[data-music-play]");
-    if (row) playTrack(Number(row.getAttribute("data-music-play")), true);
     var locked = event.target.closest("[data-music-locked]");
-    if (locked) toast("登录后可以播放");
-  });
-
-  $("musicList").addEventListener("keydown", function (event) {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    var row = event.target.closest("[data-music-play]");
-    if (!row) {
-      var locked = event.target.closest("[data-music-locked]");
-      if (locked) toast("登录后可以播放");
+    if (locked) {
+      toast("登录后可以播放");
       return;
     }
-    event.preventDefault();
-    playTrack(Number(row.getAttribute("data-music-play")), true);
-  });
-
-  function clearSearch() {
-    state.keyword = "";
-    $("musicSearch").value = "";
-    renderList();
-  }
-
-  $("musicSearch").addEventListener("input", function (event) {
-    state.keyword = event.target.value;
-    renderList();
-  });
-  $("musicSearch").addEventListener("keydown", function (event) {
-    if (event.key === "Escape" && state.keyword) {
-      event.stopPropagation();
-      clearSearch();
+    if (!state.authenticated) {
+      return;
     }
+    var cover = event.target.closest("[data-music-cover]");
+    if (cover) {
+      event.stopPropagation();
+      toggleTrack(Number(cover.getAttribute("data-music-cover")));
+      return;
+    }
+    var row = event.target.closest("[data-music-play]");
+    if (row) playTrack(Number(row.getAttribute("data-music-play")));
   });
-  $("searchClear").addEventListener("click", clearSearch);
 
-  $("musicUploadBtn").addEventListener("click", function () {
-    $("uploadFiles").value = "";
-    updateUploadLabel();
-    if (uploadBusy.rows) uploadBusy.rows.reset();
-    $("uploadModal").hidden = false;
-    if (window.lucide) lucide.createIcons();
-  });
+  $("musicUploadBtn").addEventListener("click", openUpload);
   $("uploadFiles").addEventListener("change", updateUploadLabel);
 
   // 点击 / 拖拽 / 拖文件夹上传，Chromium 下会记住上次打开的目录
@@ -1102,58 +746,17 @@
   $("editDelete").addEventListener("click", deleteCurrent);
 
   document.addEventListener("keydown", function (event) {
-    if (event.key === "Escape") {
-      if (uploadBusy.active) return;
-      $("uploadModal").hidden = true;
-      $("editModal").hidden = true;
-      $("volumeWrap").classList.remove("is-open");
-      return;
-    }
-    var tag = (event.target.tagName || "").toLowerCase();
-    if (tag === "input" || tag === "textarea" || tag === "select") return;
-    if (event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey) {
-      event.preventDefault();
-      $("musicSearch").focus();
-    } else if (event.code === "Space") {
-      event.preventDefault();
-      togglePlay();
-    } else if (event.key === "ArrowRight") {
-      audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 5);
-    } else if (event.key === "ArrowLeft") {
-      audio.currentTime = Math.max(0, audio.currentTime - 5);
-    }
+    if (event.key !== "Escape") return;
+    if (uploadBusy.active) return;
+    $("uploadModal").hidden = true;
+    $("editModal").hidden = true;
   });
-
-  // 底部播放条高度随时同步给悬浮地图入口和提示条，避免互相遮挡。
-  function syncPlayerHeight() {
-    var bar = $("playerBar");
-    if (!bar) return;
-    var height = Math.round(bar.getBoundingClientRect().height);
-    if (height > 0) {
-      document.documentElement.style.setProperty("--mu-player-h", height + "px");
-    }
-  }
 
   // ---------- 初始化 ----------
 
-  var savedVolume = 0.8;
-  try {
-    var rawVolume = localStorage.getItem(VOLUME_KEY);
-    var stored = rawVolume === null ? NaN : Number(rawVolume);
-    if (isFinite(stored) && stored >= 0 && stored <= 1) savedVolume = stored;
-  } catch (err) {}
-  audio.volume = savedVolume;
-  state.lastVolume = savedVolume > 0 ? savedVolume : 0.8;
-  updateVolumeIcon();
-  updatePlayButton();
-  renderPlayer();
+  audio.volume = 0.8;
+  renderList();
   bindMediaSession();
-
-  syncPlayerHeight();
-  window.addEventListener("resize", syncPlayerHeight);
-  if (window.ResizeObserver) {
-    new ResizeObserver(syncPlayerHeight).observe($("playerBar"));
-  }
 
   loadAuth()
     .then(function () {

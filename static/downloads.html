@@ -4,7 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#7b68ee">
-  <title>下载</title>
+  <meta name="tab-name" content="ej-recommend">
+  <title>推荐</title>
   <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=4">
   <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=4">
   <script>
@@ -17,37 +18,67 @@
     })();
   </script>
   <script src="/static/site/theme.js"></script>
+  <script src="/static/site/tabname.js"></script>
   <link rel="stylesheet" href="/static/fonts.css">
+  <link rel="stylesheet" href="/static/site/rain.css">
   <link rel="stylesheet" href="/static/downloads.css">
 </head>
 <body>
-  <div class="dl-app">
-    <nav class="dl-tabs" id="dlTabs" role="tablist" aria-label="下载分类">
-      <button class="dl-tab" id="dlTabMusic" type="button" role="tab" data-tab="music" aria-selected="true" aria-controls="dlPanelMusic">
-        <i data-lucide="music"></i>
-        <span class="dl-tab-label">歌曲</span>
-        <em class="dl-tab-badge" id="dlBadgeMusic" hidden></em>
-      </button>
-      <button class="dl-tab" id="dlTabBooks" type="button" role="tab" data-tab="books" aria-selected="false" aria-controls="dlPanelBooks">
-        <i data-lucide="book-open"></i>
-        <span class="dl-tab-label">书籍</span>
-        <em class="dl-tab-badge" id="dlBadgeBooks" hidden></em>
-      </button>
-      <button class="dl-tab" id="dlTabRecommendations" type="button" role="tab" data-tab="recommendations" aria-selected="false" aria-controls="dlPanelRecommendations">
-        <i data-lucide="sparkles"></i>
-        <span class="dl-tab-label">推荐</span>
-        <em class="dl-tab-badge" id="dlBadgeRecommendations" hidden></em>
-      </button>
-    </nav>
+  <div class="rain-scene rain-scene--fixed" id="rainScene" aria-hidden="true">
+    <div class="rain-layer" id="rainLayer"></div>
+    <div class="rain-floor" id="rainFloor"></div>
+  </div>
 
-    <main class="dl-body" id="dlBody">
-      <section class="dl-panel" id="dlPanelMusic" role="tabpanel" data-panel="music" aria-labelledby="dlTabMusic"></section>
-      <section class="dl-panel" id="dlPanelBooks" role="tabpanel" data-panel="books" aria-labelledby="dlTabBooks" hidden></section>
-      <section class="dl-panel" id="dlPanelRecommendations" role="tabpanel" data-panel="recommendations" aria-labelledby="dlTabRecommendations" hidden></section>
-    </main>
+  <div class="dl-app">
+    <!--
+      常驻操作区：左上角是四个子页面的纯图标按钮（大小 / 位置对齐留言、动态页的悬浮按钮），
+      右上角是随子页渐入渐出的「新增」按钮（+歌曲 / +书籍 / +网页 / +站内）。
+    -->
+    <div class="dl-bar">
+      <div class="dl-dock">
+        <div class="dl-tabs" id="dlTabs" role="group" aria-label="推荐分类">
+          <button class="dl-tab is-active" type="button" data-tab="music" aria-label="歌曲" aria-pressed="true">
+            <i data-lucide="music"></i>
+            <em class="dl-tab-badge" hidden></em>
+          </button>
+          <button class="dl-tab" type="button" data-tab="books" aria-label="书籍" aria-pressed="false">
+            <i data-lucide="book-open"></i>
+            <em class="dl-tab-badge" hidden></em>
+          </button>
+          <button class="dl-tab" type="button" data-tab="web" aria-label="网页" aria-pressed="false">
+            <i data-lucide="globe"></i>
+            <em class="dl-tab-badge" hidden></em>
+          </button>
+          <button class="dl-tab" type="button" data-tab="resource" aria-label="站内资源" aria-pressed="false">
+            <i data-lucide="layers"></i>
+          </button>
+        </div>
+
+        <button class="dl-action" id="dlAction" type="button" hidden>
+          <i data-lucide="plus"></i>
+          <span class="dl-action-label" id="dlActionLabel">歌曲</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="dl-stage" id="dlStage">
+      <section class="dl-panel is-active" data-panel="music" aria-label="歌曲">
+        <iframe class="dl-frame" data-frame="music" title="歌曲" src="/music?embed=1"></iframe>
+      </section>
+      <section class="dl-panel" data-panel="books" aria-label="书籍">
+        <iframe class="dl-frame" data-frame="books" title="书籍" src="/books?embed=1"></iframe>
+      </section>
+      <section class="dl-panel" data-panel="web" aria-label="网页">
+        <iframe class="dl-frame" data-frame="web" title="网页" src="/recommendations?embed=1&view=web"></iframe>
+      </section>
+      <section class="dl-panel" data-panel="resource" aria-label="站内资源">
+        <iframe class="dl-frame" data-frame="resource" title="站内资源" src="/recommendations?embed=1&view=resource"></iframe>
+      </section>
+    </div>
   </div>
 
   <script src="/static/vendor/lucide.min.js"></script>
+  <script src="/static/site/rain.js"></script>
   <script src="/static/downloads.js"></script>
 </body>
 </html>

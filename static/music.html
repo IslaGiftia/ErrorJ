@@ -37,17 +37,10 @@
           <i data-lucide="arrow-left"></i>
           <strong>歌单</strong>
         </a>
-        <div class="mu-search">
-          <i data-lucide="search"></i>
-          <input id="musicSearch" type="search" placeholder="搜索歌名、歌手或专辑" aria-label="搜索歌曲" autocomplete="off">
-          <button class="mu-search-clear" id="searchClear" type="button" aria-label="清空搜索" hidden>
-            <i data-lucide="x"></i>
-          </button>
-        </div>
         <span class="mu-count" id="musicCount"></span>
         <a class="mu-btn" href="/reporting">举报与投诉</a>
         <button class="mu-btn mu-btn-primary" id="musicUploadBtn" type="button" hidden>
-          <i data-lucide="upload"></i><span>上传歌曲</span>
+          <i data-lucide="plus"></i><span>歌曲</span>
         </button>
       </div>
     </header>
@@ -57,60 +50,9 @@
         <ol class="mu-list" id="musicList"></ol>
       </div>
     </main>
-
-    <footer class="mu-bar" id="playerBar" hidden>
-      <div class="mu-bar-inner">
-        <div class="mu-progress">
-          <span class="mu-time" id="playerCurrent">0:00</span>
-          <input id="playerSeek" type="range" min="0" max="1000" step="1" value="0" aria-label="播放进度">
-          <span class="mu-time" id="playerDuration">0:00</span>
-        </div>
-
-        <div class="mu-now">
-          <span class="mu-now-cover">
-            <img id="playerCoverImg" alt="" hidden>
-            <i data-lucide="music" id="playerCoverFallback"></i>
-          </span>
-          <span class="mu-now-text">
-            <span class="mu-now-title" id="playerTitle">还没有选择歌曲</span>
-            <span class="mu-now-meta" id="playerMeta">点歌单里的歌曲开始播放</span>
-          </span>
-        </div>
-
-        <div class="mu-controls">
-          <button class="mu-icon-btn" id="btnShuffle" type="button" title="随机播放" aria-label="随机播放" aria-pressed="false">
-            <i data-lucide="shuffle"></i>
-          </button>
-          <button class="mu-icon-btn" id="btnPrev" type="button" title="上一首" aria-label="上一首">
-            <i data-lucide="skip-back"></i>
-          </button>
-          <button class="mu-icon-btn mu-play" id="btnPlay" type="button" title="播放" aria-label="播放">
-            <i data-lucide="play"></i>
-          </button>
-          <button class="mu-icon-btn" id="btnNext" type="button" title="下一首" aria-label="下一首">
-            <i data-lucide="skip-forward"></i>
-          </button>
-          <button class="mu-icon-btn" id="btnRepeat" type="button" title="循环：关闭" aria-label="循环模式">
-            <i data-lucide="repeat"></i>
-          </button>
-        </div>
-
-        <div class="mu-side">
-          <div class="mu-volume" id="volumeWrap">
-            <button class="mu-icon-btn" id="btnMute" type="button" title="音量（滚轮调节，点击静音）" aria-label="音量">
-              <i data-lucide="volume-2"></i>
-            </button>
-            <div class="mu-volume-pop" id="volumePop">
-              <input id="playerVolume" type="range" min="0" max="100" step="1" value="80" aria-label="音量">
-              <span class="mu-volume-num" id="volumeNum">80%</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </footer>
   </div>
 
-  <audio id="audioEl" preload="metadata"></audio>
+  <audio id="audioEl" preload="none"></audio>
 
   <div class="mu-modal" id="uploadModal" hidden>
     <div class="mu-dialog" role="dialog" aria-modal="true" aria-labelledby="uploadTitle">

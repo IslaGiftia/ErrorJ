@@ -1,9 +1,14 @@
+/*
+ * 书籍页（推荐页的「书籍」子页）：
+ * - 没有检索框；阅读器整体下线，这一页只负责下载（卡片 / 右下角按钮都是下载）。
+ * - 上传 / 编辑 / 分享 / 举报 仍在卡片上；上传弹窗既可以从本页的「+书籍」打开，
+ *   也可以由外层推荐页的常驻按钮通过 window.ErrorRecommendTab.openAdd() 打开。
+ */
 (function () {
   "use strict";
 
   var MAX_BOOK_BYTES = 60 * 1024 * 1024;
   var MAX_BOOK_COUNT = 20;
-  var LOCAL_PROGRESS_KEY = "errorBookProgress";
 
   function bookLimitLabel() {
     return window.ErrorUploadLimits
@@ -24,12 +29,11 @@
         "；EPUB、MOBI 会自动读取书名、作者和封面。";
     }
   }
+
   var state = {
     books: [],
     authenticated: false,
     canManage: false,
-    canDownload: false,
-    keyword: "",
     format: "",
     sort: "added",
     editingId: null,
@@ -74,22 +78,6 @@
     }, 3000);
   }
 
-  function localProgress() {
-    try {
-      var raw = localStorage.getItem(LOCAL_PROGRESS_KEY);
-      var data = raw ? JSON.parse(raw) : {};
-      return data && typeof data === "object" ? data : {};
-    } catch (err) {
-      return {};
-    }
-  }
-
-  function progressOf(book) {
-    if (book.progress && Number(book.progress.percent) > 0) return Number(book.progress.percent);
-    var local = localProgress()[book.id];
-    return local ? Number(local.percent) || 0 : 0;
-  }
-
   function formatSize(bytes) {
     var value = Number(bytes) || 0;
     if (value < 1024 * 1024) return Math.max(1, Math.round(value / 1024)) + " KB";
@@ -97,23 +85,13 @@
   }
 
   function visibleBooks() {
-    var keyword = state.keyword.trim().toLowerCase();
     var list = state.books.filter(function (book) {
       if (state.format && String(book.format || "").toLowerCase() !== state.format) return false;
-      if (!keyword) return true;
-      return [book.title, book.author, book.tags]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .indexOf(keyword) >= 0;
+      return true;
     });
     if (state.sort === "title") {
       list.sort(function (a, b) {
         return String(a.title || "").localeCompare(String(b.title || ""), "zh-Hans-CN");
-      });
-    } else if (state.sort === "recent") {
-      list.sort(function (a, b) {
-        return progressOf(b) - progressOf(a);
       });
     }
     return list;
@@ -156,19 +134,22 @@
     var books = visibleBooks();
     var count = $("bookCount");
     count.textContent = state.books.length
-      ? (state.keyword || state.format ? books.length + " / " : "") + state.books.length + " 本"
+      ? (state.format ? books.length + " / " : "") + state.books.length + " 本"
       : "";
     if (!books.length) {
       grid.innerHTML =
         '<p class="bk-empty">' +
-        (state.books.length ? "没有匹配的电子书。" : state.canManage ? "书架还是空的，点右上角上传电子书。" : "书架还是空的。") +
+        (state.books.length
+          ? "这个格式下还没有电子书。"
+          : state.canManage
+            ? "书架还是空的，点右上角「+书籍」上传。"
+            : "书架还是空的。") +
         "</p>";
       if (window.lucide) lucide.createIcons();
       return;
     }
     grid.innerHTML = books
       .map(function (book) {
-        var percent = state.authenticated ? Math.round(progressOf(book) * 100) : 0;
         var size = state.authenticated
           ? "<span>" + formatSize(book.file_size) + "</span>"
           : "";
@@ -190,7 +171,7 @@
             book.id +
             '" title="分享"><i data-lucide="share-2"></i></button>'
           : "";
-        // 登录后直接下载原文件，不再需要申请和审核
+        // 登录后直接下载原文件
         var download = state.authenticated
           ? '<button class="bk-card-edit" type="button" data-book-download="' +
             book.id +
@@ -207,9 +188,9 @@
             "</span>"
           : "";
         return (
-          '<article class="bk-card" data-book-open="' +
+          '<article class="bk-card" data-book-download-card="' +
           book.id +
-          '" tabindex="0" role="button" aria-label="阅读 ' +
+          '" tabindex="0" role="button" aria-label="下载 ' +
           esc(book.title) +
           '">' +
           '<div class="bk-cover">' +
@@ -219,9 +200,6 @@
               esc(book.title) +
               "</span></span>") +
           formatBadge +
-          (percent > 0
-            ? '<span class="bk-progress" title="已读 ' + percent + '%"><i style="width:' + percent + '%"></i></span>'
-            : "") +
           coverActions +
           "</div>" +
           '<div class="bk-card-title">' +
@@ -239,7 +217,7 @@
     if (window.lucide) lucide.createIcons();
     if (window.ErrorFreshCards) {
       books.forEach(function (book) {
-        var node = grid.querySelector('[data-book-open="' + book.id + '"]');
+        var node = grid.querySelector('[data-book-download-card="' + book.id + '"]');
         window.ErrorFreshCards.mark(node, book.id);
       });
     }
@@ -258,28 +236,27 @@
       .then(function (status) {
         state.authenticated = Boolean(status.authenticated);
         state.canManage = Boolean(status.owner);
-        state.canDownload = state.canManage;
         $("bookUploadBtn").hidden = !state.canManage;
         // 游客看不到筛选 / 排序栏，网格自然往上顶
         var toolbar = $("bookToolbar");
         if (toolbar) toolbar.hidden = !state.authenticated;
-        var recentOption = document.querySelector('#bookSort option[value="recent"]');
-        if (recentOption) {
-          recentOption.hidden = !state.authenticated;
-          recentOption.disabled = !state.authenticated;
-        }
-        if (!state.authenticated && state.sort === "recent") {
-          state.sort = "added";
-          $("bookSort").value = "added";
-        }
       })
       .catch(function () {
         state.authenticated = false;
         state.canManage = false;
-        state.canDownload = false;
         var toolbar = $("bookToolbar");
         if (toolbar) toolbar.hidden = true;
       });
+  }
+
+  // ---------- 下载 ----------
+
+  function downloadBook(id) {
+    if (!state.authenticated) {
+      toast("登录后可以下载");
+      return;
+    }
+    location.href = "/api/books/" + id + "/download";
   }
 
   // ---------- 上传 ----------
@@ -521,20 +498,8 @@
       });
   }
 
-  function openReader(id) {
-    if (!state.authenticated) {
-      toast("登录后可以阅读");
-      return;
-    }
-    location.href = "/books/read?id=" + encodeURIComponent(id);
-  }
-
   // ---------- 事件 ----------
 
-  $("bookSearch").addEventListener("input", function (event) {
-    state.keyword = event.target.value;
-    renderGrid();
-  });
   $("bookSort").addEventListener("change", function (event) {
     state.sort = event.target.value;
     renderGrid();
@@ -562,7 +527,7 @@
     var download = event.target.closest("[data-book-download]");
     if (download) {
       event.stopPropagation();
-      location.href = "/api/books/" + download.getAttribute("data-book-download") + "/download";
+      downloadBook(Number(download.getAttribute("data-book-download")));
       return;
     }
     var edit = event.target.closest("[data-book-edit]");
@@ -574,26 +539,28 @@
       if (target) openEdit(target);
       return;
     }
-    var card = event.target.closest("[data-book-open]");
-    if (card) openReader(Number(card.getAttribute("data-book-open")));
+    var card = event.target.closest("[data-book-download-card]");
+    if (card) downloadBook(Number(card.getAttribute("data-book-download-card")));
   });
   $("bookGrid").addEventListener("keydown", function (event) {
     if (event.key !== "Enter" && event.key !== " ") return;
     if (event.target.closest("[data-report-type]")) return;
-    var card = event.target.closest("[data-book-open]");
+    var card = event.target.closest("[data-book-download-card]");
     if (!card) return;
     event.preventDefault();
-    openReader(Number(card.getAttribute("data-book-open")));
+    downloadBook(Number(card.getAttribute("data-book-download-card")));
   });
 
-  $("bookUploadBtn").addEventListener("click", function () {
+  function openUpload() {
     $("uploadFiles").value = "";
     updateUploadLabel();
     if (uploadState.rows) uploadState.rows.reset();
     $("uploadHint").textContent = "多选时按每个文件自己的元数据入库，上面两个输入框只在单文件上传时生效。";
     $("uploadModal").hidden = false;
     if (window.lucide) lucide.createIcons();
-  });
+  }
+
+  $("bookUploadBtn").addEventListener("click", openUpload);
   $("uploadFiles").addEventListener("change", updateUploadLabel);
 
   // 点击 / 拖拽 / 拖文件夹上传，Chromium 下会记住上次打开的目录
@@ -636,6 +603,9 @@
       $("editModal").hidden = true;
     }
   });
+
+  // 外层推荐页的「+书籍」按钮通过它打开上传弹窗
+  window.ErrorRecommendTab = { key: "books", openAdd: openUpload };
 
   loadAuth()
     .then(function () {

@@ -57,20 +57,6 @@
     </header>
 
     <main class="rec-main">
-      <section class="rec-hero">
-        <div class="rec-hero-copy">
-          <p class="rec-eyebrow">CURATED BY ERROR酱</p>
-          <h1>把真正好用的东西放在这里</h1>
-          <p>网站、工具、电影和动漫，只留下值得再次打开的内容。</p>
-        </div>
-        <div class="rec-stat-row">
-          <span><strong id="recSiteStat">0</strong> 网站工具</span>
-          <span><strong id="recMovieStat">0</strong> 电影</span>
-          <span><strong id="recAnimeStat">0</strong> 动漫</span>
-          <span><strong id="recResourceStat">0</strong> 站内资源</span>
-        </div>
-      </section>
-
       <section class="rec-toolbar">
         <div class="rec-tabs" id="recTabs">
           <button class="active" type="button" data-tab="all">全部</button>
@@ -82,8 +68,31 @@
       </section>
 
       <section class="rec-grid" id="recGrid"></section>
-      <div class="rec-empty" id="recEmpty" hidden>还没有匹配的推荐。</div>
+      <div class="rec-empty" id="recEmpty" hidden>还没有推荐内容。</div>
     </main>
+  </div>
+
+  <!-- 「+站内」：从笔记 / 歌曲 / 电子书里挑一个分享到站内资源（站内资源只能由分享产生） -->
+  <div class="rec-modal" id="recPickModal" hidden>
+    <div class="rec-dialog" role="dialog" aria-modal="true" aria-labelledby="recPickTitle">
+      <button class="rec-dialog-close" id="recPickClose" type="button" aria-label="关闭">×</button>
+      <h2 id="recPickTitle">分享到站内资源</h2>
+      <p class="rec-pick-hint">挑一个站内内容分享出去，卡片会出现在「站内资源」里。</p>
+      <div class="rec-pick-tabs" id="recPickTabs">
+        <button type="button" data-pick="note" class="active">笔记</button>
+        <button type="button" data-pick="music">歌曲</button>
+        <button type="button" data-pick="book">电子书</button>
+      </div>
+      <label class="rec-search rec-pick-search">
+        <i data-lucide="search"></i>
+        <input id="recPickSearch" type="search" placeholder="搜索标题">
+      </label>
+      <div class="rec-pick-body">
+        <div class="rec-pick-list" id="recPickList"></div>
+        <div class="rec-empty rec-pick-empty" id="recPickEmpty" hidden>没有可分享的内容。</div>
+      </div>
+      <div class="rec-pick-feedback" id="recPickFeedback" hidden></div>
+    </div>
   </div>
 
   <div class="rec-modal" id="recModal" hidden>

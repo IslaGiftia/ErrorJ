@@ -20,6 +20,17 @@
     }
   }
   var IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
+  /*
+   * 这个页面同时给三种用法：
+   * - 独立页（无 view）：全部 / 网站与工具 / 电影 / 动漫 / 站内资源 五个筛选页签；
+   * - 推荐页的「网页」子页（?view=web）：只留网站与工具；
+   * - 推荐页的「站内资源」子页（?view=resource）：只留站内分享出来的内容。
+   */
+  var view = "all";
+  try {
+    var rawView = new URLSearchParams(location.search).get("view");
+    if (rawView === "web" || rawView === "resource") view = rawView;
+  } catch (err) {}
   var kindLabels = {
     site: "网站",
     tool: "工具",
@@ -29,6 +40,7 @@
   };
   var state = {
     items: [],
+    view: view,
     canManage: false,
     requiresLogin: false,
     tab: "all",
@@ -111,10 +123,14 @@
   function visibleItems() {
     var keyword = state.query.trim().toLowerCase();
     return state.items.filter(function (item) {
-      if (state.tab === "web" && item.kind !== "site" && item.kind !== "tool") return false;
-      if (state.tab === "movie" && item.kind !== "movie") return false;
-      if (state.tab === "anime" && item.kind !== "anime") return false;
-      if (state.tab === "resource" && item.kind !== "resource") return false;
+      if (state.view === "web" && item.kind !== "site" && item.kind !== "tool") return false;
+      if (state.view === "resource" && item.kind !== "resource") return false;
+      if (state.view === "all") {
+        if (state.tab === "web" && item.kind !== "site" && item.kind !== "tool") return false;
+        if (state.tab === "movie" && item.kind !== "movie") return false;
+        if (state.tab === "anime" && item.kind !== "anime") return false;
+        if (state.tab === "resource" && item.kind !== "resource") return false;
+      }
       if (!keyword) return true;
       return [
         item.title,
@@ -128,8 +144,10 @@
   }
 
   function columnCount() {
-    if (window.innerWidth <= 680) return 1;
-    if (window.innerWidth <= 1080) return 2;
+    var main = document.querySelector(".rec-main");
+    var width = main ? main.clientWidth : window.innerWidth;
+    if (width <= 680) return 1;
+    if (width <= 1080) return 2;
     return 3;
   }
 
@@ -138,22 +156,35 @@
   }
 
   function renderStats() {
-    var web = state.items.filter(function (item) {
-      return item.kind === "site" || item.kind === "tool";
-    }).length;
-    var movies = state.items.filter(function (item) { return item.kind === "movie"; }).length;
-    var anime = state.items.filter(function (item) { return item.kind === "anime"; }).length;
-    var resources = state.items.filter(function (item) { return item.kind === "resource"; }).length;
-    $("recCount").textContent = state.items.length + " 项";
-    $("recSiteStat").textContent = web;
-    $("recMovieStat").textContent = movies;
-    $("recAnimeStat").textContent = anime;
-    $("recResourceStat").textContent = resources;
+    var count = $("recCount");
+    if (count) count.textContent = visibleItems().length + " 项";
   }
 
   function renderTabs() {
-    Array.prototype.forEach.call($("recTabs").querySelectorAll("button"), function (button) {
+    var box = $("recTabs");
+    if (!box) return;
+    Array.prototype.forEach.call(box.querySelectorAll("button"), function (button) {
       button.classList.toggle("active", button.getAttribute("data-tab") === state.tab);
+    });
+  }
+
+  // 子页模式下隐藏内层的分类页签与「新增推荐」按钮，交给外层推荐页的常驻按钮
+  function applyViewState() {
+    var box = $("recTabs");
+    var toolbar = box ? box.closest(".rec-toolbar") : null;
+    if (toolbar) toolbar.hidden = state.view !== "all";
+    var add = $("recAddBtn");
+    if (add) add.hidden = !state.canManage || state.view === "resource";
+  }
+
+  // 「网页」子页只做网站 / 工具，编辑器里不再出现电影和动漫
+  function restrictKindsForView() {
+    if (state.view !== "web") return;
+    var select = $("recKind");
+    if (!select) return;
+    ["movie", "anime"].forEach(function (value) {
+      var option = select.querySelector('option[value="' + value + '"]');
+      if (option) option.remove();
     });
   }
 
@@ -270,10 +301,13 @@
     if (item.kind === "resource") {
       var resource = item.resource || {};
       if (resource.available && resource.page_url) {
+        // 阅读器已下线：电子书资源直接给下载入口，歌曲回歌单、笔记回阅读页
+        var actionLabel =
+          resource.type === "music" ? "去歌单" : resource.type === "book" ? "下载" : "阅读";
         var openResource = el(
           "a",
           "primary",
-          resource.type === "music" ? "去歌单" : "阅读"
+          actionLabel
         );
         openResource.href = safeHref(resource.page_url);
         openResource.target = "_blank";
@@ -345,7 +379,9 @@
     var rows = visibleItems();
     var cards = rows.map(buildCard);
     renderColumns(cards);
-    $("recEmpty").hidden = rows.length > 0;
+    var empty = $("recEmpty");
+    empty.textContent = state.query.trim() ? "没有匹配的推荐。" : "还没有推荐内容。";
+    empty.hidden = rows.length > 0;
     markOverflow($("recGrid"));
   }
 
@@ -364,7 +400,7 @@
       state.items = Array.isArray(data.items) ? data.items : [];
       state.canManage = Boolean(data.can_manage);
       state.requiresLogin = Boolean(data.requires_login);
-      $("recAddBtn").hidden = !state.canManage;
+      applyViewState();
       renderStats();
       renderTabs();
       renderCards();
@@ -746,8 +782,155 @@
   });
   $("recForm").addEventListener("submit", saveRecommendation);
 
+  // ---------- 「+站内」：把笔记 / 歌曲 / 电子书分享成站内资源 ----------
+
+  var pick = { type: "note", cache: {}, query: "", busy: false };
+  var PICK_SOURCES = {
+    note: { path: "/api/notes", sub: "" },
+    music: { path: "/api/site/music", sub: "artist" },
+    book: { path: "/api/books", sub: "author" },
+  };
+
+  function pickLoad(type) {
+    if (pick.cache[type]) return Promise.resolve(pick.cache[type]);
+    var source = PICK_SOURCES[type];
+    return api(source.path).then(function (data) {
+      var rows = Array.isArray(data) ? data : [];
+      pick.cache[type] = rows.map(function (row) {
+        return {
+          id: row.id,
+          title: row.title || row.original_name || "未命名",
+          sub: source.sub ? row[source.sub] || "" : "",
+        };
+      });
+      return pick.cache[type];
+    });
+  }
+
+  function visiblePicks() {
+    var rows = pick.cache[pick.type] || [];
+    var keyword = pick.query.trim().toLowerCase();
+    if (!keyword) return rows;
+    return rows.filter(function (row) {
+      return (row.title + " " + row.sub).toLowerCase().indexOf(keyword) >= 0;
+    });
+  }
+
+  function renderPicks() {
+    var list = $("recPickList");
+    if (!list) return;
+    var rows = visiblePicks();
+    $("recPickEmpty").hidden = rows.length > 0;
+    list.replaceChildren.apply(
+      list,
+      rows.map(function (row) {
+        var item = el("div", "rec-pick-item");
+        var main = el("span", "rec-pick-item-main");
+        main.appendChild(el("strong", "", row.title));
+        if (row.sub) main.appendChild(el("span", "", row.sub));
+        var share = el("button", "rec-action primary", "分享");
+        share.type = "button";
+        share.addEventListener("click", function () {
+          submitPick(row, share);
+        });
+        item.append(main, share);
+        return item;
+      })
+    );
+  }
+
+  function submitPick(row, button) {
+    if (pick.busy) return;
+    pick.busy = true;
+    button.disabled = true;
+    button.textContent = "分享中…";
+    api("/api/admin/share-content", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        target: "recommendation",
+        resource_type: pick.type,
+        resource_id: row.id,
+      }),
+    })
+      .then(function () {
+        toast("已分享到站内资源");
+        closePick();
+        return loadRecommendations();
+      })
+      .catch(function (err) {
+        toast(err.message || "分享失败");
+        button.disabled = false;
+        button.textContent = "分享";
+      })
+      .then(function () {
+        pick.busy = false;
+      });
+  }
+
+  function openPick() {
+    if (!state.canManage) return;
+    $("recPickSearch").value = "";
+    pick.query = "";
+    $("recPickModal").hidden = false;
+    renderPicks();
+    pickLoad(pick.type)
+      .then(renderPicks)
+      .catch(function (err) {
+        toast(err.message || "加载失败");
+      });
+    window.setTimeout(function () {
+      $("recPickSearch").focus();
+    }, 0);
+  }
+
+  function closePick() {
+    $("recPickModal").hidden = true;
+  }
+
+  $("recPickTabs").addEventListener("click", function (event) {
+    var button = event.target.closest("button[data-pick]");
+    if (!button) return;
+    pick.type = button.getAttribute("data-pick");
+    Array.prototype.forEach.call($("recPickTabs").querySelectorAll("button"), function (node) {
+      node.classList.toggle("active", node === button);
+    });
+    $("recPickSearch").value = "";
+    pick.query = "";
+    renderPicks();
+    pickLoad(pick.type)
+      .then(renderPicks)
+      .catch(function (err) {
+        toast(err.message || "加载失败");
+      });
+  });
+  $("recPickSearch").addEventListener("input", function (event) {
+    pick.query = event.target.value;
+    renderPicks();
+  });
+  $("recPickClose").addEventListener("click", closePick);
+  $("recPickModal").addEventListener("click", function (event) {
+    if (event.target === $("recPickModal")) closePick();
+  });
+
+  // 外层推荐页的常驻按钮通过它打开当前子页的「新增」入口
+  if (state.view === "web" || state.view === "resource") {
+    window.ErrorRecommendTab = {
+      key: state.view,
+      openAdd: state.view === "resource"
+        ? openPick
+        : function () {
+            openEditor(null);
+          },
+    };
+  }
+
   document.addEventListener("keydown", function (event) {
     if (event.key !== "Escape") return;
+    if (!$("recPickModal").hidden) {
+      closePick();
+      return;
+    }
     if (!$("recBookmarkPicker").hidden) {
       closeBookmarkPicker();
       return;
@@ -770,6 +953,7 @@
   }
 
   state.lastColumnCount = columnCount();
+  restrictKindsForView();
   if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);
   if (window.ErrorFreshCards) {
     window.ErrorFreshCards.load().then(loadRecommendations);

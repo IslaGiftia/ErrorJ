@@ -1,10 +1,9 @@
-/* 下载页内嵌模式（?embed=1）：只藏掉页面自己的品牌返回条，其余内容原样保留。 */
+/* 推荐页内嵌模式（?embed=1）：只藏掉页面自己的品牌返回条，其余内容原样保留。 */
 
-html.is-embed .mu-brand,
-html.is-embed .bk-brand {
-  display: none;
-}
-
+/*
+ * 歌曲 / 书籍页整条顶栏都是自己的（含搜索、上传），内嵌时由推荐页的常驻按钮接管，
+ * 所以它们在自己的样式表里整条隐藏；这里只管推荐内容页的品牌与返回入口。
+ */
 html.is-embed .rec-brand .rec-brand-icon,
 html.is-embed .rec-brand strong {
   display: none;
@@ -14,7 +13,7 @@ html.is-embed .rec-header-actions a[href="/"] {
   display: none;
 }
 
-/* 外层下载页已经有「举报与投诉」，内嵌页不再重复一个 */
+/* 外层推荐页已经有「举报与投诉」，内嵌页不再重复一个 */
 html.is-embed a[href="/reporting"] {
   display: none;
 }

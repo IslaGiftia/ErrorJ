@@ -204,89 +204,6 @@ a {
   padding: 42px 20px 84px;
 }
 
-.rec-hero {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 28px;
-  overflow: hidden;
-  margin-bottom: 24px;
-  padding: 30px;
-  border: 1px solid var(--rec-line);
-  border-radius: 8px;
-  background:
-    linear-gradient(125deg, color-mix(in srgb, var(--rec-panel) 94%, transparent), color-mix(in srgb, var(--rec-panel-soft) 88%, transparent)),
-    var(--rec-panel);
-  box-shadow: var(--rec-shadow);
-}
-
-.rec-hero::before {
-  position: absolute;
-  inset: -80% -25%;
-  background: conic-gradient(
-    from 90deg,
-    transparent,
-    color-mix(in srgb, var(--rec-accent-2) 18%, transparent),
-    transparent 28%,
-    color-mix(in srgb, var(--rec-accent-3) 15%, transparent),
-    transparent 58%,
-    color-mix(in srgb, var(--rec-accent) 18%, transparent),
-    transparent
-  );
-  content: "";
-  animation: rec-aurora 14s linear infinite;
-  pointer-events: none;
-}
-
-.rec-hero-copy,
-.rec-stat-row {
-  position: relative;
-  z-index: 1;
-}
-
-.rec-eyebrow {
-  margin: 0 0 8px;
-  color: var(--rec-accent);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-}
-
-.rec-hero h1 {
-  margin: 0 0 8px;
-  font-size: clamp(28px, 4vw, 44px);
-  line-height: 1.12;
-}
-
-.rec-hero-copy > p:last-child {
-  margin: 0;
-  color: var(--rec-muted);
-  font-size: 15px;
-}
-
-.rec-stat-row {
-  display: flex;
-  gap: 10px;
-}
-
-.rec-stat-row span {
-  min-width: 92px;
-  padding: 10px 12px;
-  border: 1px solid var(--rec-line);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--rec-panel) 86%, transparent);
-  color: var(--rec-muted);
-  font-size: 11px;
-  text-align: center;
-}
-
-.rec-stat-row strong {
-  display: block;
-  color: var(--rec-text);
-  font-size: 20px;
-}
-
 .rec-toolbar {
   display: flex;
   align-items: center;
@@ -990,12 +907,6 @@ a {
   place-items: center;
 }
 
-@keyframes rec-aurora {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 @media (max-width: 900px) {
   .rec-header {
     flex-wrap: wrap;
@@ -1007,9 +918,6 @@ a {
     margin-left: 0;
   }
 
-  .rec-hero {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 640px) {
@@ -1032,19 +940,6 @@ a {
 
   .rec-main {
     padding: 28px 12px 72px;
-  }
-
-  .rec-hero {
-    padding: 22px 18px;
-  }
-
-  .rec-stat-row {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-  }
-
-  .rec-stat-row span {
-    min-width: 0;
   }
 
   .rec-form-grid,
@@ -1108,7 +1003,6 @@ a {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rec-hero::before,
   .rec-card,
   .rec-card-cover img,
   .rec-card::after {
@@ -1148,4 +1042,124 @@ a {
   .rec-btn {
     min-height: 44px;
   }
+}
+
+/* ---------- 「+站内」：选择要分享到站内资源的内容 ---------- */
+
+.rec-pick-hint {
+  margin: -6px 0 14px;
+  color: var(--rec-muted);
+  font-size: 13px;
+}
+
+.rec-pick-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+
+.rec-pick-tabs button {
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--rec-line);
+  border-radius: 999px;
+  background: var(--rec-panel);
+  color: var(--rec-muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.rec-pick-tabs button:hover,
+.rec-pick-tabs button.active {
+  border-color: var(--rec-accent);
+  background: color-mix(in srgb, var(--rec-accent) 12%, var(--rec-panel));
+  color: var(--rec-accent);
+}
+
+.rec-pick-search {
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.rec-pick-body {
+  max-height: min(420px, 46vh);
+  overflow-y: auto;
+}
+
+.rec-pick-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rec-pick-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--rec-line);
+  border-radius: 8px;
+  background: var(--rec-panel-soft);
+}
+
+.rec-pick-item-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.rec-pick-item-main strong {
+  overflow: hidden;
+  font-size: 13.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rec-pick-item-main span {
+  overflow: hidden;
+  color: var(--rec-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rec-pick-item .rec-action {
+  flex: 0 0 auto;
+}
+
+/*
+ * 内嵌到推荐页（?embed=1）：正文列宽对齐留言 / 动态页的 760px，底色交给外层雨景；
+ * 顶部只保留「N 项 + 搜索」，品牌和返回入口交给外层常驻按钮。
+ */
+html.is-embed body {
+  background: transparent;
+}
+
+html.is-embed .rec-app {
+  width: min(760px, 100%);
+  margin: 0 auto;
+}
+
+html.is-embed .rec-header {
+  position: static;
+  min-height: 0;
+  padding: 14px 16px 10px;
+  border-bottom: 0;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+html.is-embed .rec-main {
+  width: 100%;
+  padding: 0 16px 64px;
+}
+
+html.is-embed #recAddBtn {
+  display: none !important;
 }

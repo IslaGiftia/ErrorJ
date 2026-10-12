@@ -297,26 +297,34 @@ class HomeActivityTests(unittest.TestCase):
         keys = {item["key"] for item in app.GUEST_PAGE_PERMISSIONS}
         self.assertNotIn("guest:page:games", keys)
 
-    def test_downloads_page_collects_music_books_and_recommendations(self):
-        """下载页把歌曲 / 书籍 / 推荐三栏并进一个页面，首页只留一个入口。"""
+    def test_recommend_page_collects_four_subpages(self):
+        """「推荐」页把歌曲 / 书籍 / 网页 / 站内资源四个子页并进一个页面，首页只留一个入口。"""
         home = (app.STATIC_DIR / "site" / "site.html").read_text(encoding="utf-8")
         self.assertIn('href="/downloads"', home)
         self.assertIn('id="downloadsEntry"', home)
         self.assertIn('id="downloadsPending"', home)
+        self.assertIn("推荐", home)
         for gone in ('href="/music"', 'href="/books"', 'href="/recommendations"'):
             self.assertNotIn(gone, home)
         self.assertNotIn("游戏", home)
 
         page = (app.STATIC_DIR / "downloads.html").read_text(encoding="utf-8")
-        for key in ("music", "books", "recommendations"):
+        for key in ("music", "books", "web", "resource"):
             self.assertIn('data-tab="%s"' % key, page)
             self.assertIn('data-panel="%s"' % key, page)
-        for label in ("歌曲", "书籍", "推荐"):
-            self.assertIn(label, page)
+        # 四个子页面一开始就全部加载好，切换只翻转显隐
+        for src in (
+            "/music?embed=1",
+            "/books?embed=1",
+            "/recommendations?embed=1&view=web",
+            "/recommendations?embed=1&view=resource",
+        ):
+            self.assertIn(src, page)
+        self.assertIn('id="dlAction"', page)
 
         self.assertEqual(app.GUEST_PAGE_RULES.get("/downloads"), "guest:page:downloads")
         labels = {item["key"]: item["label"] for item in app.GUEST_PAGE_PERMISSIONS}
-        self.assertEqual(labels["guest:page:downloads"], "下载")
+        self.assertEqual(labels["guest:page:downloads"], "推荐")
         for name in ("music.html", "books.html", "recommendations.html"):
             text = (app.STATIC_DIR / name).read_text(encoding="utf-8")
             self.assertIn("/static/site/embed.css", text)
@@ -329,7 +337,7 @@ class HomeActivityTests(unittest.TestCase):
     def test_module_permission_labels_match_home_entries(self):
         labels = {item["key"]: item["label"] for item in app.GUEST_PAGE_PERMISSIONS}
         self.assertEqual(labels["guest:page:moments"], "动态")
-        self.assertEqual(labels["guest:page:recommendations"], "推荐")
+        self.assertEqual(labels["guest:page:recommendations"], "推荐内容")
 
         groups = {group["key"]: group["label"] for group in app.PERMISSION_GROUPS}
         self.assertEqual(groups["bookmarks"], "书签")
@@ -550,26 +558,23 @@ class ContentShareTests(unittest.TestCase):
         member_handler.api_shared_note(self.note_id)
         self.assertEqual(member_responses[-1][1]["title"], "电源笔记")
 
-    def test_shared_book_content_requires_share(self):
-        member_handler, member_responses = self.make_handler(
-            self.member_id, kind="member", username="reader1"
-        )
-        member_handler.api_shared_book(self.book_id)
-        self.assertIn("error", member_responses[-1][1])
-
-        admin_handler, _ = self.make_handler(0)
-        admin_handler.api_admin_share_content(
+    def test_shared_book_resource_offers_download_not_reader(self):
+        """书籍阅读器已整体下线：站内分享的电子书卡片指向下载，而不是阅读页。"""
+        self.assertFalse((app.STATIC_DIR / "reader.html").exists())
+        handler, responses = self.make_handler(0)
+        handler.api_admin_share_content(
             {
                 "target": "recommendation",
                 "resource_type": "book",
                 "resource_id": self.book_id,
             }
         )
-        member_handler.api_shared_book(self.book_id)
-        payload = member_responses[-1][1]
-        self.assertEqual(payload["title"], "测试书")
+        self.assertEqual(responses[-1][0], 200)
+        handler.api_recommendations({})
+        items = responses[-1][1]["items"]
+        card = [item for item in items if item["kind"] == "resource"][0]
         self.assertEqual(
-            payload["file_url"], f"/api/shared/books/{self.book_id}/content"
+            card["resource"]["page_url"], f"/api/books/{self.book_id}/download"
         )
 
     def test_deleted_resource_marks_card_missing(self):
@@ -1992,7 +1997,6 @@ class ComplianceWorkflowTests(unittest.TestCase):
             "messages.js",
             "moments.js",
             "prompts.js",
-            "reader.js",
             "references.js",
             "recommendations.js",
             "workbench.js",
@@ -2014,7 +2018,6 @@ class ComplianceWorkflowTests(unittest.TestCase):
             "notes.html",
             "recommendations.html",
             "references.html",
-            "reader.html",
             "workbench.html",
         )
         for relative in files:
