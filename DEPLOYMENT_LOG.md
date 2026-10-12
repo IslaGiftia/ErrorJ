@@ -2743,3 +2743,88 @@ git commit 节点图标）、手机端标签吸顶；顺带把地图悬浮组「
 而 `Invoke-WebRequest` 默认跟随跳转，所以看起来像 200。路由确实删掉的证据是服务器 `app.py` 里 0 处 `/games`，
 以及同提交的本地实例上 `/games` 返回 404。下载页的三个 Tab 是内嵌原页面而不是重写，这是刻意取舍：三套页面有
 19 个重名 id 和各自的 body 级/`:root` 样式，硬并成一页会把两个模块的表单互相抢走 DOM，风险远大于收益。
+
+## 84. 2026-10-12 13:43:27 下载免审批、足迹分类与搜索改版、足迹标签主题适配
+
+需求（站便签续批，四件事一次上线）：歌曲 / 书籍 / 推荐的下载与访问不再需要申请审批；足迹页顶部分类胶囊整排去掉、
+底部工具栏改成六枚等宽按钮、分类筛选搬到最左边的「分类」按钮上（多级树面板）；「添加标记」里的高德搜索搬到地图右上角，
+做成「按钮 → 输入框向左滑出 → 搜索 → 选中 → 收回 → 地图联动 → 中心选点 → 自动带入名称地址」的闭环；
+首页「足迹」入口下方那枚「N 个标记」标签要跟着明暗主题走。
+
+完成内容（三笔提交：`f418e77 fix:adapt-dock-count-pill-to-theme` +
+`008f2c3 feat:open-up-downloads-and-drop-approval` +
+`5326346 feat:rework-map-panel-filters-and-header-search`，17 个文件，+688/−1272）：
+- 下载免审批：`app.py` 删掉 `/api/download-requests` 与 `/api/admin/download-requests*` 三个接口和处理器、
+  `download_state()` 与接口里下发的 `download_state` 字段、`download_request` 通知事件、通知摘要的 `pending_downloads`、
+  首页「有 N 个下载申请」聚合提醒；歌曲 / 书籍下载端点不再判断申请状态，登录后直接送文件。前端删掉卡片上的
+  「申请下载 / 待审核」按钮、`share.js` 的申请弹窗与 `ErrorDownload`、工作台的「下载申请」视图与角标、
+  `.download-request-*` 与 `is-pending` 死样式。**只删功能与接口，历史 `download_requests` 行保留**（线上仍在，1 行）。
+  按站长要求下载不再发通知，只在首页左下角留一条公开动态：`PUBLIC_ACTIVITY_LABELS` 新增
+  `music_download: 下载了一首歌` 与 `book_download: 下载了一本电子书`。
+- 足迹分类与工具栏：顶部 `.mp-chips-row`（主分类 + 二级分类 + 桌面展开箭头）整块删除，`renderChips` / `renderSubcats` /
+  `updateCatsToggle` / `categoryCounts` 与 `activeTop` / `activeSubs` 状态一并清掉，搜索框下面直接接列表（实测间距 8px）。
+  底部操作栏改成六枚等宽按钮（分类 / 添加者 / 导入标记 / 分类管理 / 开合检索区 / 添加标记），DOM 顺序即显示顺序、
+  用等分网格均分整行；新增的「分类」按钮点开的是与「添加者」同一套外壳、同一套动画的多级分类树面板（按层级缩进 +
+  分类色点 + 含下级的标记数），宽度与检索卡片严格相等（浮层比卡片外沿各让 1px 抵掉边框）；选中某一级 = 这一级 +
+  它的所有下级，面板收起、按钮点亮、`aria-label` 写上路径；点外部 / ESC 关闭，与添加者浮层互斥。
+- 右上角地点搜索：删除「添加标记」弹窗顶部的 POI 搜索 UI（`#placePoiSearch` / `#placePoiResults` / `.mp-poi-search`），
+  把原来那段调用封装成唯一入口 `searchAmapPoi(keywords)`（仍打后端 `/api/map/poi-search`，没有另写一套高德调用）；
+  工具列增加第四枚「搜索」按钮（图层 / 定位 / 全览 下方，桌面 40×40、手机 38×38，圆角与阴影和上面三枚完全一致），
+  点开输入框从按钮左侧滑出并自动聚焦，回车或再点一次按钮搜索（有内容就搜、没内容就收起），结果面板在输入框下方平滑展开；
+  选中一条结果 → 搜索框收回 → `map.setView(..., { animate: true })` 平滑移到该点 → 直接进中心选点模式（水滴落在正中心），
+  点 ✅ 的弹窗自动带入该地点名称 / 地址（GCJ-02 → WGS-84），点 ❌ 取消并清掉预填；失焦 / 点外部 / ESC 都会把输入框向右收回。
+  顺手修掉一个会连带踩到的坑：`.mp-tools button` 这条通用规则会把搜索面板里的结果项也压成 40px 宽（文字竖排），
+  改成只作用于工具列自己的按钮。
+- 足迹标签主题适配：`static/site/minimap.css` 用 `--dock-count-*` 变量换色，浅色主题浅底深字、深色主题维持原值，
+  补上 `backdrop-filter: blur(6px)`，尺寸 / 圆角 / 内边距 / 绝对定位与 `pointer-events: none` 全部不动。
+- 文档：README（下载章节去掉申请审批、新增右上角搜索与六按钮说明、游客权限表、目录树、界面约定）、
+  PROJECT_SUMMARY、`references.html`、`reporting.html`、`workbench.js` 的举报目标标签。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 108 项全过
+      node --check（map.js / books.js / music.js / share.js / workbench.js / downloads.js / embed.js / notify-seen.js / site.js）
+      python -m json.tool config/changelog-seed.json；git diff --check 干净
+      本机实例（重启后加载新 app.py）用 Playwright（Chrome headless）分三批验证：
+      ① 下载：普通账号登录后，歌曲 Tab 点下载直接拿到「RichardHammond - 送你一朵小红花赵英俊原版.mp3」，
+         书籍 Tab 拿到「遮天.txt」，没有待审核按钮；POST /api/download-requests 管理员视角 404、
+         GET /api/admin/download-requests 404；工作台没有「下载申请」导航与视图；摘要里没有 pending_downloads，
+         通知事件只剩 7 项；首页左下角出现「下载了一首歌 / 下载了一本电子书」
+      ② 分类筛选：桌面 1440 六枚按钮各 49×34、手机 412 六枚各 55×44，尺寸完全一致；操作卡片与检索卡片同宽
+         （340 / 340、388 / 388）；分类面板宽度 340 / 388 与检索卡片严格相等；树里一级 0 缩进、二级缩进 14px；
+         点「美食 / 早市与美食街」后列表 314 -> 7 条、面板收起、按钮点亮、aria-label 变成路径；
+         点外部 / ESC 关闭，开分类会自动收起添加者、反之亦然；点「全部分类」回到 314
+      ③ 右上角搜索：按钮是工具列第四枚、在「全览」正下方，与上面三枚同尺寸 / 同圆角 / 同阴影；
+         点开后输入框自动聚焦、位于按钮左侧；回车出 2 条结果（名称 + 地址，列表在输入框下方）；
+         点结果后面板收回、中心水滴实测相对地图中心偏移 0,0；点 ✅ 弹窗预填「西安钟楼 / 陕西省西安市碑林区东大街1号」
+         与换算后的 34.263394,108.937656；点 ❌ 不弹窗且 Pin 收掉；点地图外部搜索框收回；
+         不拦截接口（真实后端）时输入关键词回车，面板提示「还没有配置高德 Key…」，证明搜索调用确实走后端
+提交：f418e77 / 008f2c3 / 5326346（fetch/rebase 后 push，本地 == origin/main）
+备份：/data/errorjiang-backup/map-search-downloads-20261012-1345/（停服后复制 inventory.db 3502080 字节与 changelog-seed.json）
+服务器：git pull --ff-only 0e7aab9 -> 5326346 -> runuser -u errorjiang -- python3 -c "import app; app.init_db()"（migration-ok）
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 = e95ee2d3…67cc）
+      import_changelog_moments.py --date 2026-10-12 --force -> 完成：新增 4 条，覆盖 0 条，跳过 0 条
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，/api/health = {"ok": true}，服务器 HEAD = 5326346
+              服务重启时间 2026-10-12 13:44:38 CST
+更新日志    -> /api/moments 里 id 316 = 2026-10-12 13:43:27「下载免审批、足迹分类与搜索改版」，kind = log，
+              当天四条（00:38:56 / 07:38:49 / 12:06:14 / 13:43:27）无重复时间戳，游客接口共 83 条
+静态资源    -> https://zhexiyan.cc 上的 map.js、map.css、map.html、site/minimap.css、downloads.js、downloads.html、
+              books.js、music.js、workbench.js、site/share.js、site/share.css、site/site.html 与本机 SHA256 逐一相同
+              （fe642ad9 / 7d3a962f / 6763d932 / 22eb23a4 / b65db27a / d2287c64 / b5516c7f / ad2f4664 /
+              546feef7 / 759d2f59 / 13b14ae5 / 225e07c3）；workbench.html 哈希不同只是因为本机工作副本是 CRLF、
+              线上是 LF，按行尾归一化后两侧一致（f7fcb0ac）
+服务端代码  -> map.js 里 mapSearchBtn 出现 2 次、placePoiSearch 0 次；app.py 里 api_download_request_create 0 次；
+              workbench.js 里 data-view="downloads" 0 次
+路由        -> /downloads、/music、/books、/recommendations 游客均 200；首页有 downloadsEntry、没有 /games 链接；
+              /games 仍是 302 跳 /login（游客闸门先拦）
+数据        -> download_requests 历史行保留 1 行；guest:page:downloads 已授 1 行；game_play 动态 0 行
+```
+
+备注：地图页要登录才能打开，所以三批改动里的实际渲染与交互都是**同一提交**的本地实例上用真浏览器（桌面 1440 +
+手机 412 触摸）验证的，线上做的是「静态文件哈希一致 + 服务端代码特征串 + 数据库状态 + 页面可访问 + 更新日志入库」
+这几重确认。高德 POI 搜索在本地实例上没有配 `INVENTORY_AMAP_KEY`，结果流是用拦截接口的方式造的确定性数据（2 条），
+另外单独跑了一次不拦截的真实请求，确认它确实打到后端并显示「还没有配置高德 Key」的提示。
