@@ -477,7 +477,17 @@ body {
   transform: translateY(-50%) translateX(0);
 }
 
-@media (hover: none) {
+/* 点过的按钮先安静下来：鼠标移开再进，提示照常出现 */
+.mp-tip.is-tip-off::after {
+  opacity: 0;
+  visibility: hidden;
+}
+
+/*
+ * 触摸设备（以及把自己报成 hover: hover 的个别移动浏览器）一律不显示文字提示，
+ * 点过之后也不会再冒出来。
+ */
+@media (hover: none), (pointer: coarse) {
   .mp-tip::after {
     display: none;
   }
@@ -620,12 +630,14 @@ body {
 
 .mp-search-flyout {
   position: absolute;
-  top: 0;
+  /* 面板自带 1px 边框，往上让 1px 后，里面的搜索框上边缘才和右侧按钮上边缘齐平 */
+  top: -1px;
   /* 贴着按钮左边 12px，宽度再按屏宽收一次 */
   right: calc(100% + 12px);
   z-index: 45;
   width: min(320px, calc(100vw - 108px));
-  padding: 8px;
+  /* 顶部不留内边距：搜索框的上边缘才能和右侧搜索按钮的上边缘严格对齐 */
+  padding: 0 8px 8px;
   border: 1px solid var(--mp-border);
   border-radius: 8px;
   background: color-mix(in srgb, var(--mp-surface) 96%, transparent);

@@ -710,24 +710,27 @@
   }
 
   /*
-   * 浮层高度上限 = 上方检索卡片的高度（够不到就按内容自适应，靠下对齐由 CSS 的 bottom 负责），
-   * 再额外压一条：别长到盖住右上角的工具列——盖过去的话，用户点「搜索 / 定位」实际会点到分类行上。
+   * 浮层高度上限 = 上方检索卡片的高度（够不到就按内容自适应，靠下对齐由 CSS 的 bottom 负责）。
+   * 只有浮层真的压到右上角工具列时才再收一档——否则用户点「搜索 / 定位」会点到分类行上；
+   * 桌面端两者一左一右不会重叠，这里就不会无谓地压低面板高度。
    * 卡片本身有多高随视口变，所以在打开时和窗口尺寸变化时各算一次。
    */
   function applyPopHeight(pop) {
     var node = pop || $("mapCatPop");
     var sidebar = $("mapSidebar");
-    if (!node || !sidebar) return;
+    var actions = $("mapActions");
+    if (!node || !sidebar || !actions) return;
     var limit = Math.round(sidebar.getBoundingClientRect().height);
     var tools = document.querySelector(".mp-tools");
-    var actions = $("mapActions");
-    if (tools && actions) {
-      var room =
-        actions.getBoundingClientRect().top -
-        8 -
-        tools.getBoundingClientRect().bottom -
-        12;
-      if (room > 0) limit = Math.min(limit, Math.round(room));
+    if (tools) {
+      var actionsBox = actions.getBoundingClientRect();
+      var toolsBox = tools.getBoundingClientRect();
+      var overlaps =
+        toolsBox.right > actionsBox.left && toolsBox.left < actionsBox.right;
+      if (overlaps) {
+        var room = actionsBox.top - 8 - toolsBox.bottom - 12;
+        if (room > 0) limit = Math.min(limit, Math.round(room));
+      }
     }
     node.style.maxHeight = Math.max(160, limit) + "px";
   }
@@ -2794,6 +2797,34 @@
     var openOwner = $("mapOwnerPop");
     if (openOwner && !openOwner.hidden) applyPopHeight(openOwner);
   });
+
+  /*
+   * 图标按钮的悬停提示：鼠标放上去显示，点一下就收起来（左下角那排按钮一直是这个手感，
+   * 现在右上角工具列和别处的 .mp-tip 一并按这套走）。鼠标移开再进，提示照常出现。
+   *
+   * 直接绑在按钮上，不走 document 委托：一来「切换底图」这类按钮自己会 stopPropagation()，
+   * 事件根本冒不到 document；二来有些按钮的处理函数会顺手调 lucide.createIcons() 重画图标，
+   * 等事件冒到上面时 event.target 已经脱离按钮了，closest() 也找不到。
+   */
+  Array.prototype.forEach.call(document.querySelectorAll(".mp-tip"), function (btn) {
+    btn.addEventListener("click", function (event) {
+      // 键盘触发的 click（Enter / 空格）不动提示：那是读屏 / 键盘用户在找按钮名
+      if (event.detail === 0) return;
+      btn.classList.add("is-tip-off");
+    });
+    btn.addEventListener("pointerleave", function () {
+      btn.classList.remove("is-tip-off");
+    });
+    // 触屏：点过的按钮一律不再冒提示（个别移动浏览器会把自己报成 hover: hover）
+    btn.addEventListener(
+      "touchstart",
+      function () {
+        btn.classList.add("is-tip-off");
+      },
+      { passive: true }
+    );
+  });
+
 
   var listBoxMobile = $("mapList");
   if (listBoxMobile) {
