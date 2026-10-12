@@ -3023,3 +3023,67 @@ nginx       -> systemctl is-active nginx = active，errorjiang 未重启、/api/
 备注：这轮全是前端静态文件（README / 两份日志 / seed 除外），app.py 没动，线上生效靠 `git pull`（static 每次请求读磁盘）；
 服务重启是导入更新日志流程的常规动作。三页的实际渲染、吸顶位移（scrollY 600 时仍贴顶）与祖先 overflow 检查都是在
 **同一提交**的本地实例上用真浏览器量的，线上按「静态哈希一致 + 代码特征 + 更新日志入库 + 健康检查」确认。
+
+## 89. 2026-10-12 18:15:27 足迹：默认收起检索区、去缩放控件、提示跟主题、手机浮层让位
+
+需求（站长一次列了六条）：进页面默认只留左下角操作卡片、不要加载跳变；删掉 + / − 缩放与比例尺；右上角搜索按钮反色
+（浅底 + 紫图标）；套用深浅主题把提示条 / 悬停气泡（含「请向管理员申请权限」）全站排查一遍；分类管理弹窗加「取消」；
+手机端点「分类 / 添加者」时右上角四枚按钮向右让位、浮层完整展开。
+
+完成内容（`83776f0 feat:map-polish-defaults-theme-toasts-and-mobile-pop-linkage`，10 个文件，+125/−46）：
+- 默认收起：`#mapApp` 初始就带 `is-sidebar-collapsed`（桌面端原来那套「整张卡片向下滑出」的规则，手机端本来就是滑出屏幕），
+  点「开合检索区」才滑出来。顺手删掉 `.mp-actions.is-pending`（1.2s 延迟显形）——六枚按钮现在对所有人都显示，
+  这层「怕闪出管理员按钮」的保护已经不需要，操作卡片从首帧就在，不再有延迟跳变。
+- 缩放控件：`L.control.zoom()` 与 `L.control.scale()` 两行直接删除（原来挂在 bottomright，就是右下角那排 + / − 和「5 km」）。
+- 搜索按钮反色：底色回到和上面三枚完全相同的 `color-mix(--mp-surface 94%, transparent)`，只把 `color` 设成 `--mp-accent`；
+  `is-on` 沿用工具列的「accent 描边」写法。
+- 提示跟主题：`map.css` 把 `--mp-toast` 拆成 `--mp-toast-bg / --mp-toast-ink / --mp-toast-border`，新增
+  `--mp-tip-bg / --mp-tip-ink / --mp-tip-border`（浅色 #fff 系 + 深字，深色深底 + 浅字）；`.mp-toast` 与 `.mp-tip::after`
+  都改成引用变量。全站排查：`messages.css` / `moments.css` 的 `--mg/mo-toast-*` 改为浅底深字 + 新增 ink/border 变量，
+  `books.css` / `music.css` / `recommendations.css` 各加一条 `:root:not([data-theme="dark"]) .xx-toast` 覆盖，
+  `site/minimap.css` 的 `.dock-map-toast`（首页圆盘提示）同样补一条浅色覆盖。站内弹窗（dialog.css / report.css）
+  本来就有暗色变体，未改动。
+- 分类管理「取消」：`map.html` 在「完成」左边加 `#mapCatsCancel`，`map.js` 的关闭按钮绑定数组里加上
+  `["mapCatsCancel", "mapCatsModal"]`（与 ✕ 同一个处理函数，直接关掉不保存）。
+- 手机浮层让位：新增 `syncPopTools()`（分类 / 添加者任一浮层打开且视口 ≤860px 时给 `#mapApp` 加 `is-pop-open`），
+  CSS 复用「展开检索区」那条让位规则（`translateX(100% + 24px)`、`opacity: 0`、`pointer-events: none`）；
+  `applyPopHeight()` 在让位期间跳过「别盖住工具列」那条上限，浮层能用满上方空间。浮层本身加了
+  `mp-pop-in` 0.22s 进场动画，与工具列 / 检索卡片同一条缓动。窗口 resize 时也会重算让位状态。
+- 文档：README 更新「默认收起」「手机四枚按钮让位」「取消按钮」「缩放控件已移除」「提示跟主题」几处描述。
+
+部署步骤：
+```text
+本地：python -m unittest discover -s tests -> 108 项全过；node --check static/map.js；git diff --check 干净
+      本机实例用 Playwright（桌面 1440x900 / 手机 412x915，各跑浅色与深色两套主题）：
+      初始：app 带 is-sidebar-collapsed、检索卡片在视口外；操作卡片首帧 visibility=visible；
+            加载后 1.8s 与首帧位置完全一致（actionsTop 836/836 桌面、841/841 手机，stable=true）
+      控件：.leaflet-control-zoom 与 .leaflet-control-scale 数量为 0
+      搜索按钮：浅色 bg 与「全览」完全相同（color(srgb 1 1 1 / .94)）、图标 rgb(123,104,238)；
+                深色 bg 同为 color(srgb .137 .137 .149 / .94)、图标 rgb(167,139,250)；尺寸 / 圆角 / 阴影三项一致
+      主题：浅色 toastBg rgba(255,255,255,.97) + 墨色 rgb(27,31,39)，气泡 rgba(255,255,255,.98) + 同墨色；
+            深色 toastBg rgb(15,15,16) + 白字，气泡 rgb(43,43,49) + rgb(244,244,245)
+      取消：弹窗里 #mapCatsCancel 存在且在「完成」之前，点击后弹窗 hidden=true
+      让位：手机端点「分类」后 app.is-pop-open=true、工具列 opacity 0 且 right=462（视口 412，已滑出屏幕）、
+            浮层 maxHeight 819px（不再被工具列压低）；ESC 关闭后 popOpen=false、工具列 opacity 1、right=400。
+            桌面端不触发让位（popOpen=false、工具列 opacity 1）
+提交：83776f0（fetch/rebase 后 push，本地 == origin/main）
+备份：/data/errorjiang-backup/map-polish-20261012-1817/（停服后复制 inventory.db 与 changelog-seed.json）
+服务器：git pull --ff-only 83bd635 -> 83776f0 -> runuser -u errorjiang -- python3 -c "import app; app.init_db()"（migration-ok）
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 一致）
+      import_changelog_moments.py --date 2026-10-12 --force -> 新增 8 条
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，/api/health = {"ok": true}，服务器 HEAD = 83776f0
+更新日志    -> /api/moments 里 2026-10-12 18:15:27「足迹页默认收起检索区、去掉缩放控件、提示跟主题，手机浮层全屏联动」
+静态资源    -> 线上 map.html / map.js / map.css / messages.css / moments.css / books.css / music.css /
+              recommendations.css / site/minimap.css 与本机 SHA256 逐一相同
+服务端代码  -> 线上 map.js 里 L.control.zoom / L.control.scale 均为 0 处、syncPopTools 在位；
+              map.css 里 --mp-tip-bg 与 is-pop-open 让位规则在位
+```
+
+备注：本轮仍是纯前端静态文件（README / 两份日志 / seed 除外），app.py 没动，线上生效靠 `git pull`。
+六项的实际表现（初始无跳变、控件已删、反色配色、浅深两套提示色值、取消按钮、手机让位与回位）都是在**同一提交**的
+本地实例上用真浏览器按「桌面 / 手机 × 浅色 / 深色」四种组合量的；线上按「静态哈希一致 + 代码特征 + 更新日志入库 +
+健康检查」确认。
