@@ -34,8 +34,6 @@
     books: [],
     authenticated: false,
     canManage: false,
-    format: "",
-    sort: "added",
     editingId: null,
     deleteArmed: false,
     uploading: false,
@@ -84,66 +82,22 @@
     return (value / (1024 * 1024)).toFixed(value < 10 * 1024 * 1024 ? 1 : 0) + " MB";
   }
 
+  // 没有检索也没有排序：固定按书名 A~Z（中文按拼音）
   function visibleBooks() {
-    var list = state.books.filter(function (book) {
-      if (state.format && String(book.format || "").toLowerCase() !== state.format) return false;
-      return true;
+    return state.books.slice().sort(function (a, b) {
+      return String(a.title || "").localeCompare(String(b.title || ""), "zh-Hans-CN");
     });
-    if (state.sort === "title") {
-      list.sort(function (a, b) {
-        return String(a.title || "").localeCompare(String(b.title || ""), "zh-Hans-CN");
-      });
-    }
-    return list;
-  }
-
-  function renderFormats() {
-    var box = $("bookFormats");
-    if (!box) return;
-    var counts = {};
-    state.books.forEach(function (book) {
-      var key = String(book.format || "").toLowerCase();
-      if (!key) return;
-      counts[key] = (counts[key] || 0) + 1;
-    });
-    var html =
-      '<button type="button" class="bk-chip' +
-      (state.format ? "" : " is-on") +
-      '" data-format="">全部 ' +
-      state.books.length +
-      "</button>";
-    Object.keys(counts)
-      .sort()
-      .forEach(function (key) {
-        html +=
-          '<button type="button" class="bk-chip' +
-          (state.format === key ? " is-on" : "") +
-          '" data-format="' +
-          esc(key) +
-          '">' +
-          esc(key.toUpperCase()) +
-          " " +
-          counts[key] +
-          "</button>";
-      });
-    box.innerHTML = html;
   }
 
   function renderGrid() {
     var grid = $("bookGrid");
     var books = visibleBooks();
     var count = $("bookCount");
-    count.textContent = state.books.length
-      ? (state.format ? books.length + " / " : "") + state.books.length + " 本"
-      : "";
+    count.textContent = state.books.length ? state.books.length + " 本" : "";
     if (!books.length) {
       grid.innerHTML =
         '<p class="bk-empty">' +
-        (state.books.length
-          ? "这个格式下还没有电子书。"
-          : state.canManage
-            ? "书架还是空的，点右上角「+书籍」上传。"
-            : "书架还是空的。") +
+        (state.canManage ? "书架还是空的，点右上角「+书籍」上传。" : "书架还是空的。") +
         "</p>";
       if (window.lucide) lucide.createIcons();
       return;
@@ -159,7 +113,8 @@
             book.id +
             '" title="编辑"><i data-lucide="pencil"></i></button>'
           : "";
-        var report = state.authenticated
+        // 站点内容都是管理员上传的，自己举报自己没意义：管理员不显示举报入口
+        var report = state.authenticated && !state.canManage
           ? '<button class="bk-card-edit" type="button" data-report-type="book" data-report-key="' +
             book.id +
             '" data-report-title="' +
@@ -221,12 +176,13 @@
         window.ErrorFreshCards.mark(node, book.id);
       });
     }
+    // 有新书还没滚到眼前时，右下角「顶部」按钮切成「↓ 书籍」
+    if (window.ErrorFreshJump) window.ErrorFreshJump.schedule();
   }
 
   function loadBooks() {
     return api("/api/books").then(function (data) {
       state.books = Array.isArray(data) ? data : [];
-      renderFormats();
       renderGrid();
     });
   }
@@ -237,15 +193,10 @@
         state.authenticated = Boolean(status.authenticated);
         state.canManage = Boolean(status.owner);
         $("bookUploadBtn").hidden = !state.canManage;
-        // 游客看不到筛选 / 排序栏，网格自然往上顶
-        var toolbar = $("bookToolbar");
-        if (toolbar) toolbar.hidden = !state.authenticated;
       })
       .catch(function () {
         state.authenticated = false;
         state.canManage = false;
-        var toolbar = $("bookToolbar");
-        if (toolbar) toolbar.hidden = true;
       });
   }
 
@@ -500,17 +451,6 @@
 
   // ---------- 事件 ----------
 
-  $("bookSort").addEventListener("change", function (event) {
-    state.sort = event.target.value;
-    renderGrid();
-  });
-  $("bookFormats").addEventListener("click", function (event) {
-    var chip = event.target.closest("[data-format]");
-    if (!chip) return;
-    state.format = chip.getAttribute("data-format") || "";
-    renderFormats();
-    renderGrid();
-  });
   $("bookGrid").addEventListener("click", function (event) {
     if (event.target.closest("[data-report-type]")) return;
     var share = event.target.closest("[data-book-share]");

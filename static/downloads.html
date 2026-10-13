@@ -31,34 +31,33 @@
 
   <div class="dl-app">
     <!--
-      常驻操作区：左上角是四个子页面的纯图标按钮（大小 / 位置对齐留言、动态页的悬浮按钮），
-      右上角是随子页渐入渐出的「新增」按钮（+歌曲 / +书籍 / +网页 / +站内）。
+      悬浮操作区（整条顶部导航栏已删除，子页面铺满整个窗口）：
+      左上角是四个子页面的纯图标按钮（大小 / 位置严格对齐留言、动态页的悬浮按钮，悬停显示提示文字），
+      右上角是随子页渐入渐出的「新增」按钮（上传图标 + 歌曲 / 书籍 / 网页 / 站内）。
     -->
-    <div class="dl-bar">
-      <div class="dl-dock">
-        <div class="dl-tabs" id="dlTabs" role="group" aria-label="推荐分类">
-          <button class="dl-tab is-active" type="button" data-tab="music" aria-label="歌曲" aria-pressed="true">
-            <i data-lucide="music"></i>
-            <em class="dl-tab-badge" hidden></em>
-          </button>
-          <button class="dl-tab" type="button" data-tab="books" aria-label="书籍" aria-pressed="false">
-            <i data-lucide="book-open"></i>
-            <em class="dl-tab-badge" hidden></em>
-          </button>
-          <button class="dl-tab" type="button" data-tab="web" aria-label="网页" aria-pressed="false">
-            <i data-lucide="globe"></i>
-            <em class="dl-tab-badge" hidden></em>
-          </button>
-          <button class="dl-tab" type="button" data-tab="resource" aria-label="站内资源" aria-pressed="false">
-            <i data-lucide="layers"></i>
-          </button>
-        </div>
-
-        <button class="dl-action" id="dlAction" type="button" hidden>
-          <i data-lucide="plus"></i>
-          <span class="dl-action-label" id="dlActionLabel">歌曲</span>
+    <div class="dl-dock">
+      <div class="dl-tabs" id="dlTabs" role="group" aria-label="推荐分类">
+        <button class="dl-tab dl-tip is-active" type="button" data-tab="music" data-tip="歌曲" aria-label="歌曲" aria-pressed="true">
+          <i data-lucide="music"></i>
+          <em class="dl-tab-badge" hidden></em>
+        </button>
+        <button class="dl-tab dl-tip" type="button" data-tab="books" data-tip="书籍" aria-label="书籍" aria-pressed="false">
+          <i data-lucide="book-open"></i>
+          <em class="dl-tab-badge" hidden></em>
+        </button>
+        <button class="dl-tab dl-tip" type="button" data-tab="web" data-tip="网页" aria-label="网页" aria-pressed="false">
+          <i data-lucide="globe"></i>
+          <em class="dl-tab-badge" hidden></em>
+        </button>
+        <button class="dl-tab dl-tip" type="button" data-tab="resource" data-tip="站内资源" aria-label="站内资源" aria-pressed="false">
+          <i data-lucide="layers"></i>
         </button>
       </div>
+
+      <button class="dl-action" id="dlAction" type="button" hidden>
+        <i data-lucide="upload"></i>
+        <span class="dl-action-label" id="dlActionLabel">歌曲</span>
+      </button>
     </div>
 
     <div class="dl-stage" id="dlStage">

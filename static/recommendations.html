@@ -122,11 +122,11 @@
         </label>
 
         <div class="rec-form-grid">
-          <label class="rec-field" data-kinds="site tool movie anime">
+          <label class="rec-field" data-kinds="movie anime">
             <span>分类</span>
             <input id="recCategory" maxlength="40" placeholder="例如：开发工具、动画电影">
           </label>
-          <label class="rec-field" data-kinds="site tool movie anime">
+          <label class="rec-field" data-kinds="movie anime">
             <span>标签</span>
             <input id="recTags" maxlength="300" placeholder="用逗号分隔">
           </label>
@@ -242,6 +242,8 @@
   <script src="/static/site/dropzone.js"></script>
   <script src="/static/site/notify-seen.js"></script>
   <script src="/static/recommendations.js"></script>
+  <script>window.ERRORJ_JUMP = { label: "推荐" };</script>
+  <script src="/static/site/fresh-jump.js"></script>
 
 </body>
 </html>

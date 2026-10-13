@@ -226,6 +226,8 @@
         window.ErrorFreshCards.mark(node, track.id);
       });
     }
+    // 有新歌还没滚到眼前时，右下角「顶部」按钮切成「↓ 歌曲」
+    if (window.ErrorFreshJump) window.ErrorFreshJump.schedule();
   }
 
   function scrollActiveIntoView() {

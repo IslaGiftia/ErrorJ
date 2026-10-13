@@ -124,58 +124,6 @@ body {
   padding: 16px 16px 60px;
 }
 
-.bk-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.bk-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.bk-chip {
-  padding: 5px 12px;
-  border: 1px solid var(--bk-line);
-  border-radius: 999px;
-  background: var(--bk-surface);
-  color: var(--bk-muted);
-  font: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-}
-
-.bk-chip.is-on {
-  border-color: var(--bk-accent);
-  background: var(--bk-accent-soft);
-  color: var(--bk-accent);
-  font-weight: 600;
-}
-
-.bk-sort {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-  color: var(--bk-muted);
-  font-size: 12.5px;
-}
-
-.bk-sort select {
-  height: 32px;
-  padding: 0 8px;
-  border: 1px solid var(--bk-line);
-  border-radius: 8px;
-  background: var(--bk-surface);
-  color: var(--bk-text);
-  font: inherit;
-  font-size: 12.5px;
-}
-
 .bk-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
@@ -652,5 +600,6 @@ html.is-embed body {
 
 html.is-embed .bk-main {
   max-width: 760px;
-  padding: 14px 16px 64px;
+  /* 顶部留出一条，刚好让开推荐页那排悬浮按钮 */
+  padding: 62px 16px 64px;
 }

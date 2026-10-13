@@ -296,24 +296,14 @@ a {
     linear-gradient(135deg, color-mix(in srgb, var(--rec-accent) 12%, var(--rec-panel-soft)), color-mix(in srgb, var(--rec-accent-2) 10%, var(--rec-panel-soft)));
 }
 
-/* 三档卡片：网站 / 工具最小，站内资源居中，电影动漫保持大封面。
-   同一类型的卡片封面高度和正文高度都固定，保证同类卡片大小完全一致。 */
-.rec-web-card,
+/* 站内资源和电影动漫：封面高度和正文高度固定，保证同类卡片大小完全一致。 */
 .rec-resource-card,
 .rec-media-card {
   --rec-body-h: 196px;
 }
 
-.rec-web-card {
-  --rec-cover-h: 88px;
-}
-
 .rec-resource-card {
   --rec-cover-h: 148px;
-}
-
-.rec-web-card .rec-card-cover {
-  height: var(--rec-cover-h);
 }
 
 .rec-resource-card .rec-card-cover {
@@ -324,8 +314,7 @@ a {
   aspect-ratio: 2 / 3;
 }
 
-/* 网站缩略图和电子书 / 音乐封面用 contain，尽量完整显示不裁切 */
-.rec-web-card .rec-card-cover img,
+/* 电子书 / 音乐封面用 contain，尽量完整显示不裁切 */
 .rec-resource-card .rec-card-cover img {
   padding: 10px;
   object-fit: contain;
@@ -425,16 +414,6 @@ a {
   align-items: center;
   gap: 9px;
   min-width: 0;
-}
-
-.rec-site-icon {
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
-  border: 1px solid var(--rec-line);
-  border-radius: 7px;
-  object-fit: cover;
-  background: var(--rec-panel-soft);
 }
 
 .rec-card h2 {
@@ -1131,6 +1110,183 @@ a {
   flex: 0 0 auto;
 }
 
+/* ---------- 网页 / 工具：扁卡片（左边缩略图，右边标题 + 说明） ---------- */
+
+.rec-web-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  /* 右上角的「三个点」菜单要能开到卡片外面 */
+  overflow: visible;
+  padding: 12px;
+}
+
+.rec-web-thumb {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 64px;
+  height: 64px;
+  overflow: hidden;
+  border: 1px solid var(--rec-line);
+  border-radius: 8px;
+  background: var(--rec-panel-soft);
+  text-decoration: none;
+}
+
+.rec-web-thumb img {
+  width: 100%;
+  height: 100%;
+  padding: 6px;
+  object-fit: contain;
+}
+
+.rec-web-fallback {
+  color: color-mix(in srgb, var(--rec-accent) 72%, var(--rec-text));
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.rec-web-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  /* 让开右上角的「三个点」 */
+  padding-right: 28px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.rec-web-title {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rec-web-card:hover .rec-web-title {
+  color: var(--rec-accent);
+}
+
+.rec-web-desc {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: var(--rec-muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* 扁卡片不做整卡上浮，避免一行两张时有半张在跳 */
+.rec-web-card:hover {
+  transform: none;
+}
+
+/* ---------- 卡片右上角「三个点」菜单（和留言 / 动态页同一套） ---------- */
+
+.rec-more {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 6;
+}
+
+.rec-more-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--rec-muted);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.rec-more-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.rec-more-btn:hover {
+  background: var(--rec-panel-soft);
+  color: var(--rec-text);
+}
+
+.rec-more.is-open .rec-more-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* PC：悬停卡片才显示，移出隐藏（也和键盘焦点联动） */
+@media (hover: hover) and (pointer: fine) {
+  .rec-web-card:hover .rec-more-btn,
+  .rec-web-card:focus-within .rec-more-btn {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+/* 移动端没有 hover：三个点常驻显示，点击区域放大一点 */
+@media (hover: none), (pointer: coarse) {
+  .rec-more-btn {
+    width: 34px;
+    height: 34px;
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.rec-more-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  min-width: 108px;
+  padding: 4px;
+  border: 1px solid var(--rec-line);
+  border-radius: 8px;
+  background: var(--rec-panel);
+  box-shadow: 0 10px 28px rgba(24, 31, 45, 0.18);
+}
+
+.rec-more-item {
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--rec-text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rec-more-item:hover {
+  background: var(--rec-panel-soft);
+}
+
+.rec-more-item.is-danger {
+  color: var(--rec-danger);
+}
+
+.rec-more-item.is-danger:hover {
+  background: color-mix(in srgb, var(--rec-danger) 12%, transparent);
+}
+
 /*
  * 内嵌到推荐页（?embed=1）：正文列宽对齐留言 / 动态页的 760px，底色交给外层雨景；
  * 顶部只保留「N 项 + 搜索」，品牌和返回入口交给外层常驻按钮。
@@ -1157,7 +1313,8 @@ html.is-embed .rec-header {
 
 html.is-embed .rec-main {
   width: 100%;
-  padding: 0 16px 64px;
+  /* 顶部留出一条，刚好让开推荐页那排悬浮按钮（子页模式下内层顶栏已整条收掉） */
+  padding: 62px 16px 64px;
 }
 
 html.is-embed #recAddBtn {

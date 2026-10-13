@@ -1,7 +1,7 @@
 /*
- * 「推荐」页（原下载页）：左上角常驻四个子页面的纯图标按钮，右上角常驻「新增」按钮，
- * 中间是预加载好的四个内嵌子页面（歌曲 / 书籍 / 网页 / 站内资源）。
- * 内容列宽、页面底色、雨景都对齐留言和动态页。
+ * 「推荐」页：四个子页面铺满整个窗口（整条顶部导航栏已删除），
+ * 左上角四枚常驻图标按钮（悬停显示提示文字）+ 右上角常驻「新增」按钮浮在内容之上。
+ * 按钮尺寸、位置与留言 / 动态页的悬浮按钮严格对齐（35px 方形、内容列两侧各内缩 28px）。
  */
 
 html {
@@ -18,6 +18,10 @@ html {
   --dl-accent: #7b68ee;
   --dl-accent-hover: #6956e5;
   --dl-accent-soft: #efedff;
+  /* 纯图标按钮的悬停提示：浅色主题浅底深字 */
+  --dl-tip-bg: rgba(255, 255, 255, 0.98);
+  --dl-tip-ink: #1b1f27;
+  --dl-tip-border: rgba(24, 31, 45, 0.16);
   color-scheme: light;
 }
 
@@ -31,6 +35,10 @@ html {
   --dl-accent: #a78bfa;
   --dl-accent-hover: #b8a3ff;
   --dl-accent-soft: #322d4c;
+  /* 深色主题深底浅字 */
+  --dl-tip-bg: #2b2b31;
+  --dl-tip-ink: #f4f4f5;
+  --dl-tip-border: transparent;
   color-scheme: dark;
 }
 
@@ -58,38 +66,36 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* ---------- 骨架：760px 居中列（和留言 / 动态一致）---------- */
-
 .dl-app {
   position: relative;
   z-index: 1;
-  display: flex;
-  flex-direction: column;
   height: 100%;
 }
 
-/* ---------- 常驻操作区 ---------- */
-
-.dl-bar {
-  flex: 0 0 auto;
-  padding: calc(14px + env(safe-area-inset-top, 0px)) 0 10px;
-}
+/* ---------- 悬浮操作区（不占布局，浮在子页面上层）---------- */
 
 .dl-dock {
+  position: fixed;
+  top: calc(14px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  z-index: 40;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
-  /* 和子页正文同一条 760px 中轴线，按钮对齐留言 / 动态页左上角 */
+  /* 和子页正文同一条 760px 中轴线，左右各内缩 28px（同留言 / 动态页的悬浮按钮） */
   width: min(760px, 100%);
-  margin: 0 auto;
-  padding: 0 16px;
+  padding: 0 28px;
+  transform: translateX(-50%);
+  /* 中间的空档不挡子页面，只有按钮本身可点 */
+  pointer-events: none;
 }
 
 .dl-tabs {
   display: flex;
   align-items: center;
   gap: 8px;
+  pointer-events: auto;
 }
 
 /* 纯图标方形按钮：高度 / 圆角 / 边框和留言、动态页的悬浮按钮同一套 */
@@ -153,6 +159,51 @@ body {
   box-shadow: 0 3px 10px color-mix(in srgb, var(--dl-accent) 55%, transparent);
 }
 
+/*
+ * 纯图标按钮的悬停提示（和留言、动态页的 .mo-tip 同一套做法）：
+ * 文字放在 data-tip 上，用 ::after 画出来；浅色主题浅底深字、深色主题深底浅字。
+ * 提示挂在按钮下方——按钮贴着视口顶部，挂上面会被裁掉。
+ */
+.dl-tip {
+  position: relative;
+}
+
+.dl-tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  z-index: 60;
+  left: 0;
+  top: calc(100% + 8px);
+  padding: 5px 9px;
+  border: 1px solid var(--dl-tip-border);
+  border-radius: 6px;
+  background: var(--dl-tip-bg);
+  color: var(--dl-tip-ink);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.35;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-2px);
+  transition: opacity 0.14s ease-out, transform 0.14s ease-out, visibility 0s linear 0.14s;
+}
+
+.dl-tip:hover::after,
+.dl-tip:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+/* 触摸设备不渲染文字提示：点一下会留下「卡住的 hover」，反而碍事 */
+@media (hover: none), (pointer: coarse) {
+  .dl-tip::after {
+    display: none;
+  }
+}
+
 /* 右上角常驻「新增」按钮：尺寸对齐「写动态 / 发送留言」，随子页渐入渐出 */
 .dl-action {
   display: inline-flex;
@@ -170,6 +221,7 @@ body {
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
+  pointer-events: auto;
   opacity: 1;
   transform: translateY(0);
   transition: opacity 0.16s ease, transform 0.16s ease, background-color 0.18s ease,
@@ -194,9 +246,8 @@ body {
 /* ---------- 内容区：四个子页面同时加载好，切换只翻转显隐 ---------- */
 
 .dl-stage {
-  position: relative;
-  flex: 1 1 auto;
-  min-height: 0;
+  position: absolute;
+  inset: 0;
 }
 
 .dl-panel {
@@ -222,21 +273,15 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .dl-tab,
   .dl-action,
-  .dl-panel {
+  .dl-panel,
+  .dl-tip::after {
     transition: none;
   }
 }
 
-@media (max-width: 720px) {
-  .dl-bar {
-    padding: calc(12px + env(safe-area-inset-top, 0px)) 0 10px;
-  }
-
+/* 手机上和留言 / 动态页一样：悬浮按钮再往上贴一点 */
+@media (max-width: 640px) {
   .dl-dock {
-    padding: 0 12px;
-  }
-
-  .dl-tabs {
-    gap: 6px;
+    top: calc(8px + env(safe-area-inset-top, 0px));
   }
 }

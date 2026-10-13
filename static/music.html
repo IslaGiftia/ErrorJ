@@ -115,12 +115,14 @@
   <script src="/static/site/share.js"></script>
   <script src="/static/site/upload-limits.js"></script>
   <script src="/static/site/report.js"></script>
-  <script src="/static/site/back-to-top.js" data-scroll-target=".mu-stage"></script>
+  <script src="/static/site/back-to-top.js" data-scroll-target=".mu-stage-inner"></script>
   <script src="/static/site/fresh-cards.js"></script>
   <script src="/static/site/dropzone.js"></script>
   <script src="/static/site/notify-seen.js"></script>
   <script src="/static/music.js"></script>
-  <!-- 图标形变（play↔pause / 音量 / 循环 / 删除确认）。ESM：加载失败时上面的脚本会退回 lucide 硬切 -->
+  <script>window.ERRORJ_JUMP = { label: "歌曲", scroll: ".mu-stage-inner" };</script>
+  <script src="/static/site/fresh-jump.js"></script>
+  <!-- 图标形变（删除确认的垃圾桶↔警告三角、首页主题按钮）。ESM：加载失败时上面的脚本会退回 lucide 硬切 -->
   <script type="module" src="/static/site/morph-icons.js"></script>
 </body>
 </html>

@@ -45,16 +45,6 @@
   </header>
 
   <main class="bk-main">
-    <div class="bk-toolbar" id="bookToolbar">
-      <div class="bk-chips" id="bookFormats"></div>
-      <label class="bk-sort">
-        <span>排序</span>
-        <select id="bookSort">
-          <option value="added">最近添加</option>
-          <option value="title">书名</option>
-        </select>
-      </label>
-    </div>
     <div class="bk-grid" id="bookGrid"></div>
   </main>
 
@@ -124,5 +114,7 @@
   <script src="/static/site/dropzone.js"></script>
   <script src="/static/site/notify-seen.js"></script>
   <script src="/static/books.js"></script>
+  <script>window.ERRORJ_JUMP = { label: "书籍" };</script>
+  <script src="/static/site/fresh-jump.js"></script>
 </body>
 </html>

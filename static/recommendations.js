@@ -16,7 +16,9 @@
     var hint = $("recCoverHint");
     if (hint) {
       hint.textContent =
-        "网站建议 16:9，电影和动漫建议 2:3，最大 " + coverLimitLabel() + "。";
+        view === "web"
+          ? "网页缩略图建议正方形（1:1），最大 " + coverLimitLabel() + "。"
+          : "网站建议 16:9，电影和动漫建议 2:3，最大 " + coverLimitLabel() + "。";
     }
   }
   var IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
@@ -168,8 +170,10 @@
     });
   }
 
-  // 子页模式下隐藏内层的分类页签与「新增推荐」按钮，交给外层推荐页的常驻按钮
+  // 子页模式下隐藏整条内层顶栏（统计文字 + 搜索框）与分类页签，交给外层推荐页的常驻按钮
   function applyViewState() {
+    var header = document.querySelector(".rec-header");
+    if (header) header.hidden = state.view !== "all";
     var box = $("recTabs");
     var toolbar = box ? box.closest(".rec-toolbar") : null;
     if (toolbar) toolbar.hidden = state.view !== "all";
@@ -177,7 +181,7 @@
     if (add) add.hidden = !state.canManage || state.view === "resource";
   }
 
-  // 「网页」子页只做网站 / 工具，编辑器里不再出现电影和动漫
+  // 「网页」子页只做网站 / 工具：编辑器里不再出现电影、动漫，也不再问「类型」
   function restrictKindsForView() {
     if (state.view !== "web") return;
     var select = $("recKind");
@@ -185,6 +189,41 @@
     ["movie", "anime"].forEach(function (value) {
       var option = select.querySelector('option[value="' + value + '"]');
       if (option) option.remove();
+    });
+    var field = select.closest(".rec-field");
+    if (field) field.hidden = true;
+  }
+
+  function togglePinItem(item, button) {
+    if (button) button.disabled = true;
+    api("/api/recommendations/" + item.id, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pinned: !item.pinned }),
+    })
+      .then(loadRecommendations)
+      .catch(function (err) {
+        toast(err.message);
+      })
+      .then(function () {
+        if (button) button.disabled = false;
+      });
+  }
+
+  function removeItem(item) {
+    window.ErrorDialog.confirm(
+      "删除推荐「" + item.title + "」？封面文件也会一起清理。",
+      { title: "删除推荐", confirmText: "删除", danger: true }
+    ).then(function (confirmed) {
+      if (!confirmed) return;
+      return api("/api/recommendations/" + item.id, { method: "DELETE" })
+        .then(function () {
+          toast("已删除");
+          return loadRecommendations();
+        })
+        .catch(function (err) {
+          toast(err.message);
+        });
     });
   }
 
@@ -210,34 +249,112 @@
     pin.addEventListener("click", function (event) {
       event.preventDefault();
       event.stopPropagation();
-      pin.disabled = true;
-      api("/api/recommendations/" + item.id, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pinned: !item.pinned }),
-      }).then(loadRecommendations).catch(function (err) {
-        toast(err.message);
-      }).then(function () {
-        pin.disabled = false;
-      });
+      togglePinItem(item, pin);
     });
 
-    remove.addEventListener("click", async function (event) {
+    remove.addEventListener("click", function (event) {
       event.preventDefault();
       event.stopPropagation();
-      var confirmed = await window.ErrorDialog.confirm(
-        "删除推荐「" + item.title + "」？封面文件也会一起清理。",
-        { title: "删除推荐", confirmText: "删除", danger: true }
-      );
-      if (!confirmed) return;
-      api("/api/recommendations/" + item.id, { method: "DELETE" }).then(function () {
-        toast("已删除");
-        return loadRecommendations();
-      }).catch(function (err) {
-        toast(err.message);
-      });
+      removeItem(item);
     });
     return wrap;
+  }
+
+  // ---------- 卡片右上角「三个点」菜单（和留言 / 动态页同一套）----------
+
+  function closeAllMoreMenus() {
+    Array.prototype.forEach.call(
+      document.querySelectorAll(".rec-more.is-open"),
+      function (node) {
+        node.classList.remove("is-open");
+        var menu = node.querySelector(".rec-more-menu");
+        if (menu) menu.hidden = true;
+        var button = node.querySelector(".rec-more-btn");
+        if (button) button.setAttribute("aria-expanded", "false");
+      }
+    );
+  }
+
+  function buildMoreMenu(items) {
+    var more = el("div", "rec-more");
+    var button = el("button", "rec-more-btn");
+    button.type = "button";
+    button.title = "更多操作";
+    button.setAttribute("aria-haspopup", "true");
+    button.setAttribute("aria-expanded", "false");
+    button.setAttribute("aria-label", "更多操作");
+    button.innerHTML = '<i data-lucide="ellipsis" aria-hidden="true"></i>';
+
+    var menu = el("div", "rec-more-menu");
+    menu.hidden = true;
+    menu.setAttribute("role", "menu");
+    items.forEach(function (item) {
+      var node = el(
+        "button",
+        "rec-more-item" + (item.danger ? " is-danger" : ""),
+        item.label
+      );
+      node.type = "button";
+      node.setAttribute("role", "menuitem");
+      if (item.report) {
+        // report.js 的全局点击委托会接着弹举报框，这里只负责收起菜单
+        node.setAttribute("data-report-type", "recommendation");
+        node.setAttribute("data-report-key", item.report.id);
+        node.setAttribute("data-report-title", item.report.title || "推荐内容");
+        node.addEventListener("click", function () {
+          closeAllMoreMenus();
+        });
+      } else {
+        node.addEventListener("click", function () {
+          closeAllMoreMenus();
+          if (item.onPick) item.onPick();
+        });
+      }
+      menu.appendChild(node);
+    });
+
+    button.addEventListener("click", function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      var willOpen = menu.hidden;
+      closeAllMoreMenus();
+      menu.hidden = !willOpen;
+      more.classList.toggle("is-open", willOpen);
+      button.setAttribute("aria-expanded", willOpen ? "true" : "false");
+    });
+
+    more.append(button, menu);
+    return more;
+  }
+
+  // 管理员看到 置顶 / 编辑 / 删除；其它人（含游客）看到 举报。
+  // 站点内容都是管理员上传的，自己举报自己没意义，所以管理员不再显示举报。
+  function buildWebMenu(item) {
+    var items = [];
+    if (state.canManage) {
+      items.push({
+        label: item.pinned ? "取消置顶" : "置顶",
+        onPick: function () {
+          togglePinItem(item);
+        },
+      });
+      items.push({
+        label: "编辑",
+        onPick: function () {
+          openEditor(item);
+        },
+      });
+      items.push({
+        label: "删除",
+        danger: true,
+        onPick: function () {
+          removeItem(item);
+        },
+      });
+    } else {
+      items.push({ label: "举报", report: item });
+    }
+    return buildMoreMenu(items);
   }
 
   function coverNode(item) {
@@ -338,21 +455,79 @@
       });
       links.appendChild(loginOnly);
     }
-    var report = el("button", "rec-report-btn", "举报");
-    report.type = "button";
-    report.setAttribute("data-report-type", "recommendation");
-    report.setAttribute("data-report-key", item.id);
-    report.setAttribute("data-report-title", item.title || "推荐内容");
-    links.appendChild(report);
+    // 站点内容都是管理员上传的：管理员不显示举报入口
+    if (!state.canManage) {
+      var report = el("button", "rec-report-btn", "举报");
+      report.type = "button";
+      report.setAttribute("data-report-type", "recommendation");
+      report.setAttribute("data-report-key", item.id);
+      report.setAttribute("data-report-title", item.title || "推荐内容");
+      links.appendChild(report);
+    }
     if (links.childNodes.length) body.appendChild(links);
     return body;
   }
 
+  /*
+   * 网页 / 工具用扁卡片：左边网站缩略图，右边上面标题、下面说明；
+   * 点缩略图或中间任意位置都直接打开网站，右上角是「三个点」菜单。
+   */
+  function webThumb(item, href) {
+    var link = el("a", "rec-web-thumb");
+    if (href) {
+      link.href = href;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+    }
+    link.setAttribute("aria-label", item.title || "打开网站");
+    var source = coverUrl(item.cover_path) || safeHref(item.icon_url) || "";
+    if (source) {
+      var image = document.createElement("img");
+      image.src = source;
+      image.alt = "";
+      image.loading = "lazy";
+      image.addEventListener("error", function () {
+        image.remove();
+        link.appendChild(el("span", "rec-web-fallback", String(item.title || "网").slice(0, 1)));
+      });
+      link.appendChild(image);
+    } else {
+      link.appendChild(el("span", "rec-web-fallback", String(item.title || "网").slice(0, 1)));
+    }
+    return link;
+  }
+
+  function buildWebCard(card, item) {
+    var href = safeHref(item.url);
+    card.appendChild(webThumb(item, href));
+    var body = el("a", "rec-web-body");
+    if (href) {
+      body.href = href;
+      body.target = "_blank";
+      body.rel = "noopener noreferrer";
+    }
+    body.appendChild(el("strong", "rec-web-title", item.title || "未命名网站"));
+    if (item.description) {
+      body.appendChild(el("p", "rec-web-desc", item.description));
+    }
+    card.appendChild(body);
+    card.appendChild(buildWebMenu(item));
+  }
+
   function buildCard(item) {
-    var tier = isMedia(item) ? "rec-media-card" : item.kind === "resource" ? "rec-resource-card" : "rec-web-card";
+    var isWeb = item.kind === "site" || item.kind === "tool";
+    var tier = isWeb
+      ? "rec-web-card"
+      : isMedia(item)
+        ? "rec-media-card"
+        : "rec-resource-card";
     var card = el("article", "rec-card " + tier + (item.pinned ? " is-pinned" : ""));
-    card.appendChild(coverNode(item));
-    card.appendChild(cardBody(item));
+    if (isWeb) {
+      buildWebCard(card, item);
+    } else {
+      card.appendChild(coverNode(item));
+      card.appendChild(cardBody(item));
+    }
     if (window.ErrorFreshCards) {
       window.ErrorFreshCards.mark(card, item.id);
     }
@@ -383,6 +558,8 @@
     empty.textContent = state.query.trim() ? "没有匹配的推荐。" : "还没有推荐内容。";
     empty.hidden = rows.length > 0;
     markOverflow($("recGrid"));
+    // 有新内容还没滚到眼前时，右下角「顶部」按钮切成「↓ 推荐」
+    if (window.ErrorFreshJump) window.ErrorFreshJump.schedule();
   }
 
   // 标题 / 说明 / 标签放不下时才加右侧渐隐，避免短文字也被裁掉
@@ -681,19 +858,31 @@
         kind: $("recKind").value,
         bookmark_id: state.selectedBookmark ? state.selectedBookmark.id : null,
         title: $("recTitle").value.trim(),
-        subtitle: $("recSubtitle").value.trim(),
-        category: $("recCategory").value.trim(),
-        tags: $("recTags").value.trim(),
         url: $("recUrl").value.trim(),
-        download_url: $("recDownloadUrl").value.trim(),
-        icon_url: $("recIconUrl").value.trim(),
-        status: $("recStatus").value.trim(),
-        rating: $("recRating").value,
-        release_year: $("recYear").value,
         description: $("recDescription").value.trim(),
         cover_path: coverPath || "",
         pinned: $("recPinned").checked,
       };
+      /*
+       * 与类型相关的字段：该行当前不显示就整项不发，
+       * 这样「分类 / 标签」等已经不需要展示的旧数据会被原样保留，不会被空值覆盖掉。
+       */
+      [
+        ["subtitle", "recSubtitle"],
+        ["category", "recCategory"],
+        ["tags", "recTags"],
+        ["download_url", "recDownloadUrl"],
+        ["icon_url", "recIconUrl"],
+        ["status", "recStatus"],
+        ["rating", "recRating"],
+        ["release_year", "recYear"],
+      ].forEach(function (pair) {
+        var node = $(pair[1]);
+        if (!node) return;
+        var field = node.closest(".rec-field");
+        if (field && field.hidden) return;
+        payload[pair[0]] = String(node.value || "").trim();
+      });
       var path = state.editingId
         ? "/api/recommendations/" + state.editingId
         : "/api/recommendations";
@@ -927,6 +1116,10 @@
 
   document.addEventListener("keydown", function (event) {
     if (event.key !== "Escape") return;
+    if (document.querySelector(".rec-more.is-open")) {
+      closeAllMoreMenus();
+      return;
+    }
     if (!$("recPickModal").hidden) {
       closePick();
       return;
@@ -936,6 +1129,12 @@
       return;
     }
     if (!$("recModal").hidden) closeEditor();
+  });
+
+  // 点卡片外面收起「三个点」菜单（菜单内部的点击交给它自己的处理）
+  document.addEventListener("click", function (event) {
+    if (event.target && event.target.closest && event.target.closest(".rec-more")) return;
+    closeAllMoreMenus();
   });
 
   window.addEventListener("resize", function () {
