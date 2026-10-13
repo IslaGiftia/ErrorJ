@@ -3780,3 +3780,70 @@ iOS「添加到主屏幕」用的 `error-chan-touch.png`（180px）按站长要�
 
 备注：`config/changelog-seed.json` 按仓库约定仍不入库，只本地编辑 + SCP 上传；本轮 `app.py` 改动需要
 `systemctl restart errorjiang` 才生效（已在部署流程里停服备份后重启）。
+
+## 100. 2026-10-13 08:39:24 推荐页第二轮打磨：悬浮按钮、顶部按钮与网页卡片改版
+
+背景：站长第二轮反馈 —— 左上四枚按钮加悬停提示（跟随浅色 / 深色主题），四枚按钮和右上「新增」按钮改成悬浮、
+删掉顶部导航栏，「+」换成上传图标；四个子页右下角置顶按钮统一成动态页那颗（大小 / 位置 / 逻辑一致，含
+「有新内容 → 呼吸 + 点击跳过去」）；书籍页删掉筛选与排序、固定按书名 A~Z；网页页删掉搜索框与「N 项」，
+卡片大幅缩小成「左缩略图 + 右标题说明」，点缩略图或中间即访问、删「访问」按钮、卡片改用「三个点」菜单
+（编辑 / 置顶 / 删除 / 举报）、去掉「网站」角标；编辑弹窗去掉「类型」「分类」「标签」、保留关联书签；
+站内资源页同样删掉搜索框与「N 项」；站长上传的内容不应出现「举报」；移动端顶部那条空白（旧导航占位）要清掉。
+
+完成内容（提交 `cf4b945 feat:float-recommend-dock-and-compact-web-cards`，16 文件，+735/−264）：
+
+- 推荐页外壳：删掉 `.dl-bar` 整条横条，四个子页 iframe 铺满整个窗口；悬浮操作区 `position: fixed`，
+  自身 `pointer-events: none`、只有按钮可点，所以不会挡住子页正文。四枚图标按钮仍是 35px 方形、
+  内容列两侧各内缩 28px（和留言、动态页同一套），并加了 `.dl-tip` 悬停提示（浅色浅底深字 / 深色深底浅字，
+  触摸设备不显示）；右上角「新增」按钮图标换成 `upload`，文字仍是 歌曲 / 书籍 / 网页 / 站内；
+  四个子页正文顶部改 62px，刚好躲开悬浮按钮（这也是移动端顶部不再有空白占位的关键）。
+- 新增 `static/site/fresh-jump.js`：四个子页共用「有新内容 → 右下角按钮变呼吸态（↓ 歌曲 / ↓ 书籍 / ↓ 推荐）→
+  点击滚到那条新内容」，数据直接用 `fresh-cards.js` 打的 `.is-fresh`；`embed.css` 里把「顶部」按钮改成和
+  动态页一模一样（48×58 方形毛玻璃、落在 760 内容列内侧右下角、离底 50px、往下滚才出现），pending 文案走
+  `data-fresh-label`。顺带修掉歌曲页 `data-scroll-target` 挂错容器（`.mu-stage` → `.mu-stage-inner`，
+  前者根本不滚动）导致置顶按钮一直不出现的问题。
+- 书籍页：删掉格式筛选胶囊与排序下拉（连带 `renderFormats`、排序状态与相关 CSS），固定按书名 A~Z
+  （`localeCompare("zh-Hans-CN")`，中文按拼音）。
+- 网页 / 站内资源：子页模式下整条内层顶栏（统计文字 + 搜索框）收掉；网页卡片换成扁卡片（左 64px 缩略图、
+  右上标题下说明两行、整张约 90px 高、一行两张），缩略图与中间都是新标签页链接，去掉「访问」按钮与
+  「网站 / 工具」角标，右上角换成「三个点」菜单（管理员 置顶 / 编辑 / 删除，其它人 举报，PC 悬停显示、
+  手机常驻）；编辑器在网页视图下隐藏「类型」「分类」「标签」，「分类 / 标签」改为只对电影 / 动漫显示，
+  保存时对当前不显示的字段整项不发，旧数据原样保留。
+- 举报自省：站长在书籍 / 网页 / 站内资源卡片上不再看到「举报」入口。全站举报入口只剩书籍卡、留言「三个点」、
+  动态「三个点」、推荐卡片这几处，逐一核对过：留言与动态本来就是「自己发的不显示举报」，所以这一轮改完
+  站长对自己上传的内容不再有任何举报入口。
+- 文档：`README.md`、`PROJECT_SUMMARY.md`、`static/references.html` 同步。
+
+部署步骤：
+```text
+本地：python -m unittest discover -s tests -> 109 项全过；node --check 五个 JS；python -m json.tool seed；git diff --check 干净
+      本地服务 + Playwright（游客 / 站长 / 普通账号，桌面 1440x900 / 手机 412x915）：
+        外壳：无 .dl-bar；图标按钮 (368,14) 35x35（手机 (28,8)）、iframe 铺满 (top 0 / height 900)
+        提示：悬停 ::after 显示，浅色 rgba(255,255,255,.98) + 深字，深色 rgb(43,43,49) + 浅字
+        顶部按钮：48x58、离右 368、离底 50、pending=true 且文案「歌曲」；滚到底 pending 关；点击后列表滚到 1084
+        书籍：无 .bk-toolbar / .bk-chips / .bk-sort，首卡 top=62
+        网页：header 隐藏、卡片 355x90、缩略图 64、无角标 / 无访问按钮，站长菜单 = 取消置顶 / 编辑 / 删除
+              普通账号菜单只有「举报」（带 data-report-type=recommendation）
+        编辑弹窗：类型 / 分类 / 标签 hidden，关联书签 visible，其余字段都在
+        站内资源：站长卡片无 .rec-report-btn，hover 操作仍是 置顶 / 删除
+        移动端：无横向溢出（scrollW == vw == 412 / 1440），全程无 JS 异常
+提交：cf4b945（fetch/push 后本地 == origin/main == cf4b945）
+备份：/data/errorjiang-backup/recommend-hub2-20261013-0839/（停服后复制 inventory.db 3784704 字节
+      与 changelog-seed.json 69986 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only 9083d59 -> cf4b945；本轮没有表结构变更，未跑额外迁移
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 819716ba…6226 一致）
+      import_changelog_moments.py --date 2026-10-13 --force -> 新增 4 条（该日期四条都重建，时间戳唯一）
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = cf4b945，/api/health = {"ok": true}
+更新日志    -> /api/moments 里 2026-10-13 08:39:24「推荐页第二轮打磨：悬浮按钮、顶部按钮与网页卡片改版」
+              （id=437，kind=log）；该日期四条日志时间戳唯一（00:18:40 / 00:28:50 / 01:31:11 / 08:39:24）
+静态资源    -> 线上 downloads.html / downloads.css / recommendations.js / recommendations.css / site/embed.css /
+              site/fresh-jump.js / books.js / music.js 的 SHA256 与本机文件逐字节相同
+线上页面    -> 游客打开 /downloads（桌面 1440x900 / 手机 412x915）：无顶部横条、悬浮区 position: fixed、
+              图标按钮 (368,14) / 手机 (28,8) 且 35x35、iframe 铺满窗口、无横向溢出、无 JS 异常；
+              浅色主题下悬停提示是浅底深字；网页子页 4 张 355x90 扁卡片、无角标 / 无「访问」、三点菜单为「举报」；
+              手机端书籍子页首卡 top=62、无筛选排序，顶部那条空白占位已经没有了
+```
