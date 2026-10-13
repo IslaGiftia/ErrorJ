@@ -107,12 +107,13 @@
       if (!dailyLimit || isNaN(dailyRemaining)) {
         hint.textContent = "";
         hint.hidden = true;
-      } else if (dailyRemaining > 0) {
-        hint.textContent =
-          "每天最多 " + dailyLimit + " 条留言（含回复），今天还可以发 " + dailyRemaining + " 条";
-        hint.hidden = false;
       } else {
-        hint.textContent = "今天的 " + dailyLimit + " 条留言已用完，明天 0 点恢复";
+        // 今日可留言/回复次数：左边是今天还能发的条数，右边是每日上限
+        hint.textContent =
+          "今日可留言/回复次数 " +
+          Math.max(0, dailyRemaining) +
+          "/" +
+          dailyLimit;
         hint.hidden = false;
       }
     }

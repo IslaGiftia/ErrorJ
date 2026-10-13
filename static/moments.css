@@ -224,6 +224,9 @@ body {
   color: var(--mo-text);
   font: inherit;
   font-size: 12.5px;
+  /* 这个输入框里不要出现滚动条：超出的文字用省略号收尾 */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .mo-device-input:focus {

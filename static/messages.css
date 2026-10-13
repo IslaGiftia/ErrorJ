@@ -132,17 +132,19 @@ body {
 
 .mg-region-toggle {
   display: flex;
-  align-items: flex-start;
+  /* 单行文案：勾选框和文字居中对齐，也不给换行（「IP属地」四个字要整块显示） */
+  align-items: center;
   gap: 8px;
   margin: 0;
   color: var(--mg-muted);
   font-size: 12.5px;
   line-height: 1.5;
+  white-space: nowrap;
   cursor: pointer;
 }
 
 .mg-region-toggle input {
-  margin: 2px 0 0;
+  margin: 0;
   accent-color: var(--mg-accent);
 }
 
@@ -207,15 +209,15 @@ body {
   margin-left: auto;
 }
 
-/* 「额度提示」贴到「公开 IP 属地」同一行的右侧 */
+/* 两个勾选项（IP属地 / 设备平台）：同一行靠左排开，各自按内容宽度 */
 .mg-compose-meta {
   align-items: center;
   margin-top: 10px;
 }
 
-.mg-compose-meta .mg-region-toggle {
-  flex: 1;
-  min-width: 0;
+/* 今日额度：单独一行，右对齐到上面「发布留言」按钮的正下方 */
+.mg-quota-row {
+  margin-top: 6px;
 }
 
 /* 设备信息（只有管理员看得到）：和「公开 IP 属地」同一行的复选框 + 一个短输入框 */
@@ -224,6 +226,14 @@ body {
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+/*
+ * 上面这条作者样式的 display 会盖掉 [hidden] 自带的 display: none，
+ * 结果普通账号也能看到「设备平台」输入框 —— 这里补一条，只有管理员才显示。
+ */
+.mg-device-field[hidden] {
+  display: none;
 }
 
 .mg-device-toggle {
@@ -253,6 +263,9 @@ body {
   color: var(--mg-text);
   font: inherit;
   font-size: 12.5px;
+  /* 这个输入框里不要出现滚动条：超出的文字用省略号收尾 */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .mg-device-input:focus {

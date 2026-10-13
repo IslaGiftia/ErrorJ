@@ -42,8 +42,8 @@
           </div>
           <input type="file" id="fileInput" multiple hidden>
           <!--
-            底部两行对齐：「发布留言」贴到「添加附件」右侧，额度提示贴到「公开 IP 属地」右侧，
-            原来的独立操作行整条撤掉，编辑区底部更紧凑。
+            底部：两个勾选项（IP属地 / 设备平台）同一行靠左；
+            今日额度单独占一行，右对齐到上面「发布留言」按钮的正下方。
           -->
           <div class="mg-compose-row">
             <button class="mg-btn mg-btn-ghost" id="pickFileBtn" type="button">
@@ -58,17 +58,19 @@
           <div class="mg-compose-row mg-compose-meta">
             <label class="mg-region-toggle">
               <input type="checkbox" id="msgShowRegion">
-              <span>公开 IP 属地</span>
+              <span>IP属地</span>
             </label>
-            <!-- 设备信息（只有管理员看得到）：勾选后用自定义名称，留空或没勾选就按 UA 自动识别 -->
+            <!-- 设备平台（只有管理员看得到）：勾选后用自定义名称，留空或没勾选就按 UA 自动识别 -->
             <div class="mg-device-field" id="msgDeviceField" hidden>
               <label class="mg-device-toggle">
                 <input type="checkbox" id="msgUseDevice">
-                <span>设备名称（可选）</span>
+                <span>设备平台</span>
               </label>
               <input class="mg-device-input" id="msgDeviceInput" type="text" maxlength="40"
                      placeholder="例如 iQOO 12 Pro">
             </div>
+          </div>
+          <div class="mg-compose-row mg-quota-row">
             <p class="mg-quota" id="messageQuota" hidden></p>
           </div>
         </form>
