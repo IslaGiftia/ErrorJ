@@ -1562,14 +1562,17 @@
         btn.append(node, time, title, caret);
         var detail = el("div", "mo-log-body");
         detail.hidden = true;
-        var ul = el("ul", "mo-log-items");
-        parsed.items.forEach(function (item) {
-          ul.appendChild(el("li", "", item));
-        });
-        detail.appendChild(ul);
+        if (canInteract) {
+          // 明细只在登录账号下渲染：游客看得到日期和这条概述，但日志正文根本不进 DOM
+          var ul = el("ul", "mo-log-items");
+          parsed.items.forEach(function (item) {
+            ul.appendChild(el("li", "", item));
+          });
+          detail.appendChild(ul);
+        }
         li.append(btn, detail);
         btn.addEventListener("click", function () {
-          // 游客只看得到这一行的标题，展开日志正文要先登录
+          // 游客看得到日期和这条概述，但展开明细要先登录
           if (!canInteract) {
             toast("请登录后操作");
             return;
@@ -1586,8 +1589,6 @@
   }
 
   function applyLogMonth(panel, open) {
-    // 游客：月份只留一行标题，展开（看当天日志）要先登录
-    if (!canInteract) open = false;
     if (open && !panel.built) {
       buildLogMonthBody(panel.body, panel.rows);
       panel.built = true;
@@ -1611,9 +1612,8 @@
       byMonth[key].push(row);
     });
     if (!order.length) return;
-    // 默认展开最近 1 个月；用户手动开合过就沿用他的选择。
-    // 游客不让展开，所以也不替他默认展开。
-    if (canInteract && !Object.keys(logMonthOpen).length) logMonthOpen[order[0]] = true;
+    // 默认展开最近 1 个月；用户手动开合过就沿用他的选择（游客同样是这一套）
+    if (!Object.keys(logMonthOpen).length) logMonthOpen[order[0]] = true;
 
     var panels = [];
     order.forEach(function (key) {
@@ -1636,10 +1636,6 @@
       var panel = { key: key, section: section, header: header, body: body, rows: byMonth[key], built: false };
       panels.push(panel);
       header.addEventListener("click", function () {
-        if (!canInteract) {
-          toast("请登录后操作");
-          return;
-        }
         applyLogMonth(panel, !section.classList.contains("is-open"));
       });
     });

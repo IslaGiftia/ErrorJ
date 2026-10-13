@@ -42,8 +42,8 @@
           </div>
           <input type="file" id="fileInput" multiple hidden>
           <!--
-            底部：两个勾选项（IP属地 / 设备平台）同一行靠左；
-            今日额度单独占一行，右对齐到上面「发布留言」按钮的正下方。
+            底部一行：左边两个勾选项（IP属地 / 设备平台），今日额度用 margin-left:auto 靠右，
+            右边缘和上面「发布留言」按钮对齐。
           -->
           <div class="mg-compose-row">
             <button class="mg-btn mg-btn-ghost" id="pickFileBtn" type="button">
@@ -69,8 +69,6 @@
               <input class="mg-device-input" id="msgDeviceInput" type="text" maxlength="40"
                      placeholder="例如 iQOO 12 Pro">
             </div>
-          </div>
-          <div class="mg-compose-row mg-quota-row">
             <p class="mg-quota" id="messageQuota" hidden></p>
           </div>
         </form>

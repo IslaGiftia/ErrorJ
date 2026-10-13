@@ -159,6 +159,8 @@ body {
   color: var(--mg-muted);
   font-size: 12.5px;
   text-align: right;
+  /* 额度文案整块显示不折行；这一行放不下时整块换到下一行（仍然靠右） */
+  white-space: nowrap;
 }
 
 .mg-field {
@@ -209,15 +211,10 @@ body {
   margin-left: auto;
 }
 
-/* 两个勾选项（IP属地 / 设备平台）：同一行靠左排开，各自按内容宽度 */
+/* 底部一行：左边两个勾选项（IP属地 / 设备平台），今日额度靠右、和「发布留言」按钮对齐 */
 .mg-compose-meta {
   align-items: center;
   margin-top: 10px;
-}
-
-/* 今日额度：单独一行，右对齐到上面「发布留言」按钮的正下方 */
-.mg-quota-row {
-  margin-top: 6px;
 }
 
 /* 设备信息（只有管理员看得到）：和「公开 IP 属地」同一行的复选框 + 一个短输入框 */
