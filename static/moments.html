@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="/static/site/progress.css">
   <link rel="stylesheet" href="/static/site/report.css">
   <link rel="stylesheet" href="/static/site/dropzone.css">
+  <link rel="stylesheet" href="/static/site/sidebar.css">
   <script>
     (function () {
       try {
@@ -31,6 +32,13 @@
     <div class="rain-layer" id="rainLayer"></div>
     <div class="rain-floor" id="rainFloor"></div>
   </div>
+
+  <!--
+    三栏外壳：左栏 - 动态内容列（.mo-app 仍是 760px，宽度不变）- 右栏。
+    窄屏（<1280px）左右栏整体不显示，只剩中间的内容流。
+  -->
+  <div class="sb-shell">
+    <aside class="sb-side sb-side--left" id="sidebarLeft" aria-label="站点信息"></aside>
 
   <div class="mo-app">
     <main class="mo-main">
@@ -121,6 +129,9 @@
     </main>
   </div>
 
+    <aside class="sb-side sb-side--right" id="sidebarRight" aria-label="站内资源与活动"></aside>
+  </div>
+
   <div class="mo-toast" id="toast" hidden></div>
 
   <!-- 图片灯箱（和留言页同一套）：原图独占屏幕、无白框、左右切换 -->
@@ -148,6 +159,7 @@
   <script src="/static/site/dropzone.js"></script>
   <script src="/static/site/image-zoom.js"></script>
   <script src="/static/site/notify-seen.js"></script>
+  <script src="/static/site/sidebar.js"></script>
   <script src="/static/moments.js"></script>
   <!-- 分享卡的播放键要和歌曲播放页一样做 play↔pause 形变，复用同一个适配层 -->
   <script type="module" src="/static/site/morph-icons.js"></script>

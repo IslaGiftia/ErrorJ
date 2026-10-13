@@ -134,6 +134,7 @@ ALWAYS_PUBLIC_PAGES = {
 ALWAYS_PUBLIC_APIS = {
     "/api/health",
     "/api/site/activity",
+    "/api/site/sidebar",
     "/api/site/reports",
     "/api/site/upload-limits",
     "/api/site/notifications/unread",
@@ -5289,6 +5290,185 @@ def is_recent_place(created_at, hours=24):
     return datetime.now() - moment <= timedelta(hours=hours)
 
 
+# ---------- 留言 / 动态页的左右侧栏 ----------
+
+# 侧栏「更新日志」只收这几种管理员更新动作，并按动作落到对应页面
+SIDEBAR_ACTIVITY_HREFS = {
+    "moment_create": "/moments",
+    "music_upload": "/downloads?tab=music",
+    "book_upload": "/downloads?tab=books",
+    "recommendation_create": "/downloads?tab=web",
+    "map_place_create": "/map",
+}
+SIDEBAR_ACTIVITY_LIMIT = 8
+# 先按动作过滤再截断，所以多取一些原始行再筛
+SIDEBAR_ACTIVITY_SCAN = 60
+SIDEBAR_COVER_LIMIT = 10
+SIDEBAR_USER_LIMIT = 200
+SITE_START_CACHE = {"at": 0.0, "value": ""}
+SITE_START_CACHE_TTL = 5.0
+
+
+def days_since(text):
+    """某个时间点到现在经过的天数（含当天，最少 1 天）；解析不了返回 0。"""
+    value = str(text or "").strip()
+    if len(value) < 10:
+        return 0
+    try:
+        start = datetime.strptime(value[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return 0
+    return max(1, (date.today() - start).days + 1)
+
+
+def site_started_at():
+    """建站起点：取站内最早的一条内容时间（用户 / 动态 / 留言 / 歌曲 / 书籍）。"""
+    now = time.time()
+    cached = SITE_START_CACHE
+    if cached["value"] and now - cached["at"] < SITE_START_CACHE_TTL:
+        return cached["value"]
+    row = query_one(
+        """SELECT MIN(created_at) AS at FROM (
+               SELECT created_at FROM users
+               UNION ALL SELECT created_at FROM moments
+               UNION ALL SELECT created_at FROM site_messages
+               UNION ALL SELECT created_at FROM site_music
+               UNION ALL SELECT created_at FROM books
+           )"""
+    )
+    value = str((row or {}).get("at") or "")
+    cached["at"] = now
+    cached["value"] = value
+    return value
+
+
+def sidebar_stats():
+    """左上基础信息卡片用的站点统计。"""
+    approved = query_one(
+        "SELECT COUNT(*) AS n FROM users WHERE status = 'approved'"
+    )["n"]
+    pending = query_one("SELECT COUNT(*) AS n FROM users WHERE status = 'pending'")["n"]
+    messages = query_one(
+        """SELECT COUNT(*) AS n FROM site_messages
+           WHERE parent_id IS NULL AND status = 'approved'"""
+    )["n"]
+    moments = query_one(
+        "SELECT COUNT(*) AS n FROM moments WHERE IFNULL(kind, 'post') <> 'log'"
+    )["n"]
+    return {
+        "user_total": int(approved),
+        "user_pending": int(pending),
+        "message_total": int(messages),
+        "moment_total": int(moments),
+        "site_days": days_since(site_started_at()) or 1,
+    }
+
+
+def sidebar_covers(limit=SIDEBAR_COVER_LIMIT):
+    """右上封面轮播：歌曲与电子书的封面混排，按时间倒序取最新的若干条。"""
+    items = []
+    for row in query(
+        """SELECT title, artist, album, cover_path, created_at FROM site_music
+           WHERE cover_path IS NOT NULL AND cover_path <> ''
+           ORDER BY id DESC LIMIT ?""",
+        (limit,),
+    ):
+        items.append(
+            {
+                "type": "music",
+                "title": str(row.get("title") or "未命名歌曲"),
+                "subtitle": str(row.get("artist") or row.get("album") or "歌曲"),
+                "cover_url": "/site-files/" + str(row.get("cover_path") or ""),
+                "href": "/downloads?tab=music",
+                "created_at": str(row.get("created_at") or ""),
+            }
+        )
+    for row in query(
+        """SELECT title, author, cover_path, created_at FROM books
+           WHERE cover_path IS NOT NULL AND cover_path <> ''
+           ORDER BY id DESC LIMIT ?""",
+        (limit,),
+    ):
+        items.append(
+            {
+                "type": "book",
+                "title": str(row.get("title") or "未命名书籍"),
+                "subtitle": str(row.get("author") or "电子书"),
+                "cover_url": "/site-files/" + str(row.get("cover_path") or ""),
+                "href": "/downloads?tab=books",
+                "created_at": str(row.get("created_at") or ""),
+            }
+        )
+    items.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+    return items[:limit]
+
+
+def sidebar_users(viewer_id, is_admin):
+    """左下用户列表卡片：管理员看全部注册账号，普通账号只看自己。"""
+    if is_admin:
+        rows = query(
+            """SELECT id, username, nickname, status, created_at, last_login_at
+               FROM users WHERE status IN ('approved', 'pending')
+               ORDER BY CASE status WHEN 'approved' THEN 0 ELSE 1 END, id DESC
+               LIMIT ?""",
+            (SIDEBAR_USER_LIMIT,),
+        )
+        scope = "all"
+    else:
+        rows = query(
+            """SELECT id, username, nickname, status, created_at, last_login_at
+               FROM users WHERE id = ?""",
+            (int(viewer_id or 0),),
+        )
+        scope = "self"
+    items = []
+    for row in rows:
+        items.append(
+            {
+                "id": int(row["id"]),
+                "name": str(row.get("nickname") or row.get("username") or "普通用户"),
+                "username": str(row.get("username") or ""),
+                "status": str(row.get("status") or ""),
+                "registered_days": days_since(row.get("created_at")),
+                "last_login_at": str(row.get("last_login_at") or ""),
+            }
+        )
+    return {"scope": scope, "total": len(items), "items": items}
+
+
+def sidebar_activities():
+    """右下更新日志卡片：只要管理员的上传 / 发布类更新，最新的若干条。"""
+    actions = tuple(SIDEBAR_ACTIVITY_HREFS)
+    placeholders = ",".join("?" for _ in actions)
+    rows = query(
+        f"""SELECT a.id, a.action, a.actor_kind, a.created_at
+            FROM activity_log a
+            WHERE a.action IN ({placeholders})
+            ORDER BY a.id DESC
+            LIMIT ?""",
+        (*actions, SIDEBAR_ACTIVITY_SCAN),
+    )
+    items = []
+    for row in rows:
+        kind = str(row.get("actor_kind") or "guest")
+        # 只展示管理员自己的操作，别人的更新不进这张卡
+        if kind not in ("owner", "admin"):
+            continue
+        action = str(row.get("action") or "")
+        items.append(
+            {
+                "id": int(row["id"]),
+                "action": action,
+                "created_at": str(row.get("created_at") or ""),
+                "text": PUBLIC_ACTIVITY_LABELS.get(action, ""),
+                "href": SIDEBAR_ACTIVITY_HREFS.get(action, ""),
+            }
+        )
+        if len(items) >= SIDEBAR_ACTIVITY_LIMIT:
+            break
+    return items
+
+
 def amap_ip_region(text):
     """高德 IP 定位；未配置 Key 或没返回省份时返回空串。"""
     if not AMAP_WEB_KEY:
@@ -8844,6 +9024,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_message_quota()
             elif path == "/api/site/activity":
                 self.api_site_activity()
+            elif path == "/api/site/sidebar":
+                self.api_site_sidebar()
             elif re.fullmatch(r"/api/site/message-files/\d+", path):
                 self.api_site_message_file(path)
             elif path == "/api/moments":
@@ -13850,6 +14032,58 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "items": alerts + items[:budget],
                 "admin": is_admin,
                 "signed_in": True,
+            },
+        )
+
+    def api_site_sidebar(self):
+        """留言 / 动态页左右侧栏的数据。
+
+        四张卡片游客也照常展示：统计、封面、更新日志都不脱敏下发；只有「注册账户」
+        列表是登录后才给的（游客那边前端只摆一位并提示登录）。
+        """
+        identity = self.session_identity()
+        if identity is None:
+            self.send_json(
+                200,
+                {
+                    "viewer": {"signed_in": False, "name": "游客", "role": "guest"},
+                    "stats": sidebar_stats(),
+                    "covers": sidebar_covers(),
+                    "users": None,
+                    "activities": sidebar_activities(),
+                },
+            )
+            return
+        is_admin = self.is_admin()
+        viewer_id = (
+            0 if identity.get("kind") == "owner" else int(identity.get("user_id") or 0)
+        )
+        viewer_name = str(
+            identity.get("nickname") or identity.get("username") or "已登录"
+        )
+        # 站长没有 users 行，就用建站天数当「注册天数」，避免卡片上出现 0
+        viewer_row = (
+            query_one("SELECT created_at FROM users WHERE id = ?", (viewer_id,))
+            if viewer_id
+            else None
+        )
+        registered_days = days_since((viewer_row or {}).get("created_at")) or days_since(
+            site_started_at()
+        )
+        self.send_json(
+            200,
+            {
+                "viewer": {
+                    "signed_in": True,
+                    "name": viewer_name,
+                    "role": str(identity.get("role") or "member"),
+                    "admin": bool(is_admin),
+                    "registered_days": registered_days,
+                },
+                "stats": sidebar_stats(),
+                "covers": sidebar_covers(),
+                "users": sidebar_users(viewer_id, is_admin),
+                "activities": sidebar_activities(),
             },
         )
 

@@ -1,0 +1,400 @@
+/*
+ * 留言页 / 动态页共用的左右侧栏。
+ *
+ * 结构：.sb-shell 是三栏 flex 容器（左栏 - 内容列 - 右栏），内容列还是页面自己的
+ * .mg-app / .mo-app（760px，宽度不变）。
+ *
+ * 滚动：上边两张卡片跟页面一起往上走，滚没之后就只剩下面两张卡片贴住顶部常驻。
+ *
+ * 高度：上卡固定 20vh（网页的 1/5）；下卡按内容自适应、不做内部滚动，
+ * 只展示固定条数（注册账户前 5 个、更新日志前 8 条），所以两栏不会无限变长。
+ *
+ * 响应式：默认不显示左右栏（单栏内容流），只有窗口够宽（≥1280px）才三栏并排 ——
+ * 中间列保持 760px 不动，所以窄屏宁可收起侧栏，也不挤压中间列。
+ */
+
+:root {
+  --sb-gap: 24px;
+  --sb-side-width: 260px;
+  --sb-top-offset: calc(14px + env(safe-area-inset-top, 0px));
+  --sb-avatar: 40px;
+  --sb-surface: #ffffff;
+  --sb-text: #1f2329;
+  --sb-muted: #7b8494;
+  --sb-faint: #a4acb9;
+  --sb-border: #e3e6eb;
+  --sb-hover: #eef0f4;
+  --sb-accent: #7b68ee;
+  --sb-accent-soft: #efedff;
+  --sb-shadow: 0 1px 3px rgba(24, 31, 45, 0.06);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --sb-surface: #262626;
+  --sb-text: #f4f4f5;
+  --sb-muted: #a1a1aa;
+  --sb-faint: #71717a;
+  --sb-border: #3f3f46;
+  --sb-hover: #323238;
+  --sb-accent: #a78bfa;
+  --sb-accent-soft: #322d4c;
+  --sb-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+  color-scheme: dark;
+}
+
+.sb-shell {
+  display: flex;
+  /* 侧栏拉伸到和内容列一样高，下面那张卡片才有往下吸附的空间 */
+  align-items: stretch;
+  justify-content: center;
+  gap: var(--sb-gap);
+}
+
+/*
+ * 中间列还是页面自己的 .mg-app / .mo-app（max-width: 760px 不变）：
+ * 这里只让它自己撑满可用宽度（窄屏铺满、宽屏封顶 760px），不要被 flex 压成内容宽度；
+ * 页面自带的 margin:auto 也交回给 flex 居中，保证左右间距严格等于 --sb-gap。
+ */
+.sb-shell > .mg-app,
+.sb-shell > .mo-app {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+
+.sb-side {
+  display: none;
+}
+
+@media (min-width: 1280px) {
+  .sb-side {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sb-gap);
+    flex: 0 1 var(--sb-side-width);
+    min-width: 0;
+    max-width: var(--sb-side-width);
+    margin-top: var(--sb-top-offset);
+    /* 和 .mg-app / .mo-app 同款：压在全屏雨幕（fixed + z-index:0）上面 */
+    position: relative;
+    z-index: 1;
+  }
+
+  /* 上卡滚走之后，下卡贴住顶部常驻在两侧 */
+  .sb-card--bottom {
+    position: sticky;
+    top: var(--sb-top-offset);
+  }
+}
+
+.sb-card {
+  display: flex;
+  flex-direction: column;
+  /* 不做内部滚动：卡片按内容长，超出的条目直接不渲染（只取前 N 条） */
+  overflow: hidden;
+  background: var(--sb-surface);
+  border: 1px solid var(--sb-border);
+  border-radius: 8px;
+  box-shadow: var(--sb-shadow);
+}
+
+/* 左上 / 右上：固定成网页的 1/5 */
+.sb-card--top {
+  flex: 0 0 auto;
+  height: 20vh;
+}
+
+/* 左下 / 右下：跟着内容走（条数固定，所以不会无限长） */
+.sb-card--bottom {
+  flex: 0 0 auto;
+}
+
+.sb-card__head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--sb-border);
+}
+
+.sb-card__title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sb-card__meta {
+  margin-left: auto;
+  color: var(--sb-muted);
+  font-size: 12px;
+}
+
+.sb-card__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 10px 12px;
+}
+
+.sb-card__body--flush {
+  padding: 0;
+}
+
+/* ---------- 左上：基础信息卡 ---------- */
+
+.sb-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 和动态页同一张 Error酱 立绘：透明底、不裁圆，底部渐隐 */
+.sb-avatar {
+  flex: 0 0 auto;
+  width: var(--sb-avatar);
+  height: var(--sb-avatar);
+  object-fit: contain;
+  background: transparent;
+  -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 70%, transparent 100%);
+}
+
+.sb-user__text {
+  min-width: 0;
+}
+
+.sb-user__name {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sb-user__role {
+  color: var(--sb-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sb-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.sb-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 6px 4px;
+  border-radius: 6px;
+  background: var(--sb-hover);
+}
+
+.sb-stat__label {
+  color: var(--sb-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.sb-stat__value {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+/* ---------- 左下：注册账户卡 ---------- */
+
+.sb-user-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 12px;
+}
+
+.sb-user-row + .sb-user-row {
+  border-top: 1px solid var(--sb-border);
+}
+
+.sb-user-row__avatar {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--sb-hover);
+  color: var(--sb-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sb-user-row__main {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.sb-user-row__name {
+  font-size: 13px;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sb-user-row__sub {
+  color: var(--sb-muted);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sb-chip {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--sb-accent-soft);
+  color: var(--sb-accent);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* 游客：整张卡只占一位注册用户的高度 */
+.sb-user-row--locked {
+  cursor: pointer;
+}
+
+.sb-user-row--locked:hover {
+  background: var(--sb-hover);
+}
+
+.sb-user-row--locked .sb-user-row__avatar {
+  background: var(--sb-accent-soft);
+  color: var(--sb-accent);
+}
+
+/* ---------- 右上：资源封面卡（只有图片，渐隐渐出） ---------- */
+
+.sb-cover-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--sb-hover);
+}
+
+.sb-cover {
+  position: absolute;
+  inset: 0;
+  display: block;
+  overflow: hidden;
+}
+
+.sb-cover__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0;
+  transition: opacity 700ms ease;
+}
+
+.sb-cover__img.is-active {
+  opacity: 1;
+}
+
+.sb-cover__fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--sb-accent-soft);
+  color: var(--sb-accent);
+  opacity: 0.7;
+}
+
+.sb-cover__fallback svg {
+  width: 28px;
+  height: 28px;
+}
+
+/* ---------- 右下：更新日志卡 ---------- */
+
+.sb-log {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  color: inherit;
+  text-decoration: none;
+}
+
+a.sb-log:hover {
+  background: var(--sb-hover);
+}
+
+.sb-log__rank {
+  flex: 0 0 auto;
+  width: 16px;
+  color: var(--sb-accent);
+  font-size: 12px;
+  font-weight: 700;
+  /* 序号用斜体 */
+  font-style: italic;
+  line-height: 1.4;
+  text-align: right;
+}
+
+.sb-log__icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--sb-accent-soft);
+  color: var(--sb-accent);
+}
+
+.sb-log__icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.sb-log__text {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sb-log--locked {
+  cursor: pointer;
+}
+
+.sb-log--locked:hover {
+  background: var(--sb-hover);
+}
+
+/* 手机上点按不要留系统高亮 */
+@media (hover: none) {
+  .sb-log,
+  .sb-user-row {
+    -webkit-tap-highlight-color: transparent;
+  }
+}

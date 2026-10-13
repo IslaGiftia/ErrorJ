@@ -62,6 +62,10 @@
 - 时间：卡片头部按相对时间显示（刚刚 / N 分钟前 / N 小时前 / N 天前，超过 7 天回落到完整时间戳），和动态页同一套规则，顶层留言和每条回复都适用。
 - 附件存放于 `data/site_message_files/`，通过 `/site-files/` 访问。
 - 设备信息：留言和动态卡片头部在时间后显示「来自 鸿蒙 / Android / iOS / Web」，由提交时的 User-Agent 自动识别（`device_info_label`，按 OpenHarmony → HarmonyOS → Android → iOS → Web 的顺序判断，鸿蒙优先）；「设备平台」勾选框对所有人开放（勾了才公开这一条的设备来源，默认不勾选、不公开），管理员编辑区再多一个自定义名称输入框（可用自定义名称覆盖，留空回到自动识别），普通账号和游客看不到这个输入框，`device_info_for` 也只接受管理员提交的自定义值。
+- 宽屏三栏侧栏（留言页与动态页共用，`static/site/sidebar.css` + `sidebar.js`，数据来自 `/api/site/sidebar`）：窗口 ≥1280px 时是 B 站动态页那种「左栏 - 760px 内容列 - 右栏」布局，左右栏同宽（260px 封顶、不足时同步收窄）、间距 24px、两张上卡顶部对齐；<1280px（含手机）左右两栏整体隐藏，只留原来的单栏内容流，中间列宽度始终不变。侧栏自带 `position: relative; z-index: 1`，和 `.mg-app` / `.mo-app` 一样压在整屏雨幕之上。
+- 侧栏滚动：上边两张卡片跟着页面一起往上滚，滚没之后下边两张（`position: sticky`）贴住顶部常驻在两侧；四张卡都不做内部滚动。
+- 侧栏四张卡片：左上「基础信息卡」= Error酱 立绘（复用动态页那张 `error-chan-avatar.png`，透明底、不裁圆、底部渐隐）+「Error酱」+「已加入 N 天」（N = 建站天数）+ 注册 / 留言 / 动态三项统计（数字排在文字下面、居中）；左下「注册账户」管理员看前 5 个账号（昵称、注册天数、最近登录时间，待审核带标记），普通账号只看自己，游客只占一位显示「登录后展示」；右上「资源封面卡」只有图片，歌曲 / 电子书封面每 4 秒渐隐渐出轮换（无文字、无圆点）；右下「更新日志」只取管理员的上传 / 发布类动作（上传歌曲、上架电子书、发布动态、新增足迹、新增推荐）里最新 8 条，每条一行：斜体序号 + 类型图标 + 文字，无分割线、不显示操作人与时间，点击跳到对应页面。
+- 侧栏高度与游客：上卡固定 20vh（网页的 1/5），下卡按内容自适应（条数写死 5 / 8，两卡高度不强行拉齐）。游客四张卡照常展示、内容不脱敏，点封面 / 日志 / 账户卡会拦下并提示「请登录后操作」。建站天数取站内最早的一条内容时间（用户 / 动态 / 留言 / 歌曲 / 书籍），带 5 秒缓存。
 
 ### 2.4 小屋（原型页，尚未接线）
 
@@ -285,6 +289,7 @@
 | `static/downloads.*` | 推荐页外壳（四枚常驻图标按钮 + 常驻新增按钮 + 预加载的四个内嵌子页 + 角标）；子页分别是改过的 `music` / `books` 和 `recommendations` 的网页 / 站内资源视图 |
 | `static/hub.html` | 小屋页面（留言/照片墙/音乐/推荐） |
 | `static/messages.html` / `messages.css` / `messages.js` | 留言页面（文字 + 附件） |
+| `static/site/sidebar.css` / `sidebar.js` | 留言页与动态页共用的宽屏三栏侧栏（基础信息、注册账户列表、资源封面渐隐轮播、更新日志） |
 | `static/site/error-chan-favicon.png` / `error-chan-touch.png` | 全站统一图标（128 / 180） |
 | `static/site/error-chan.jpg` | Error酱 形象原图（已无页面引用，保留备用） |
 | `static/bookmarks.html` / `bookmarks.css` / `bookmarks.js` | 网页收藏模块 |
@@ -339,6 +344,7 @@
 - BOM：`/api/bom/compare`、`/api/bom/reports` 等。
 - LCSC 导入：`/api/import/lcsc`。
 - 网站模块：`/api/site/messages`、`/api/site/photos`、`/api/site/music`、`/api/site/music/upload`、`/api/site/links`。
+- 侧栏数据：`/api/site/sidebar`（公开；统计、资源封面和更新日志对游客一样下发，「注册账户」列表只下发给登录账号）。
 - 登录状态：`/api/auth/status`（公开）、`/api/login`、`/api/logout`。
 - 注册账号：`/api/register`（公开，创建待审核普通账号）。
 - AI 提示词：`/api/prompts`（GET / POST 管理员）、`/api/prompts/<id>`（PATCH 编辑 / DELETE 删除，仅管理员）。

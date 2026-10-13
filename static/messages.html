@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/static/site/progress.css">
   <link rel="stylesheet" href="/static/site/report.css">
   <link rel="stylesheet" href="/static/site/dropzone.css">
+  <link rel="stylesheet" href="/static/site/sidebar.css">
   <script>
     (function () {
       try {
@@ -29,6 +30,13 @@
     <div class="rain-layer" id="rainLayer"></div>
     <div class="rain-floor" id="rainFloor"></div>
   </div>
+
+  <!--
+    三栏外壳：左栏 - 留言内容列（.mg-app 仍是 760px，宽度不变）- 右栏。
+    窄屏（<1280px）左右栏整体不显示，只剩中间的内容流。
+  -->
+  <div class="sb-shell">
+    <aside class="sb-side sb-side--left" id="sidebarLeft" aria-label="站点信息"></aside>
 
   <div class="mg-app">
     <main class="mg-main">
@@ -113,6 +121,9 @@
     </main>
   </div>
 
+    <aside class="sb-side sb-side--right" id="sidebarRight" aria-label="站内资源与活动"></aside>
+  </div>
+
   <div class="mg-toast" id="toast" hidden></div>
 
   <!--
@@ -156,6 +167,7 @@
   <script src="/static/site/dropzone.js"></script>
   <script src="/static/site/image-zoom.js"></script>
   <script src="/static/site/notify-seen.js"></script>
+  <script src="/static/site/sidebar.js"></script>
   <script src="/static/messages.js"></script>
 
 </body>
