@@ -230,6 +230,10 @@ PERMISSION_GROUPS = (
             {"key": "books:write", "label": "上传、编辑、删除书架电子书"},
             {"key": "links:write", "label": "管理宝藏网站链接"},
             {"key": "photos:write", "label": "管理照片墙"},
+            {
+                "key": "site:device_name",
+                "label": "自定义「设备平台」名称（留言 / 动态）",
+            },
         ),
     },
     {
@@ -10898,14 +10902,16 @@ class InventoryHandler(BaseHTTPRequestHandler):
         留言 / 动态要落库的「设备信息」：
         要不要公开由提交时的 show_device 开关决定（和「IP属地」一样是可选项，默认不公开，
         不公开时落空串、卡片上不显示）；文案一律由服务端按 User-Agent 自动识别
-        （来自 鸿蒙 / Android / iOS / Web）；只有管理员能用 payload 里的 device_info 覆盖成
-        自定义名称，其他人传了也一律忽略，防止普通账号或游客伪造设备名称。
+        （来自 鸿蒙 / Android / iOS / Web）；只有具备 `site:device_name` 权限的账号
+        （管理员天然具备，也可以在「工作台 → 账号权限」里单独开放给普通账号）
+        能用 payload 里的 device_info 覆盖成自定义名称，其他人传了也一律忽略，
+        防止普通账号或游客伪造设备名称。
         """
         payload = payload or {}
         if payload.get("show_device") is not True:
             return ""
         auto = device_info_label(self.headers.get("User-Agent"))
-        if not self.is_admin():
+        if not self.can("site:device_name"):
             return auto
         return normalize_device_info(payload.get("device_info")) or auto
 
@@ -11068,22 +11074,26 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "回复了你" if (parent or {}).get("parent_id") else "回复了你的留言",
                 )
         if parent_id:
-            parent_author = int((parent or {}).get("author_id") or 0)
-            if parent_author:
-                author_row = query_one(
-                    "SELECT username FROM users WHERE id = ?", (parent_author,)
-                )
-                parent_name = str((author_row or {}).get("username") or "普通用户")
-            else:
-                parent_name = "管理员"
             nested_reply = bool((parent or {}).get("parent_id"))
-            notify_async(
-                "message",
-                "Error酱：新的回复",
-                f"{nickname} 回复了「{parent_name}」"
-                + ("的回复" if nested_reply else "的留言")
-                + f"：{(content[:60] if content else '（仅附件）')}",
-            )
+            # 楼中楼（回复某条回复）只在站内提醒，不再往 Webhook 推 —— 那是两个人之间的对话，
+            # 推到微信只会变成噪音；回复顶层留言照常推送。
+            if not nested_reply:
+                parent_author = int((parent or {}).get("author_id") or 0)
+                if parent_author:
+                    author_row = query_one(
+                        "SELECT username FROM users WHERE id = ?", (parent_author,)
+                    )
+                    parent_name = str(
+                        (author_row or {}).get("username") or "普通用户"
+                    )
+                else:
+                    parent_name = "管理员"
+                notify_async(
+                    "message",
+                    "Error酱：新的回复",
+                    f"{nickname} 回复了「{parent_name}」的留言"
+                    f"：{(content[:60] if content else '（仅附件）')}",
+                )
         else:
             notify_async(
                 "message",
@@ -11349,7 +11359,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         parent = None
         if parent_id:
             parent = query_one(
-                """SELECT id, user_id FROM moment_comments
+                """SELECT id, user_id, parent_id FROM moment_comments
                    WHERE id = ? AND moment_id = ?""",
                 (parent_id, moment_id),
             )
@@ -11384,12 +11394,14 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 actor,
                 "评论了你的动态",
             )
-            notify_async(
-                "moment_comment",
-                "Error酱：新的动态评论",
-                f"{actor} 评论了你的动态：{content[:60]}",
-                "/moments",
-            )
+            # 和留言同一条规则：楼中楼（回复某条回复）只在站内提醒，不再推 Webhook
+            if not (parent and parent.get("parent_id")):
+                notify_async(
+                    "moment_comment",
+                    "Error酱：新的动态评论",
+                    f"{actor} 评论了你的动态：{content[:60]}",
+                    "/moments",
+                )
         self.log_activity(
             "moment_comment",
             f"评论了动态：{content[:40]}",
@@ -13802,12 +13814,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             target_id=item_id,
             actor=identity,
         )
-        # 走现有的推送通道记一条；是否真的外发由通知设置决定
-        notify_async(
-            "message",
-            "Error酱：留言已删除",
-            f"{self.notification_actor_name(identity)} 删除了留言 #{item_id}：{excerpt}",
-        )
+        # 删除类操作不推 Webhook（和「删除标记不推送」同一条规则），只在内容事件里留记录
         self.send_json(200, {"ok": True})
 
     def api_site_message_file(self, path):

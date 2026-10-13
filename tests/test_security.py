@@ -699,6 +699,138 @@ class InteractionTests(unittest.TestCase):
             0,
         )
 
+    def test_nested_reply_does_not_push_webhook(self):
+        """楼中楼（回复某条回复）只在站内提醒，不推 Webhook；回复顶层留言照常推。"""
+        stamp = app.now_text()
+        root_id = app.execute(
+            """INSERT INTO site_messages
+                   (nickname, content, user_id, status, created_at)
+               VALUES (?, ?, ?, 'approved', ?)""",
+            ("作者甲", "顶层留言", self.author_id, stamp),
+        )
+
+        reply_handler, reply_responses = self.make_handler(
+            self.other_id, username="other1"
+        )
+        with patch.object(app, "rate_allow", return_value=True), patch.object(
+            app, "notify_async"
+        ) as pushed:
+            reply_handler.api_site_message_create(
+                {"content": "回复顶层留言", "parent_id": root_id}
+            )
+        self.assertEqual(reply_responses[-1][0], 200)
+        self.assertEqual(pushed.call_count, 1)
+        self.assertEqual(pushed.call_args[0][0], "message")
+        self.assertIn("新的回复", pushed.call_args[0][1])
+        reply_id = reply_responses[-1][1]["id"]
+
+        nested_handler, nested_responses = self.make_handler(
+            self.author_id, username="author1"
+        )
+        with patch.object(app, "rate_allow", return_value=True), patch.object(
+            app, "notify_async"
+        ) as nested_pushed:
+            nested_handler.api_site_message_create(
+                {"content": "回复那条回复", "parent_id": reply_id}
+            )
+        self.assertEqual(nested_responses[-1][0], 200)
+        nested_pushed.assert_not_called()
+        # 站内提醒仍然要有：只是不再推 Webhook
+        self.assertEqual(
+            app.query_one(
+                """SELECT COUNT(*) AS n FROM user_notifications
+                   WHERE user_id = ? AND kind = 'message_reply'""",
+                (self.other_id,),
+            )["n"],
+            1,
+        )
+
+    def test_top_level_message_still_pushes_webhook(self):
+        """顶层留言（含先审后发）照常推送，没被楼中楼那条规则误伤。"""
+        handler, responses = self.make_handler(self.author_id, username="author1")
+        with patch.object(app, "rate_allow", return_value=True), patch.object(
+            app, "notify_async"
+        ) as pushed:
+            handler.api_site_message_create({"content": "新留言"})
+        self.assertEqual(responses[-1][0], 200)
+        self.assertEqual(pushed.call_count, 1)
+        self.assertIn("新的留言", pushed.call_args[0][1])
+
+    def test_deleting_message_does_not_push_webhook(self):
+        """删除留言不推 Webhook（和「删除标记不推送」同一条规则），只留内容事件。"""
+        handler, responses = self.make_handler(self.author_id, username="author1")
+        handler.command = "DELETE"
+        with patch.object(app, "notify_async") as pushed:
+            handler.api_site_message_delete(f"/api/site/messages/{self.message_id}")
+        self.assertEqual(responses[-1][0], 200)
+        pushed.assert_not_called()
+        self.assertIsNone(
+            app.query_one(
+                "SELECT id FROM site_messages WHERE id = ?", (self.message_id,)
+            )
+        )
+
+    def test_nested_moment_reply_does_not_push_webhook(self):
+        """动态的楼中楼回复同理：站内提醒保留，Webhook 不推。"""
+        moment_id = app.execute(
+            "INSERT INTO moments (content, kind, created_at) VALUES (?, 'post', ?)",
+            ("动态内容", app.now_text()),
+        )
+        handler, responses = self.make_handler(self.other_id, username="other1")
+        with patch.object(app, "notify_async") as first:
+            handler.api_moment_comment_create(moment_id, {"content": "评论一条"})
+        self.assertEqual(responses[-1][0], 200)
+        self.assertEqual(first.call_count, 1)
+        self.assertEqual(first.call_args[0][0], "moment_comment")
+        comment_id = responses[-1][1]["id"]
+
+        with patch.object(app, "notify_async") as second:
+            handler.api_moment_comment_create(
+                moment_id, {"content": "回复那条评论", "parent_id": comment_id}
+            )
+        self.assertEqual(responses[-1][0], 200)
+        # 回复顶层评论属于「评论了动态」，仍然推
+        self.assertEqual(second.call_count, 1)
+        reply_id = responses[-1][1]["id"]
+
+        with patch.object(app, "notify_async") as nested:
+            handler.api_moment_comment_create(
+                moment_id, {"content": "回复那条回复", "parent_id": reply_id}
+            )
+        self.assertEqual(responses[-1][0], 200)
+        nested.assert_not_called()
+
+    def test_sidebar_log_keeps_action_without_name_when_target_deleted(self):
+        """更新日志：目标内容被删掉后不再显示历史名称，只保留「动作词 + 序号」。"""
+        stamp = app.now_text()
+        app.execute(
+            """INSERT INTO activity_log
+                   (created_at, actor_kind, user_id, action, summary, target_type, target_id)
+               VALUES (?, 'owner', 0, 'music_upload', ?, 'music', ?)""",
+            (stamp, "上传歌曲：已经被删掉的歌", 999999),
+        )
+        items = app.sidebar_activities()
+        row = [item for item in items if item["action"] == "music_upload"][0]
+        self.assertEqual(row["label"], "上传歌曲")
+        self.assertEqual(row["target"], "")
+
+        # 目标还在的时候照常带名称
+        music_id = app.execute(
+            """INSERT INTO site_music
+                   (title, artist, source_type, source_id, sort_order, created_at)
+               VALUES (?, ?, 'url', ?, 0, ?)""",
+            ("还在的歌", "歌手", "https://example.com/x.mp3", stamp),
+        )
+        app.execute(
+            """INSERT INTO activity_log
+                   (created_at, actor_kind, user_id, action, summary, target_type, target_id)
+               VALUES (?, 'owner', 0, 'music_upload', ?, 'music', ?)""",
+            (stamp, "上传歌曲：还在的歌", music_id),
+        )
+        items = app.sidebar_activities()
+        row = [item for item in items if item["target"] == "还在的歌"]
+        self.assertEqual(len(row), 1)
+
     def test_new_moment_notifies_members_only(self):
         stamp = app.now_text()
         app.execute(
@@ -2142,6 +2274,57 @@ class ComplianceWorkflowTests(unittest.TestCase):
         self.assertEqual(target["device_info"], "来自 iQOO 12 Pro")
         auto_row = [row for row in rows if row["content"] == "伪造设备"][0]
         self.assertEqual(auto_row["device_info"], "来自 Web")
+
+    @patch.object(app, "rate_allow", return_value=True)
+    def test_custom_device_name_permission_can_be_granted(self, _rate):
+        """「自定义设备平台名称」是账号权限里的一项：开了就能填，没开只能用自动识别。"""
+        self.assertIn("site:device_name", app.PERMISSION_LABELS)
+        self.assertIn("site:device_name", app.GRANTABLE_PERMISSIONS)
+        # 可以整批授予「普通账户」这个角色，但默认不发给任何人
+        self.assertIn("site:device_name", app.MEMBER_ROLE_PERMISSIONS)
+        self.assertNotIn("site:device_name", app.DEFAULT_MEMBER_PERMISSIONS)
+
+        without = self.make_handler(self.member(self.member_id), method="POST")
+        with patch.object(app, "notify_async", return_value=False):
+            without.api_site_message_create(
+                {
+                    "content": "没权限",
+                    "files": [],
+                    "show_device": True,
+                    "device_info": "iQOO 12 Pro",
+                }
+            )
+        self.assertEqual(
+            app.query_one(
+                "SELECT device_info FROM site_messages WHERE content = ?",
+                ("没权限",),
+            )["device_info"],
+            "来自 Web",
+        )
+
+        # 单独给这个账号开放权限
+        app.execute(
+            """INSERT INTO user_permissions (user_id, permission, mode, granted_by, granted_at)
+               VALUES (?, ?, 'allow', 'owner', ?)""",
+            (self.other_id, "site:device_name", app.now_text()),
+        )
+        granted = self.make_handler(self.member(self.other_id), method="POST")
+        with patch.object(app, "notify_async", return_value=False):
+            granted.api_site_message_create(
+                {
+                    "content": "有权限",
+                    "files": [],
+                    "show_device": True,
+                    "device_info": "iQOO 12 Pro",
+                }
+            )
+        self.assertEqual(
+            app.query_one(
+                "SELECT device_info FROM site_messages WHERE content = ?",
+                ("有权限",),
+            )["device_info"],
+            "来自 iQOO 12 Pro",
+        )
 
     def test_moment_device_info_requires_admin_and_survives_other_edits(self):
         """

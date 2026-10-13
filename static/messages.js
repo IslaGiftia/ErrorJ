@@ -10,6 +10,9 @@
   var toastTimer = null;
   var canPost = false;
   var isAdmin = false;
+  // 自定义设备名称的权限点：管理员天然具备，普通账号由站长在账号权限里单独开
+  var DEVICE_NAME_PERMISSION = "site:device_name";
+  var canCustomDevice = false;
   var viewerLikeName = "";
   var freshTargets = {};
   var jumpFrame = null;
@@ -322,7 +325,7 @@
   function deviceInfoValue() {
     var box = $("msgShowDevice");
     var input = $("msgDeviceInput");
-    if (!isAdmin || !box || !input || !box.checked) return "";
+    if (!canCustomDevice || !box || !input || !box.checked) return "";
     return input.value.trim();
   }
 
@@ -374,8 +377,9 @@
         // 设备平台是否公开：对所有人开放的勾选项，默认不勾选
         show_device: $("msgShowDevice").checked,
       };
-      // 自定义设备名称只有管理员能带（空串 = 让后端按 UA 自动识别）
-      if (isAdmin) payload.device_info = deviceInfoValue();
+      // 自定义设备名称：管理员或拿到 site:device_name 权限的账号才能带
+      // （空串 = 让后端按 UA 自动识别）
+      if (canCustomDevice) payload.device_info = deviceInfoValue();
       if (!withFiles) {
         return api("/api/site/messages", {
           method: "POST",
@@ -1489,11 +1493,16 @@
   api("/api/auth/status").then(function (status) {
     canPost = Boolean(status.authenticated);
     isAdmin = Boolean(status.admin || status.owner);
+    // 自定义设备名称：管理员天然可以，普通账号看「工作台 → 账号权限」里有没有开这一项
+    canCustomDevice =
+      isAdmin ||
+      (Array.isArray(status.permissions) &&
+        status.permissions.indexOf(DEVICE_NAME_PERMISSION) >= 0);
     viewerLikeName = status.owner
       ? "管理员"
       : String(status.username || status.nickname || "");
     $("messageComposerPanel").hidden = !canPost;
-    $("msgDeviceField").hidden = !isAdmin;
+    $("msgDeviceField").hidden = !canCustomDevice;
     if (canPost) {
       initMessageFilters();
       loadQuota();
@@ -1502,6 +1511,7 @@
   }).catch(function () {
     canPost = false;
     isAdmin = false;
+    canCustomDevice = false;
     $("messageComposerPanel").hidden = true;
     $("msgDeviceField").hidden = true;
     return loadMessages();

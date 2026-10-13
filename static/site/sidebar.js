@@ -186,11 +186,8 @@
   function buildUsers(data) {
     var isAll = !signedIn || (data.users && data.users.scope === "all");
     var items = data.users && Array.isArray(data.users.items) ? data.users.items : [];
-    var built = card(
-      "注册账户",
-      isAll && items.length ? String(data.users.total || items.length) : "",
-      true
-    );
+    // 标题右边不再显示注册用户总数
+    var built = card("注册账户", "", true);
 
     if (!signedIn) {
       // 游客：只占一位注册用户的高度，点一下提示登录

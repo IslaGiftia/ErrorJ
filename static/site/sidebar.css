@@ -259,11 +259,23 @@
 .sb-stat {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  /*
+   * 三格分别左 / 中 / 右对齐：第一格文字左边缘和上面的头像左边缘齐平，
+   * 第三格右边缘贴住卡片右内边距，于是左右留白严格对称、三格间距等分。
+   */
+  align-items: flex-start;
   gap: 1px;
   /* 无底色方框，保持透明 */
   padding: 0;
   background: transparent;
+}
+
+.sb-stat:nth-child(2) {
+  align-items: center;
+}
+
+.sb-stat:nth-child(3) {
+  align-items: flex-end;
 }
 
 .sb-stat__label {

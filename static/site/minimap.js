@@ -164,6 +164,8 @@
   var serverUnseenCount = 0;
   var serverNotifyIds = [];
   var serverNotifyCount = 0;
+  // 上一次画点位用的签名：数据没变就不重画，避免整层圆点在手机上闪一下
+  var dotsSignature = "";
 
   mini.setView(
     savedView ? [savedView.lat, savedView.lng] : [34.3416, 108.9398],
@@ -247,27 +249,30 @@
     var totalCount = newCount + serverNotifyCount;
     if (!newestNewId && notifiedId) newestNewId = notifiedId;
     if (dock) {
-      dock.classList.toggle("has-pending", newestNewId > 0);
-      dock.href = newestNewId > 0 ? "/map?place=" + newestNewId : "/map";
+      /*
+       * 只在状态真的变了的时候动 DOM：这个函数会被高频调用（每次取数都会跑），
+       * 无条件 toggle / 改 href 会让呼吸光晕和角标反复重绘，看起来就是「闪」。
+       */
+      var pending = newestNewId > 0;
+      if (dock.classList.contains("has-pending") !== pending) {
+        dock.classList.toggle("has-pending", pending);
+      }
+      var target = pending ? "/map?place=" + newestNewId : "/map";
+      if (dock.getAttribute("href") !== target) dock.href = target;
     }
     if (countEl) {
-      if (totalCount > 0) {
-        countEl.textContent = totalCount + " 条提醒";
-        countEl.hidden = false;
-      } else if (places.length) {
-        countEl.textContent = places.length + " 个标记";
-        countEl.hidden = false;
-      } else {
-        countEl.hidden = true;
-      }
+      var countText = "";
+      if (totalCount > 0) countText = totalCount + " 条提醒";
+      else if (places.length) countText = places.length + " 个标记";
+      if (countEl.textContent !== countText) countEl.textContent = countText;
+      var hideCount = !countText;
+      if (countEl.hidden !== hideCount) countEl.hidden = hideCount;
     }
     if (badgeEl) {
-      if (totalCount > 0) {
-        badgeEl.textContent = totalCount > 99 ? "99+" : String(totalCount);
-        badgeEl.hidden = false;
-      } else {
-        badgeEl.hidden = true;
-      }
+      var badgeText = totalCount > 0 ? (totalCount > 99 ? "99+" : String(totalCount)) : "";
+      if (badgeEl.textContent !== badgeText) badgeEl.textContent = badgeText;
+      var hideBadge = !badgeText;
+      if (badgeEl.hidden !== hideBadge) badgeEl.hidden = hideBadge;
     }
     window.dispatchEvent(
       new CustomEvent("errordockstats", {
@@ -342,9 +347,35 @@
         (data.categories || []).forEach(function (cat) {
           colorById[cat.id] = cat.color || "#7b68ee";
         });
-        currentBase = themeBase();
-        createTiles(currentBase);
-        renderDots();
+        /*
+         * 底图只在真的换了的时候重建。以前这里每次都 createTiles()——先删整层瓦片再重新加，
+         * 于是每次取数（页面重新可见 / pageshow / storage / 登录状态回来）圆盘里的地图
+         * 都会先空一下再重新加载，露出方形底座和呼吸光晕，看起来就是「紫色方块闪一下」。
+         */
+        var base = themeBase();
+        if (!tiles || base.id !== currentBase.id) {
+          currentBase = base;
+          createTiles(base);
+          dotsSignature = "";
+        }
+        var signature = places
+          .slice(0, MAX_DOTS)
+          .map(function (place) {
+            return (
+              place.id +
+              ":" +
+              (place.category_id || 0) +
+              ":" +
+              place.lat +
+              "," +
+              place.lng
+            );
+          })
+          .join("|");
+        if (signature !== dotsSignature) {
+          dotsSignature = signature;
+          renderDots();
+        }
         if (!savedView && places.length) fitAll();
         updateDockPending();
         mini.invalidateSize();
