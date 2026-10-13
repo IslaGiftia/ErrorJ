@@ -71,10 +71,11 @@
   /*
    * 卡片里的跳转：
    * - 游客：一律拦下，只提示「请登录后操作」；
-   * - 指向推荐页某个标签的链接（封面 / 更新日志）：原地切标签，不刷新页面；
-   * - 其它链接（动态、足迹等）：照常整页跳转。
+   * - 内容就在当前页（动态页点「更新动态」、推荐页点歌曲 / 书籍 / 网页 / 站内那几类）：
+   *   不新开标签页，原地把这条内容高亮起来呼吸（推荐页还要顺手把中间内容流切到对应标签）；
+   * - 其它情况：新标签页打开目标内容（当前页连同左右四张卡片原地不动）。
    */
-  function bindNavigation(node) {
+  function bindNavigation(node, item) {
     node.addEventListener("click", function (event) {
       if (!signedIn) {
         event.preventDefault();
@@ -82,21 +83,21 @@
         toast("请登录后操作");
         return;
       }
-      var href = node.getAttribute("href");
-      if (!href) return;
-      var tabs = window.ErrorDownloadsTabs;
-      if (!tabs) return;
-      var url;
-      try {
-        url = new URL(href, location.origin);
-      } catch (err) {
+      if (!item || !item.url) return;
+      if (location.pathname === "/downloads" && item.tab) {
+        var tabs = window.ErrorDownloadsTabs;
+        if (tabs && tabs.focus) {
+          event.preventDefault();
+          tabs.focus(item.tab, item.target_id);
+        }
         return;
       }
-      if (url.pathname !== "/downloads") return;
-      var key = normalizeTabKey(url.searchParams.get("tab"));
-      if (!key) return;
-      event.preventDefault();
-      tabs.activate(key);
+      if (location.pathname === "/moments" && item.action === "moment_create") {
+        event.preventDefault();
+        if (window.ErrorFocus) window.ErrorFocus.apply(item.target_id);
+        return;
+      }
+      // 其余：按 <a target="_blank"> 交给浏览器新开标签页
     });
   }
 
@@ -288,7 +289,9 @@
     var covers = Array.isArray(data.covers) ? data.covers : [];
     var root = el("section", "sb-card sb-card--top");
     var wrap = el("div", "sb-cover-wrap");
-    var link = el("a", "sb-cover");
+    // 封面卡是纯展示区域：不点击、不跳转（和左上角卡片一样）
+    var link = el("div", "sb-cover");
+    link.setAttribute("aria-hidden", "true");
     var fallback = el("div", "sb-cover__fallback");
     fallback.appendChild(icon("image"));
     wrap.appendChild(fallback);
@@ -297,7 +300,6 @@
 
     if (!covers.length) {
       // 一张封面都没有：只留占位图标
-      link.removeAttribute("href");
       return root;
     }
 
@@ -311,9 +313,7 @@
       link.appendChild(image);
       return image;
     });
-    link.href = covers[0].href || "#";
-    link.setAttribute("aria-label", covers[0].title || "站内资源");
-    bindNavigation(link);
+    link.dataset.href = covers[0].href || "";
 
     var index = 0;
     var active = 0;
@@ -321,8 +321,7 @@
     var rotating = false;
 
     function apply() {
-      link.href = usable[index].href || "#";
-      link.setAttribute("aria-label", usable[index].title || "站内资源");
+      link.dataset.href = usable[index].href || "";
       var next = active === 0 ? 1 : 0;
       layers[next].src = usable[index].cover_url;
       layers[next].classList.add("is-active");
@@ -365,8 +364,16 @@
     }
     items.forEach(function (item, position) {
       var row = el("a", "sb-log" + (signedIn ? "" : " sb-log--locked"));
-      if (signedIn && item.href) {
-        row.href = item.href;
+      var samePage =
+        (location.pathname === "/downloads" && item.tab) ||
+        (location.pathname === "/moments" && item.action === "moment_create");
+      if (signedIn && item.url) {
+        row.href = item.url;
+        if (!samePage) {
+          // 目标不在当前页：新标签页打开，当前页（含左右四张卡片）原地不动
+          row.target = "_blank";
+          row.rel = "noopener";
+        }
       }
       row.appendChild(el("span", "sb-log__rank", String(position + 1)));
       var iconBox = el("span", "sb-log__icon");
@@ -379,7 +386,7 @@
         text.appendChild(el("span", "sb-log__name", item.target));
       }
       row.appendChild(text);
-      bindNavigation(row);
+      bindNavigation(row, item);
       built.body.appendChild(row);
     });
     return built.root;

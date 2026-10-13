@@ -554,6 +554,7 @@
         ? "rec-media-card"
         : "rec-resource-card";
     var card = el("article", "rec-card " + tier + (item.pinned ? " is-pinned" : ""));
+    card.dataset.focusId = String(item.id || "");
     if (isFlat) {
       buildFlatCard(card, item);
     } else {
@@ -590,6 +591,8 @@
     empty.textContent = state.query.trim() ? "没有匹配的推荐。" : "还没有推荐内容。";
     empty.hidden = rows.length > 0;
     markOverflow($("recGrid"));
+    // 从更新日志跳进来的那一条：高亮呼吸 + 按钮切成「↓ 更新」
+    if (window.ErrorFocus) window.ErrorFocus.apply();
     // 有新内容还没滚到眼前时，右下角「顶部」按钮切成「↓ 推荐」
     if (window.ErrorFreshJump) window.ErrorFreshJump.schedule();
   }

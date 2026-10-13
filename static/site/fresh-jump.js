@@ -12,10 +12,16 @@
 (function () {
   "use strict";
 
-  if (!window.ERRORJ_EMBED) return;
-
+  /*
+   * 以前只在推荐页内嵌的子页里生效，现在独立页（/music、/books 等）也用同一套：
+   * 点更新日志新开标签页进来时，目标卡片被 focus-target.js 打上 .is-fresh，
+   * 右下角按钮同样会切成「↓ 更新」并跳过去。
+   */
   var config = window.ERRORJ_JUMP || {};
-  var label = String(config.label || "新内容");
+  // 文案在调用时读，focus-target.js 会把它覆盖成「更新」
+  function labelText() {
+    return String(window.ERRORJ_JUMP_LABEL || config.label || "新内容");
+  }
   var container = null;
   try {
     container = config.scroll ? document.querySelector(config.scroll) : null;
@@ -55,14 +61,16 @@
   function update() {
     var api = backTopApi();
     if (!api) return;
+    // 由「点更新日志」定位过来的高亮交给 focus-target.js 管按钮，这里别去动它
+    if (window.ERRORJ_FOCUS_ACTIVE) return;
     var node = freshBelow();
     if (node === lastNode) return;
     lastNode = node;
     if (node) {
       api.setPending({
         active: true,
-        label: label,
-        title: "跳到新" + label,
+        label: labelText(),
+        title: "跳到新" + labelText(),
         onActivate: function () {
           jumpTo(freshBelow() || node);
         },

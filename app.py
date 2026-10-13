@@ -5299,10 +5299,20 @@ def is_recent_place(created_at, hours=24):
 # 侧栏「更新日志」只收这几种管理员更新动作，并按动作落到对应页面
 SIDEBAR_ACTIVITY_HREFS = {
     "moment_create": "/moments",
-    "music_upload": "/downloads?tab=music",
-    "book_upload": "/downloads?tab=books",
+    "music_upload": "/music",
+    "book_upload": "/books",
     "recommendation_create": "/downloads?tab=web",
     "map_place_create": "/map",
+}
+# 目标属于「推荐页四个标签里的哪一个」：前端据此判断「内容就在当前页」时原地切标签
+SIDEBAR_ACTIVITY_TABS = {
+    "music_upload": "music",
+    "book_upload": "books",
+    "recommendation_create": "web",
+}
+# 点击日志后，目标页用哪个查询参数定位到这一条（地图页本来就是 place）
+SIDEBAR_FOCUS_PARAM = {
+    "map_place_create": "place",
 }
 # 每条日志的文案前缀 + 目标类型（用来查「更新了哪一条」的名称）
 SIDEBAR_ACTIVITY_META = {
@@ -5471,7 +5481,11 @@ def sidebar_users(viewer_id, is_admin):
 
 
 def sidebar_activities():
-    """右下更新日志卡片：只要管理员的上传 / 发布类更新（带目标名称），最新的若干条。"""
+    """右下更新日志卡片：只要管理员的上传 / 发布类更新，最新的若干条。
+
+    目标内容已经被删掉的条目直接不显示（站长要求「删了就是删了」），
+    所以这里按「目标还查得到名称」过滤，并继续往下取到够 11 条为止。
+    """
     actions = tuple(SIDEBAR_ACTIVITY_HREFS)
     placeholders = ",".join("?" for _ in actions)
     rows = query(
@@ -5482,65 +5496,89 @@ def sidebar_activities():
             LIMIT ?""",
         (*actions, SIDEBAR_ACTIVITY_SCAN),
     )
-    picked = []
+    # 只留管理员的动作，并且目标还在（下面的名称解析会告诉我们哪个目标已经不在了）
+    candidates = [
+        row
+        for row in rows
+        if str(row.get("actor_kind") or "guest") in ("owner", "admin")
+    ]
     ids_by_type = {}
-    for row in rows:
-        kind = str(row.get("actor_kind") or "guest")
-        # 只展示管理员自己的操作，别人的更新不进这张卡
-        if kind not in ("owner", "admin"):
-            continue
-        picked.append(row)
+    for row in candidates:
         target_type = str(row.get("target_type") or "")
         target_id = int(row.get("target_id") or 0)
         if target_type and target_id:
             ids_by_type.setdefault(target_type, set()).add(target_id)
-        if len(picked) >= SIDEBAR_ACTIVITY_LIMIT:
-            break
-
     names = sidebar_target_names(ids_by_type)
+
     items = []
-    for row in picked:
+    for row in candidates:
         action = str(row.get("action") or "")
         label, target_type = SIDEBAR_ACTIVITY_META.get(action, ("更新", ""))
+        target_id = int(row.get("target_id") or 0)
+        hit = names.get((target_type, target_id)) or {}
+        target = str(hit.get("name") or "")
+        # 内容已被删除的条目整条不显示，让位给更早的那些
+        if not target:
+            continue
+        # 推荐的两类共用一条动作，靠目标自己的 kind 决定落在「网页」还是「站内」栏
+        tab = SIDEBAR_ACTIVITY_TABS.get(action, "")
+        if action == "recommendation_create":
+            tab = "resource" if str(hit.get("kind") or "") == "resource" else "web"
+        base = SIDEBAR_ACTIVITY_HREFS.get(action, "")
+        focus_param = SIDEBAR_FOCUS_PARAM.get(action, "focus")
+        url = base
+        if base:
+            separator = "&" if "?" in base else "?"
+            url = f"{base}{separator}{focus_param}={target_id}"
         items.append(
             {
                 "id": int(row["id"]),
                 "action": action,
                 "created_at": str(row.get("created_at") or ""),
                 "label": label,
-                "target": names.get((target_type, int(row.get("target_id") or 0)), ""),
-                "href": SIDEBAR_ACTIVITY_HREFS.get(action, ""),
+                "target": target,
+                "href": base,
+                "url": url,
+                "tab": tab,
+                "target_id": target_id,
             }
         )
+        if len(items) >= SIDEBAR_ACTIVITY_LIMIT:
+            break
     return items
 
 
 def sidebar_target_names(ids_by_type):
-    """按 (目标类型, 目标 id) 批量取名称：歌曲 / 书名、动态正文片段、足迹名称、推荐标题。"""
+    """按 (目标类型, 目标 id) 批量取名称：歌曲 / 书名、动态正文片段、足迹名称、推荐标题。
+
+    返回 {(type, id): {"name": 名称, "kind": 推荐内容属于哪一栏（web / resource）}}。
+    """
     getters = {
-        "music": ("site_music", "title"),
-        "book": ("books", "title"),
-        "recommendation": ("recommendations", "title"),
-        "map_place": ("map_places", "name"),
-        "moment": ("moments", "content"),
+        "music": ("site_music", "title", ""),
+        "book": ("books", "title", ""),
+        "recommendation": ("recommendations", "title", "kind"),
+        "map_place": ("map_places", "name", ""),
+        "moment": ("moments", "content", ""),
     }
     found = {}
     for target_type, ids in ids_by_type.items():
         source = getters.get(target_type)
         if not source or not ids:
             continue
-        table, column = source
+        table, column, extra = source
         id_list = sorted(ids)
         placeholders = ",".join("?" for _ in id_list)
+        selected = f"id, {column} AS value" + (f", {extra} AS extra" if extra else "")
         for row in query(
-            f"SELECT id, {column} AS value FROM {table} WHERE id IN ({placeholders})",
+            f"SELECT {selected} FROM {table} WHERE id IN ({placeholders})",
             tuple(id_list),
         ):
             value = " ".join(str(row.get("value") or "").split())
             if target_type == "moment":
                 # 动态正文只取前一小段，够认出来就行
                 value = value[:SIDEBAR_MOMENT_SNIPPET]
-            found[(target_type, int(row["id"]))] = value
+            kind = str(row.get("extra") or "") if extra else ""
+            found[(target_type, int(row["id"]))] = {"name": value, "kind": kind}
     return found
 
 

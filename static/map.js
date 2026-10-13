@@ -540,6 +540,8 @@
       html +=
         '<button type="button" class="mp-item' +
         (state.activeId === place.id ? " is-active" : "") +
+        '" data-focus-id="' +
+        place.id +
         '" data-place="' +
         place.id +
         '">' +
@@ -559,6 +561,8 @@
         "</span></span></button>";
     });
     box.innerHTML = html;
+    // 从更新日志点「新增足迹」跳进来时，把这条标记的卡片高亮起来
+    if (window.ErrorFocus) window.ErrorFocus.apply();
   }
 
   var ownerGroups = [];

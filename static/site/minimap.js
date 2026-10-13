@@ -382,7 +382,16 @@
       })
       .catch(function (err) {
         if (requestId !== mapRequestSerial) return;
-        applyDockBlocked(err && (err.status === 401 || err.status === 403) ? err.status : 0);
+        var status = err && err.status;
+        if (status === 401 || status === 403) {
+          applyDockBlocked(status);
+          return;
+        }
+        /*
+         * 网络抖动 / 5xx：保留上一次画好的地图和角标，别把圆盘清空。
+         * 以前这里会走 applyDockBlocked(0)，把瓦片和圆点整层删掉——手机上信号一抖，
+         * 足迹入口就会空一下再自己长回来，看起来就是「紫色方块闪一下」。
+         */
       });
   }
 

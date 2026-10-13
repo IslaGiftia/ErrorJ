@@ -62,3 +62,21 @@
     animation: none;
   }
 }
+
+/* 地图页：从更新日志点「新增足迹」跳进来时，那条标记的卡片呼吸 */
+.mp-item.is-fresh {
+  animation: mpFreshPulse 3.6s ease-in-out infinite;
+}
+
+@keyframes mpFreshPulse {
+  0%,
+  100% {
+    box-shadow: none;
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--primary, #7b68ee) 16%, transparent),
+      0 0 18px color-mix(in srgb, var(--primary, #7b68ee) 36%, transparent);
+  }
+}

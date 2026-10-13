@@ -173,6 +173,23 @@
     } catch (err) {}
   }
 
+  /*
+   * 侧栏「更新日志」点在推荐页内部的那几类（歌曲 / 书籍 / 网页 / 站内）：
+   * 原地切标签，并把要定位的那条用 postMessage 送进对应子页 —— 不重载 iframe，
+   * 所以不会打断正在播放的歌曲，侧栏四张卡片也完全不动。
+   */
+  function focusTab(key, targetId) {
+    activate(key);
+    var win = frameWindow(key);
+    if (!win || !targetId) return;
+    try {
+      win.postMessage(
+        { type: "errorj-focus", id: Number(targetId) || 0 },
+        location.origin
+      );
+    } catch (err) {}
+  }
+
   function activate(key, options) {
     if (TAB_KEYS.indexOf(key) < 0) key = TAB_KEYS[0];
     if (activeKey === key && (!options || !options.force)) {
@@ -321,7 +338,11 @@
     if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
     bind();
     // 侧栏里指向本页标签的链接（封面 / 更新日志）原地切标签用
-    window.ErrorDownloadsTabs = { activate: activate, keys: TAB_KEYS.slice() };
+    window.ErrorDownloadsTabs = {
+      activate: activate,
+      focus: focusTab,
+      keys: TAB_KEYS.slice(),
+    };
     Array.prototype.forEach.call(document.querySelectorAll(".dl-frame"), function (frame) {
       frame.addEventListener("load", syncFrameMetrics);
     });
@@ -348,6 +369,25 @@
     // 先无条件点亮一次，保证首屏按钮 / 面板状态正确，再按 URL 参数切换
     activate(wanted || TAB_KEYS[0], { keepUrl: !wanted, force: true });
     syncFrameMetrics();
+    // 整页打开时 （/downloads?tab=web&focus=6）把要定位的那条转发进对应子页
+    var focusId = 0;
+    try {
+      focusId = Number(new URLSearchParams(location.search).get("focus") || 0) || 0;
+    } catch (err) {
+      focusId = 0;
+    }
+    if (focusId && wanted) {
+      var deliver = function () {
+        var win = frameWindow(wanted);
+        if (!win) return;
+        try {
+          win.postMessage({ type: "errorj-focus", id: focusId }, location.origin);
+        } catch (err) {}
+      };
+      // 子页渲染完再发；发两次兜住不同加载速度
+      window.setTimeout(deliver, 1200);
+      window.setTimeout(deliver, 2600);
+    }
     loadAuth();
   }
 

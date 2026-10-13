@@ -800,8 +800,8 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(responses[-1][0], 200)
         nested.assert_not_called()
 
-    def test_sidebar_log_keeps_action_without_name_when_target_deleted(self):
-        """更新日志：目标内容被删掉后不再显示历史名称，只保留「动作词 + 序号」。"""
+    def test_sidebar_log_hides_entries_whose_target_is_gone(self):
+        """更新日志：内容被删掉的条目整条不显示，让位给更早的记录。"""
         stamp = app.now_text()
         app.execute(
             """INSERT INTO activity_log
@@ -810,9 +810,7 @@ class InteractionTests(unittest.TestCase):
             (stamp, "上传歌曲：已经被删掉的歌", 999999),
         )
         items = app.sidebar_activities()
-        row = [item for item in items if item["action"] == "music_upload"][0]
-        self.assertEqual(row["label"], "上传歌曲")
-        self.assertEqual(row["target"], "")
+        self.assertEqual([item for item in items if item["action"] == "music_upload"], [])
 
         # 目标还在的时候照常带名称
         music_id = app.execute(

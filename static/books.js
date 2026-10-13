@@ -143,7 +143,9 @@
             "</span>"
           : "";
         return (
-          '<article class="bk-card" data-book-download-card="' +
+          '<article class="bk-card" data-focus-id="' +
+          book.id +
+          '" data-book-download-card="' +
           book.id +
           '" tabindex="0" role="button" aria-label="下载 ' +
           esc(book.title) +
@@ -176,6 +178,8 @@
         window.ErrorFreshCards.mark(node, book.id);
       });
     }
+    // 从更新日志跳进来的那一本：高亮呼吸 + 按钮切成「↓ 更新」
+    if (window.ErrorFocus) window.ErrorFocus.apply();
     // 有新书还没滚到眼前时，右下角「顶部」按钮切成「↓ 书籍」
     if (window.ErrorFreshJump) window.ErrorFreshJump.schedule();
   }

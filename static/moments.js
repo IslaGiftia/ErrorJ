@@ -1053,6 +1053,7 @@
 
   function buildMoment(moment) {
     var item = el("article", "mo-card mo-item " + (moment.can_save ? "can-save" : "no-save"));
+    item.dataset.focusId = String(moment.id || "");
     var avatar = document.createElement("img");
     avatar.className = "mo-avatar";
     /* 透明底的角色立绘（和标签页图标同一张画的高清版），由 CSS 负责尺寸与中心对齐 */
@@ -1690,6 +1691,8 @@
     });
     refreshIcons();
     updateJumpButton();
+    // 从更新日志点「更新动态」跳进来时，把那条卡片高亮起来
+    if (window.ErrorFocus) window.ErrorFocus.apply();
   }
 
   renderPending();

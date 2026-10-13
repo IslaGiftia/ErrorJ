@@ -204,7 +204,7 @@
           ? '<span class="mu-row-actions">' + actionButtons + "</span>"
           : "";
         return (
-          '<li class="mu-row' +
+          '<li data-focus-id="' + track.id + '" class="mu-row' +
           (active ? " is-active" : "") +
           (active && playing ? " is-playing" : "") +
           '" ' +
@@ -241,6 +241,8 @@
         window.ErrorFreshCards.mark(node, track.id);
       });
     }
+    // 从更新日志跳进来的那一条：高亮呼吸 + 按钮切成「↓ 更新」
+    if (window.ErrorFocus) window.ErrorFocus.apply();
     // 有新歌还没滚到眼前时，右下角「顶部」按钮切成「↓ 歌曲」
     if (window.ErrorFreshJump) window.ErrorFreshJump.schedule();
   }
