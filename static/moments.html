@@ -54,6 +54,15 @@
             <input type="checkbox" id="momentShowRegion">
             <span>公开 IP 属地</span>
           </label>
+          <!-- 设备信息（只有管理员看得到）：勾选后用自定义名称，留空或没勾选就按 UA 自动识别 -->
+          <div class="mo-device-field" id="momentDeviceField" hidden>
+            <label class="mo-device-toggle">
+              <input type="checkbox" id="momentUseDevice">
+              <span>设备名称（可选）</span>
+            </label>
+            <input class="mo-device-input" id="momentDeviceInput" type="text" maxlength="40"
+                   placeholder="例如 iQOO 12 Pro">
+          </div>
         </div>
         <input type="file" id="imageInput" accept="image/*" multiple hidden>
       </form>

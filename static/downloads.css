@@ -18,6 +18,8 @@ html {
   --dl-accent: #7b68ee;
   --dl-accent-hover: #6956e5;
   --dl-accent-soft: #efedff;
+  /* 悬浮按钮的基础投影：呼吸动画从这里出发（只换 box-shadow，不动位移） */
+  --dl-tab-shadow: 0 2px 10px rgba(24, 31, 45, 0.08);
   /* 纯图标按钮的悬停提示：浅色主题浅底深字 */
   --dl-tip-bg: rgba(255, 255, 255, 0.98);
   --dl-tip-ink: #1b1f27;
@@ -123,7 +125,7 @@ body {
   color: var(--dl-text);
   font: inherit;
   cursor: pointer;
-  box-shadow: 0 2px 10px rgba(24, 31, 45, 0.08);
+  box-shadow: var(--dl-tab-shadow);
   transition: border-color 0.18s ease, background-color 0.18s ease, color 0.18s ease;
 }
 
@@ -146,6 +148,26 @@ body {
 
 .dl-tab.is-active svg {
   color: var(--dl-accent);
+}
+
+/* 有新内容还没看过的那一栏：边框点亮 + 整颗按钮按站内统一的 3.6s 节奏呼吸 */
+.dl-tab.has-pending {
+  border-color: color-mix(in srgb, var(--dl-accent) 46%, var(--dl-border));
+  animation: dlTabPulse 3.6s ease-in-out infinite;
+}
+
+@keyframes dlTabPulse {
+  0%,
+  100% {
+    box-shadow: var(--dl-tab-shadow);
+  }
+
+  50% {
+    box-shadow:
+      var(--dl-tab-shadow),
+      0 0 0 3px color-mix(in srgb, var(--dl-accent) 16%, transparent),
+      0 0 18px color-mix(in srgb, var(--dl-accent) 36%, transparent);
+  }
 }
 
 .dl-tab-badge {
@@ -285,6 +307,10 @@ body {
   .dl-panel,
   .dl-tip::after {
     transition: none;
+  }
+
+  .dl-tab.has-pending {
+    animation: none;
   }
 }
 

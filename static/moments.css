@@ -189,6 +189,60 @@ body {
   accent-color: var(--mo-accent);
 }
 
+/* 设备信息（只有管理员看得到）：和「公开 IP 属地」同一行的复选框 + 一个短输入框 */
+.mo-device-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mo-device-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--mo-muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mo-device-toggle input {
+  margin: 0;
+  accent-color: var(--mo-accent);
+}
+
+.mo-device-input {
+  width: 180px;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--mo-border);
+  border-radius: 7px;
+  background: var(--mo-surface);
+  color: var(--mo-text);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.mo-device-input:focus {
+  border-color: var(--mo-accent);
+  outline: 0;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mo-accent) 13%, transparent);
+}
+
+/* 卡片头部：设备信息和时间同一套小灰字 */
+.mo-device {
+  color: var(--mo-faint);
+  font-size: 12px;
+}
+
+.mo-device::before {
+  margin-right: 6px;
+  content: "·";
+}
+
 .mo-region {
   color: var(--mo-muted);
   font-size: 12px;
@@ -1494,6 +1548,16 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
   /* 悬浮按钮再往上贴一点，把内容空间让出来 */
   .mo-dock {
     top: 8px;
+  }
+
+  /* 手机：设备信息整行铺开，输入框自己占满剩下的宽度 */
+  .mo-device-field {
+    flex: 1 1 100%;
+  }
+
+  .mo-device-input {
+    flex: 1;
+    width: auto;
   }
 
   .mo-item {

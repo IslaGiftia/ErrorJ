@@ -10,11 +10,28 @@
 (function () {
   "use strict";
 
+  /*
+   * 「网页」和「站内」两栏共用 recommendations 提醒模块，但角标要分开算：
+   * 分享到站内资源的卡片只在「站内」图标上亮，网页 / 工具只算「网页」那一栏。
+   * seen 里的 scope 决定点开这一栏时清掉哪一半，另一栏的角标留着。
+   */
   var TABS = [
     { key: "music", label: "歌曲", module: "music", badge: true },
     { key: "books", label: "书籍", module: "books", badge: true },
-    { key: "web", label: "网页", module: "recommendations", badge: true },
-    { key: "resource", label: "站内", module: "recommendations", badge: false }
+    {
+      key: "web",
+      label: "网页",
+      module: "recommendation_web",
+      seen: { module: "recommendations", scope: "web" },
+      badge: true
+    },
+    {
+      key: "resource",
+      label: "站内",
+      module: "recommendation_resource",
+      seen: { module: "recommendations", scope: "resource" },
+      badge: true
+    }
   ];
   var TAB_KEYS = TABS.map(function (tab) {
     return tab.key;
@@ -74,6 +91,8 @@
       var count = tab.badge ? Number(counts[tab.module]) || 0 : 0;
       badge.hidden = count <= 0;
       badge.textContent = count > 0 ? (count > 99 ? "99+" : String(count)) : "";
+      // 有新内容的那一栏整颗按钮轻轻呼吸（和其它「有新内容」入口同一个节奏）
+      node.classList.toggle("has-pending", count > 0);
     });
   }
 
@@ -107,7 +126,7 @@
     fetch("/api/site/notifications/seen", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ module: spec.module }),
+      body: JSON.stringify(spec.seen || { module: spec.module }),
       cache: "no-store"
     }).catch(function () {});
   }
@@ -155,7 +174,8 @@
         counts = {
           music: Number(data.music) || 0,
           books: Number(data.books) || 0,
-          recommendations: Number(data.recommendations) || 0
+          recommendation_web: Number(data.recommendation_web) || 0,
+          recommendation_resource: Number(data.recommendation_resource) || 0
         };
         // 正在看的这一栏已经算读过
         var spec = specOf(activeKey);

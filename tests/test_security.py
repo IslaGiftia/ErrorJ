@@ -643,6 +643,7 @@ class InteractionTests(unittest.TestCase):
 
     def make_handler(self, user_id, kind="member", username="author1"):
         handler = object.__new__(app.InventoryHandler)
+        handler.headers = {"User-Agent": "test", "Host": "example.test"}
         handler.session_identity = lambda: {
             "kind": kind,
             "user_id": user_id,
@@ -1968,48 +1969,239 @@ class ComplianceWorkflowTests(unittest.TestCase):
         self.assertEqual(guest.responses[-1][0], 401)
         self.assertFalse(guest.guest_request_allowed("/games/2048", "GET", None))
 
-    def test_reports_allow_public_content_for_guests_but_require_login_for_messages(self):
+    def test_reports_are_open_to_guests_for_every_public_content_type(self):
+        """留言 / 动态 / 歌曲 / 书籍 / 推荐内容的举报都对游客开放，不再要求登录。"""
+        approved_message_id = app.execute(
+            """INSERT INTO site_messages
+                   (nickname, content, status, created_at)
+               VALUES ('游客', '公开留言', 'approved', ?)""",
+            (app.now_text(),),
+        )
         guest = self.make_handler(None, method="POST")
         with patch.object(app, "notify_async", return_value=False):
-            guest.api_site_report_create(
-                {
-                    "target_type": "book",
-                    "target_key": str(self.book_id),
-                    "reason": "侵权或隐私",
-                }
-            )
-            guest.api_site_report_create(
-                {
-                    "target_type": "recommendation",
-                    "target_key": str(self.recommendation_id),
-                    "reason": "诈骗广告",
-                }
-            )
-            guest.api_site_report_create(
-                {
-                    "target_type": "message",
-                    "target_key": str(self.message_id),
-                    "reason": "违法违规",
-                }
-            )
-            # 歌曲也是管理员上传的站内内容：游客同样能举报
-            guest.api_site_report_create(
-                {
-                    "target_type": "music",
-                    "target_key": str(self.music_id),
-                    "reason": "侵权或隐私",
-                }
-            )
-        self.assertEqual(guest.responses[-4][0], 200)
-        self.assertEqual(guest.responses[-3][0], 200)
-        self.assertEqual(guest.responses[-2][0], 401)
-        self.assertEqual(guest.responses[-1][0], 200)
+            for target_type, target_key, reason in (
+                ("book", self.book_id, "侵权或隐私"),
+                ("recommendation", self.recommendation_id, "诈骗广告"),
+                ("music", self.music_id, "侵权或隐私"),
+                ("moment", self.moment_id, "违法违规"),
+                ("message", approved_message_id, "违法违规"),
+            ):
+                guest.api_site_report_create(
+                    {
+                        "target_type": target_type,
+                        "target_key": str(target_key),
+                        "reason": reason,
+                    }
+                )
+        statuses = [guest.responses[-offset][0] for offset in range(5, 0, -1)]
+        self.assertEqual(statuses, [200] * 5)
         self.assertEqual(
-            app.query_one("SELECT COUNT(*) AS n FROM content_reports")["n"], 3
+            app.query_one("SELECT COUNT(*) AS n FROM content_reports")["n"], 5
         )
+        # 待审留言依然不能举报：这是「对象不合法」，和登不登录无关
+        guest.api_site_report_create(
+            {
+                "target_type": "message",
+                "target_key": str(self.message_id),
+                "reason": "违法违规",
+            }
+        )
+        self.assertEqual(guest.responses[-1][0], 400)
 
     def test_log_retention_default_is_six_months(self):
         self.assertEqual(app.LOG_RETENTION_DAYS, 180)
+
+    def test_device_info_label_and_normalize(self):
+        """UA 自动识别：电脑端记「来自 Web」，移动端分 Android / iOS。"""
+        windows = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0"
+        android = "Mozilla/5.0 (Linux; Android 14; Pixel 7) Mobile Safari/537.36"
+        iphone = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148"
+        self.assertEqual(app.device_info_label(windows), "来自 Web")
+        self.assertEqual(app.device_info_label(android), "来自 Android")
+        self.assertEqual(app.device_info_label(iphone), "来自 iOS")
+        self.assertEqual(app.device_info_label(""), "来自 Web")
+
+        # 管理员自定义：补「来自 」前缀、压掉换行与多余空格、超长截断
+        self.assertEqual(app.normalize_device_info("iQOO 12 Pro"), "来自 iQOO 12 Pro")
+        self.assertEqual(app.normalize_device_info("  来自 iOS\n"), "来自 iOS")
+        self.assertEqual(app.normalize_device_info("iPad\nPro"), "来自 iPad Pro")
+        self.assertEqual(app.normalize_device_info(""), "")
+        self.assertEqual(
+            len(app.normalize_device_info("X" * 80)), app.DEVICE_INFO_MAX_CHARS
+        )
+
+    def test_message_device_info_auto_for_members_and_custom_for_admin(self):
+        """留言：普通账号 / 游客伪造的 device_info 被忽略，只有管理员能用自定义名称。"""
+        auto = self.make_handler(self.member(self.member_id), method="POST")
+        with patch.object(app, "notify_async", return_value=False):
+            auto.api_site_message_create({"content": "会员留言", "files": []})
+        row = app.query_one(
+            "SELECT device_info FROM site_messages WHERE content = ?", ("会员留言",)
+        )
+        self.assertEqual(row["device_info"], "来自 Web")
+
+        forged = self.make_handler(self.member(self.other_id), method="POST")
+        with patch.object(app, "notify_async", return_value=False):
+            forged.api_site_message_create(
+                {"content": "伪造设备", "files": [], "device_info": "iQOO 12 Pro"}
+            )
+        row = app.query_one(
+            "SELECT device_info FROM site_messages WHERE content = ?", ("伪造设备",)
+        )
+        self.assertEqual(row["device_info"], "来自 Web")
+
+        admin_identity = {"kind": "owner", "user_id": 0, "nickname": "管理员"}
+        admin = self.make_handler(admin_identity, admin=True, method="POST")
+        with patch.object(app, "notify_async", return_value=False):
+            admin.api_site_message_create(
+                {"content": "管理员留言", "files": [], "device_info": "iQOO 12 Pro"}
+            )
+            # 填了自定义名称但只有空格 → 退回自动识别
+            admin.api_site_message_create(
+                {"content": "管理员留空", "files": [], "device_info": "   "}
+            )
+        self.assertEqual(
+            app.query_one(
+                "SELECT device_info FROM site_messages WHERE content = ?",
+                ("管理员留言",),
+            )["device_info"],
+            "来自 iQOO 12 Pro",
+        )
+        self.assertEqual(
+            app.query_one(
+                "SELECT device_info FROM site_messages WHERE content = ?",
+                ("管理员留空",),
+            )["device_info"],
+            "来自 Web",
+        )
+
+        # 列表接口把设备信息一起下发给前端
+        board = self.make_handler(admin_identity, admin=True)
+        board.api_site_messages({})
+        rows = board.responses[-1][1]
+        target = [row for row in rows if row["content"] == "管理员留言"][0]
+        self.assertEqual(target["device_info"], "来自 iQOO 12 Pro")
+        auto_row = [row for row in rows if row["content"] == "伪造设备"][0]
+        self.assertEqual(auto_row["device_info"], "来自 Web")
+
+    def test_moment_device_info_requires_admin_and_survives_other_edits(self):
+        """动态：同一套权限；不带 device_info 的编辑（例如置顶）不会覆盖原值。"""
+        admin_identity = {"kind": "owner", "user_id": 0, "nickname": "管理员"}
+        member = self.make_handler(self.member(self.member_id), method="POST")
+        with patch.object(app, "notify_async", return_value=False):
+            member.api_moment_create(
+                {"content": "会员动态", "images": [], "device_info": "iQOO 12 Pro"}
+            )
+        self.assertEqual(
+            app.query_one(
+                "SELECT device_info FROM moments WHERE content = ?", ("会员动态",)
+            )["device_info"],
+            "来自 Web",
+        )
+
+        admin = self.make_handler(admin_identity, admin=True, method="POST")
+        with patch.object(app, "notify_async", return_value=False):
+            admin.api_moment_create(
+                {"content": "管理员动态", "images": [], "device_info": "iQOO 12 Pro"}
+            )
+        moment_id = int(
+            app.query_one(
+                "SELECT id FROM moments WHERE content = ?", ("管理员动态",)
+            )["id"]
+        )
+        self.assertEqual(
+            app.query_one(
+                "SELECT device_info FROM moments WHERE id = ?", (moment_id,)
+            )["device_info"],
+            "来自 iQOO 12 Pro",
+        )
+
+        def patch_moment(payload):
+            editor = self.make_handler(admin_identity, admin=True, method="PATCH")
+            with patch.object(app, "get_payload", return_value=payload):
+                editor.api_moment_item(f"/api/moments/{moment_id}")
+            self.assertEqual(editor.responses[-1][0], 200)
+
+        # 只改置顶：payload 里没有 device_info，自定义名称保持不变
+        patch_moment({"content": "管理员动态", "pinned": True})
+        self.assertEqual(
+            app.query_one(
+                "SELECT device_info FROM moments WHERE id = ?", (moment_id,)
+            )["device_info"],
+            "来自 iQOO 12 Pro",
+        )
+        # 编辑表单明确留空 → 回到自动识别
+        patch_moment({"content": "管理员动态", "device_info": ""})
+        self.assertEqual(
+            app.query_one(
+                "SELECT device_info FROM moments WHERE id = ?", (moment_id,)
+            )["device_info"],
+            "来自 Web",
+        )
+
+        board = self.make_handler(self.member(self.member_id))
+        board.api_moments({})
+        rows = board.responses[-1][1]
+        target = [row for row in rows if int(row["id"]) == moment_id][0]
+        self.assertEqual(target["device_info"], "来自 Web")
+
+    def test_recommendation_badges_split_between_web_and_resource(self):
+        """推荐提醒按内容拆开：站内分享只算「站内」那一栏，点开一栏只清一栏。"""
+        stamp = app.now_text()
+        resource_recommendation_id = app.execute(
+            """INSERT INTO recommendations
+                   (kind, title, resource_type, resource_id, created_at, updated_at)
+               VALUES ('resource', '分享的笔记', 'note', 1, ?, ?)""",
+            (stamp, stamp),
+        )
+        app.add_user_notification(
+            self.member_id,
+            "recommendation_new",
+            "recommendations",
+            self.recommendation_id,
+            "管理员",
+            "新增了一条推荐",
+        )
+        app.add_user_notification(
+            self.member_id,
+            "recommendation_new",
+            "recommendations",
+            resource_recommendation_id,
+            "管理员",
+            "新增了一条推荐",
+        )
+        handler = self.make_handler(self.member(self.member_id))
+        summary = handler.notification_summary()
+        # 总数保持不变（首页「推荐」入口用的是它），另外两栏各算各的
+        self.assertEqual(summary["recommendations"], 2)
+        self.assertEqual(summary["recommendation_web"], 1)
+        self.assertEqual(summary["recommendation_resource"], 1)
+
+        # 点开「站内」：只清站内那一半，网页的角标留着
+        handler.api_site_notifications_seen(
+            {"module": "recommendations", "scope": "resource"}
+        )
+        self.assertEqual(handler.responses[-1][0], 200)
+        summary = handler.notification_summary()
+        self.assertEqual(summary["recommendation_resource"], 0)
+        self.assertEqual(summary["recommendation_web"], 1)
+        self.assertEqual(summary["recommendations"], 1)
+
+        # 点开「网页」：清掉另一半
+        handler.api_site_notifications_seen(
+            {"module": "recommendations", "scope": "web"}
+        )
+        summary = handler.notification_summary()
+        self.assertEqual(summary["recommendation_web"], 0)
+        self.assertEqual(summary["recommendations"], 0)
+        self.assertEqual(
+            app.query_one(
+                """SELECT COUNT(*) AS n FROM user_notifications
+                   WHERE user_id = ? AND seen_at IS NULL""",
+                (self.member_id,),
+            )["n"],
+            0,
+        )
 
     def test_back_to_top_is_loaded_on_content_pages(self):
         pages = (

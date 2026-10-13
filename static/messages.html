@@ -60,6 +60,15 @@
               <input type="checkbox" id="msgShowRegion">
               <span>公开 IP 属地</span>
             </label>
+            <!-- 设备信息（只有管理员看得到）：勾选后用自定义名称，留空或没勾选就按 UA 自动识别 -->
+            <div class="mg-device-field" id="msgDeviceField" hidden>
+              <label class="mg-device-toggle">
+                <input type="checkbox" id="msgUseDevice">
+                <span>设备名称（可选）</span>
+              </label>
+              <input class="mg-device-input" id="msgDeviceInput" type="text" maxlength="40"
+                     placeholder="例如 iQOO 12 Pro">
+            </div>
             <p class="mg-quota" id="messageQuota" hidden></p>
           </div>
         </form>

@@ -304,56 +304,70 @@
 
 .dock-map-toast {
   position: fixed;
-  right: 20px;
+  /*
+   * 以足迹入口的圆心为参考点居中：right 收到圆心位置，再用 translateX(50%)
+   * 把自己拉回中间（和上面的 .dock-hud 用的是同一套算法）。
+   */
+  right: calc(20px + clamp(108px, 9vw, 144px) / 2);
   bottom: calc(22px + env(safe-area-inset-bottom, 0px) + clamp(108px, 9vw, 144px) + 42px);
   z-index: 71;
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: rgba(26, 26, 34, 0.9);
+  /* 文案气泡与留言 / 动态 / 推荐页的提示条同一套：8px 圆角、同样的内边距与投影 */
+  padding: 10px 16px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: #0f0f10;
   color: #fff;
-  font-size: clamp(11px, 0.55vw, 13px);
+  font-size: 13px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
   white-space: nowrap;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(6px);
+  transform: translate(50%, 6px);
   transition: opacity 0.18s ease, transform 0.18s ease;
 }
 
 .dock-map-toast.is-visible {
   opacity: 1;
-  transform: translateY(0);
+  transform: translate(50%, 0);
 }
 
 /* 提示条跟着主题走：浅色主题浅底深字，深色主题维持原来的深底白字 */
 :root:not([data-theme="dark"]) .dock-map-toast {
-  background: rgba(255, 255, 255, 0.96);
+  background: rgba(255, 255, 255, 0.97);
   color: #1b1f27;
   border: 1px solid rgba(24, 31, 45, 0.14);
 }
 
 @media (max-width: 640px) {
   .dock-map-toast {
-    right: 12px;
+    right: calc(12px + 92px / 2);
     bottom: calc(12px + env(safe-area-inset-bottom, 0px) + 92px + 30px);
-    transform: translateY(6px);
-    font-size: 10.5px;
+    transform: translate(50%, 6px);
   }
 
   .dock-map-toast.is-visible {
-    transform: translateY(0);
+    transform: translate(50%, 0);
   }
 }
 
 @media (min-width: 1600px) {
   .dock-map-toast {
-    right: 28px;
+    right: calc(28px + clamp(144px, 8vw, 168px) / 2);
     bottom: calc(32px + env(safe-area-inset-bottom, 0px) + clamp(144px, 8vw, 168px) + 42px);
   }
 }
 
 @media (min-width: 2100px) {
   .dock-map-toast {
-    right: 40px;
+    right: calc(40px + clamp(176px, 7.4vw, 200px) / 2);
     bottom: calc(44px + env(safe-area-inset-bottom, 0px) + clamp(176px, 7.4vw, 200px) + 42px);
+  }
+}
+
+/* 3000px 以上圆盘固定成 216px：提示条继续跟着圆心居中 */
+@media (min-width: 3000px) {
+  .dock-map-toast {
+    right: calc(52px + 108px);
+    bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 216px + 42px);
   }
 }

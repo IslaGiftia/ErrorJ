@@ -299,6 +299,27 @@
     return sendBusy.fill;
   }
 
+  // ---------- 设备信息（只有管理员能自定义，其他人一律用 UA 自动识别） ----------
+
+  function deviceInfoValue() {
+    var box = $("msgUseDevice");
+    var input = $("msgDeviceInput");
+    if (!isAdmin || !box || !input || !box.checked) return "";
+    return input.value.trim();
+  }
+
+  function resetDeviceInfoField() {
+    if ($("msgDeviceInput")) $("msgDeviceInput").value = "";
+    if ($("msgUseDevice")) $("msgUseDevice").checked = false;
+  }
+
+  if ($("msgDeviceInput")) {
+    // 填了内容就自动勾上「使用自定义名称」；清空则取消勾选，回到自动识别
+    $("msgDeviceInput").addEventListener("input", function (event) {
+      $("msgUseDevice").checked = Boolean(event.target.value.trim());
+    });
+  }
+
   $("messageForm").addEventListener("submit", function (event) {
     event.preventDefault();
     if (sendBusy.active) return;
@@ -332,6 +353,8 @@
         files: files,
         show_region: $("msgShowRegion").checked,
       };
+      // 设备信息：管理员才带这个字段（空串 = 让后端按 UA 自动识别），其他人不传
+      if (isAdmin) payload.device_info = deviceInfoValue();
       if (!withFiles) {
         return api("/api/site/messages", {
           method: "POST",
@@ -353,6 +376,7 @@
       return task.promise;
     }).then(function (result) {
       $("msgContent").value = "";
+      resetDeviceInfoField();
       pendingFiles = [];
       renderPending();
       toast(
@@ -907,8 +931,7 @@
         "data-report-title",
         "留言：" + (message.content || "").slice(0, 40)
       );
-      reportBtn.setAttribute("data-report-login", "1");
-      // report.js 的全局点击委托会接着弹举报框，这里只负责收起菜单
+      // 举报留言不要求登录（游客也能举报）；report.js 的全局点击委托会接着弹举报框，这里只负责收起菜单
       reportBtn.addEventListener("click", function () {
         closeAllMoreMenus();
       });
@@ -952,6 +975,10 @@
     var head = el("div", "mg-item-head");
     head.appendChild(el("span", "mg-nick", message.nickname || "匿名"));
     head.appendChild(el("span", "mg-time", formatTime(message.created_at)));
+    // 设备信息（来自 Web / Android / iOS，或管理员自定义的名称）
+    if (message.device_info) {
+      head.appendChild(el("span", "mg-device", message.device_info));
+    }
     if (message.region) {
       head.appendChild(el("span", "mg-region", message.region));
     }
@@ -1427,6 +1454,7 @@
       ? "管理员"
       : String(status.username || status.nickname || "");
     $("messageComposerPanel").hidden = !canPost;
+    $("msgDeviceField").hidden = !isAdmin;
     if (canPost) {
       initMessageFilters();
       loadQuota();
@@ -1434,7 +1462,9 @@
     return loadMessages().then(pollMessageNotifications);
   }).catch(function () {
     canPost = false;
+    isAdmin = false;
     $("messageComposerPanel").hidden = true;
+    $("msgDeviceField").hidden = true;
     return loadMessages();
   });
   document.addEventListener("visibilitychange", function () {

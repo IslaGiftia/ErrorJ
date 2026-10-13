@@ -218,6 +218,60 @@ body {
   min-width: 0;
 }
 
+/* 设备信息（只有管理员看得到）：和「公开 IP 属地」同一行的复选框 + 一个短输入框 */
+.mg-device-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mg-device-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--mg-muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mg-device-toggle input {
+  margin: 0;
+  accent-color: var(--mg-accent);
+}
+
+.mg-device-input {
+  width: 180px;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--mg-border);
+  border-radius: 7px;
+  background: var(--mg-surface);
+  color: var(--mg-text);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.mg-device-input:focus {
+  border-color: var(--mg-accent);
+  outline: 0;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mg-accent) 13%, transparent);
+}
+
+/* 卡片头部：设备信息和时间同一套小灰字 */
+.mg-device {
+  color: var(--mg-faint);
+  font-size: 12px;
+}
+
+.mg-device::before {
+  margin-right: 6px;
+  content: "·";
+}
+
 .mg-btn {
   display: inline-flex;
   align-items: center;
@@ -387,7 +441,11 @@ body {
   transition: transform 0.18s ease;
 }
 
-.mg-filter-dock.is-open .mg-filter-btn {
+/*
+ * 只点亮「全部留言」这一颗：旁边的「发送留言」同样是 .mg-filter-btn，
+ * 打开筛选菜单时不该跟着亮出紫色边框（和动态页「写动态」的行为对齐）。
+ */
+.mg-filter-dock.is-open .mg-filter-btn:not(.mg-send-float) {
   border-color: color-mix(in srgb, var(--mg-accent) 46%, var(--mg-border));
 }
 
@@ -1335,6 +1393,16 @@ button.mg-file {
 
   .mg-compose-meta .mg-region-toggle {
     flex: 1 1 100%;
+  }
+
+  /* 手机：设备信息整行铺开，输入框自己占满剩下的宽度 */
+  .mg-device-field {
+    flex: 1 1 100%;
+  }
+
+  .mg-device-input {
+    flex: 1;
+    width: auto;
   }
 
   /* 回复框在手机上换成「输入框 + 发送」两列，两个控件同高同中线 */

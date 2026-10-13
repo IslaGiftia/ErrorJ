@@ -242,6 +242,27 @@
     return publishBusy.fill;
   }
 
+  // ---------- 设备信息（只有管理员能自定义，其他人一律用 UA 自动识别） ----------
+
+  function deviceInfoValue() {
+    var box = $("momentUseDevice");
+    var input = $("momentDeviceInput");
+    if (!canManageMoments || !box || !input || !box.checked) return "";
+    return input.value.trim();
+  }
+
+  function resetDeviceInfoField() {
+    if ($("momentDeviceInput")) $("momentDeviceInput").value = "";
+    if ($("momentUseDevice")) $("momentUseDevice").checked = false;
+  }
+
+  if ($("momentDeviceInput")) {
+    // 填了内容就自动勾上「使用自定义名称」；清空则取消勾选，回到自动识别
+    $("momentDeviceInput").addEventListener("input", function (event) {
+      $("momentUseDevice").checked = Boolean(event.target.value.trim());
+    });
+  }
+
   $("momentForm").addEventListener("submit", function (event) {
     event.preventDefault();
     if (publishBusy.active) return;
@@ -276,6 +297,8 @@
         images: images,
         show_region: $("momentShowRegion").checked,
       };
+      // 设备信息：管理员才带这个字段（空串 = 让后端按 UA 自动识别），其他人不传
+      if (canManageMoments) payload.device_info = deviceInfoValue();
       if (!withImages) {
         return api("/api/moments", {
           method: "POST",
@@ -298,6 +321,7 @@
     }).then(function () {
       $("momentContent").value = "";
       $("momentTags").value = "";
+      resetDeviceInfoField();
       pendingImages = [];
       renderPending();
       toast("已发布");
@@ -794,7 +818,6 @@
           "data-report-title",
           "动态：" + String(item.report.content || "").slice(0, 40)
         );
-        node.setAttribute("data-report-login", "1");
       }
       node.addEventListener("click", function () {
         closeAllMoreMenus();
@@ -1044,6 +1067,10 @@
     );
     if (moment.region) {
       head.appendChild(el("span", "mo-region", moment.region));
+    }
+    // 设备信息（来自 Web / Android / iOS，或管理员自定义的名称）
+    if (moment.device_info) {
+      head.appendChild(el("span", "mo-device", moment.device_info));
     }
     body.appendChild(head);
 
@@ -1542,6 +1569,11 @@
         detail.appendChild(ul);
         li.append(btn, detail);
         btn.addEventListener("click", function () {
+          // 游客只看得到这一行的标题，展开日志正文要先登录
+          if (!canInteract) {
+            toast("请登录后操作");
+            return;
+          }
           var open = !li.classList.contains("is-open");
           li.classList.toggle("is-open", open);
           detail.hidden = !open;
@@ -1554,6 +1586,8 @@
   }
 
   function applyLogMonth(panel, open) {
+    // 游客：月份只留一行标题，展开（看当天日志）要先登录
+    if (!canInteract) open = false;
     if (open && !panel.built) {
       buildLogMonthBody(panel.body, panel.rows);
       panel.built = true;
@@ -1577,8 +1611,9 @@
       byMonth[key].push(row);
     });
     if (!order.length) return;
-    // 默认展开最近 1 个月；用户手动开合过就沿用他的选择
-    if (!Object.keys(logMonthOpen).length) logMonthOpen[order[0]] = true;
+    // 默认展开最近 1 个月；用户手动开合过就沿用他的选择。
+    // 游客不让展开，所以也不替他默认展开。
+    if (canInteract && !Object.keys(logMonthOpen).length) logMonthOpen[order[0]] = true;
 
     var panels = [];
     order.forEach(function (key) {
@@ -1601,6 +1636,10 @@
       var panel = { key: key, section: section, header: header, body: body, rows: byMonth[key], built: false };
       panels.push(panel);
       header.addEventListener("click", function () {
+        if (!canInteract) {
+          toast("请登录后操作");
+          return;
+        }
         applyLogMonth(panel, !section.classList.contains("is-open"));
       });
     });
@@ -1733,6 +1772,7 @@
   api("/api/auth/status").then(function (status) {
     canManageMoments = Boolean(status.admin);
     canInteract = Boolean(status.authenticated);
+    $("momentDeviceField").hidden = !canManageMoments;
     viewerLikeName = status.owner
       ? "管理员"
       : String(status.username || status.nickname || "");
@@ -1742,6 +1782,7 @@
     return loadMoments().then(pollMomentNotifications);
   }).catch(function () {
     canManageMoments = false;
+    $("momentDeviceField").hidden = true;
     applyKindVisibility();
     return loadMoments();
   });

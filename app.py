@@ -436,8 +436,8 @@ MESSAGE_FILE_MAX_BYTES = 5 * 1024 * 1024
 MESSAGE_FILE_TOTAL_MAX_BYTES = 15 * 1024 * 1024
 MESSAGE_FILE_MAX_COUNT = 3
 MESSAGE_DAILY_LIMIT = 9
+DEVICE_INFO_MAX_CHARS = 40
 REPORT_TARGET_TYPES = ("message", "moment", "book", "recommendation", "music")
-REPORT_LOGIN_REQUIRED_TARGETS = {"message", "moment"}
 REPORT_TARGET_LABELS = {
     "message": "留言",
     "moment": "动态",
@@ -906,6 +906,7 @@ def init_db():
                 reviewed_by TEXT,
                 reviewed_at TEXT,
                 review_note TEXT,
+                device_info TEXT,
                 created_at TEXT NOT NULL
             );
 
@@ -950,6 +951,7 @@ def init_db():
                 show_region INTEGER NOT NULL DEFAULT 0,
                 -- post = 手动发布的动态；log = 更新日志（由导入脚本写入）
                 kind TEXT NOT NULL DEFAULT 'post',
+                device_info TEXT,
                 created_at TEXT NOT NULL
             );
 
@@ -1648,6 +1650,13 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
         ):
             if column not in music_columns:
                 conn.execute(ddl)
+        # 「设备信息」：留言和动态都记录一条「来自 Web / Android / iOS」或管理员自定义的名称
+        for table in ("site_messages", "moments"):
+            table_columns = {
+                row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+            }
+            if "device_info" not in table_columns:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN device_info TEXT")
         user_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()
         }
@@ -5651,6 +5660,32 @@ def describe_user_agent(user_agent):
     return f"{device} · {browser}"
 
 
+def device_info_label(user_agent):
+    """
+    留言 / 动态卡片上展示的「设备信息」自动识别结果：
+    移动端按 UA 关键字分 Android / iOS，其它（电脑端）统一记「来自 Web」。
+    """
+    text = str(user_agent or "")
+    if re.search(r"iPhone|iPad|iPod", text, re.I):
+        return "来自 iOS"
+    if re.search(r"Android", text, re.I):
+        return "来自 Android"
+    return "来自 Web"
+
+
+def normalize_device_info(value):
+    """
+    管理员自定义的设备名称：压掉换行与多余空格、限长，并补上「来自 」前缀，
+    保证和自动识别出来的文案是同一个形状。空值返回空串（表示退回自动识别）。
+    """
+    text = re.sub(r"\s+", " ", str(value or "")).strip()[:DEVICE_INFO_MAX_CHARS]
+    if not text:
+        return ""
+    if not text.startswith("来自"):
+        text = "来自 " + text
+    return text[:DEVICE_INFO_MAX_CHARS]
+
+
 def write_activity(
     actor,
     action,
@@ -6495,7 +6530,13 @@ def unseen_notification_rows(user_id):
     )
 
 
-def mark_notifications_seen(user_id, module, target_id=None):
+def mark_notifications_seen(user_id, module, target_id=None, scope=""):
+    """
+    把某个模块的未读提醒标记为已读。
+
+    scope 只对推荐模块有意义：「网页」和「站内资源」两栏共用 recommendations 模块，
+    scope="web" / "resource" 时只清掉对应那部分，另一栏的角标留着。
+    """
     if user_id is None:
         return 0
     user_id = int(user_id)
@@ -6507,6 +6548,26 @@ def mark_notifications_seen(user_id, module, target_id=None):
                WHERE user_id = ? AND module = ? AND target_id = ?
                  AND seen_at IS NULL""",
             (now_text(), user_id, module, int(target_id)),
+        )
+        return 1
+    if scope == "resource":
+        execute(
+            """UPDATE user_notifications SET seen_at = ?
+               WHERE user_id = ? AND module = ? AND seen_at IS NULL
+                 AND target_id IN (
+                     SELECT id FROM recommendations WHERE kind = 'resource'
+                 )""",
+            (now_text(), user_id, module),
+        )
+        return 1
+    if scope == "web":
+        execute(
+            """UPDATE user_notifications SET seen_at = ?
+               WHERE user_id = ? AND module = ? AND seen_at IS NULL
+                 AND target_id NOT IN (
+                     SELECT id FROM recommendations WHERE kind = 'resource'
+                 )""",
+            (now_text(), user_id, module),
         )
         return 1
     execute(
@@ -10110,8 +10171,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         raw_target = payload.get("target_id")
         target_id = int(raw_target) if str(raw_target or "").isdigit() else None
+        # 推荐模块的提醒分「网页」和「站内资源」两栏：点开哪一栏只清哪一栏
+        scope = str(payload.get("scope") or "").strip()
+        if scope not in ("", "web", "resource"):
+            scope = ""
         mark_notifications_seen(
-            int(identity.get("user_id") or 0), module, target_id
+            int(identity.get("user_id") or 0), module, target_id, scope
         )
         self.send_json(200, {"ok": True, "cleared": 1})
 
@@ -10125,6 +10190,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
             "music": 0,
             "books": 0,
             "recommendations": 0,
+            "recommendation_web": 0,
+            "recommendation_resource": 0,
             "workbench": 0,
             "pending_users": 0,
             "pending_reviews": 0,
@@ -10140,6 +10207,23 @@ class InventoryHandler(BaseHTTPRequestHandler):
         unseen = unseen_notifications(user_id)
         for module in ("messages", "moments", "music", "books", "recommendations"):
             summary[module] = int((unseen.get(module) or {}).get("count") or 0)
+        # 推荐条数按内容类型拆开：分享出来的站内资源只算「站内」那一栏
+        summary["recommendation_web"] = summary["recommendations"]
+        if summary["recommendations"]:
+            resource_unread = int(
+                query_one(
+                    """SELECT COUNT(*) AS n
+                       FROM user_notifications un
+                       JOIN recommendations r ON r.id = un.target_id
+                       WHERE un.user_id = ? AND un.module = 'recommendations'
+                         AND un.seen_at IS NULL AND r.kind = 'resource'""",
+                    (user_id,),
+                )["n"]
+            )
+            summary["recommendation_resource"] = resource_unread
+            summary["recommendation_web"] = max(
+                0, summary["recommendations"] - resource_unread
+            )
         if identity.get("kind") in ("owner", "admin"):
             summary["admin"] = True
             last_seen = message_last_seen(user_id)
@@ -10332,7 +10416,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         all_rows = query(
             """SELECT id, nickname, content, parent_id, user_id, ip, ip_region,
                       show_region, status, reviewed_by, reviewed_at, review_note,
-                      created_at
+                      device_info, created_at
                FROM site_messages
                ORDER BY COALESCE(parent_id, id) DESC, id ASC"""
         )
@@ -10444,6 +10528,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
             row["region"] = (
                 normalize_region(row.get("ip_region")) if row.get("show_region") else ""
             )
+            # 设备信息是公开展示字段：老数据没有就返回空串，前端不渲染
+            row["device_info"] = str(row.get("device_info") or "")
             row["pending_review"] = row.get("status") == "pending"
             row["rejected"] = row.get("status") == "rejected"
             row["can_reply"] = bool(
@@ -10549,7 +10635,23 @@ class InventoryHandler(BaseHTTPRequestHandler):
             prepared.append((name, raw, mime_type, stored_name))
         return prepared, ""
 
+    def device_info_for(self, payload):
+        """
+        留言 / 动态要落库的「设备信息」：
+        默认按 User-Agent 自动识别（来自 Web / Android / iOS）；
+        只有管理员能用 payload 里的 device_info 覆盖自定义名称，其他人传了也一律忽略，
+        防止普通账号或游客伪造设备名称。
+        """
+        auto = device_info_label(self.headers.get("User-Agent"))
+        if not self.is_admin():
+            return auto
+        return normalize_device_info((payload or {}).get("device_info")) or auto
+
     def api_site_message_create(self, payload):
+        """
+        发布留言 / 回复。设备信息默认按 User-Agent 自动识别，
+        只有管理员能用 payload 里的 device_info 自定义（其他人传了也会被丢掉）。
+        """
         identity = self.session_identity()
         if not identity:
             api_error(self, 401, "请登录后操作")
@@ -10617,6 +10719,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         client_ip = self.client_ip()
         show_region = 1 if payload.get("show_region") is True else 0
         ip_region = lookup_ip_region(client_ip) if show_region else ""
+        device_info = self.device_info_for(payload)
         saved = []
         storage_limit = upload_limit("message_file")["max_file_bytes"]
         try:
@@ -10641,8 +10744,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
             cursor = conn.execute(
                 """INSERT INTO site_messages
                        (nickname, content, parent_id, user_id, ip, ip_region,
-                        show_region, status, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        show_region, status, device_info, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     nickname,
                     content,
@@ -10652,6 +10755,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     ip_region,
                     show_region,
                     message_status,
+                    device_info,
                     created_at,
                 ),
             )
@@ -10851,7 +10955,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
         identity = self.session_identity()
         viewer_signed_in = identity is not None
         rows = query(
-            """SELECT id, content, tags, pinned, ip, ip_region, show_region, kind, created_at
+            """SELECT id, content, tags, pinned, ip, ip_region, show_region, kind,
+                      device_info, created_at
                FROM moments
                ORDER BY pinned DESC, created_at DESC, id DESC"""
         )
@@ -10948,6 +11053,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             row["region"] = (
                 normalize_region(row.get("ip_region")) if row.get("show_region") else ""
             )
+            row["device_info"] = str(row.get("device_info") or "")
             row.pop("ip", None)
             row.pop("ip_region", None)
             row.pop("show_region", None)
@@ -11098,6 +11204,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         return prepared, ""
 
     def api_moment_create(self, payload):
+        """发布动态。设备信息同留言：自动识别，只有管理员能自定义。"""
         try:
             content, tags = self.moment_payload(payload)
         except ValueError as exc:
@@ -11114,6 +11221,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         client_ip = self.client_ip()
         show_region = 1 if payload.get("show_region") is True else 0
         ip_region = lookup_ip_region(client_ip) if show_region else ""
+        device_info = self.device_info_for(payload)
         saved = []
         storage_limit = upload_limit("moment_image")["max_file_bytes"]
         try:
@@ -11131,9 +11239,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
         def write(conn):
             cursor = conn.execute(
                 """INSERT INTO moments
-                       (content, tags, pinned, ip, ip_region, show_region, kind, created_at)
-                   VALUES (?, ?, 0, ?, ?, ?, 'post', ?)""",
-                (content, tags, client_ip, ip_region, show_region, created_at),
+                       (content, tags, pinned, ip, ip_region, show_region, kind,
+                        device_info, created_at)
+                   VALUES (?, ?, 0, ?, ?, ?, 'post', ?, ?)""",
+                (content, tags, client_ip, ip_region, show_region, device_info, created_at),
             )
             moment_id = cursor.lastrowid
             for name, relative, size in saved:
@@ -11206,9 +11315,15 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 api_error(self, 400, "说说内容不能为空。")
                 return
         pinned = 1 if payload.get("pinned", current.get("pinned")) else 0
+        # 设备信息：编辑表单提交时按「填了就自定义、留空回自动识别」处理；
+        # 只发置顶之类的请求不会带这个字段，原值保持不变。
+        device_info = current.get("device_info")
+        if "device_info" in payload:
+            device_info = self.device_info_for(payload)
         execute(
-            "UPDATE moments SET content = ?, tags = ?, pinned = ? WHERE id = ?",
-            (content, tags, pinned, moment_id),
+            """UPDATE moments SET content = ?, tags = ?, pinned = ?, device_info = ?
+               WHERE id = ?""",
+            (content, tags, pinned, device_info, moment_id),
         )
         self.log_activity(
             "moment_update",
@@ -13728,14 +13843,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
             },
         )
 
-    def report_target(self, target_type, target_key, identity):
-        """校验举报对象并返回可长期保存的内容快照。"""
+    def report_target(self, target_type, target_key):
+        """校验举报对象并返回可长期保存的内容快照。所有公开内容游客也能举报。"""
         target_type = str(target_type or "").strip()
         target_key = str(target_key or "").strip()[:80]
         if target_type not in REPORT_TARGET_TYPES or not target_key:
             raise ValueError("举报对象不正确。")
-        if target_type in REPORT_LOGIN_REQUIRED_TARGETS and not identity:
-            raise PermissionError("请登录后操作")
 
         if target_type == "message":
             if not target_key.isdigit():
@@ -13859,7 +13972,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 400, "请选择举报理由。")
             return
         try:
-            target_title, snapshot = self.report_target(target_type, target_key, identity)
+            target_title, snapshot = self.report_target(target_type, target_key)
         except PermissionError as exc:
             api_error(self, 401, str(exc))
             return
