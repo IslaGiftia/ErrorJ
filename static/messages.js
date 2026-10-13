@@ -90,7 +90,21 @@
     var value = String(text || "");
     var match = value.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
     if (!match) return value;
-    return match[2] + "-" + match[3] + " " + match[4] + ":" + match[5];
+    var then = new Date(
+      Number(match[1]),
+      Number(match[2]) - 1,
+      Number(match[3]),
+      Number(match[4]),
+      Number(match[5])
+    );
+    var seconds = Math.max(0, Math.round((Date.now() - then.getTime()) / 1000));
+    var stamp =
+      match[1] + "-" + match[2] + "-" + match[3] + " " + match[4] + ":" + match[5];
+    if (seconds < 60) return "刚刚";
+    if (seconds < 3600) return Math.round(seconds / 60) + " 分钟前";
+    if (seconds < 86400) return Math.round(seconds / 3600) + " 小时前";
+    if (seconds < 86400 * 7) return Math.round(seconds / 86400) + " 天前";
+    return stamp;
   }
 
   function refreshIcons() {
@@ -704,6 +718,13 @@
     });
   }
 
+  /* 游客看到的「回复」只是占位：点击提示先登录，不展开输入框 */
+  function bindGuestReply(btn) {
+    btn.addEventListener("click", function () {
+      toast("请登录后操作");
+    });
+  }
+
   function buildLikeControl(targetType, target) {
     var wrap = el("div", "mg-like");
     var btn = el("button", "mg-like-btn");
@@ -1010,17 +1031,22 @@
     var rootForm = null;
     var canDelete = Boolean(message.can_delete);
     var canReport = message.status === "approved" && !message.mine;
-    if (canPost || canDelete || canReport) {
+    // 游客也要保留「回复」入口占位，点了再提示登录，所以这里带上 can_reply
+    if (canPost || canDelete || canReport || message.can_reply) {
       var actions = el("div", "mg-item-actions");
-      if (canPost && message.can_reply) {
+      if (message.can_reply) {
         var replyBtn = el("button", "mg-link-btn", "回复");
         replyBtn.type = "button";
         actions.append(replyBtn);
-        rootForm = buildReplyForm(
-          message.id,
-          "回复 " + (message.nickname || "这条留言") + "…"
-        );
-        bindReplyToggle(replyBtn, rootForm);
+        if (canPost) {
+          rootForm = buildReplyForm(
+            message.id,
+            "回复 " + (message.nickname || "这条留言") + "…"
+          );
+          bindReplyToggle(replyBtn, rootForm);
+        } else {
+          bindGuestReply(replyBtn);
+        }
       }
       /*
        * 举报 / 删除收进右下角的「三个点」，和「回复」同一行；自己发的不能举报，
@@ -1060,18 +1086,23 @@
       if (replyFiles.length) {
         row.appendChild(buildFiles(replyFiles));
       }
-      if (canPost) {
+      // 游客同样保留「回复」占位按钮，点了提示登录
+      if (canPost || reply.can_reply) {
         var replyActions = el("div", "mg-item-actions");
         var subReplyBtn = el("button", "mg-link-btn", "回复");
         subReplyBtn.type = "button";
         replyActions.appendChild(subReplyBtn);
         row.appendChild(replyActions);
-        var subForm = buildReplyForm(
-          reply.id,
-          "回复 " + (reply.nickname || "这条回复") + "…"
-        );
-        bindReplyToggle(subReplyBtn, subForm);
-        row.appendChild(subForm);
+        if (canPost) {
+          var subForm = buildReplyForm(
+            reply.id,
+            "回复 " + (reply.nickname || "这条回复") + "…"
+          );
+          bindReplyToggle(subReplyBtn, subForm);
+          row.appendChild(subForm);
+        } else {
+          bindGuestReply(subReplyBtn);
+        }
       }
       repliesBox.appendChild(row);
     });
