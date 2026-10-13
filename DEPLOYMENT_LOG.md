@@ -4034,3 +4034,67 @@ iOS「添加到主屏幕」用的 `error-chan-touch.png`（180px）按站长要�
 
 备注：本轮 `app.py` 有改动（游客可读负载、举报类型、连接层修复），线上生效依赖这次重启；
 静态文件每次请求读磁盘，`git pull` 后立即生效（已用 SHA256 逐文件比对确认）。
+
+## 104. 2026-10-13 12:41:41 游客举报开放、设备信息上线与推荐 / 留言细节修正
+
+背景：站长连续提了三批需求，一起打包发布 —— 游客也能举报留言 / 动态；留言和动态增加设备信息；
+以及首页足迹提示对齐、开发日志对游客上锁、推荐页角标归位、留言页筛选按钮四处的细节修正。
+
+完成内容（提交 `7559762 feat:open-guest-reports-add-device-info-and-fix-recommend-ui`，16 文件，+675/−86）：
+
+- **游客举报**：`report_target` 去掉「留言 / 动态必须登录」的判断（删掉 `REPORT_LOGIN_REQUIRED_TARGETS`），
+  留言页 / 动态页「三个点」里的举报按钮不再带 `data-report-login`，游客提交后管理端举报队列记录为「游客」；
+  每 IP 每小时 10 次、同一内容 24 小时一次的限流照旧。
+- **设备信息**：`site_messages` / `moments` 各加一列 `device_info`（建表 + `init_db` 里的 ALTER）。
+  `device_info_label(ua)` 按 UA 识别「来自 Web / Android / iOS」，`device_info_for(payload)` 只在管理员时
+  才接受自定义名称（`normalize_device_info` 压空白、补前缀、限长 40 字），其他人伪造一律忽略；
+  留言 / 动态编辑区在「公开 IP 属地」旁边给管理员加「设备名称（可选）」复选框 + 输入框（默认不勾选、
+  填了内容自动勾选），卡片头部在时间后显示 `· 来自 X`；只改置顶之类的 PATCH 不带该字段、原值不变。
+- **开发日志对游客上锁**（`moments.js`）：游客只渲染月份那一行（默认一个都不展开），
+  月份和单条日志的展开箭头都改成提示「请登录后操作」并保持收起；登录账号照旧默认展开最近一个月。
+- **推荐页角标归位**：`notification_summary` 把推荐模块拆成 `recommendation_web` / `recommendation_resource`
+  （总数 `recommendations` 保持不变，首页「推荐」入口仍按总数算），`mark_notifications_seen` 支持
+  `scope=web|resource` 只清一半；`downloads.html` 给「站内」那颗图标补上缺失的角标位，`downloads.js`
+  两栏各自计数、点开只清自己那一半并给有角标的那颗加 `has-pending`，`downloads.css` 恢复
+  3.6s 的 `dlTabPulse` 呼吸（`prefers-reduced-motion` 下关闭）。
+- **首页足迹提示**：`dock-map-toast` 改成以圆盘圆心为参考居中（`right` 收到圆心 + `translateX(50%)`，
+  和 `.dock-hud` 同一套算法，3000px 以上也补了断点），样式对齐站内其它提示条（8px 圆角、
+  10/16 内边距、同样的投影与深浅色配色）。
+- **留言页筛选按钮**：`.mg-filter-dock.is-open .mg-filter-btn:not(.mg-send-float)` —— 打开「全部留言」
+  只点亮筛选按钮本身，「发送留言」不再跟着亮紫框（和动态页「写动态」一致）。
+- 文档：README / PROJECT_SUMMARY / references 同步以上行为；`/reporting` 说明页改成「游客无需登录也能提交举报」。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 113 项全过
+      node --check 改动过的 JS；python -m json.tool config/changelog-seed.json；git diff --check 干净
+      浏览器验收（本地临时库副本 + 8012 端口，56 项全过）：含足迹提示居中（桌面 1440x900 / 手机 390x844）、
+      游客开发日志拦截、站内 2 条 / 网页 1 条角标不串号 + dlTabPulse、留言筛选按钮边框不变、设备信息、
+      游客举报留言 / 动态并入队
+提交：7559762（fetch/push 后本地 == origin/main == 7559762）
+备份：/data/errorjiang-backup/20261013-1242/（停服后复制 inventory.db 3899392 字节
+      与 changelog-seed.json 76952 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only 0c8a9b7 -> 7559762；本轮有表结构变更，先跑
+      runuser -u errorjiang -- python3 -c 'import app; app.init_db()'（migration-ok，
+      site_messages / moments 的 device_info 均已就位）
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 376e081c…3cc5 一致）
+      import_changelog_moments.py --date 2026-10-13 --force -> 该日期 8 条（新增 8 / 覆盖 0，无重复）
+      systemctl restart errorjiang
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 7559762，/api/health = {"ok": true}
+更新日志    -> /api/moments 里 2026-10-13 12:41:41「游客可直接举报、设备信息上线，开发日志与推荐角标修正」
+              （id=464，kind=log；该日期共 8 条，无重复）
+线上前端    -> minimap.css / downloads.js / downloads.html / moments.js / messages.css 的线上抓取 SHA256
+              与服务器磁盘一致（c5200433…、50e0f1c7…、56eae57f…、1d80516a…、f28eed67…）；
+              线上 downloads.html 四处角标位齐全（含「站内」），CSS 里有 has-pending / dlTabPulse、
+              足迹提示的 translate(50%, 6px) 与 8px 圆角、留言筛选按钮的 :not(.mg-send-float)
+线上页面    -> 游客（无登录）：首页点足迹圆盘 -> 提示条中心与圆盘中心都是 1355（桌面）/ 332（手机 390x844），
+              圆角 8px；/moments?kind=log -> 3 行月份、默认 0 个展开，点箭头弹「请登录后操作」且仍未展开
+              游客请求 /api/site/notifications/summary 仍返回 401「请登录后操作」（接口保持登录后才可读）
+```
+
+备注：本轮 `app.py` 有改动（举报权限、设备信息、通知拆分），线上生效依赖这次重启；
+静态文件每次请求读磁盘，`git pull` 后立即生效（已用 SHA256 逐文件比对确认）。
