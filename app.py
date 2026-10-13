@@ -5662,14 +5662,19 @@ def describe_user_agent(user_agent):
 
 def device_info_label(user_agent):
     """
-    留言 / 动态卡片上展示的「设备信息」自动识别结果：
-    移动端按 UA 关键字分 Android / iOS，其它（电脑端）统一记「来自 Web」。
+    留言 / 动态卡片上展示的「设备信息」自动识别结果，按 UA 关键字依次判断：
+    鸿蒙（OpenHarmony / HarmonyOS，鸿蒙 4.x 及以下的 UA 同时带 Android，必须先判）→
+    Android → iOS → 其它（电脑端）统一记「来自 Web」。
     """
     text = str(user_agent or "")
-    if re.search(r"iPhone|iPad|iPod", text, re.I):
-        return "来自 iOS"
+    if re.search(r"OpenHarmony", text, re.I):
+        return "来自 鸿蒙"
+    if re.search(r"HarmonyOS", text, re.I):
+        return "来自 鸿蒙"
     if re.search(r"Android", text, re.I):
         return "来自 Android"
+    if re.search(r"iPhone|iPad|iPod", text, re.I):
+        return "来自 iOS"
     return "来自 Web"
 
 
@@ -10638,7 +10643,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def device_info_for(self, payload):
         """
         留言 / 动态要落库的「设备信息」：
-        默认按 User-Agent 自动识别（来自 Web / Android / iOS）；
+        默认按 User-Agent 自动识别（来自 鸿蒙 / Android / iOS / Web）；
         只有管理员能用 payload 里的 device_info 覆盖自定义名称，其他人传了也一律忽略，
         防止普通账号或游客伪造设备名称。
         """

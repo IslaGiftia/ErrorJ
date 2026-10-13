@@ -2012,13 +2012,26 @@ class ComplianceWorkflowTests(unittest.TestCase):
         self.assertEqual(app.LOG_RETENTION_DAYS, 180)
 
     def test_device_info_label_and_normalize(self):
-        """UA 自动识别：电脑端记「来自 Web」，移动端分 Android / iOS。"""
+        """UA 自动识别：鸿蒙优先，其次 Android / iOS，电脑端记「来自 Web」。"""
         windows = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0"
         android = "Mozilla/5.0 (Linux; Android 14; Pixel 7) Mobile Safari/537.36"
         iphone = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148"
+        # 鸿蒙 4.x 及以下的 UA 里同时带 Android，必须优先判成鸿蒙
+        harmony4 = (
+            "Mozilla/5.0 (Linux; Android 12; HarmonyOS; ALN-AL80; HMSCore 6.12.0.302) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.88 "
+            "HuaweiBrowser/14.0.5.302 Mobile Safari/537.36"
+        )
+        open_harmony = (
+            "Mozilla/5.0 (Phone; OpenHarmony 5.0) AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/114.0.0.0 Safari/537.36 ArkWeb/4.1.6.1 Mobile"
+        )
         self.assertEqual(app.device_info_label(windows), "来自 Web")
         self.assertEqual(app.device_info_label(android), "来自 Android")
         self.assertEqual(app.device_info_label(iphone), "来自 iOS")
+        self.assertEqual(app.device_info_label(harmony4), "来自 鸿蒙")
+        self.assertEqual(app.device_info_label(open_harmony), "来自 鸿蒙")
+        self.assertEqual(app.device_info_label("harmonyos"), "来自 鸿蒙")
         self.assertEqual(app.device_info_label(""), "来自 Web")
 
         # 管理员自定义：补「来自 」前缀、压掉换行与多余空格、超长截断

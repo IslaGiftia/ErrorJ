@@ -1068,7 +1068,7 @@
     if (moment.region) {
       head.appendChild(el("span", "mo-region", moment.region));
     }
-    // 设备信息（来自 Web / Android / iOS，或管理员自定义的名称）
+    // 设备信息（来自 鸿蒙 / Android / iOS / Web，或管理员自定义的名称）
     if (moment.device_info) {
       head.appendChild(el("span", "mo-device", moment.device_info));
     }
