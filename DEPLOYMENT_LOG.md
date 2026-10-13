@@ -4251,3 +4251,59 @@ iOS「添加到主屏幕」用的 `error-chan-touch.png`（180px）按站长要�
 
 备注：本轮只动前端（HTML / CSS / JS）与文档，没有改后端、数据库或接口；
 留言编辑区那部分需要登录才看得到，线上用页面源码 + CSS 内容核对（本地已做浏览器实测）。
+
+## 108. 2026-10-13 13:57:16 设备平台改成可选公开项，自定义名称仍归管理员
+
+背景：站长反馈上一轮把「设备平台」的勾选项一起收成了管理员专属 —— 那不对。勾选项应该是
+「是否公开设备平台」的开关（所有人都有，和「IP属地」同一套），只有**自定义名称那一项和输入框**
+该归管理员。
+
+完成内容（提交 `9ceb61d fix:make-device-platform-an-optional-public-toggle`，11 文件，+143/−48）：
+
+- **勾选项对所有登录账号开放**：`messages.html` / `moments.html` 里把「设备平台」拆出来做一个独立的
+  `.mg-region-toggle`（id `msgShowDevice` / `momentShowDevice`），默认不勾选；`.mg-device-field`
+  现在只包管理员的自定义名称输入框（id 不变，`hidden` 逻辑照旧，普通账号整块不显示）。
+- **公开与否由勾选项决定**：前端提交时带 `show_device`（默认 false）；后端 `device_info_for()` 改成
+  「`show_device` 不为 true 就落空串（不公开）」，为 true 时才按 UA 自动识别
+  （来自 鸿蒙 / Android / iOS / Web），管理员仍然可以用 `device_info` 覆盖成自定义名称，
+  其他人传了依旧被忽略。动态的 PATCH 也认这两个字段（`show_device` / `device_info` 任一出现才重算，
+  只置顶之类的请求保持原值）。
+- 交互细节：管理员在自定义名称输入框里打字会自动勾上「设备平台」；发帖后只清空输入框，
+  勾选状态和「IP属地」一样在本次会话里保留，刷新页面回到默认不勾选。
+- 文案/注释与文档（README、PROJECT_SUMMARY、references）同步；`tests/test_security.py` 的两条设备用例
+  按「默认不公开 / 勾了才公开 / 伪造被忽略 / 管理员自定义」重写（留言那条用例加了
+  `@patch.object(app, "rate_allow", return_value=True)`，因为用例里发的留言超过了每 IP 每分钟 5 条）。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 113 项全过
+      node --check static/messages.js static/moments.js；python -m json.tool config/changelog-seed.json
+      git diff --check 干净
+      浏览器验收（本地临时库副本 + 8012 端口，8 项全过）：
+      普通账号留言编辑区 -> 勾选项可见（标签「设备平台」、默认不勾）、自定义输入框不可见；
+      普通账号发两条 -> 不勾落空串 / 卡片无设备信息，勾上并伪造 device_info -> 落库与卡片都是「来自 Web」；
+      管理员 -> 勾选项 + 输入框都在，填「iQOO 12 Pro」自动勾选，落库与卡片均为自定义名称；
+      动态页 -> 普通账号编辑区整块隐藏（本来就不能发布动态），管理员勾选项 + 输入框都在
+提交：9ceb61d（fetch/push 后本地 == origin/main == 9ceb61d）
+备份：/data/errorjiang-backup/20261013-1358/（停服后复制 inventory.db 3936256 字节
+      与 changelog-seed.json 81213 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only cbdb511 -> 9ceb61d；本轮无表结构变更，未单独跑 init_db
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 59ada09e…c159 一致）
+      import_changelog_moments.py --date 2026-10-13 --force -> 该日期 12 条（新增 12 / 覆盖 0，无重复）
+      systemctl restart errorjiang
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 9ceb61d，/api/health = {"ok": true}
+更新日志    -> /api/moments 里 2026-10-13 13:57:16「设备平台改成可选公开项，自定义名称仍归管理员」
+              （id=506，kind=log；该日期共 12 条）
+线上后端    -> 用线上部署的 app.py 直接跑 device_info_for 七组：普通账号不勾 -> 空串、
+              勾上 -> 来自 Android、勾上 + 伪造名称 -> 来自 iOS（伪造被忽略）、
+              鸿蒙 UA -> 来自 鸿蒙、管理员自定义 -> 来自 iQOO 12 Pro、管理员留空 -> 来自 Android、
+              管理员不勾 + 自定义名称 -> 空串
+线上前端    -> messages.html 的 msgShowDevice 勾选项在 .mg-device-field 之外（对所有人开放）、
+              moments.html 有 momentShowDevice、两份 JS 都会提交 show_device
+```
+
+备注：留言编辑区那部分要登录才看得到，线上用页面源码 + 服务端函数核对（本地已做完整浏览器实测）。
