@@ -4144,3 +4144,53 @@ iOS「添加到主屏幕」用的 `error-chan-touch.png`（180px）按站长要�
 
 备注：本轮 `app.py` 有改动（识别顺序），线上生效依赖这次重启；静态文件每次请求读磁盘，
 `git pull` 后立即生效。
+
+## 106. 2026-10-13 13:20:14 编辑区文案与今日额度修正
+
+背景：站长反馈留言编辑区底部那一行显示错位（「公开 IP 属地」被折成两行），要求改文案并把今日额度
+挪到「发布留言」按钮下方右对齐；同时发现「设备平台」输入框在普通账号下也会显示出来。
+
+完成内容（提交 `825ed5f fix:relabel-ip-and-device-platform-in-composers`，7 文件，+44/−25）：
+
+- **留言编辑区**：勾选项文案「公开 IP 属地」→「IP属地」，管理员那一项「设备名称（可选）」→「设备平台」，
+  两个勾选框都保留；标签不再折行（勾选框与文字改成居中对齐 + `white-space: nowrap`）。
+  今日额度从勾选那一行里挪出来，单独占一行并右对齐到「发布留言」按钮正下方，
+  文案改成「今日可留言/回复次数 N/M」（N = 今天还能发的条数 / M = 每日上限，原来那句
+  「每天最多 9 条留言（含回复），今天还可以发 N 条」整条替换；用完仍然是按钮禁用 + 次日 0 点恢复）。
+- **动态编辑区**：只把两个勾选项文案改成「IP属地」「设备平台」，勾选框保留，其余不动。
+- **修掉一个真实权限显示 bug**：`.mg-device-field` 自己的 `display: flex` 会盖掉 `[hidden]` 的
+  `display: none`（messages.css 没有像 moments.css 那样的全局 `[hidden]` 兜底），导致普通账号也能看到
+  「设备平台」输入框 —— 补了一条 `.mg-device-field[hidden] { display: none; }`，
+  现在只有管理员看得到（提交时后端 `device_info_for` 也照旧只接受管理员的自定义名称）。
+- 「设备平台」输入框补 `overflow: hidden` + `text-overflow: ellipsis`，框里不会出现滚动条。
+- 文档：README / PROJECT_SUMMARY 里对应的文案与额度说明同步。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 113 项全过
+      node --check static/messages.js static/moments.js；python -m json.tool config/changelog-seed.json
+      git diff --check 干净
+      浏览器验收（本地临时库副本 + 8012 端口，12 项全过）：管理员/普通账号 × 留言/动态：
+      文案「IP属地」「设备平台」、勾选框各 2 个、额度文案「今日可留言/回复次数 N/M」、
+      额度右边缘与「发布留言」按钮完全对齐（1058 = 1058）且在按钮下方、标签单行高 19px、
+      设备平台输入框不可滚动、普通账号看不到输入框、普通账号伪造 device_info 仍被忽略
+提交：825ed5f（fetch/push 后本地 == origin/main == 825ed5f）
+备份：/data/errorjiang-backup/20261013-1321/（停服后复制 inventory.db 3911680 字节
+      与 changelog-seed.json 79417 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only 8f04d22 -> 825ed5f；本轮无表结构变更，未单独跑 init_db
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 22991d5f…60bc 一致）
+      import_changelog_moments.py --date 2026-10-13 --force -> 该日期 10 条（新增 10 / 覆盖 0，无重复）
+      systemctl restart errorjiang
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 825ed5f，/api/health = {"ok": true}
+更新日志    -> /api/moments 里 2026-10-13 13:20:14「编辑区文案与今日额度修正」（id=483，kind=log）
+线上前端    -> messages.html / moments.html 线上抓取里能读到「IP属地」「设备平台」，旧的「公开 IP 属地」已不存在；
+              messages.js 里是新额度文案「今日可留言/回复次数」、旧的「今天还可以发」已不存在；
+              messages.css 里有 .mg-device-field[hidden] 兜底与输入框的 text-overflow
+```
+
+备注：本轮只动前端（HTML / CSS / JS）与文档，没有改后端、数据库或接口；静态文件每次请求读磁盘，
+`git pull` 后立即生效。
