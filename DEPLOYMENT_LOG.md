@@ -4364,3 +4364,73 @@ iOS「添加到主屏幕」用的 `error-chan-touch.png`（180px）按站长要�
 
 备注：游客那一侧线上直接实测；管理员侧（展开回复框、发送）需要登录，本地已做完整浏览器实测，
 线上靠同一份 `messages.js`（hash 一致）+ 后端未改来保证。
+
+## 110. 2026-10-13 20:00:25 留言 / 动态页上线宽屏三列侧栏
+
+背景：站长想参考 B 站动态页，在「留言」「动态」两页中间内容流的左右各加一栏卡片
+（左：基础信息 + 注册账户；右：资源封面 + 更新日志），宽屏三栏、窄屏保持单栏。
+
+完成内容（提交 `05517a6 feat:add-wide-screen-side-columns-to-messages-and-moments`，
+8 文件，+977/−1）：
+
+- **三栏外壳**：新增 `static/site/sidebar.css` + `sidebar.js`，`messages.html` / `moments.html`
+  把原来的 `.mg-app` / `.mo-app` 包进 `.sb-shell`（左栏 - 内容列 - 右栏）。中间列仍是页面自己的
+  760px（`max-width` 没改，只是从「按内容宽」改成 flex 撑满 + 封顶），左右栏同宽、间距 24px。
+  窗口 ≥1280px 才出现左右栏，更窄和手机整体 `display: none`，回到原来的单栏内容流。
+  侧栏补了 `position: relative; z-index: 1` —— 页面内容压在整屏雨幕（`.rain-scene--fixed`，
+  `fixed + z-index:0`）之上的那层，漏掉时上卡会被雨幕的背景盖住（本轮实测踩到并修掉）。
+- **滚动与高度**：上卡不 sticky、跟着页面滚走；下卡 `position: sticky` 贴顶常驻。四张卡都不做
+  内部滚动，上卡固定 20vh（网页 1/5），下卡按条数自适应（账号 5 条 / 日志 8 条），页面不会被撑长。
+- **四张卡片**：左上 Error酱 立绘（复用 `error-chan-avatar.png`，透明底不裁圆、底部渐隐）
+  +「Error酱」+「已加入 N 天」+ 注册 / 留言 / 动态三项统计（数字在文字下面、居中）；
+  左下「注册账户」管理员前 5 个账号、普通账号只看自己、游客只占一位显示「登录后展示」；
+  右上只有图片，歌曲 / 电子书封面 4 秒渐隐渐出轮换（无文字、无圆点）；右下「更新日志」只取
+  管理员的上传 / 发布类动作（上传歌曲、上架电子书、发布动态、新增足迹、新增推荐）最新 8 条，
+  每条一行：斜体序号 + 类型图标 + 文字，无分割线、无操作人、无时间，点击跳对应页面。
+- **游客**：四张卡都展示、内容不脱敏，点封面 / 日志 / 账户卡一律拦下并提示「请登录后操作」。
+- **后端**：`app.py` 新增公开只读接口 `/api/site/sidebar`（`ALWAYS_PUBLIC_APIS`），
+  一次返回 viewer / stats / covers / users / activities；统计与封面、日志对游客一样下发，
+  只有注册账户列表要求登录。建站天数取站内最早一条内容时间（5 秒缓存），
+  注册数只统计 `status='approved'`。文档同步 README、PROJECT_SUMMARY、references。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 113 项全过
+      node --check static/site/sidebar.js（另跑 messages / moments）；python -m json.tool changelog-seed
+      git diff --check 干净
+      浏览器验收（临时库副本 + 8150 端口，含 7 个账号 / 18 条管理员更新）：游客 / 管理员 / 普通账号
+      三种身份的卡片数量、内容、滚动、点击拦截逐项核对（见下）
+      另做 HEAD(cf89ccb) vs 新版的宽度 A/B：九个宽度档下两页内容列均为 760（窄屏 390 铺满）、
+      卡片外宽 728，逐档数字完全一致 —— 本轮没有改动中间内容流宽度
+提交：05517a6（fetch/push 后本地 == origin/main == 05517a6）
+备份：/data/errorjiang-backup/20261013-2006/（停服后复制 inventory.db 4022272 字节
+      与 changelog-seed.json 83104 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only cf89ccb -> 05517a6；本轮无表结构变更，未单独跑 init_db
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 04464567…20c7 一致）
+      import_changelog_moments.py --date 2026-10-13 --force -> 该日期 15 条（新增 14 / 覆盖 0）
+      systemctl restart errorjiang（app.py 有新接口，必须重启）
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 05517a6，/api/health = {"ok": true}
+新接口      -> 服务器本机 /api/site/sidebar 返回 stats user_total=3 / message_total=20 /
+              moment_total=10 / site_days=45，covers 与 activities 均已下发
+更新日志    -> /api/moments 里 2026-10-13 20:00:25「留言 / 动态页上线宽屏三列侧栏」
+              （id=533，kind=log；该日期共 15 条）
+线上前端    -> 线上 static/site/sidebar.js SHA256 0e8edbf2…2786 == 服务器文件；
+              sidebar.css 331238ef…81bf == 服务器文件；服务器/本地/HEAD 的 git blob 一致
+线上实测    -> 无登录访问 https://zhexiyan.cc/messages（Playwright，1440×900）：
+              左右栏可见、各 2 张卡，中间列 760（文档宽 = 视口宽，无横向溢出）；
+              左上「Error酱 / 已加入 45 天 / 注册3,留言20,动态10」、卡高 180 = 20vh、无内部滚动；
+              左下「注册账户」只有 1 条占位「登录后展示」、卡高 110；
+              右下「更新日志」8 条、序号 1 为斜体、无操作人/时间/分割线、无内部滚动；
+              右上只有图片（文字长度 0、圆点 0、两层图片），4.6 秒后 is-active 换层 = 渐隐渐出生效；
+              点封面/日志/账户卡三次都是 URL 不变 + toast「请登录后操作」；
+              滚动 900px 后上卡 top=-886（已滚走）、下卡 top=14（贴顶常驻）；
+              /moments 同样 2/2 张卡、中间列 760；390×844 下左右栏 display:none、中间列 390 铺满；
+              两个页面控制台 0 报错
+```
+
+备注：线上用游客身份实测；管理员 / 普通账号那两种身份（账号列表前 5 条、只看自己）在本地临时库
+副本上用同一份前端实测通过，线上跑的是同一份 `sidebar.js` + `sidebar.css`（hash 一致）。
