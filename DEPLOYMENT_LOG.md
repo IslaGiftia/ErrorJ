@@ -3847,3 +3847,75 @@ iOS「添加到主屏幕」用的 `error-chan-touch.png`（180px）按站长要�
               浅色主题下悬停提示是浅底深字；网页子页 4 张 355x90 扁卡片、无角标 / 无「访问」、三点菜单为「举报」；
               手机端书籍子页首卡 top=62、无筛选排序，顶部那条空白占位已经没有了
 ```
+
+## 101. 2026-10-13 09:04:38 放开游客权限：留言与动态可浏览、网页可点开
+
+背景：站长要求放开游客权限 —— 留言和动态页面游客可以查看所有内容，但普通用户的用户名、点赞的用户名要脱敏
+显示（例如「牛大能」显示为「**能」）；动态下方的评论 / 回复区域「加密」并提示登录后可查看，评论输入框、
+「回复」「发送」等按键对游客直接隐藏，只留下「三个点」里的「举报」（三个点本身保留）；
+推荐页里歌曲、书籍权限不动，网页开放点击访问。
+
+完成内容（提交 `d90cfc6 feat:open-messages-and-moments-to-guests`，9 文件，+391/−148）：
+
+- `app.py api_site_messages`：删掉游客的「requires_login」空壳分支，改成和登录账号同一条路径，只是
+  `viewer_id = None`（`liked_target_ids` 本来就支持 None）。普通账号的名字继续走已有的
+  `mask_username()`（只留最后一个字）与 `message_display_name()`；游客拿到的每个顶层留言额外带
+  `replies_locked: true` + `reply_count`，`replies` 直接清空 —— **回复内容不下发**，前端据此画锁定块。
+- `site_message_files_map` / `api_site_message_file`：游客能看已通过审核的**图片**附件；
+  PDF / 文本这类非图片附件只给 `locked: true` 的占位（详情接口对游客返回 401），沿用「游客只能看图片」
+  的原有设计。
+- `app.py api_moments`：同样删掉游客的占位分支，统一走主路径：`viewer_signed_in=False` 时
+  名字脱敏（`mask_username`）、`liked_target_ids(None)` 返回空、`can_manage=False`；评论不再下发内容，
+  改为每行 `comments_locked: true` + `comment_count`；分享卡对游客剥离 `url` / `file_url` / `page_url`
+  并标记 `locked: true`；属地自动补解析（会写库 + 打外部接口）只在登录账号浏览时执行。
+- 前端 `static/messages.js`：删掉整页「登录后查看留言」的锁定卡；游客进页面时点赞按钮**整个不渲染**
+  （只留一行脱敏的点赞名字，前面补一个灰色「点赞」当说明，一个赞都没有就整行不显示），
+  回复列表换成 `.mg-locked-block`（三道模糊占位条 + 🔒「登录后可查看 N 条回复」），
+  「回复」按钮、回复框依旧只在 `canPost` 时构建，而「三个点」菜单改成「有删除或举报权限就渲染」，
+  所以游客卡片右下角只剩「举报」。
+- 前端 `static/moments.js`：去掉 `momentsRequireLogin` 这套占位逻辑（游客两栏都能看正文，默认仍停在
+  「我的动态」）；`buildComments` 在 `comments_locked` 时换成 `.mo-locked-block` 且不渲染评论输入框；
+  点赞行和留言页同款处理；「三个点」菜单从「只有登录账号才有」改成「非管理员都有」，游客因此拿到「举报」；
+  分享卡在 `share.locked` 时渲染成「图标 + 标题 + 登录后可查看」的静态卡，不带播放 / 跳转按钮。
+- `static/messages.css` / `static/moments.css`：新增锁定块与「点赞」标签样式；补 `.mg-like[hidden]`
+  规则（作者样式的 `display: flex` 会盖掉 `[hidden]`，和之前路由按钮那次是同一类坑）。
+- `app.py recommendation_rows`：游客只对 `kind in (site, tool)` 保留 `url`（网页 / 工具可点开），
+  电影 / 动漫的详情地址、`download_url` 与 `resource` 信息照旧不下发。
+- 测试：改写 4 个原本断言「游客看不到内容」的用例为「游客能看到内容 + 名字脱敏 + 评论 / 回复锁定」，
+  并断言锁定内容不出现在响应 JSON 里。
+- 文档：`README.md`、`PROJECT_SUMMARY.md`、`static/references.html` 同步。
+
+部署步骤：
+```text
+本地：python -m unittest discover -s tests -> 109 项全过；node --check messages/moments.js；git diff --check 干净
+      隔离实例（INVENTORY_PASSWORD 临时设置，端口 8000）确认游客视角：
+        /api/site/messages -> 17 条，nickname="***盘"、replies_locked=true、replies=[]、can_delete=false
+        /api/moments      -> 101 条，comments_locked=true、comments=[]、like_users=["**能","管理员"]
+        /api/recommendations -> site 类型带 url（qingjian.app 等）
+      本地 Playwright（游客，桌面 1440x900）：留言页 0 个点赞按钮 / 0 个回复按钮 / 锁定块 1；
+        动态页 0 个评论输入框 / 锁定分享卡 1；网页子页缩略图与中间都能点开；歌曲页封面仍不是按钮
+      线上 Playwright（游客，桌面 1440x900）：留言页 17 张卡全部带锁定块、菜单只有「举报」；
+        动态页 10 张卡全部锁定评论、2 张锁定分享卡、菜单只有「举报」；网页卡片链接为 https://sct.ftqq.com/
+提交：d90cfc6（fetch/push 后本地 == origin/main == d90cfc6）
+备份：/data/errorjiang-backup/guest-open-20261013-0905/（停服后复制 inventory.db 3788800 字节
+      与 changelog-seed.json 71614 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only 272163c -> d90cfc6；本轮没有表结构变更，未跑额外迁移
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 d1a3bec3…5963 一致）
+      import_changelog_moments.py --date 2026-10-13 --force -> 新增 5 条（该日期五条都重建，时间戳唯一）
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = d90cfc6，/api/health = {"ok": true}
+更新日志    -> /api/moments 里 2026-10-13 09:04:38「放开游客权限：留言与动态可浏览、网页可点开」
+              （id=443，kind=log）
+线上接口    -> 游客 /api/site/messages：17 条、昵称与点赞名脱敏、replies_locked=true、replies 为空
+              游客 /api/moments：101 条、comments_locked=true、comments 为空、like_users 已脱敏
+              游客 /api/recommendations：site / tool 类型照常返回 url
+线上页面    -> 游客打开 /messages 与 /moments（桌面 1440x900）：留言 17 张卡、动态 10 张卡全部渲染，
+              点赞按钮 0 个、回复 / 评论按钮 0 个、评论输入框 0 个，锁定块分别是 17 / 10 个，
+              每张卡的「三个点」菜单里只剩「举报」，「写动态」与留言编辑区对游客隐藏，无 JS 异常
+```
+
+备注：本轮 `app.py` 有改动（游客可读的留言 / 动态负载与推荐地址放行），线上生效需要
+`systemctl restart errorjiang`；静态文件每次请求读磁盘，`git pull` 后立即生效。
