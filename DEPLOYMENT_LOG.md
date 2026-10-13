@@ -3966,3 +3966,71 @@ iOS「添加到主屏幕」用的 `error-chan-touch.png`（180px）按站长要�
 线上页面    -> 游客打开 /references（桌面 1440x900）：页头显示「截至 2026-10-13」并注明移除了已下线功能的条目；
               页面渲染 22 张卡片、顺序为新清单；静态 references.html 的 SHA256 与本机文件逐字节相同
 ```
+
+## 103. 2026-10-13 11:26:22 推荐页细节打磨、游客评论区放开与提示文案统一
+
+背景：站长在游客模式下走了一遍「推荐」页和留言 / 动态，提出了 10 条改动；随后又要求把游客遇到的
+登录提示统一成一句话。本轮全部落地并同时在线上复验。
+
+完成内容（提交 `5aacf60 feat:polish-recommend-hub-and-unify-guest-prompts`，23 文件，+448/−377）：
+
+- **游客权限继续放开**：留言下方的回复、动态下方的评论与回复都对游客公开（`api_site_messages` /
+  `api_moments` 不再下发锁定标记，评论人名字走 `mask_username`，管理员仍显示「管理员」）；
+  点赞按钮对游客保留「大拇指」图标，点击提示「请登录后操作」，不再换成灰色「点赞」两个字。
+- **举报入口回归**：歌曲、书籍卡片对游客与普通登录账号都显示「举报」，管理员不显示；推荐内容的举报
+  本来就有。为此新增举报对象类型 `music`（`report_target` + 工作台举报列表的标签映射）。
+- **「推荐」页**：站内子页卡片改成网页子页同款扁卡片（左缩略图 + 右标题说明 + 右上「三个点」：管理员
+  置顶 / 删除，其它账号举报），点卡片打开内容、游客点击提示登录；网页卡片悬停扫光改用
+  `background-position` 驱动，不再拖到卡片外面；内嵌子页把「N 项 + 搜索」顶栏与分类页签整条从 DOM
+  摘掉，刷新时不再闪出旧输入框和「0 项」；编辑网页时删掉「图标地址」（关联书签的照旧用书签图标）；
+  书籍编辑弹窗删掉「标签」「简介」（提交时不发这两个字段，旧值保留）；关联书签那一行按剩余宽度收缩，
+  按钮不再错位；弹窗右下角「保存」换成主题色实心按钮（浅色 `#7b68ee` / 深色 `#a78bfa`）；
+  输入类控件一律不出滚动条，说明文本域随内容自动增高。
+- **编辑弹窗让位**：歌曲 / 书籍 / 网页 / 站内四个子页的编辑弹窗打开时，外壳左上 4 枚 + 右上 1 枚悬浮
+  按钮整条向上滑出屏幕（子页 iframe 通过 `postMessage` 通知外壳），弹窗关闭后滑回来。
+- **手机端**：那排悬浮按钮改成贴顶悬浮顶栏（`top: 6px`，不再叠加 `env(safe-area-inset-top)`），
+  正文顶部留白同步收到 50px，不再出现上方一大块空白。
+- **提示文案统一**：游客遇到的登录提示全部改成「请登录后操作」（前端 12 处 + 后端 19 处，覆盖首页地图
+  入口、播放、下载、点赞、举报留言 / 动态、打开站内资源、附件等）；顺手把留言板对游客的空状态文案
+  从「登录后查看留言。」改成「还没有留言。」（游客本来就能看到全部留言）。
+- **顺手修掉的连接层 bug**：被拒的请求没有读请求体，keep-alive 连接里残留的 JSON 会被拼成下一个请求行
+  （表现为紧随其后的静态资源返回 `501 Unsupported method ('{"module":"messages"}GET')`，页面会掉样式）；
+  `guard_request` 现在被拒时先 `drain_request_body()` 读干净，已用裸 socket 复现并复验。
+- 文档：`README.md` / `PROJECT_SUMMARY.md` / `static/references.html` 同步游客权限与提示文案的说明。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 109 项全过
+      node --check 全部改动过的 JS；python -m json.tool config/changelog-seed.json；git diff --check 干净
+      浏览器验收（本地临时库副本 + 8012 端口，游客 / 普通账号 / 管理员 × 桌面 1440x900 / 手机 390x844）
+      -> 34 项检查全过（含游客回复 / 评论可见、大拇指、举报入口、站内扁卡片、编辑弹窗让位、
+         手机贴顶、提示文案、接口 401 文案），控制台与网络无异常
+提交：5aacf60（fetch/push 后本地 == origin/main == 5aacf60）
+备份：/data/errorjiang-backup/20261013-1127/（停服后复制 inventory.db 3846144 字节
+      与 changelog-seed.json 73925 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only cee5db2 -> 5aacf60；本轮无表结构变更，未单独跑 init_db
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 37dea951…e171 一致）
+      import_changelog_moments.py --date 2026-10-13 --force -> 该日期 7 条（新增 7 / 覆盖 0，无重复）
+      systemctl restart errorjiang
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 5aacf60，/api/health = {"ok": true}
+更新日志    -> /api/moments 里 2026-10-13 11:26:22「游客提示统一，留言与动态的评论区对游客放开」
+              （id=456，kind=log；该日期共 7 条，无重复）
+线上前端    -> static/recommendations.js、static/site/report.js、static/downloads.css 的 SHA256
+              与线上抓取结果一致（ec2ea4ee…、50cbd377…、6a12be3f…）；线上文件里能 grep 到
+              「请登录后操作」（7 个文件）与 errorj-recommend-dialog（embed.js / downloads.js）
+线上页面    -> 游客（无登录）桌面 1440x900：
+              /books -> 6 张卡片、6 个举报入口，点卡片提示「请登录后操作」
+              /downloads?tab=web -> 4 张扁卡片、无旧卡片样式、顶栏与分类页签已不存在、卡片可直接点开
+              /downloads?tab=resource -> 1 张扁卡片（网页同款），点卡片提示「请登录后操作」
+              /messages -> 17 个大拇指按钮、0 个「点赞」文字、5 条回复正文可见、昵称「***盘」脱敏
+              /moments -> 5 条评论正文可见（评论人「**能」「管理员」）、10 个大拇指按钮
+              手机 390x844：/downloads 悬浮按钮 top=6、首行 top=50（不被压住）、9 个举报入口
+              控制台 / 网络：无异常、无 4xx
+```
+
+备注：本轮 `app.py` 有改动（游客可读负载、举报类型、连接层修复），线上生效依赖这次重启；
+静态文件每次请求读磁盘，`git pull` 后立即生效（已用 SHA256 逐文件比对确认）。
