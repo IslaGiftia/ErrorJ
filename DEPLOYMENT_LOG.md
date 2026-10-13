@@ -4307,3 +4307,60 @@ iOS「添加到主屏幕」用的 `error-chan-touch.png`（180px）按站长要�
 ```
 
 备注：留言编辑区那部分要登录才看得到，线上用页面源码 + 服务端函数核对（本地已做完整浏览器实测）。
+
+## 109. 2026-10-13 18:04:03 游客保留「回复」占位，留言时间改成相对时间
+
+背景：站长反馈两处 —— 游客模式下的留言页看不到「回复」按钮（被一起藏了），应该是保留一个
+占位、点了提示登录；另外留言卡片的时间还是 `MM-DD HH:mm`，应该和动态页一样用相对时间。
+
+完成内容（提交 `3eef635 fix:restore-guest-reply-placeholder-and-relative-times-on-messages`，
+4 文件，+52/−19）：
+
+- **游客保留「回复」占位**（`static/messages.js`）：取消回复按钮上的 `canPost` 前置条件，
+  顶层留言按后端下发的 `can_reply`、每条回复同样保留按钮；操作行原来只在
+  `canPost || canDelete || canReport` 时创建，现在把 `message.can_reply` 也算进去，
+  保证只有回复占位时这一排仍然出现。新增 `bindGuestReply()`：游客点「回复」只 toast
+  「请登录后操作」，不创建、不展开回复框；登录账号走原来的 `bindReplyToggle()`，
+  展开 / 收起、发送、额度扣减都不动。游客页面 DOM 里依旧没有任何 `.mg-reply-form`。
+- **留言时间改成相对时间**（同文件 `formatTime()`）：规则与动态页 `moments.js` 完全一致 ——
+  60 秒内「刚刚」、1 小时内「N 分钟前」、1 天内「N 小时前」、7 天内「N 天前」，
+  超过 7 天回落到完整的 `YYYY-MM-DD HH:mm`；顶层留言和每条回复共用这一个函数。
+- 文档同步：`README.md`（留言那条「互动入口只给登录账号」改成「回复占位」+ 新增相对时间一条）、
+  `PROJECT_SUMMARY.md`（2.3 留言的游客可见范围改正 + 相对时间一条 + 公开访问那段区分
+  动态评论框「不渲染」与留言「回复占位」）、`static/references.html` 的游客权限概述。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 113 项全过
+      node --check static/messages.js（另跑 books / moments / site/activity 三项）；
+      python -m json.tool config/changelog-seed.json；git diff --check 干净
+      浏览器验收（临时库副本 + 8124 端口，启用管理员密码模拟游客，10 项全过）：
+      游客 -> 5 张卡片每张都有可见的「回复」（含子回复共 6 个）、点第一条弹「请登录后操作」、
+             无 textarea、无 reply-form、留言编辑区隐藏、控制台 0 报错；
+             时间显示 7 分钟前 / 5 小时前 / 5 天前，40 天前那条回落成 2026-09-03 18:06
+      管理员登录 -> 留言编辑区正常，点「回复」展开输入框、发送成功（「回复已发布」）、
+             再点一次收起，原有交互无回退
+提交：3eef635（fetch/push 后本地 == origin/main == 3eef635）
+备份：/data/errorjiang-backup/20261013-1813/（停服后复制 inventory.db 4005888 字节
+      与 changelog-seed.json 82339 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only 5bbc60a -> 3eef635；本轮无表结构变更，未单独跑 init_db
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 d38c3821…598c 一致）
+      import_changelog_moments.py --date 2026-10-13 --force -> 该日期 13 条（新增 13 / 覆盖 0）
+      systemctl restart errorjiang
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 3eef635，/api/health = {"ok": true}
+更新日志    -> /api/moments 里 2026-10-13 18:04:03「游客保留「回复」占位，留言时间改成相对时间」
+              （id=519，kind=log；该日期共 13 条）
+线上前端    -> 线上 static/messages.js SHA256 f722d7be…cf5bd == 服务器文件 SHA256（同一份），
+              服务器/本地/HEAD 的 git blob 均为 4e66b003…22fa47；references.html 一并更新
+线上实测    -> 无登录头访问 https://zhexiyan.cc/messages（Playwright）：20 张卡片全部有可见的
+              「回复」（共 26 个，含子回复），点第一条 toast「请登录后操作」、页面无 textarea、
+              无 .mg-reply-form，留言编辑区隐藏；时间显示 3 小时前 / 5 小时前 / 5 天前 等相对时间；
+              控制台 0 报错（线上页面字体探测卡住，本轮未截屏，改用 DOM 断言核对）
+```
+
+备注：游客那一侧线上直接实测；管理员侧（展开回复框、发送）需要登录，本地已做完整浏览器实测，
+线上靠同一份 `messages.js`（hash 一致）+ 后端未改来保证。
