@@ -141,13 +141,19 @@
     var count = $("musicCount");
     if (count) count.textContent = tracks.length ? tracks.length + " 首" : "";
     box.classList.toggle("is-manager", state.canManage);
+    // 管理员有分享 / 下载 / 编辑 / 删除，其它人（含游客）至少有「举报」
     box.classList.toggle(
       "has-actions",
-      state.canManage ||
-        (state.authenticated &&
-          tracks.some(function (track) {
-            return track.source_type === "file";
-          }))
+      state.canManage || tracks.length > 0
+    );
+    // 普通登录账号看得到「下载 + 举报」两颗，行尾要留够宽度
+    box.classList.toggle(
+      "actions-2",
+      !state.canManage &&
+        state.authenticated &&
+        tracks.some(function (track) {
+          return track.source_type === "file";
+        })
     );
 
     if (!tracks.length) {
@@ -179,11 +185,20 @@
             '<button class="mu-icon-btn" type="button" data-music-delete="' +
             track.id +
             '" title="删除歌曲"><i data-lucide="trash-2"></i></button>';
-        } else if (state.authenticated && track.source_type === "file") {
+        } else {
+          if (state.authenticated && track.source_type === "file") {
+            actionButtons +=
+              '<button class="mu-icon-btn" type="button" data-music-download="' +
+              track.id +
+              '" title="下载歌曲"><i data-lucide="download"></i></button>';
+          }
+          // 站点内容都是管理员上传的：非管理员（含游客）只留举报入口
           actionButtons +=
-            '<button class="mu-icon-btn" type="button" data-music-download="' +
+            '<button class="mu-icon-btn" type="button" data-report-type="music" data-report-key="' +
             track.id +
-            '" title="下载歌曲"><i data-lucide="download"></i></button>';
+            '" data-report-title="' +
+            esc(track.title || "歌曲") +
+            '" title="举报"><i data-lucide="flag"></i></button>';
         }
         var actions = actionButtons
           ? '<span class="mu-row-actions">' + actionButtons + "</span>"
@@ -527,7 +542,19 @@
     setDeleteButton("trash-2", "删除");
     $("editError").hidden = true;
     $("editModal").hidden = false;
+    notifyDock(true);
     if (window.lucide) lucide.createIcons();
+  }
+
+  /* 编辑弹窗打开时，外层推荐页那排悬浮按钮要收上去（见 embed.js） */
+  function notifyDock(open) {
+    if (window.ErrorEmbed) window.ErrorEmbed.notifyDialog(open);
+  }
+
+  function closeEditModal() {
+    if ($("editModal").hidden) return;
+    $("editModal").hidden = true;
+    notifyDock(false);
   }
 
   function submitEdit(event) {
@@ -550,7 +577,7 @@
       }),
     })
       .then(function () {
-        $("editModal").hidden = true;
+        closeEditModal();
         toast("已保存");
         loadTracks();
       })
@@ -576,7 +603,7 @@
           audio.load();
           state.currentId = null;
         }
-        $("editModal").hidden = true;
+        closeEditModal();
         toast("已删除");
         loadTracks();
       })
@@ -695,7 +722,7 @@
     }
     var locked = event.target.closest("[data-music-locked]");
     if (locked) {
-      toast("登录后可以播放");
+      toast("请登录后操作");
       return;
     }
     if (!state.authenticated) {
@@ -740,10 +767,10 @@
 
   $("editForm").addEventListener("submit", submitEdit);
   $("editClose").addEventListener("click", function () {
-    $("editModal").hidden = true;
+    closeEditModal();
   });
   $("editCancel").addEventListener("click", function () {
-    $("editModal").hidden = true;
+    closeEditModal();
   });
   $("editDelete").addEventListener("click", deleteCurrent);
 
@@ -751,7 +778,7 @@
     if (event.key !== "Escape") return;
     if (uploadBusy.active) return;
     $("uploadModal").hidden = true;
-    $("editModal").hidden = true;
+    closeEditModal();
   });
 
   // ---------- 初始化 ----------

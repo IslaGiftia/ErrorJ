@@ -568,7 +568,7 @@
         lockIcon.setAttribute("data-lucide", "lock");
         locked.appendChild(lockIcon);
         locked.appendChild(el("span", "mg-file-name", file.file_name || "附件"));
-        locked.appendChild(el("span", "mg-file-size", "登录后可查看"));
+        locked.appendChild(el("span", "mg-file-size", "请登录后操作"));
         chips.appendChild(locked);
         return;
       }
@@ -659,29 +659,6 @@
     return form;
   }
 
-  /*
-   * 游客看到的回复区：正文不下发，这里画几道模糊的占位条 + 一句登录提示，
-   * 让「这里本来有回复」这件事看得出来，但看不到内容。
-   */
-  function buildRepliesLocked(count) {
-    var box = el("div", "mg-locked-block");
-    var blur = el("div", "mg-lock-blur");
-    blur.setAttribute("aria-hidden", "true");
-    blur.append(el("i", ""), el("i", ""), el("i", ""));
-    box.appendChild(blur);
-    var hint = el("p", "mg-lock-hint");
-    var icon = document.createElement("i");
-    icon.setAttribute("data-lucide", "lock");
-    hint.appendChild(icon);
-    hint.appendChild(
-      document.createTextNode(
-        count > 0 ? "登录后可查看 " + count + " 条回复" : "登录后可查看回复"
-      )
-    );
-    box.appendChild(hint);
-    return box;
-  }
-
   /* 点「回复」展开 / 收起回复框，展开时按钮变主题色（和动态页的评论回复一致） */
   function bindReplyToggle(btn, form) {
     btn.setAttribute("aria-expanded", "false");
@@ -724,7 +701,7 @@
     sync();
     btn.addEventListener("click", function () {
       if (!canPost) {
-        toast("登录后可以点赞");
+        toast("请登录后操作");
         return;
       }
       btn.disabled = true;
@@ -753,20 +730,7 @@
         btn.disabled = false;
       });
     });
-    if (canPost) {
-      wrap.appendChild(btn);
-      wrap.appendChild(names);
-      return wrap;
-    }
-    /*
-     * 游客：点赞按钮整个不渲染，只留一行脱敏的点赞名字；
-     * 一个赞都没有就整行不显示。灰色「点赞」当这一行的说明。
-     */
-    if (!(target.like_users || []).length) {
-      wrap.hidden = true;
-      return wrap;
-    }
-    wrap.appendChild(el("span", "mg-like-label", "点赞"));
+    wrap.appendChild(btn);
     wrap.appendChild(names);
     return wrap;
   }
@@ -1035,9 +999,6 @@
     }
     var freshReplyIds = [];
     var replies = message.replies || [];
-    if (message.replies_locked) {
-      repliesBox.appendChild(buildRepliesLocked(message.reply_count || 0));
-    }
     replies.forEach(function (reply) {
       var row = el("div", "mg-reply " + (reply.can_save ? "can-save" : "no-save"));
       var replyHead = el("div", "mg-item-head");
@@ -1223,7 +1184,7 @@
         "没有符合条件的留言。"
       );
     }
-    return canPost ? "还没有留言，来说点什么吧。" : "登录后查看留言。";
+    return canPost ? "还没有留言，来说点什么吧。" : "还没有留言。";
   }
 
   function messageMatchesFilter(row) {

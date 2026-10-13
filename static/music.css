@@ -144,8 +144,16 @@ body {
   --mu-row-extra: 0px;
 }
 
+/*
+ * 行尾操作列宽度按「这一页最多会有几颗按钮」算，避免下载 + 举报两颗按钮互相挤：
+ * 游客 / 普通账号 1 颗（举报），登录账号有音频文件时 2 颗（下载 + 举报），管理员 4 颗。
+ */
 .mu-list.has-actions {
   --mu-row-extra: 36px;
+}
+
+.mu-list.actions-2 {
+  --mu-row-extra: 66px;
 }
 
 .mu-list.is-manager {
@@ -727,6 +735,10 @@ button.mu-row-cover:focus-visible {
     --mu-row-extra: 32px;
   }
 
+  .mu-list.actions-2 {
+    --mu-row-extra: 62px;
+  }
+
   .mu-list.is-manager {
     --mu-row-extra: 120px;
   }
@@ -776,4 +788,12 @@ html.is-embed .mu-stage-inner {
   max-width: 760px;
   /* 顶部留出一条，刚好让开推荐页那排悬浮按钮 */
   padding: 62px 16px 64px;
+}
+
+/* 手机上那排按钮贴在页面最上沿（35px 高），正文只要让开它就够 */
+@media (max-width: 640px) {
+  html.is-embed .mu-stage-inner {
+    max-width: none;
+    padding: 50px 12px 56px;
+  }
 }

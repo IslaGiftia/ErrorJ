@@ -174,6 +174,25 @@
     if (api && typeof api.openAdd === "function") api.openAdd();
   }
 
+  /*
+   * 子页里的编辑弹窗打开时，把整条悬浮操作区收上去，把位置让给弹窗；
+   * 弹窗全部关掉后再从上面滑下来。弹窗在 iframe 里，所以由子页 postMessage 通知。
+   */
+  function setDialogOpen(open) {
+    var dock = document.querySelector(".dl-dock");
+    if (!dock) return;
+    dock.classList.toggle("is-away", Boolean(open));
+  }
+
+  function bindDialogSignal() {
+    window.addEventListener("message", function (event) {
+      if (event.origin !== window.location.origin) return;
+      var data = event.data;
+      if (!data || data.type !== "errorj-recommend-dialog") return;
+      setDialogOpen(data.open);
+    });
+  }
+
   function moveTab(step) {
     var index = TAB_KEYS.indexOf(activeKey);
     if (index < 0) index = 0;
@@ -203,6 +222,7 @@
     }
     var action = $("dlAction");
     if (action) action.addEventListener("click", openAdd);
+    bindDialogSignal();
     window.addEventListener("pageshow", function () {
       loadCounts();
     });

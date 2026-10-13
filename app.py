@@ -436,13 +436,14 @@ MESSAGE_FILE_MAX_BYTES = 5 * 1024 * 1024
 MESSAGE_FILE_TOTAL_MAX_BYTES = 15 * 1024 * 1024
 MESSAGE_FILE_MAX_COUNT = 3
 MESSAGE_DAILY_LIMIT = 9
-REPORT_TARGET_TYPES = ("message", "moment", "book", "recommendation")
+REPORT_TARGET_TYPES = ("message", "moment", "book", "recommendation", "music")
 REPORT_LOGIN_REQUIRED_TARGETS = {"message", "moment"}
 REPORT_TARGET_LABELS = {
     "message": "留言",
     "moment": "动态",
     "book": "电子书",
     "recommendation": "推荐",
+    "music": "歌曲",
 }
 REPORT_REASONS = (
     "违法违规",
@@ -7210,7 +7211,36 @@ class InventoryHandler(BaseHTTPRequestHandler):
         return False
 
     def guard_request(self, path, method):
-        """返回 True 表示请求可以继续处理。"""
+        """返回 True 表示请求可以继续处理；被拒时先把请求体读干净再放行返回。"""
+        allowed = self.guard_request_inner(path, method)
+        if not allowed:
+            # 拒绝的请求不会再走 get_payload()，请求体留在 socket 上会把 keep-alive 连接搞乱：
+            # 下一个请求行会被拼成「{"module":"messages"}GET /static/moments.css」这种畸形请求，
+            # 结果就是紧随其后的静态资源拿到 501。读掉残余字节即可。
+            self.drain_request_body()
+        return allowed
+
+    def drain_request_body(self):
+        """把当前请求的请求体读掉，保证 keep-alive 连接的下一个请求不被污染。"""
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except (TypeError, ValueError):
+            return
+        remaining = max(0, length)
+        if not remaining:
+            return
+        # 只读合理范围内的字节；超过就干脆断开连接，免得卡在一个巨大的 body 上
+        budget = min(remaining, MAX_REQUEST_BYTES + 1024)
+        while budget > 0:
+            chunk = self.rfile.read(min(65536, budget))
+            if not chunk:
+                break
+            budget -= len(chunk)
+        if budget > 0 or remaining > MAX_REQUEST_BYTES + 1024:
+            self.close_connection = True
+
+    def guard_request_inner(self, path, method):
+        """真正的权限 / 来源判断。"""
         if method in ("POST", "PATCH", "DELETE") and path not in ("/api/login", "/api/member/login"):
             if AUTH_STATE.get("enabled") and not self.origin_allowed():
                 api_error(self, 403, "请求来源不合法。")
@@ -7224,7 +7254,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             if relative and self.data_file_allowed(relative, identity):
                 return True
             if identity is None:
-                api_error(self, 401, "请先登录。")
+                api_error(self, 401, "请登录后操作")
             else:
                 api_error(self, 403, "当前账号没有访问权限。")
             return False
@@ -7252,7 +7282,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.redirect("/?access=denied")
             return False
         if path.startswith("/api/") or path.startswith("/site-files/"):
-            api_error(self, 401, "请先登录。")
+            api_error(self, 401, "请登录后操作")
         else:
             target = path if path.startswith("/") else "/"
             self.redirect(f"/login?next={quote(target)}")
@@ -7529,7 +7559,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_account_nickname(self, payload):
         identity = self.session_identity()
         if not identity:
-            api_error(self, 401, "请先登录。")
+            api_error(self, 401, "请登录后操作")
             return
         if identity.get("kind") == "owner":
             api_error(self, 400, "站长账号没有独立昵称。")
@@ -9983,7 +10013,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_site_message_quota(self):
         identity = self.session_identity()
         if not identity:
-            api_error(self, 401, "请先登录。")
+            api_error(self, 401, "请登录后操作")
             return
         user_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
         used = self.message_daily_used(user_id)
@@ -10071,7 +10101,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_site_notifications_seen(self, payload):
         identity = self.session_identity()
         if not identity:
-            api_error(self, 401, "请先登录。")
+            api_error(self, 401, "请登录后操作")
             return
         payload = payload or {}
         module = str(payload.get("module") or "").strip()
@@ -10209,7 +10239,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_site_like_toggle(self, payload):
         identity = self.session_identity()
         if not identity:
-            api_error(self, 401, "请先登录。")
+            api_error(self, 401, "请登录后操作")
             return
         if not rate_allow("like", self.client_ip(), 60, 60):
             api_error(self, 429, "操作太频繁，请稍后再试。")
@@ -10291,7 +10321,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_site_messages(self, params):
         """
         留言板：游客也能看全部留言，但普通账号的名字只保留最后一个字，
-        回复区整块锁住（内容不下发），互动按钮由前端对游客隐藏。
+        回复区照常下发（同样脱敏），发布 / 回复 / 点赞 / 删除按钮由前端对游客隐藏。
         """
         identity = self.session_identity()
         viewer_signed_in = identity is not None
@@ -10457,12 +10487,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
             root["replies"] = sorted(
                 root.get("replies") or [], key=lambda item: int(item["id"])
             )
-        if not viewer_signed_in:
-            # 游客只看得到留言本身：回复内容整块不下发，只留条数让前端画锁定块
-            for root in roots:
-                root["reply_count"] = len(root.get("replies") or [])
-                root["replies_locked"] = True
-                root["replies"] = []
         self.send_json(200, roots)
 
     def message_attachments(self, payload):
@@ -10528,7 +10552,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_site_message_create(self, payload):
         identity = self.session_identity()
         if not identity:
-            api_error(self, 401, "请先登录。")
+            api_error(self, 401, "请登录后操作")
             return
         if not rate_allow("message", self.client_ip(), 5, 60):
             api_error(self, 429, "留言太频繁，请稍后再试。")
@@ -10795,7 +10819,16 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 {
                     "id": row["id"],
                     "parent_id": row["parent_id"],
-                    "actor": row["actor"],
+                    # 游客视角：管理员照常显示「管理员」，普通账号只保留最后一个字
+                    "actor": (
+                        row["actor"]
+                        if viewer_signed_in
+                        else (
+                            "管理员"
+                            if int(row.get("user_id") or 0) == 0
+                            else mask_username(row["actor"])
+                        )
+                    ),
                     "content": row["content"],
                     "created_at": row["created_at"],
                     "can_delete": can_delete,
@@ -10813,7 +10846,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_moments(self, params):
         """
         动态：游客也能看全部动态（正文、图片、属地），但普通账号的名字只保留最后一个字，
-        评论 / 回复区整块锁住（内容不下发），点赞、评论输入和分享卡的操作按钮由前端对游客隐藏。
+        评论 / 回复区照常下发（评论人同样脱敏），点赞、评论输入和分享卡的操作按钮由前端对游客隐藏。
         """
         identity = self.session_identity()
         viewer_signed_in = identity is not None
@@ -10883,15 +10916,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
         comment_counts = {
             moment_id: len(items) for moment_id, items in comments.items()
         }
-        if not viewer_signed_in:
-            # 游客：评论内容不下发，只给条数，前端画锁定块
-            comments = {}
-            comment_moment_ids = set()
         for row in rows:
             row["files"] = files.get(row["id"], [])
             row["comments"] = comments.get(row["id"], [])
             row["comment_count"] = comment_counts.get(int(row["id"]), 0)
-            row["comments_locked"] = not viewer_signed_in
             share = share_ids.get(int(row["id"]))
             share_info = shared_resource_info(share[0], share[1]) if share else None
             if share_info and not viewer_signed_in:
@@ -10928,7 +10956,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_moment_comment_create(self, moment_id, payload):
         identity = self.session_identity()
         if not identity:
-            api_error(self, 401, "请先登录。")
+            api_error(self, 401, "请登录后操作")
             return
         if not rate_allow("moment_comment", self.client_ip(), 10, 60):
             api_error(self, 429, "评论太频繁，请稍后再试。")
@@ -11005,7 +11033,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_moment_comment_delete(self, comment_id):
         identity = self.session_identity()
         if not identity:
-            api_error(self, 401, "请先登录。")
+            api_error(self, 401, "请登录后操作")
             return
         row = query_one(
             "SELECT id, moment_id, user_id FROM moment_comments WHERE id = ?",
@@ -11472,7 +11500,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_shared_note(self, note_id):
         identity = self.session_identity()
         if not identity:
-            api_error(self, 401, "请先登录。")
+            api_error(self, 401, "请登录后操作")
             return
         if not self.is_admin() and not resource_is_shared("note", note_id):
             api_error(self, 403, "这篇笔记没有在站内分享。")
@@ -11983,7 +12011,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def api_site_music_stream(self, item_id, head_only=False):
         if self.session_identity() is None:
-            api_error(self, 401, "登录后可以播放。")
+            api_error(self, 401, "请登录后操作")
             return
         row = query_one(
             """SELECT title, source_type, source_id
@@ -12003,7 +12031,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         # 登录后直接下载，不再需要申请与审核
         if self.session_identity() is None:
-            api_error(self, 401, "登录后可以下载。")
+            api_error(self, 401, "请登录后操作")
             return
         self.log_activity(
             "music_download",
@@ -12302,7 +12330,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         # 登录后直接下载，不再需要申请与审核
         if self.session_identity() is None:
-            api_error(self, 401, "登录后可以下载。")
+            api_error(self, 401, "请登录后操作")
             return
         self.log_activity(
             "book_download",
@@ -12657,7 +12685,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         """更新「已看到标记」；如带 notify_targets 则同时把地图提醒标记已读。"""
         identity = self.session_identity()
         if not identity:
-            api_error(self, 401, "请先登录。")
+            api_error(self, 401, "请登录后操作")
             return
         user_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
         payload = payload or {}
@@ -12833,7 +12861,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_map_place_create(self, payload):
         user_id = self.map_identity_user_id()
         if user_id is None:
-            api_error(self, 401, "请先登录。")
+            api_error(self, 401, "请登录后操作")
             return
         try:
             values = self.map_place_payload(payload)
@@ -13016,7 +13044,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_map_import(self, payload):
         user_id = self.map_identity_user_id()
         if user_id is None:
-            api_error(self, 401, "请先登录。")
+            api_error(self, 401, "请登录后操作")
             return
         is_admin = self.is_admin()
         if isinstance(payload, dict):
@@ -13348,7 +13376,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_site_message_delete(self, path):
         identity = self.session_identity()
         if not identity:
-            api_error(self, 401, "请先登录。")
+            api_error(self, 401, "请登录后操作")
             return
         item_id = int(path.split("/")[4])
         target = query_one(
@@ -13443,7 +13471,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if identity is None:
             extension = os.path.splitext(row.get("file_name") or "")[1].lower()
             if extension not in MESSAGE_IMAGE_EXTENSIONS:
-                api_error(self, 401, "登录后才可以查看这个附件。")
+                api_error(self, 401, "请登录后操作")
                 return
         self.send_data_file(row["file_path"])
 
@@ -13707,7 +13735,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if target_type not in REPORT_TARGET_TYPES or not target_key:
             raise ValueError("举报对象不正确。")
         if target_type in REPORT_LOGIN_REQUIRED_TARGETS and not identity:
-            raise PermissionError("登录后可以举报留言和动态。")
+            raise PermissionError("请登录后操作")
 
         if target_type == "message":
             if not target_key.isdigit():
@@ -13791,6 +13819,27 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "title": row.get("title") or "",
                     "subtitle": row.get("subtitle") or "",
                     "description": str(row.get("description") or "")[:1000],
+                    "created_at": row.get("created_at") or "",
+                },
+            )
+
+        if target_type == "music":
+            if not target_key.isdigit():
+                raise ValueError("举报对象不正确。")
+            row = query_one(
+                """SELECT id, title, artist, album, created_at
+                   FROM site_music WHERE id = ?""",
+                (int(target_key),),
+            )
+            if not row:
+                raise LookupError("歌曲不存在。")
+            return (
+                str(row.get("title") or f"歌曲 #{row['id']}")[:160],
+                {
+                    "id": row["id"],
+                    "title": row.get("title") or "",
+                    "artist": row.get("artist") or "",
+                    "album": row.get("album") or "",
                     "created_at": row.get("created_at") or "",
                 },
             )

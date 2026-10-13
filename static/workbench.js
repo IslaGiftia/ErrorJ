@@ -2443,7 +2443,7 @@
   }
 
   function reportTargetLabel(type) {
-    return { message: "留言", moment: "动态", book: "电子书", recommendation: "推荐" }[type] || type;
+    return { message: "留言", moment: "动态", book: "电子书", recommendation: "推荐", music: "歌曲" }[type] || type;
   }
 
   function reportHtml() {

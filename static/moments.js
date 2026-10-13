@@ -597,7 +597,7 @@
         el("span", "mo-share-icon", share.type === "book" ? "📖" : share.type === "music" ? "♪" : "📝")
       );
       locked.appendChild(info);
-      locked.appendChild(el("span", "mo-share-locked", "登录后可查看"));
+      locked.appendChild(el("span", "mo-share-locked", "请登录后操作"));
       return locked;
     }
     if (share.type === "music") {
@@ -681,7 +681,7 @@
     linkCard.appendChild(el("span", "mo-share-open", "阅读"));
     linkCard.addEventListener("click", function () {
       if (!canInteract) {
-        toast("登录后可以阅读");
+        toast("请登录后操作");
         return;
       }
       window.open(share.url, "_blank", "noopener");
@@ -708,7 +708,7 @@
     sync();
     btn.addEventListener("click", function () {
       if (!canInteract) {
-        toast("登录后可以点赞");
+        toast("请登录后操作");
         return;
       }
       btn.disabled = true;
@@ -746,18 +746,6 @@
     btn.innerHTML = '<i data-lucide="thumbs-up" aria-hidden="true"></i>';
     wrap.append(btn, names);
     bindLikeControl(btn, names, targetType, target);
-    if (!canInteract) {
-      /*
-       * 游客：点赞按钮整个不渲染，只留一行脱敏的点赞名字；
-       * 一个赞都没有就整行不显示。灰色「点赞」当这一行的说明。
-       */
-      btn.remove();
-      if (!(target.like_users || []).length) {
-        wrap.hidden = true;
-      } else {
-        wrap.insertBefore(el("span", "mo-like-label", "点赞"), names);
-      }
-    }
     return wrap;
   }
 
@@ -978,36 +966,9 @@
     return row;
   }
 
-  /*
-   * 游客看到的评论 / 回复区：正文不下发，这里画几道模糊占位条 + 一句登录提示，
-   * 「三个点」里的举报不受影响。
-   */
-  function buildCommentsLocked(count) {
-    var box = el("div", "mo-locked-block");
-    var blur = el("div", "mo-lock-blur");
-    blur.setAttribute("aria-hidden", "true");
-    blur.append(el("i", ""), el("i", ""), el("i", ""));
-    box.appendChild(blur);
-    var hint = el("p", "mo-lock-hint");
-    var icon = document.createElement("i");
-    icon.setAttribute("data-lucide", "lock");
-    hint.appendChild(icon);
-    hint.appendChild(
-      document.createTextNode(
-        count > 0 ? "登录后可查看 " + count + " 条评论" : "登录后可查看评论"
-      )
-    );
-    box.appendChild(hint);
-    return box;
-  }
-
   function buildComments(moment, freshIds) {
     var comments = moment.comments || [];
     var box = el("div", "mo-comments");
-    if (moment.comments_locked) {
-      box.appendChild(buildCommentsLocked(moment.comment_count || 0));
-      return box;
-    }
     var grouped = groupComments(comments);
     var ctx = { replies: {}, active: null };
     ctx.closeReply = function () {

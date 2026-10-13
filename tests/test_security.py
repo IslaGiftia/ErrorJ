@@ -838,18 +838,24 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(comment["like_users"], ["other1"])
         self.assertTrue(comment["liked"] is False)
 
-    def test_guest_sees_moments_with_masked_names_and_locked_comments(self):
-        """游客能看动态正文，但普通账号的名字脱敏、评论 / 回复整块锁住。"""
+    def test_guest_sees_moments_comments_with_masked_names(self):
+        """游客能看动态正文和评论 / 回复，但普通账号的名字只保留最后一个字。"""
         stamp = app.now_text()
         moment_id = app.execute(
             "INSERT INTO moments (content, created_at) VALUES (?, ?)",
             ("动态内容", stamp),
         )
-        app.execute(
+        comment_id = app.execute(
             """INSERT INTO moment_comments
                    (moment_id, parent_id, user_id, actor, content, created_at)
                VALUES (?, NULL, ?, ?, ?, ?)""",
-            (moment_id, self.author_id, "作者甲", "游客不该看到的评论", stamp),
+            (moment_id, self.other_id, "评论乙", "给游客看的评论", stamp),
+        )
+        app.execute(
+            """INSERT INTO moment_comments
+                   (moment_id, parent_id, user_id, actor, content, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (moment_id, comment_id, self.author_id, "作者甲", "给游客看的回复", stamp),
         )
         handler, _ = self.make_handler(self.other_id, username="other1")
         handler.api_site_like_toggle(
@@ -867,12 +873,16 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(target["content"], "动态内容")
         # 点赞者名字只保留最后一个字
         self.assertEqual(target["like_users"], [app.mask_username("other1")])
-        self.assertTrue(target["comments_locked"])
-        self.assertEqual(target["comment_count"], 1)
-        self.assertEqual(target["comments"], [])
-        self.assertNotIn(
-            "游客不该看到的评论", json.dumps(payload, ensure_ascii=False)
-        )
+        self.assertEqual(target["comment_count"], 2)
+        comments = {int(row["id"]): row for row in target["comments"]}
+        self.assertEqual(comments[comment_id]["content"], "给游客看的评论")
+        self.assertEqual(comments[comment_id]["actor"], app.mask_username("评论乙"))
+        reply = [row for row in target["comments"] if int(row["id"]) != comment_id][0]
+        self.assertEqual(reply["content"], "给游客看的回复")
+        # 脱敏后的名字不能再从响应里还原出原文
+        self.assertEqual(reply["actor"], app.mask_username("作者甲"))
+        self.assertNotIn("评论乙", json.dumps(payload, ensure_ascii=False))
+        self.assertNotIn("作者甲", json.dumps(payload, ensure_ascii=False))
 
     def test_moment_like_lists_usernames(self):
         stamp = app.now_text()
@@ -996,15 +1006,15 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(target["like_users"], ["other1"])
         self.assertEqual(target["like_count"], 1)
 
-    def test_guest_sees_messages_with_masked_names_and_locked_replies(self):
-        """游客能看留言正文，但普通账号的名字脱敏、回复区整块锁住。"""
+    def test_guest_sees_message_replies_with_masked_names(self):
+        """游客能看留言正文和回复，但普通账号的名字只保留最后一个字。"""
         handler, _ = self.make_handler(self.other_id, username="other1")
         handler.api_site_like_toggle(
             {"target_type": "message", "target_id": self.message_id}
         )
         reply_handler, _ = self.make_handler(self.author_id, username="author1")
         reply_handler.api_site_message_create(
-            {"content": "游客不该看到的回复", "parent_id": self.message_id, "files": []}
+            {"content": "给游客看的回复", "parent_id": self.message_id, "files": []}
         )
         guest = object.__new__(app.InventoryHandler)
         guest.session_identity = lambda: None
@@ -1017,12 +1027,13 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(target["content"], "测试留言")
         self.assertEqual(target["nickname"], app.mask_username("author1"))
         self.assertEqual(target["like_users"], [app.mask_username("other1")])
-        self.assertTrue(target["replies_locked"])
-        self.assertEqual(target["reply_count"], 1)
-        self.assertEqual(target["replies"], [])
-        self.assertNotIn(
-            "游客不该看到的回复", json.dumps(roots, ensure_ascii=False)
+        self.assertEqual(len(target["replies"]), 1)
+        self.assertEqual(target["replies"][0]["content"], "给游客看的回复")
+        self.assertEqual(
+            target["replies"][0]["nickname"], app.mask_username("author1")
         )
+        # 脱敏后的名字不能再从响应里还原出原文
+        self.assertNotIn("author1", json.dumps(roots, ensure_ascii=False))
 
     def test_reply_to_reply_is_grouped_and_notifies(self):
         handler, responses = self.make_handler(self.other_id, username="other1")
@@ -1948,12 +1959,10 @@ class ComplianceWorkflowTests(unittest.TestCase):
 
         guest.api_moments({})
         moments = guest.responses[-1][1]
-        # 动态对游客整体开放：正文照常返回，评论 / 回复锁住
+        # 动态对游客整体开放：正文、评论 / 回复都照常返回（名字脱敏）
         self.assertIsInstance(moments, list)
         moment = [row for row in moments if int(row["id"]) == self.moment_id][0]
         self.assertEqual(moment["content"], "动态内容")
-        self.assertTrue(moment["comments_locked"])
-        self.assertEqual(moment["comments"], [])
 
         guest.api_site_music_stream(self.music_id)
         self.assertEqual(guest.responses[-1][0], 401)
@@ -1983,11 +1992,20 @@ class ComplianceWorkflowTests(unittest.TestCase):
                     "reason": "违法违规",
                 }
             )
+            # 歌曲也是管理员上传的站内内容：游客同样能举报
+            guest.api_site_report_create(
+                {
+                    "target_type": "music",
+                    "target_key": str(self.music_id),
+                    "reason": "侵权或隐私",
+                }
+            )
+        self.assertEqual(guest.responses[-4][0], 200)
         self.assertEqual(guest.responses[-3][0], 200)
-        self.assertEqual(guest.responses[-2][0], 200)
-        self.assertEqual(guest.responses[-1][0], 401)
+        self.assertEqual(guest.responses[-2][0], 401)
+        self.assertEqual(guest.responses[-1][0], 200)
         self.assertEqual(
-            app.query_one("SELECT COUNT(*) AS n FROM content_reports")["n"], 2
+            app.query_one("SELECT COUNT(*) AS n FROM content_reports")["n"], 3
         )
 
     def test_log_retention_default_is_six_months(self):

@@ -106,6 +106,21 @@
     }, 2400);
   }
 
+  /*
+   * 编辑弹窗打开时，请外层推荐页把左上 / 右上那排悬浮按钮整条收上去，关掉再放下来。
+   * 弹窗在 iframe 里、按钮在外壳上，所以只能 postMessage 通知。
+   */
+  function notifyShellDialog(open) {
+    if (window.ErrorEmbed) window.ErrorEmbed.notifyDialog(open);
+  }
+
+  // 说明文本域不要滚动条：改成随内容自动增高
+  function autoGrowTextarea(node) {
+    if (!node) return;
+    node.style.height = "auto";
+    node.style.height = node.scrollHeight + 2 + "px";
+  }
+
   function extensionOf(name) {
     var index = String(name || "").lastIndexOf(".");
     return index < 0 ? "" : String(name).slice(index).toLowerCase();
@@ -329,7 +344,8 @@
 
   // 管理员看到 置顶 / 编辑 / 删除；其它人（含游客）看到 举报。
   // 站点内容都是管理员上传的，自己举报自己没意义，所以管理员不再显示举报。
-  function buildWebMenu(item) {
+  // 站内资源卡片是分享生成的，没有可编辑的字段，所以不出现「编辑」。
+  function buildFlatMenu(item) {
     var items = [];
     if (state.canManage) {
       items.push({
@@ -338,12 +354,14 @@
           togglePinItem(item);
         },
       });
-      items.push({
-        label: "编辑",
-        onPick: function () {
-          openEditor(item);
-        },
-      });
+      if (item.kind !== "resource") {
+        items.push({
+          label: "编辑",
+          onPick: function () {
+            openEditor(item);
+          },
+        });
+      }
       items.push({
         label: "删除",
         danger: true,
@@ -415,25 +433,7 @@
       body.appendChild(tagRow);
     }
     var links = el("div", "rec-link-row");
-    if (item.kind === "resource") {
-      var resource = item.resource || {};
-      if (resource.available && resource.page_url) {
-        // 阅读器已下线：电子书资源直接给下载入口，歌曲回歌单、笔记回阅读页
-        var actionLabel =
-          resource.type === "music" ? "去歌单" : resource.type === "book" ? "下载" : "阅读";
-        var openResource = el(
-          "a",
-          "primary",
-          actionLabel
-        );
-        openResource.href = safeHref(resource.page_url);
-        openResource.target = "_blank";
-        openResource.rel = "noopener noreferrer";
-        links.appendChild(openResource);
-      } else if (!state.requiresLogin) {
-        links.appendChild(el("span", "rec-resource-missing", "内容已失效"));
-      }
-    } else if (item.url) {
+    if (item.url) {
       var open = el("a", isMedia(item) ? "" : "primary", isMedia(item) ? "查看详情" : "访问");
       open.href = safeHref(item.url);
       open.target = "_blank";
@@ -448,10 +448,10 @@
       links.appendChild(download);
     }
     if (state.requiresLogin) {
-      var loginOnly = el("button", "rec-login-only", "登录后访问");
+      var loginOnly = el("button", "rec-login-only", "请登录后操作");
       loginOnly.type = "button";
       loginOnly.addEventListener("click", function () {
-        toast("登录后可以打开推荐内容");
+        toast("请登录后操作");
       });
       links.appendChild(loginOnly);
     }
@@ -469,10 +469,27 @@
   }
 
   /*
-   * 网页 / 工具用扁卡片：左边网站缩略图，右边上面标题、下面说明；
-   * 点缩略图或中间任意位置都直接打开网站，右上角是「三个点」菜单。
+   * 网页 / 工具 / 站内资源统一用扁卡片：左边缩略图，右边上面标题、下面说明；
+   * 点缩略图或中间任意位置直接打开目标，右上角是「三个点」菜单。
+   * 站内资源要登录才能打开，游客点整张卡片只弹一句登录提示。
    */
-  function webThumb(item, href) {
+  function flatHref(item) {
+    if (item.kind === "site" || item.kind === "tool") return safeHref(item.url);
+    var resource = item.resource || {};
+    if (!state.requiresLogin && resource.available && resource.page_url) {
+      return safeHref(resource.page_url);
+    }
+    return "";
+  }
+
+  // 站内资源对游客（以及内容已失效时）给不出地址，标题下面补一句说明
+  function flatNote(item) {
+    if (item.kind !== "resource" || state.requiresLogin) return "";
+    var resource = item.resource || {};
+    return resource.available && resource.page_url ? "" : "内容已失效";
+  }
+
+  function flatThumb(item, href) {
     var link = el("a", "rec-web-thumb");
     if (href) {
       link.href = href;
@@ -497,33 +514,48 @@
     return link;
   }
 
-  function buildWebCard(card, item) {
-    var href = safeHref(item.url);
-    card.appendChild(webThumb(item, href));
-    var body = el("a", "rec-web-body");
+  function buildFlatCard(card, item) {
+    var href = flatHref(item);
+    card.appendChild(flatThumb(item, href));
+    var body = el(href ? "a" : "div", "rec-web-body");
     if (href) {
       body.href = href;
       body.target = "_blank";
       body.rel = "noopener noreferrer";
     }
-    body.appendChild(el("strong", "rec-web-title", item.title || "未命名网站"));
-    if (item.description) {
-      body.appendChild(el("p", "rec-web-desc", item.description));
+    body.appendChild(el("strong", "rec-web-title", item.title || "未命名"));
+    var desc = item.description || (item.kind === "resource" ? item.subtitle : "") || "";
+    var note = flatNote(item);
+    if (note) desc = note;
+    if (desc) {
+      var line = el("p", "rec-web-desc", desc);
+      if (note) line.classList.add("is-note");
+      body.appendChild(line);
     }
     card.appendChild(body);
-    card.appendChild(buildWebMenu(item));
+    card.appendChild(buildFlatMenu(item));
+    if (!href) {
+      card.addEventListener("click", function (event) {
+        if (event.target.closest(".rec-more")) return;
+        toast(
+          state.requiresLogin ? "请登录后操作" : "内容已失效"
+        );
+      });
+    }
   }
 
   function buildCard(item) {
     var isWeb = item.kind === "site" || item.kind === "tool";
-    var tier = isWeb
+    // 站内资源卡片按网页卡片的样式呈现（同样是分享出来的卡片，交互保持一致）
+    var isFlat = isWeb || item.kind === "resource";
+    var tier = isFlat
       ? "rec-web-card"
       : isMedia(item)
         ? "rec-media-card"
         : "rec-resource-card";
     var card = el("article", "rec-card " + tier + (item.pinned ? " is-pinned" : ""));
-    if (isWeb) {
-      buildWebCard(card, item);
+    if (isFlat) {
+      buildFlatCard(card, item);
     } else {
       card.appendChild(coverNode(item));
       card.appendChild(cardBody(item));
@@ -726,6 +758,7 @@
         $("recUrl").value = item.url || "";
         if (!$("recDescription").value.trim() && item.description) {
           $("recDescription").value = item.description;
+          autoGrowTextarea($("recDescription"));
         }
         renderBookmarkSummary();
         updateFormFields();
@@ -763,7 +796,6 @@
     var linked = kind === "site" && Boolean(state.selectedBookmark);
     $("recTitle").readOnly = linked;
     $("recUrl").readOnly = linked;
-    $("recIconUrl").disabled = linked;
     if (linked) {
       $("recTitle").value = state.selectedBookmark.title || "";
       $("recUrl").value = state.selectedBookmark.url || "";
@@ -783,7 +815,6 @@
     $("recTags").value = item ? item.tags || "" : "";
     $("recUrl").value = item ? item.url || "" : "";
     $("recDownloadUrl").value = item ? item.download_url || "" : "";
-    $("recIconUrl").value = item && !item.bookmark_id ? item.icon_url || "" : "";
     $("recStatus").value = item ? item.status || "" : "";
     $("recRating").value = item && item.rating !== null && item.rating !== undefined ? item.rating : "";
     $("recYear").value = item ? item.release_year || "" : "";
@@ -794,6 +825,8 @@
     updateFormFields();
     renderCoverPreview();
     $("recModal").hidden = false;
+    autoGrowTextarea($("recDescription"));
+    notifyShellDialog(true);
     window.setTimeout(function () { $("recTitle").focus(); }, 0);
   }
 
@@ -815,6 +848,7 @@
 
   function closeEditor() {
     $("recModal").hidden = true;
+    notifyShellDialog(false);
     state.editingId = null;
     state.coverPath = "";
     state.coverFile = null;
@@ -872,7 +906,6 @@
         ["category", "recCategory"],
         ["tags", "recTags"],
         ["download_url", "recDownloadUrl"],
-        ["icon_url", "recIconUrl"],
         ["status", "recStatus"],
         ["rating", "recRating"],
         ["release_year", "recYear"],
@@ -970,6 +1003,10 @@
     renderCoverPreview();
   });
   $("recForm").addEventListener("submit", saveRecommendation);
+  // 说明文本域：跟随输入自动增高，永远不出现滚动条
+  $("recDescription").addEventListener("input", function (event) {
+    autoGrowTextarea(event.target);
+  });
 
   // ---------- 「+站内」：把笔记 / 歌曲 / 电子书分享成站内资源 ----------
 
@@ -1144,6 +1181,18 @@
     }
     renderCards();
   });
+
+  /*
+   * 内嵌子页（?view=web / ?view=resource）里，「N 项 + 搜索」顶栏和分类页签本来就不属于这一页：
+   * 直接从 DOM 里摘掉（不是藏起来），刷新时不会再闪出旧的输入框和「0 项」。
+   */
+  if (state.view !== "all") {
+    var headerNode = document.querySelector(".rec-header");
+    if (headerNode) headerNode.remove();
+    var tabsNode = $("recTabs");
+    var toolbarNode = tabsNode ? tabsNode.closest(".rec-toolbar") : null;
+    if (toolbarNode) toolbarNode.remove();
+  }
 
   if (document.fonts && document.fonts.ready) {
     document.fonts.ready.then(function () {

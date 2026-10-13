@@ -89,6 +89,14 @@ body {
   transform: translateX(-50%);
   /* 中间的空档不挡子页面，只有按钮本身可点 */
   pointer-events: none;
+  transition: transform 0.26s ease, opacity 0.26s ease;
+}
+
+/* 子页的编辑弹窗打开时：整条操作区滑上去，把弹窗上面那两个角让出来 */
+.dl-dock.is-away {
+  opacity: 0;
+  transform: translateX(-50%) translateY(calc(-100% - 30px));
+  pointer-events: none;
 }
 
 .dl-tabs {
@@ -273,15 +281,21 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .dl-tab,
   .dl-action,
+  .dl-dock,
   .dl-panel,
   .dl-tip::after {
     transition: none;
   }
 }
 
-/* 手机上和留言 / 动态页一样：悬浮按钮再往上贴一点 */
+/*
+ * 手机：这排按钮就是悬浮顶栏，必须贴在页面最上沿。
+ * 不再叠加 env(safe-area-inset-top)：手机浏览器自己那条工具栏上面已经让开了，
+ * 再叠一次会让按钮整体下移一大截、上面留出一块空白。
+ */
 @media (max-width: 640px) {
   .dl-dock {
-    top: calc(8px + env(safe-area-inset-top, 0px));
+    top: 6px;
+    padding: 0 12px;
   }
 }

@@ -911,12 +911,6 @@ button.mg-file {
   white-space: nowrap;
 }
 
-/* 游客看到的点赞行没有大拇指按钮，用一个灰色「点赞」当说明 */
-.mg-like-label {
-  color: var(--mg-muted);
-  font-size: 12.5px;
-}
-
 /* 这一行在游客视角可能整块不显示（没有点赞者时）：作者样式的 display 会盖掉 [hidden] */
 .mg-like[hidden] {
   display: none;
@@ -1480,56 +1474,4 @@ body[data-notify-module="messages"] .site-back-top.is-pending svg {
   .mg-like-btn.is-pop {
     animation: none;
   }
-}
-
-/* ---------- 游客看到的锁定区：模糊占位条 + 登录提示 ---------- */
-
-.mg-locked-block {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 10px;
-  padding: 12px 14px;
-  border: 1px dashed var(--mg-border);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--mg-hover) 55%, transparent);
-}
-
-.mg-lock-blur {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-
-.mg-lock-blur i {
-  height: 10px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--mg-muted) 34%, transparent);
-  filter: blur(2.5px);
-}
-
-.mg-lock-blur i:nth-child(1) {
-  width: 76%;
-}
-
-.mg-lock-blur i:nth-child(2) {
-  width: 58%;
-}
-
-.mg-lock-blur i:nth-child(3) {
-  width: 66%;
-}
-
-.mg-lock-hint {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  color: var(--mg-muted);
-  font-size: 12.5px;
-}
-
-.mg-lock-hint svg {
-  width: 14px;
-  height: 14px;
 }

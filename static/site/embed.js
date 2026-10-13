@@ -15,4 +15,18 @@
 
   document.documentElement.classList.add("is-embed");
   window.ERRORJ_EMBED = true;
+  window.ErrorEmbed = {
+    /*
+     * 子页里的编辑弹窗打开 / 关闭时通知外层推荐页：
+     * 左上 4 个 + 右上 1 个悬浮按钮整体收上去 / 放下来，别压着弹窗。
+     */
+    notifyDialog: function (open) {
+      try {
+        window.parent.postMessage(
+          { type: "errorj-recommend-dialog", open: Boolean(open) },
+          window.location.origin
+        );
+      } catch (err) {}
+    },
+  };
 })();

@@ -136,9 +136,7 @@
         var response = await fetch("/api/auth/status", { cache: "no-store" });
         var status = await response.json();
         if (!status.authenticated) {
-          await window.ErrorDialog.alert("登录后可以举报留言和动态。", {
-            title: "请先登录",
-          });
+          await window.ErrorDialog.alert("请登录后操作");
           return;
         }
       } catch (err) {

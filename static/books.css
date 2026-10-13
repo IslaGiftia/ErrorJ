@@ -603,3 +603,11 @@ html.is-embed .bk-main {
   /* 顶部留出一条，刚好让开推荐页那排悬浮按钮 */
   padding: 62px 16px 64px;
 }
+
+/* 手机上那排按钮贴在页面最上沿（35px 高），正文只要让开它就够 */
+@media (max-width: 640px) {
+  html.is-embed .bk-main {
+    max-width: none;
+    padding: 50px 12px 56px;
+  }
+}

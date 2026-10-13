@@ -180,17 +180,31 @@ a {
   color: var(--rec-accent);
 }
 
+/* 主按钮（编辑弹窗右下角「保存」等）：Error酱 主题色的实心按钮 */
 .rec-btn-primary,
 .rec-action.primary {
   border-color: transparent;
-  background: linear-gradient(135deg, var(--rec-accent), color-mix(in srgb, var(--rec-accent) 45%, var(--rec-accent-2)));
+  background: #7b68ee;
   color: #fff;
+  box-shadow: 0 4px 14px rgba(123, 104, 238, 0.26);
 }
 
 .rec-btn-primary:hover,
 .rec-action.primary:hover {
+  background: #6956e5;
   color: #fff;
-  filter: brightness(1.05);
+}
+
+/* 深色主题跟站内其它页面同一颗紫：--mg-accent / --mo-accent 的深色值 */
+[data-theme="dark"] .rec-btn-primary,
+[data-theme="dark"] .rec-action.primary {
+  background: #a78bfa;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.34);
+}
+
+[data-theme="dark"] .rec-btn-primary:hover,
+[data-theme="dark"] .rec-action.primary:hover {
+  background: #b8a3ff;
 }
 
 .rec-btn svg {
@@ -264,15 +278,28 @@ a {
     box-shadow 0.28s ease;
 }
 
+/*
+ * 悬停扫光：早先是把整块伪元素 transform 平移出去，扁卡片（.rec-web-card 要 overflow: visible，
+ * 右上角「三个点」菜单才能开到卡片外面）会把整道光带拖到卡片外的空白处。
+ * 改成动 background-position：光带始终画在卡片自己的盒子里，什么卡片都不会漏出来。
+ */
 .rec-card::after {
   position: absolute;
   inset: 0;
   z-index: 4;
-  background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.22) 48%, transparent 66%);
+  background-image: linear-gradient(
+    110deg,
+    rgba(255, 255, 255, 0) 40%,
+    rgba(255, 255, 255, 0.22) 50%,
+    rgba(255, 255, 255, 0) 60%
+  );
+  background-repeat: no-repeat;
+  background-position: 100% 0;
+  background-size: 300% 100%;
   content: "";
-  transform: translateX(-120%);
+  opacity: 0;
   pointer-events: none;
-  transition: transform 0.65s ease;
+  transition: opacity 0.22s ease, background-position 0.7s ease;
 }
 
 .rec-card:hover {
@@ -286,7 +313,8 @@ a {
 }
 
 .rec-card:hover::after {
-  transform: translateX(120%);
+  background-position: -10% 0;
+  opacity: 1;
 }
 
 .rec-card-cover {
@@ -625,7 +653,15 @@ a {
 }
 
 .rec-field textarea {
-  resize: vertical;
+  /* 说明文本域按内容自动增高（recommendations.js），不给手动缩放，也不出滚动条 */
+  resize: none;
+}
+
+/* 输入类控件一律不出滚动条（弹窗挂在 .rec-app 外面，所以按 body 属性定位） */
+body[data-notify-module="recommendations"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+body[data-notify-module="recommendations"] select,
+body[data-notify-module="recommendations"] textarea {
+  overflow: hidden;
 }
 
 .rec-field input:focus,
@@ -664,6 +700,12 @@ a {
   display: block;
 }
 
+/* 书签描述可能很长：文字这一栏负责收缩 + 省略号，按钮那栏永远不换行、不被挤走 */
+.rec-bookmark-field > div:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .rec-bookmark-field span {
   margin-top: 3px;
   overflow: hidden;
@@ -676,7 +718,7 @@ a {
 .rec-bookmark-field > div:last-child {
   display: flex;
   flex: 0 0 auto;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 7px;
 }
 
@@ -1300,15 +1342,14 @@ html.is-embed .rec-app {
   margin: 0 auto;
 }
 
-html.is-embed .rec-header {
-  position: static;
-  min-height: 0;
-  padding: 14px 16px 10px;
-  border-bottom: 0;
-  background: transparent;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  box-shadow: none;
+/*
+ * 内嵌到推荐页时，「N 项 + 搜索」那一条顶栏和分类页签都不再属于这一页：
+ * 早先靠脚本加 hidden 藏起来，刷新的一瞬间会先闪一下旧输入框和「0 项」，
+ * 所以直接在样式里整条删掉（不占位、不渲染）。
+ */
+html.is-embed .rec-header,
+html.is-embed .rec-toolbar {
+  display: none;
 }
 
 html.is-embed .rec-main {
@@ -1319,4 +1360,11 @@ html.is-embed .rec-main {
 
 html.is-embed #recAddBtn {
   display: none !important;
+}
+
+/* 手机上那排按钮贴在页面最上沿（35px 高），正文只要让开它就够 */
+@media (max-width: 640px) {
+  html.is-embed .rec-main {
+    padding: 50px 12px 56px;
+  }
 }

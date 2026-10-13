@@ -39,7 +39,7 @@
     event.preventDefault();
     showDockToast(
       dockBlocked === 401
-        ? "请先注册账号并登录后再查看地图"
+        ? "请登录后操作"
         : "当前账号没有地图权限，请联系管理员"
     );
   });

@@ -114,7 +114,7 @@
             '" title="编辑"><i data-lucide="pencil"></i></button>'
           : "";
         // 站点内容都是管理员上传的，自己举报自己没意义：管理员不显示举报入口
-        var report = state.authenticated && !state.canManage
+        var report = !state.canManage
           ? '<button class="bk-card-edit" type="button" data-report-type="book" data-report-key="' +
             book.id +
             '" data-report-title="' +
@@ -132,9 +132,9 @@
             book.id +
             '" title="下载原文件"><i data-lucide="download"></i></button>'
           : "";
-        // 游客不显示封面右下角的操作胶囊，也不显示右上角的格式标签
+        // 游客只有「举报」这一颗按钮（下载要登录）；右上角的格式标签仍然只给登录账号
         var coverActions =
-          state.authenticated && edit + report + share + download
+          edit + report + share + download
             ? '<div class="bk-cover-actions">' + edit + report + share + download + "</div>"
             : "";
         var formatBadge = state.authenticated
@@ -204,7 +204,7 @@
 
   function downloadBook(id) {
     if (!state.authenticated) {
-      toast("登录后可以下载");
+      toast("请登录后操作");
       return;
     }
     location.href = "/api/books/" + id + "/download";
@@ -390,12 +390,22 @@
     state.deleteArmed = false;
     $("editTitleInput").value = book.title || "";
     $("editAuthorInput").value = book.author || "";
-    $("editTagsInput").value = book.tags || "";
-    $("editDescInput").value = book.description || "";
     $("editDelete").innerHTML = '<i data-lucide="trash-2"></i><span>删除</span>';
     $("editError").hidden = true;
     $("editModal").hidden = false;
+    notifyDock(true);
     if (window.lucide) lucide.createIcons();
+  }
+
+  /* 编辑弹窗打开时，外层推荐页那排悬浮按钮要收上去（见 embed.js） */
+  function notifyDock(open) {
+    if (window.ErrorEmbed) window.ErrorEmbed.notifyDialog(open);
+  }
+
+  function closeEditModal() {
+    if ($("editModal").hidden) return;
+    $("editModal").hidden = true;
+    notifyDock(false);
   }
 
   function submitEdit(event) {
@@ -414,12 +424,10 @@
       body: JSON.stringify({
         title: title,
         author: $("editAuthorInput").value.trim(),
-        tags: $("editTagsInput").value.trim(),
-        description: $("editDescInput").value.trim(),
       }),
     })
       .then(function () {
-        $("editModal").hidden = true;
+        closeEditModal();
         toast("已保存");
         loadBooks();
       })
@@ -440,7 +448,7 @@
     }
     api("/api/books/" + id, { method: "DELETE" })
       .then(function () {
-        $("editModal").hidden = true;
+        closeEditModal();
         toast("已删除");
         loadBooks();
       })
@@ -529,10 +537,10 @@
 
   $("editForm").addEventListener("submit", submitEdit);
   $("editClose").addEventListener("click", function () {
-    $("editModal").hidden = true;
+    closeEditModal();
   });
   $("editCancel").addEventListener("click", function () {
-    $("editModal").hidden = true;
+    closeEditModal();
   });
   $("editDelete").addEventListener("click", deleteCurrent);
 
@@ -540,7 +548,7 @@
     if (event.key === "Escape") {
       if (state.uploading) return;
       $("uploadModal").hidden = true;
-      $("editModal").hidden = true;
+      closeEditModal();
     }
   });
 
