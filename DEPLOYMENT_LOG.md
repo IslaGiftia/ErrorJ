@@ -4581,3 +4581,74 @@ iOS「添加到主屏幕」用的 `error-chan-touch.png`（180px）按站长要�
 
 备注：推送规则与权限这两块的**行为**在本地用真实请求 + 真 Webhook 接收端验证过
 （线上推的是同一份 `app.py`，git blob 一致）；线上侧栏版式用游客身份直接核对。
+
+## 113. 2026-10-14 00:01:47 更新日志点击直达内容、统计对齐修正、足迹入口闪烁再修
+
+背景：站长要求「点更新日志里的条目别整页刷新（左右四张卡片不能跟着重载），新标签页打开目标内容
+并把它高亮成呼吸态，右下角按钮也要有提醒和导航」；另外反馈上两轮的两处没修好
+（日志里被删的条目还在显示、左上统计的对齐逻辑搞反了）。
+
+完成内容（提交 `8a3f19c feat:focus-log-targets-in-page-or-new-tab-and-fix-stats-alignment`，
+21 文件，+332/−82）：
+
+- **更新日志点击行为**（`app.py` + `static/site/sidebar.js`）：接口给每条日志算好
+  `url`（带目标 id）、`tab`（属于推荐页哪一栏）、`target_id`；
+  前端按规则处理 —— 目标**不在当前页**时 `<a target="_blank">` 新标签页打开（当前页和左右四张卡片
+  完全不动）；目标**就在当前页**时不新开标签：动态页点「更新动态」直接高亮那条动态，
+  推荐页点歌曲 / 书籍 / 网页 / 站内那几类原地切标签（`ErrorDownloadsTabs.focus()`，
+  postMessage 送进 iframe，不重载 iframe、不打断播放）并高亮那一条。
+- **目标定位与高亮**（新增 `static/site/focus-target.js` + 各页面配合）：
+  目标页读 `?focus=<id>`（地图页是 `?place=<id>`）或接收推荐页发来的 postMessage，
+  找到 `[data-focus-id]` 那张卡片并打上 `.is-fresh` 呼吸，鼠标移入或点击后停止；
+  同时把右下角「顶部」按钮切成「↓ 更新」+ 呼吸，点它平滑滚到这条内容。
+  `fresh-jump.js` 去掉「只在内嵌模式生效」的限制（独立页也能用），并在有 focus 时让位给上面的逻辑；
+  动态 / 歌曲 / 书籍 / 推荐 / 地图五个页面都加了 `data-focus-id` 与定位入口，地图页另加
+  `.mp-item.is-fresh` 呼吸样式。
+- **右上封面卡改成纯展示**：不再渲染成链接，不响应点击（和左上卡片一样）。
+- **日志里目标已被删除的条目整条不显示**（上一轮只做到「不显示名称」，理解错了站长本意），
+  列表往下顺延到更早的有效记录。
+- **左上统计对齐修正**：三格等宽（取头像宽 40px）+ 格内居中 + 整排两端对齐 ——
+  每格里数字和文字共用同一条中心轴，第一格中心落在 Error酱 头像中心线上，
+  第三格离右边框的距离与左边一致，中间那格居中。
+- **足迹入口闪烁第二处**：`/api/map?dock=1` 请求失败（网络抖动 / 5xx）时不再走
+  `applyDockBlocked(0)` 把瓦片和圆点整层清空，只有真正的 401 / 403 才清。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 119 项全过
+      10 个改动 JS 全部 node --check；python -m json.tool changelog-seed；git diff --check 干净
+      端到端（临时库，把五种类型都指向真实存在的目标）：
+        留言页 → 每条日志都带 ?focus= 且 target=_blank；点歌曲那条真的开了新标签页，
+                 /music?focus=3 里那行高亮（fresh=3）、按钮 dataset.freshLabel=「更新」且 is-pending，
+                 悬停后 is-fresh 归零
+        动态页 → 点「更新动态」没有新开标签（pages 数不变），那张动态卡片高亮（fresh=22），按钮「更新」
+        推荐页 → 点歌曲那条：标签切到 music、iframe 内那行高亮（postMessage 生效、侧栏两张卡还在）
+        推荐页整页打开 /downloads?tab=web&focus=6 → web 栏 + 该推荐卡片高亮
+        地图页 /map?place=325 → 定位到该标记且卡片高亮（is-active + is-fresh 都是 325）
+        封面卡 → document.querySelector('#sidebarRight a.sb-cover') 为 null
+提交：8a3f19c（fetch/push 后本地 == origin/main == 8a3f19c）
+备份：/data/errorjiang-backup/20261014-0004/（停服后复制 inventory.db 4108288 字节
+      与 changelog-seed.json 89140 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only 7b38f3b -> 8a3f19c；本轮无表结构变更，未单独跑 init_db
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 13a0b210…b9a5 一致）
+      import_changelog_moments.py --date 2026-10-14 --force -> 新增 1 条；
+      --date 2026-10-13 --force -> 新增 16 条
+      systemctl restart errorjiang（app.py 有改动，必须重启）
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 8a3f19c，/api/health = {"ok": true}
+更新日志    -> /api/moments 里 2026-10-14 00:01:47「更新日志点击直达内容、统计对齐修正、
+              足迹入口闪烁再修」（id=566，kind=log）
+线上前端    -> 服务器 / 本地 / HEAD 的 git blob 一致：focus-target.js 8bd54137…、sidebar.js 963b7301…、
+              downloads.js 4c844583…、app.py ff1ba868…
+线上实测    -> 游客访问 /messages：统计三格中心 81.5 / 178.5 / 275.5，
+              头像中心 81.5、卡片中心 178.5 —— 第一格落在头像中心线上、中间那格居中、第三格对称；
+              每格内数字与文字中心完全重合；11 条更新日志**全部带名称**（缺名的 0 条，
+              说明「目标已删除的条目整条不显示」在线上数据上生效）；封面卡不再是链接（2 层图片）；
+              /static/site/focus-target.js 返回 200；控制台 0 报错
+```
+
+备注：点击直达 / 高亮的**行为**是在本地临时库上用真实浏览器逐类型验过的
+（线上跑的是同一份前端文件，git blob 一致）；线上侧栏版式与日志过滤用游客身份直接核对。
