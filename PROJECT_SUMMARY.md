@@ -60,7 +60,7 @@
 - 附件：每条留言最多 3 个，单个不超过 5MB、合计不超过 15MB；图片直接显示缩略图，其它文件提供下载。
 - 回复：可对留言回复（纯文字），删除留言时回复和附件一起删除。
 - 附件存放于 `data/site_message_files/`，通过 `/site-files/` 访问。
-- 设备信息：留言和动态卡片头部在时间后显示「来自 鸿蒙 / Android / iOS / Web」，由提交时的 User-Agent 自动识别（`device_info_label`，按 OpenHarmony → HarmonyOS → Android → iOS → Web 的顺序判断，鸿蒙优先）；管理员编辑区多一个「设备平台」输入框，可用自定义名称覆盖（留空回到自动识别），普通账号和游客看不到，`device_info_for` 也只接受管理员提交的自定义值。
+- 设备信息：留言和动态卡片头部在时间后显示「来自 鸿蒙 / Android / iOS / Web」，由提交时的 User-Agent 自动识别（`device_info_label`，按 OpenHarmony → HarmonyOS → Android → iOS → Web 的顺序判断，鸿蒙优先）；「设备平台」勾选框对所有人开放（勾了才公开这一条的设备来源，默认不勾选、不公开），管理员编辑区再多一个自定义名称输入框（可用自定义名称覆盖，留空回到自动识别），普通账号和游客看不到这个输入框，`device_info_for` 也只接受管理员提交的自定义值。
 
 ### 2.4 小屋（原型页，尚未接线）
 

@@ -217,7 +217,7 @@ body {
   margin-top: 10px;
 }
 
-/* 设备信息（只有管理员看得到）：和「公开 IP 属地」同一行的复选框 + 一个短输入框 */
+/* 自定义设备名称的输入框：只有管理员看得到（勾选项「设备平台」本身对所有人开放） */
 .mg-device-field {
   display: flex;
   align-items: center;

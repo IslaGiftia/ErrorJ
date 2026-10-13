@@ -2043,11 +2043,27 @@ class ComplianceWorkflowTests(unittest.TestCase):
             len(app.normalize_device_info("X" * 80)), app.DEVICE_INFO_MAX_CHARS
         )
 
-    def test_message_device_info_auto_for_members_and_custom_for_admin(self):
-        """留言：普通账号 / 游客伪造的 device_info 被忽略，只有管理员能用自定义名称。"""
+    @patch.object(app, "rate_allow", return_value=True)
+    def test_message_device_info_auto_for_members_and_custom_for_admin(self, _rate):
+        """
+        留言的设备平台：默认不公开（落空串），勾了 show_device 才按 UA 自动识别；
+        普通账号伪造 device_info 会被忽略，只有管理员能用自定义名称。
+        """
         auto = self.make_handler(self.member(self.member_id), method="POST")
         with patch.object(app, "notify_async", return_value=False):
-            auto.api_site_message_create({"content": "会员留言", "files": []})
+            # 没勾「设备平台」→ 不公开，落空串
+            auto.api_site_message_create({"content": "会员未公开", "files": []})
+            # 勾了「设备平台」→ 按 UA 自动识别（测试里的 UA 是 test → 来自 Web）
+            auto.api_site_message_create(
+                {"content": "会员留言", "files": [], "show_device": True}
+            )
+        self.assertEqual(
+            app.query_one(
+                "SELECT device_info FROM site_messages WHERE content = ?",
+                ("会员未公开",),
+            )["device_info"],
+            "",
+        )
         row = app.query_one(
             "SELECT device_info FROM site_messages WHERE content = ?", ("会员留言",)
         )
@@ -2056,7 +2072,12 @@ class ComplianceWorkflowTests(unittest.TestCase):
         forged = self.make_handler(self.member(self.other_id), method="POST")
         with patch.object(app, "notify_async", return_value=False):
             forged.api_site_message_create(
-                {"content": "伪造设备", "files": [], "device_info": "iQOO 12 Pro"}
+                {
+                    "content": "伪造设备",
+                    "files": [],
+                    "show_device": True,
+                    "device_info": "iQOO 12 Pro",
+                }
             )
         row = app.query_one(
             "SELECT device_info FROM site_messages WHERE content = ?", ("伪造设备",)
@@ -2067,11 +2088,29 @@ class ComplianceWorkflowTests(unittest.TestCase):
         admin = self.make_handler(admin_identity, admin=True, method="POST")
         with patch.object(app, "notify_async", return_value=False):
             admin.api_site_message_create(
-                {"content": "管理员留言", "files": [], "device_info": "iQOO 12 Pro"}
+                {
+                    "content": "管理员留言",
+                    "files": [],
+                    "show_device": True,
+                    "device_info": "iQOO 12 Pro",
+                }
             )
             # 填了自定义名称但只有空格 → 退回自动识别
             admin.api_site_message_create(
-                {"content": "管理员留空", "files": [], "device_info": "   "}
+                {
+                    "content": "管理员留空",
+                    "files": [],
+                    "show_device": True,
+                    "device_info": "   ",
+                }
+            )
+            # 没勾「设备平台」：自定义名称也不公开
+            admin.api_site_message_create(
+                {
+                    "content": "管理员未公开",
+                    "files": [],
+                    "device_info": "iQOO 12 Pro",
+                }
             )
         self.assertEqual(
             app.query_one(
@@ -2087,6 +2126,13 @@ class ComplianceWorkflowTests(unittest.TestCase):
             )["device_info"],
             "来自 Web",
         )
+        self.assertEqual(
+            app.query_one(
+                "SELECT device_info FROM site_messages WHERE content = ?",
+                ("管理员未公开",),
+            )["device_info"],
+            "",
+        )
 
         # 列表接口把设备信息一起下发给前端
         board = self.make_handler(admin_identity, admin=True)
@@ -2098,24 +2144,44 @@ class ComplianceWorkflowTests(unittest.TestCase):
         self.assertEqual(auto_row["device_info"], "来自 Web")
 
     def test_moment_device_info_requires_admin_and_survives_other_edits(self):
-        """动态：同一套权限；不带 device_info 的编辑（例如置顶）不会覆盖原值。"""
+        """
+        动态的设备平台：默认不公开；public 开关 + 管理员自定义名称；不带这两个字段的编辑
+        （例如置顶）不会覆盖原值。
+        """
         admin_identity = {"kind": "owner", "user_id": 0, "nickname": "管理员"}
         member = self.make_handler(self.member(self.member_id), method="POST")
         with patch.object(app, "notify_async", return_value=False):
             member.api_moment_create(
-                {"content": "会员动态", "images": [], "device_info": "iQOO 12 Pro"}
+                {
+                    "content": "会员动态",
+                    "images": [],
+                    "show_device": True,
+                    "device_info": "iQOO 12 Pro",
+                }
             )
+            member.api_moment_create({"content": "会员未公开", "images": []})
         self.assertEqual(
             app.query_one(
                 "SELECT device_info FROM moments WHERE content = ?", ("会员动态",)
             )["device_info"],
             "来自 Web",
         )
+        self.assertEqual(
+            app.query_one(
+                "SELECT device_info FROM moments WHERE content = ?", ("会员未公开",)
+            )["device_info"],
+            "",
+        )
 
         admin = self.make_handler(admin_identity, admin=True, method="POST")
         with patch.object(app, "notify_async", return_value=False):
             admin.api_moment_create(
-                {"content": "管理员动态", "images": [], "device_info": "iQOO 12 Pro"}
+                {
+                    "content": "管理员动态",
+                    "images": [],
+                    "show_device": True,
+                    "device_info": "iQOO 12 Pro",
+                }
             )
         moment_id = int(
             app.query_one(
@@ -2143,20 +2209,28 @@ class ComplianceWorkflowTests(unittest.TestCase):
             )["device_info"],
             "来自 iQOO 12 Pro",
         )
-        # 编辑表单明确留空 → 回到自动识别
-        patch_moment({"content": "管理员动态", "device_info": ""})
+        # 编辑表单明确留空自定义名称 → 回到自动识别
+        patch_moment({"content": "管理员动态", "show_device": True, "device_info": ""})
         self.assertEqual(
             app.query_one(
                 "SELECT device_info FROM moments WHERE id = ?", (moment_id,)
             )["device_info"],
             "来自 Web",
         )
+        # 关掉「设备平台」→ 不再公开（落空串）
+        patch_moment({"content": "管理员动态", "show_device": False})
+        self.assertEqual(
+            app.query_one(
+                "SELECT device_info FROM moments WHERE id = ?", (moment_id,)
+            )["device_info"],
+            "",
+        )
 
         board = self.make_handler(self.member(self.member_id))
         board.api_moments({})
         rows = board.responses[-1][1]
         target = [row for row in rows if int(row["id"]) == moment_id][0]
-        self.assertEqual(target["device_info"], "来自 Web")
+        self.assertEqual(target["device_info"], "")
 
     def test_recommendation_badges_split_between_web_and_resource(self):
         """推荐提醒按内容拆开：站内分享只算「站内」那一栏，点开一栏只清一栏。"""

@@ -10643,19 +10643,23 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def device_info_for(self, payload):
         """
         留言 / 动态要落库的「设备信息」：
-        默认按 User-Agent 自动识别（来自 鸿蒙 / Android / iOS / Web）；
-        只有管理员能用 payload 里的 device_info 覆盖自定义名称，其他人传了也一律忽略，
-        防止普通账号或游客伪造设备名称。
+        要不要公开由提交时的 show_device 开关决定（和「IP属地」一样是可选项，默认不公开，
+        不公开时落空串、卡片上不显示）；文案一律由服务端按 User-Agent 自动识别
+        （来自 鸿蒙 / Android / iOS / Web）；只有管理员能用 payload 里的 device_info 覆盖成
+        自定义名称，其他人传了也一律忽略，防止普通账号或游客伪造设备名称。
         """
+        payload = payload or {}
+        if payload.get("show_device") is not True:
+            return ""
         auto = device_info_label(self.headers.get("User-Agent"))
         if not self.is_admin():
             return auto
-        return normalize_device_info((payload or {}).get("device_info")) or auto
+        return normalize_device_info(payload.get("device_info")) or auto
 
     def api_site_message_create(self, payload):
         """
-        发布留言 / 回复。设备信息默认按 User-Agent 自动识别，
-        只有管理员能用 payload 里的 device_info 自定义（其他人传了也会被丢掉）。
+        发布留言 / 回复。设备平台要不要公开由 show_device 决定（默认不公开），
+        文案按 User-Agent 自动识别，只有管理员能用 device_info 自定义（其他人传了也会被丢掉）。
         """
         identity = self.session_identity()
         if not identity:
@@ -11209,7 +11213,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         return prepared, ""
 
     def api_moment_create(self, payload):
-        """发布动态。设备信息同留言：自动识别，只有管理员能自定义。"""
+        """发布动态。设备平台同留言：要不要公开看 show_device，文案自动识别，只有管理员能自定义。"""
         try:
             content, tags = self.moment_payload(payload)
         except ValueError as exc:
@@ -11321,9 +11325,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 return
         pinned = 1 if payload.get("pinned", current.get("pinned")) else 0
         # 设备信息：编辑表单提交时按「填了就自定义、留空回自动识别」处理；
-        # 只发置顶之类的请求不会带这个字段，原值保持不变。
+        # 公开开关（show_device）也在这里一起处理；
+        # 只发置顶之类的请求不会带这两个字段，原值保持不变。
         device_info = current.get("device_info")
-        if "device_info" in payload:
+        if "show_device" in payload or "device_info" in payload:
             device_info = self.device_info_for(payload)
         execute(
             """UPDATE moments SET content = ?, tags = ?, pinned = ?, device_info = ?

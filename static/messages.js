@@ -300,10 +300,13 @@
     return sendBusy.fill;
   }
 
-  // ---------- 设备信息（只有管理员能自定义，其他人一律用 UA 自动识别） ----------
+  /*
+   * 设备平台：「设备平台」勾选项对所有人开放（勾了才公开这条的设备来源，和「IP属地」同一套），
+   * 具体文案由后端按 UA 自动识别；只有管理员能额外填一个自定义名称，留空就回到自动识别。
+   */
 
   function deviceInfoValue() {
-    var box = $("msgUseDevice");
+    var box = $("msgShowDevice");
     var input = $("msgDeviceInput");
     if (!isAdmin || !box || !input || !box.checked) return "";
     return input.value.trim();
@@ -311,13 +314,14 @@
 
   function resetDeviceInfoField() {
     if ($("msgDeviceInput")) $("msgDeviceInput").value = "";
-    if ($("msgUseDevice")) $("msgUseDevice").checked = false;
   }
 
   if ($("msgDeviceInput")) {
-    // 填了内容就自动勾上「使用自定义名称」；清空则取消勾选，回到自动识别
+    // 管理员填了自定义名称就自动勾上「设备平台」，省得再点一下
     $("msgDeviceInput").addEventListener("input", function (event) {
-      $("msgUseDevice").checked = Boolean(event.target.value.trim());
+      if (event.target.value.trim() && $("msgShowDevice")) {
+        $("msgShowDevice").checked = true;
+      }
     });
   }
 
@@ -353,8 +357,10 @@
         content: content,
         files: files,
         show_region: $("msgShowRegion").checked,
+        // 设备平台是否公开：对所有人开放的勾选项，默认不勾选
+        show_device: $("msgShowDevice").checked,
       };
-      // 设备信息：管理员才带这个字段（空串 = 让后端按 UA 自动识别），其他人不传
+      // 自定义设备名称只有管理员能带（空串 = 让后端按 UA 自动识别）
       if (isAdmin) payload.device_info = deviceInfoValue();
       if (!withFiles) {
         return api("/api/site/messages", {
@@ -1364,6 +1370,7 @@
   renderPending();
   setMessageFilter(new URLSearchParams(location.search).get("filter") || "all");
   $("msgShowRegion").checked = false;
+  $("msgShowDevice").checked = false;
   refreshIcons();
   if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);
 
