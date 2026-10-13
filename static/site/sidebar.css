@@ -16,6 +16,10 @@
 :root {
   --sb-gap: 24px;
   --sb-side-width: 260px;
+  /* 中间内容列的宽度：三栏一起放大时按档位覆盖（页面里的「顶部」按钮也读这个变量定位） */
+  --sb-center-width: 760px;
+  /* 侧栏基准字号：侧栏内部全部用 em，跟着它一起放大 */
+  --sb-font: 13px;
   --sb-top-offset: calc(14px + env(safe-area-inset-top, 0px));
   --sb-avatar: 40px;
   --sb-surface: #ffffff;
@@ -43,6 +47,54 @@
   color-scheme: dark;
 }
 
+/*
+ * 大屏分档放大：2K / 4K 上三栏宽度、间距、字号一起长一档，
+ * 比例保持不变（不再是一条被大片留白围住的小岛）。
+ */
+@media (min-width: 1920px) {
+  :root {
+    --sb-center-width: 880px;
+    --sb-side-width: 300px;
+    --sb-gap: 28px;
+    --sb-font: 15px;
+  }
+
+  /* 中列正文跟着提一档；页面里显式写死 px 的小字（时间 / 状态等）保持原样 */
+  .sb-shell > .mg-app,
+  .sb-shell > .mo-app {
+    font-size: 15px;
+  }
+}
+
+@media (min-width: 2560px) {
+  :root {
+    --sb-center-width: 1040px;
+    --sb-side-width: 340px;
+    --sb-gap: 32px;
+    --sb-font: 17px;
+  }
+
+  .sb-shell > .mg-app,
+  .sb-shell > .mo-app {
+    font-size: 16px;
+  }
+}
+
+/* 4K 原生分辨率（100% 缩放）再多一档 */
+@media (min-width: 3200px) {
+  :root {
+    --sb-center-width: 1200px;
+    --sb-side-width: 380px;
+    --sb-gap: 36px;
+    --sb-font: 18px;
+  }
+
+  .sb-shell > .mg-app,
+  .sb-shell > .mo-app {
+    font-size: 17px;
+  }
+}
+
 .sb-shell {
   display: flex;
   /* 侧栏拉伸到和内容列一样高，下面那张卡片才有往下吸附的空间 */
@@ -61,6 +113,7 @@
   flex: 1 1 auto;
   min-width: 0;
   margin: 0;
+  max-width: var(--sb-center-width, 760px);
 }
 
 .sb-side {
@@ -76,6 +129,8 @@
     min-width: 0;
     max-width: var(--sb-side-width);
     margin-top: var(--sb-top-offset);
+    font-size: var(--sb-font);
+    line-height: 1.6;
     /* 和 .mg-app / .mo-app 同款：压在全屏雨幕（fixed + z-index:0）上面 */
     position: relative;
     z-index: 1;
@@ -116,24 +171,35 @@
   align-items: center;
   gap: 8px;
   padding: 11px 14px;
-  border-bottom: 1px solid var(--sb-border);
 }
 
 .sb-card__title {
-  font-size: 13px;
+  font-size: 1em;
   font-weight: 600;
 }
 
 .sb-card__meta {
   margin-left: auto;
   color: var(--sb-muted);
-  font-size: 12px;
+  font-size: 0.923em;
 }
 
 .sb-card__body {
   flex: 1 1 auto;
   min-height: 0;
   padding: 10px 12px;
+}
+
+/*
+ * 上卡固定 20vh：正负两块内容之间、以及它们到卡片上下边框的距离三等分，
+ * 也就是「上留白 = 中间间距 = 下留白」。
+ */
+.sb-card--top .sb-card__body {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+  /* 上下内边距清零，三段留白完全交给 space-evenly（否则上下会各多出 10px） */
+  padding: 0 12px;
 }
 
 .sb-card__body--flush {
@@ -164,9 +230,10 @@
 }
 
 .sb-user__name {
-  font-size: 14px;
+  font-size: 1.077em;
   font-weight: 600;
   line-height: 1.4;
+  color: var(--sb-accent);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -174,7 +241,7 @@
 
 .sb-user__role {
   color: var(--sb-muted);
-  font-size: 12px;
+  font-size: 0.923em;
   line-height: 1.5;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -185,7 +252,8 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
-  margin-top: 10px;
+  /* 间距交给父级的 space-evenly 统一分配，这里不再额外加 */
+  margin-top: 0;
 }
 
 .sb-stat {
@@ -193,19 +261,19 @@
   flex-direction: column;
   align-items: center;
   gap: 1px;
-  padding: 6px 4px;
-  border-radius: 6px;
-  background: var(--sb-hover);
+  /* 无底色方框，保持透明 */
+  padding: 0;
+  background: transparent;
 }
 
 .sb-stat__label {
   color: var(--sb-muted);
-  font-size: 11px;
+  font-size: 0.846em;
   line-height: 1.5;
 }
 
 .sb-stat__value {
-  font-size: 16px;
+  font-size: 1.231em;
   font-weight: 600;
   line-height: 1.2;
 }
@@ -217,24 +285,8 @@
   align-items: center;
   gap: 9px;
   padding: 8px 12px;
-}
-
-.sb-user-row + .sb-user-row {
-  border-top: 1px solid var(--sb-border);
-}
-
-.sb-user-row__avatar {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--sb-hover);
-  color: var(--sb-muted);
-  font-size: 12px;
-  font-weight: 600;
+  /* 左对齐，不要行与行之间的横线 */
+  text-align: left;
 }
 
 .sb-user-row__main {
@@ -243,7 +295,7 @@
 }
 
 .sb-user-row__name {
-  font-size: 13px;
+  font-size: 1em;
   line-height: 1.5;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -252,7 +304,7 @@
 
 .sb-user-row__sub {
   color: var(--sb-muted);
-  font-size: 11px;
+  font-size: 0.846em;
   line-height: 1.5;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -265,7 +317,7 @@
   border-radius: 999px;
   background: var(--sb-accent-soft);
   color: var(--sb-accent);
-  font-size: 11px;
+  font-size: 0.846em;
   white-space: nowrap;
 }
 
@@ -276,11 +328,6 @@
 
 .sb-user-row--locked:hover {
   background: var(--sb-hover);
-}
-
-.sb-user-row--locked .sb-user-row__avatar {
-  background: var(--sb-accent-soft);
-  color: var(--sb-accent);
 }
 
 /* ---------- 右上：资源封面卡（只有图片，渐隐渐出） ---------- */
@@ -349,7 +396,7 @@ a.sb-log:hover {
   flex: 0 0 auto;
   width: 16px;
   color: var(--sb-accent);
-  font-size: 12px;
+  font-size: 0.923em;
   font-weight: 700;
   /* 序号用斜体 */
   font-style: italic;
@@ -376,11 +423,22 @@ a.sb-log:hover {
 
 .sb-log__text {
   min-width: 0;
-  font-size: 13px;
+  flex: 1 1 auto;
+  font-size: 1em;
   line-height: 1.4;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  /* 文字快到右边框时渐隐，而不是被生硬截断 */
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent 100%);
+}
+
+.sb-log__label {
+  color: var(--sb-accent);
+}
+
+.sb-log__name {
+  color: inherit;
 }
 
 .sb-log--locked {

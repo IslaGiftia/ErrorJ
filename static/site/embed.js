@@ -14,6 +14,15 @@
   if (!embed) return;
 
   document.documentElement.classList.add("is-embed");
+  /*
+   * 歌曲页的「返回顶部」是按内层滚动容器挂的（data-scroll-target=".mu-stage-inner"）。
+   * 内嵌模式下滚动已经挪到文档本身（见 embed.css），这里在 back-to-top.js 执行前
+   * 把这个标记摘掉，让它改成看文档滚动，和其它标签、以及留言 / 动态页一致。
+   */
+  (function dropScrollTarget() {
+    var script = document.querySelector("script[data-scroll-target]");
+    if (script) script.removeAttribute("data-scroll-target");
+  })();
   window.ERRORJ_EMBED = true;
   window.ErrorEmbed = {
     /*

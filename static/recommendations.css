@@ -1338,7 +1338,7 @@ html.is-embed body {
 }
 
 html.is-embed .rec-app {
-  width: min(760px, 100%);
+  width: min(var(--embed-center, 760px), 100%);
   margin: 0 auto;
 }
 

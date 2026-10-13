@@ -785,7 +785,7 @@ html.is-embed body {
 }
 
 html.is-embed .mu-stage-inner {
-  max-width: 760px;
+  max-width: var(--embed-center, 760px);
   /* 顶部留出一条，刚好让开推荐页那排悬浮按钮 */
   padding: 62px 16px 64px;
 }

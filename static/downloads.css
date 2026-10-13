@@ -74,19 +74,55 @@ body {
   height: 100%;
 }
 
+/*
+ * 三栏外壳（留言 / 动态页同一套 .sb-shell）：
+ * 中间是 iframe 舞台，左右是常驻侧栏。外壳自己不滚，所以侧栏四张卡片始终完整显示。
+ *
+ * 舞台仍然铺满整窗口（inset: 0），这样 iframe 里那根滚动条就落在窗口最右侧、
+ * 和留言 / 动态页一模一样；侧栏改成浮在它上面的独立层，并且让出滚动条那一条，
+ * 既压不到滚动条，位置又和另外两页逐像素对齐。
+ */
+.dl-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  height: 100%;
+  /* 只让卡片本身可点，其余区域把点击透给下面的 iframe */
+  pointer-events: none;
+  /* 让出右侧滚动条那一条，整排和留言 / 动态页一样按「窗口 - 滚动条」居中 */
+  padding-right: var(--dl-scrollbar-w, 0px);
+}
+
+.dl-shell .sb-side {
+  pointer-events: auto;
+}
+
+/* 外壳整层是 pointer-events: none（把空白处透给下面的 iframe），
+   中间的舞台必须显式收回来，否则子页内容点不动 */
+.dl-shell .dl-stage {
+  pointer-events: auto;
+}
+
+/* 中间列宽度的占位块（iframe 舞台是绝对定位，不参与这排的宽度计算） */
+.dl-shell-spacer {
+  flex: 0 0 auto;
+  width: var(--sb-center-width, 760px);
+}
+
 /* ---------- 悬浮操作区（不占布局，浮在子页面上层）---------- */
 
 .dl-dock {
   position: fixed;
   top: calc(14px + env(safe-area-inset-top, 0px));
-  left: 50%;
+  /* 子页内容列比窗口窄一个滚动条宽度，整条操作区跟着它一起往左挪半个滚动条，保持对齐 */
+  left: calc(50% - var(--dl-scrollbar-w, 0px) / 2);
   z-index: 40;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
   /* 和子页正文同一条 760px 中轴线，左右各内缩 28px（同留言 / 动态页的悬浮按钮） */
-  width: min(760px, 100%);
+  width: min(var(--sb-center-width, 760px), 100%);
   padding: 0 28px;
   transform: translateX(-50%);
   /* 中间的空档不挡子页面，只有按钮本身可点 */
@@ -276,6 +312,7 @@ body {
 /* ---------- 内容区：四个子页面同时加载好，切换只翻转显隐 ---------- */
 
 .dl-stage {
+  /* 铺满整窗口：iframe 自己的滚动条就落在窗口最右侧，和留言 / 动态页一致 */
   position: absolute;
   inset: 0;
 }
@@ -298,6 +335,23 @@ body {
   height: 100%;
   border: 0;
   background: transparent;
+}
+
+/* 侧栏里的游客提示（「请登录后操作」），和留言 / 动态页那颗提示同一个位置 */
+.dl-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  max-width: min(90vw, 480px);
+  padding: 10px 18px;
+  border-radius: 8px;
+  background: var(--dl-tip-bg);
+  color: var(--dl-tip-ink);
+  font-size: 13px;
+  border: 1px solid var(--dl-tip-border);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
+  z-index: 60;
 }
 
 @media (prefers-reduced-motion: reduce) {

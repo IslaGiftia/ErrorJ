@@ -5300,7 +5300,17 @@ SIDEBAR_ACTIVITY_HREFS = {
     "recommendation_create": "/downloads?tab=web",
     "map_place_create": "/map",
 }
-SIDEBAR_ACTIVITY_LIMIT = 8
+# 每条日志的文案前缀 + 目标类型（用来查「更新了哪一条」的名称）
+SIDEBAR_ACTIVITY_META = {
+    "moment_create": ("更新动态", "moment"),
+    "music_upload": ("上传歌曲", "music"),
+    "book_upload": ("上传书籍", "book"),
+    "recommendation_create": ("推荐网页", "recommendation"),
+    "map_place_create": ("新增足迹", "map_place"),
+}
+SIDEBAR_ACTIVITY_LIMIT = 11
+# 动态正文取多少个字进日志
+SIDEBAR_MOMENT_SNIPPET = 24
 # 先按动作过滤再截断，所以多取一些原始行再筛
 SIDEBAR_ACTIVITY_SCAN = 60
 SIDEBAR_COVER_LIMIT = 10
@@ -5364,15 +5374,33 @@ def sidebar_stats():
     }
 
 
+def cover_file_ok(relative):
+    """封面文件真的存在才拿去轮播：老数据里可能有指向已删文件的路径。"""
+    value = str(relative or "").strip()
+    if not value:
+        return False
+    try:
+        full = (DATA_DIR / value).resolve()
+        full.relative_to(DATA_DIR.resolve())
+    except (ValueError, OSError):
+        return False
+    return full.is_file()
+
+
 def sidebar_covers(limit=SIDEBAR_COVER_LIMIT):
-    """右上封面轮播：歌曲与电子书的封面混排，按时间倒序取最新的若干条。"""
+    """右上封面轮播：歌曲与电子书的封面混排，按时间倒序取最新的若干条。
+
+    没有封面（或封面文件已经不在）的条目直接跳过，不占轮播的位置。
+    """
     items = []
     for row in query(
         """SELECT title, artist, album, cover_path, created_at FROM site_music
            WHERE cover_path IS NOT NULL AND cover_path <> ''
            ORDER BY id DESC LIMIT ?""",
-        (limit,),
+        (limit * 4,),
     ):
+        if not cover_file_ok(row.get("cover_path")):
+            continue
         items.append(
             {
                 "type": "music",
@@ -5387,8 +5415,10 @@ def sidebar_covers(limit=SIDEBAR_COVER_LIMIT):
         """SELECT title, author, cover_path, created_at FROM books
            WHERE cover_path IS NOT NULL AND cover_path <> ''
            ORDER BY id DESC LIMIT ?""",
-        (limit,),
+        (limit * 4,),
     ):
+        if not cover_file_ok(row.get("cover_path")):
+            continue
         items.append(
             {
                 "type": "book",
@@ -5437,36 +5467,77 @@ def sidebar_users(viewer_id, is_admin):
 
 
 def sidebar_activities():
-    """右下更新日志卡片：只要管理员的上传 / 发布类更新，最新的若干条。"""
+    """右下更新日志卡片：只要管理员的上传 / 发布类更新（带目标名称），最新的若干条。"""
     actions = tuple(SIDEBAR_ACTIVITY_HREFS)
     placeholders = ",".join("?" for _ in actions)
     rows = query(
-        f"""SELECT a.id, a.action, a.actor_kind, a.created_at
+        f"""SELECT a.id, a.action, a.actor_kind, a.created_at, a.target_type, a.target_id
             FROM activity_log a
             WHERE a.action IN ({placeholders})
             ORDER BY a.id DESC
             LIMIT ?""",
         (*actions, SIDEBAR_ACTIVITY_SCAN),
     )
-    items = []
+    picked = []
+    ids_by_type = {}
     for row in rows:
         kind = str(row.get("actor_kind") or "guest")
         # 只展示管理员自己的操作，别人的更新不进这张卡
         if kind not in ("owner", "admin"):
             continue
+        picked.append(row)
+        target_type = str(row.get("target_type") or "")
+        target_id = int(row.get("target_id") or 0)
+        if target_type and target_id:
+            ids_by_type.setdefault(target_type, set()).add(target_id)
+        if len(picked) >= SIDEBAR_ACTIVITY_LIMIT:
+            break
+
+    names = sidebar_target_names(ids_by_type)
+    items = []
+    for row in picked:
         action = str(row.get("action") or "")
+        label, target_type = SIDEBAR_ACTIVITY_META.get(action, ("更新", ""))
         items.append(
             {
                 "id": int(row["id"]),
                 "action": action,
                 "created_at": str(row.get("created_at") or ""),
-                "text": PUBLIC_ACTIVITY_LABELS.get(action, ""),
+                "label": label,
+                "target": names.get((target_type, int(row.get("target_id") or 0)), ""),
                 "href": SIDEBAR_ACTIVITY_HREFS.get(action, ""),
             }
         )
-        if len(items) >= SIDEBAR_ACTIVITY_LIMIT:
-            break
     return items
+
+
+def sidebar_target_names(ids_by_type):
+    """按 (目标类型, 目标 id) 批量取名称：歌曲 / 书名、动态正文片段、足迹名称、推荐标题。"""
+    getters = {
+        "music": ("site_music", "title"),
+        "book": ("books", "title"),
+        "recommendation": ("recommendations", "title"),
+        "map_place": ("map_places", "name"),
+        "moment": ("moments", "content"),
+    }
+    found = {}
+    for target_type, ids in ids_by_type.items():
+        source = getters.get(target_type)
+        if not source or not ids:
+            continue
+        table, column = source
+        id_list = sorted(ids)
+        placeholders = ",".join("?" for _ in id_list)
+        for row in query(
+            f"SELECT id, {column} AS value FROM {table} WHERE id IN ({placeholders})",
+            tuple(id_list),
+        ):
+            value = " ".join(str(row.get("value") or "").split())
+            if target_type == "moment":
+                # 动态正文只取前一小段，够认出来就行
+                value = value[:SIDEBAR_MOMENT_SNIPPET]
+            found[(target_type, int(row["id"]))] = value
+    return found
 
 
 def amap_ip_region(text):

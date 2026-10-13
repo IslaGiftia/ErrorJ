@@ -1,6 +1,11 @@
 /* 触摸屏点按不要留系统高亮（手机上点一下按钮会留下紫色方块） */
 html {
   -webkit-tap-highlight-color: transparent;
+  /*
+   * 永远预留滚动条槽位：留言 / 动态 / 推荐三页的内容列位置就和「内容长到出滚动条」无关，
+   * 互切时逐像素一致（以前会差半个滚动条宽度）。
+   */
+  scrollbar-gutter: stable;
 }
 
 :root {
@@ -1488,7 +1493,7 @@ body[data-notify-module="messages"] .site-back-top {
   gap: 2px;
   /* 收进卡片内侧右下角：和左上角两枚悬浮按钮用同一个 --mg-float-inset，左右对称 */
   right: calc(
-    max(0px, (100vw - 760px) / 2) + var(--mg-page-pad) + var(--mg-float-inset)
+    max(0px, (100vw - var(--sb-center-width, 760px)) / 2) + var(--mg-page-pad) + var(--mg-float-inset)
   );
   bottom: calc(var(--site-back-top-bottom, 22px) + 28px);
   width: 48px;

@@ -1,6 +1,8 @@
 /* 触摸屏点按不要留系统高亮 */
 html {
   -webkit-tap-highlight-color: transparent;
+  /* 和留言 / 推荐页一样永远预留滚动条槽位，三页内容列逐像素对齐 */
+  scrollbar-gutter: stable;
 }
 
 :root {
@@ -1181,7 +1183,7 @@ body[data-notify-module="moments"] .site-back-top {
   flex-direction: column;
   gap: 2px;
   right: calc(
-    max(0px, (100vw - 760px) / 2) + var(--mo-page-pad) + var(--mo-float-inset)
+    max(0px, (100vw - var(--sb-center-width, 760px)) / 2) + var(--mo-page-pad) + var(--mo-float-inset)
   );
   bottom: calc(var(--site-back-top-bottom, 22px) + 28px);
   width: 48px;

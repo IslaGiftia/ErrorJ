@@ -16,8 +16,8 @@
   var right = document.getElementById("sidebarRight");
   if (!left || !right) return;
 
-  var CAROUSEL_INTERVAL = 4000;
-  var LOG_LIMIT = 8;
+  var CAROUSEL_INTERVAL = 5000;
+  var LOG_LIMIT = 11;
   var USER_LIMIT = 5;
   var AVATAR_SRC = "/static/site/error-chan-avatar.png?v=1";
   var ACTION_ICONS = {
@@ -68,14 +68,45 @@
     }, 2600);
   }
 
-  /* 游客点了需要登录的区域：拦下跳转，只提示 */
-  function guard(node) {
+  /*
+   * 卡片里的跳转：
+   * - 游客：一律拦下，只提示「请登录后操作」；
+   * - 指向推荐页某个标签的链接（封面 / 更新日志）：原地切标签，不刷新页面；
+   * - 其它链接（动态、足迹等）：照常整页跳转。
+   */
+  function bindNavigation(node) {
     node.addEventListener("click", function (event) {
-      if (signedIn) return;
+      if (!signedIn) {
+        event.preventDefault();
+        event.stopPropagation();
+        toast("请登录后操作");
+        return;
+      }
+      var href = node.getAttribute("href");
+      if (!href) return;
+      var tabs = window.ErrorDownloadsTabs;
+      if (!tabs) return;
+      var url;
+      try {
+        url = new URL(href, location.origin);
+      } catch (err) {
+        return;
+      }
+      if (url.pathname !== "/downloads") return;
+      var key = normalizeTabKey(url.searchParams.get("tab"));
+      if (!key) return;
       event.preventDefault();
-      event.stopPropagation();
-      toast("请登录后操作");
+      tabs.activate(key);
     });
+  }
+
+  function normalizeTabKey(value) {
+    var key = String(value || "").toLowerCase();
+    if (key === "music" || key === "song" || key === "songs") return "music";
+    if (key === "books" || key === "book") return "books";
+    if (key === "web" || key === "site" || key === "sites") return "web";
+    if (key === "resource" || key === "resources") return "resource";
+    return "";
   }
 
   function relTime(value) {
@@ -95,11 +126,6 @@
     if (seconds < 86400) return Math.round(seconds / 3600) + " 小时前";
     if (seconds < 86400 * 7) return Math.round(seconds / 86400) + " 天前";
     return match[1] + "-" + match[2] + "-" + match[3] + " " + match[4] + ":" + match[5];
-  }
-
-  function initialOf(text) {
-    var value = String(text || "").trim();
-    return value ? value.slice(0, 1).toUpperCase() : "?";
   }
 
   function card(title, metaText, bottom) {
@@ -144,8 +170,9 @@
       ["动态", stats.moment_total || 0],
     ].forEach(function (pair) {
       var box = el("div", "sb-stat");
-      box.appendChild(el("span", "sb-stat__label", pair[0]));
+      // 数字在上、文字在下
       box.appendChild(el("span", "sb-stat__value", pair[1]));
+      box.appendChild(el("span", "sb-stat__label", pair[0]));
       grid.appendChild(box);
     });
     body.appendChild(grid);
@@ -168,13 +195,10 @@
     if (!signedIn) {
       // 游客：只占一位注册用户的高度，点一下提示登录
       var locked = el("div", "sb-user-row sb-user-row--locked");
-      var lockedAvatar = el("span", "sb-user-row__avatar");
-      lockedAvatar.appendChild(icon("user"));
-      locked.appendChild(lockedAvatar);
       var lockedMain = el("div", "sb-user-row__main");
       lockedMain.appendChild(el("div", "sb-user-row__name", "登录后展示"));
       locked.appendChild(lockedMain);
-      guard(locked);
+      bindNavigation(locked);
       built.body.appendChild(locked);
       return built.root;
     }
@@ -185,7 +209,6 @@
     }
     items.slice(0, USER_LIMIT).forEach(function (item) {
       var row = el("div", "sb-user-row");
-      row.appendChild(el("span", "sb-user-row__avatar", initialOf(item.name)));
       var main = el("div", "sb-user-row__main");
       main.appendChild(el("div", "sb-user-row__name", item.name));
       var pieces = [];
@@ -205,6 +228,54 @@
 
   /* ---------------- 右上：资源封面卡（只有图片，渐隐渐出） ---------------- */
 
+  /*
+   * 先把封面下载 + 解码好再开始轮播：
+   * 没封面 / 加载失败的条目直接剔除（不占那 5 秒），也不会出现淡入时才解码的空白跳变。
+   */
+  function prepareCovers(covers, done) {
+    if (!covers.length) {
+      done([]);
+      return;
+    }
+    var ready = [];
+    var pending = covers.length;
+    function settle(entry) {
+      if (entry) ready.push(entry);
+      pending -= 1;
+      if (pending > 0) return;
+      ready.sort(function (left, right) {
+        return left.position - right.position;
+      });
+      done(
+        ready.map(function (entry) {
+          return entry.item;
+        })
+      );
+    }
+    covers.forEach(function (item, position) {
+      var probe = new Image();
+      probe.onload = function () {
+        var decoded = probe.decode ? probe.decode() : null;
+        if (decoded && typeof decoded.then === "function") {
+          decoded.then(
+            function () {
+              settle({ position: position, item: item });
+            },
+            function () {
+              settle({ position: position, item: item });
+            }
+          );
+        } else {
+          settle({ position: position, item: item });
+        }
+      };
+      probe.onerror = function () {
+        settle(null);
+      };
+      probe.src = item.cover_url;
+    });
+  }
+
   function buildCovers(data) {
     var covers = Array.isArray(data.covers) ? data.covers : [];
     var root = el("section", "sb-card sb-card--top");
@@ -216,51 +287,51 @@
     wrap.appendChild(link);
     root.appendChild(wrap);
 
-    if (!covers.length) {
-      link.removeAttribute("href");
-      return root;
-    }
-
-    // 两层图片叠着，切的时候新图淡入、旧图淡出
-    var layers = [0, 1].map(function (index) {
-      var image = document.createElement("img");
-      image.className = "sb-cover__img" + (index === 0 ? " is-active" : "");
-      image.alt = "";
-      image.loading = "lazy";
-      image.src = covers[0].cover_url;
-      link.appendChild(image);
-      return image;
-    });
-    // 先把封面都预热一遍，切的时候不会先闪一下空白
-    covers.forEach(function (item) {
-      var preload = new Image();
-      preload.src = item.cover_url;
+    prepareCovers(covers, function (usable) {
+      if (!usable.length) {
+        link.removeAttribute("href");
+        return;
+      }
+      start(usable);
     });
 
-    var index = 0;
-    var active = 0;
-    var timer = null;
+    function start(usable) {
+      // 两层图片叠着，切的时候新图淡入、旧图淡出
+      var layers = [0, 1].map(function (index) {
+        var image = document.createElement("img");
+        image.className = "sb-cover__img" + (index === 0 ? " is-active" : "");
+        image.alt = "";
+        image.decoding = "async";
+        image.src = usable[0].cover_url;
+        link.appendChild(image);
+        return image;
+      });
 
-    function apply() {
-      link.href = covers[index].href || "#";
-      link.setAttribute("aria-label", covers[index].title || "站内资源");
-      var next = active === 0 ? 1 : 0;
-      layers[next].src = covers[index].cover_url;
-      layers[next].classList.add("is-active");
-      layers[active].classList.remove("is-active");
-      active = next;
+      var index = 0;
+      var active = 0;
+
+      function apply() {
+        link.href = usable[index].href || "#";
+        link.setAttribute("aria-label", usable[index].title || "站内资源");
+        var next = active === 0 ? 1 : 0;
+        layers[next].src = usable[index].cover_url;
+        layers[next].classList.add("is-active");
+        layers[active].classList.remove("is-active");
+        active = next;
+      }
+
+      if (usable.length > 1) {
+        window.setInterval(function () {
+          if (document.hidden || wrap.matches(":hover")) return;
+          index = (index + 1) % usable.length;
+          apply();
+        }, CAROUSEL_INTERVAL);
+      }
+
+      apply();
+      bindNavigation(link);
     }
 
-    if (covers.length > 1) {
-      timer = window.setInterval(function () {
-        if (document.hidden || wrap.matches(":hover")) return;
-        index = (index + 1) % covers.length;
-        apply();
-      }, CAROUSEL_INTERVAL);
-    }
-
-    apply();
-    guard(link);
     return root;
   }
 
@@ -269,7 +340,7 @@
   function buildLogs(data) {
     var items = Array.isArray(data.activities) ? data.activities : [];
     items = items.slice(0, LOG_LIMIT);
-    var built = card("更新日志", "", true);
+    var built = card("更新日志", items.length ? "最新" + items.length + "条" : "", true);
     built.body.classList.add("sb-card__body--flush");
 
     if (!items.length) {
@@ -285,8 +356,14 @@
       var iconBox = el("span", "sb-log__icon");
       iconBox.appendChild(icon(ACTION_ICONS[item.action] || "activity"));
       row.appendChild(iconBox);
-      row.appendChild(el("span", "sb-log__text", item.text || ""));
-      guard(row);
+      var text = el("span", "sb-log__text");
+      text.appendChild(el("span", "sb-log__label", item.label || "更新"));
+      if (item.target) {
+        text.appendChild(document.createTextNode(" "));
+        text.appendChild(el("span", "sb-log__name", item.target));
+      }
+      row.appendChild(text);
+      bindNavigation(row);
       built.body.appendChild(row);
     });
     return built.root;

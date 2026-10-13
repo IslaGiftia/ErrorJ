@@ -82,6 +82,40 @@
     } catch (err) {}
   }
 
+  /*
+   * 把外壳的三个数「推」给 iframe 里的子页：
+   * - --dl-scrollbar-w：子页滚动条槽位宽度（内嵌模式下子页用 scrollbar-gutter: stable 固定预留）。
+   *   舞台按「内容列 + 槽位」定宽，侧栏就不会压住滚动条。
+   * - --embed-center：内容列宽度。子页的媒体查询是按 iframe 自己的宽度算的，
+   *   到了 2K / 4K 上永远触发不了，所以由外壳把当前档位直接写进子页，
+   *   保证四个标签的内容列和留言 / 动态页逐像素一致。
+   */
+  function syncFrameMetrics() {
+    // 四个子页都写一遍，切标签时不用再等一次
+    var gutter = 0;
+    var center = "";
+    Array.prototype.forEach.call(document.querySelectorAll(".dl-frame"), function (frame) {
+      var win = null;
+      try {
+        win = frame.contentWindow;
+      } catch (err) {
+        return;
+      }
+      var doc = win && win.document;
+      if (!doc || !doc.documentElement || !doc.body) return;
+      // 子页用 scrollbar-gutter: stable 预留了滚动条槽位，这部分算在 documentElement 里、
+      // 不算在 body 里，所以槽位宽度按 innerWidth - body.clientWidth 量。
+      var width = Math.max(0, Math.round(win.innerWidth - doc.body.clientWidth));
+      width = Math.min(width, 32);
+      gutter = Math.max(gutter, width);
+      center =
+        center ||
+        getComputedStyle(document.documentElement).getPropertyValue("--sb-center-width").trim();
+      if (center) doc.documentElement.style.setProperty("--embed-center", center);
+    });
+    document.documentElement.style.setProperty("--dl-scrollbar-w", gutter + "px");
+  }
+
   function paintBadges() {
     TABS.forEach(function (tab) {
       var node = tabEl(tab.key);
@@ -158,6 +192,7 @@
     });
     paintAction(key);
     requestRelayout(key);
+    syncFrameMetrics();
     markSeen(key);
     if (!options || !options.keepUrl) updateUrl(key);
   }
@@ -285,6 +320,25 @@
   function init() {
     if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
     bind();
+    // 侧栏里指向本页标签的链接（封面 / 更新日志）原地切标签用
+    window.ErrorDownloadsTabs = { activate: activate, keys: TAB_KEYS.slice() };
+    Array.prototype.forEach.call(document.querySelectorAll(".dl-frame"), function (frame) {
+      frame.addEventListener("load", syncFrameMetrics);
+    });
+    window.addEventListener("resize", syncFrameMetrics);
+    // 侧栏浮在 iframe 上面，滚轮落在这里时手动转发给当前子页，滚动体感一致
+    Array.prototype.forEach.call(document.querySelectorAll(".sb-side"), function (side) {
+      side.addEventListener(
+        "wheel",
+        function (event) {
+          var win = frameWindow(activeKey);
+          if (!win) return;
+          event.preventDefault();
+          win.scrollBy(0, event.deltaY);
+        },
+        { passive: false }
+      );
+    });
     var wanted = "";
     try {
       wanted = normalizeTab(new URLSearchParams(location.search).get("tab"));
@@ -293,6 +347,7 @@
     }
     // 先无条件点亮一次，保证首屏按钮 / 面板状态正确，再按 URL 参数切换
     activate(wanted || TAB_KEYS[0], { keepUrl: !wanted, force: true });
+    syncFrameMetrics();
     loadAuth();
   }
 

@@ -22,6 +22,7 @@
   <link rel="stylesheet" href="/static/fonts.css">
   <link rel="stylesheet" href="/static/site/rain.css">
   <link rel="stylesheet" href="/static/downloads.css">
+  <link rel="stylesheet" href="/static/site/sidebar.css">
 </head>
 <body>
   <div class="rain-scene rain-scene--fixed" id="rainScene" aria-hidden="true">
@@ -61,6 +62,16 @@
       </button>
     </div>
 
+    <!--
+      三栏外壳：左右两栏侧栏常驻（推荐页外壳自己不滚，滚动发生在 iframe 里，
+      所以四张卡片始终完整显示，不跟随内容滚动），中间是和留言 / 动态页同宽的 iframe 舞台。
+    -->
+    <div class="sb-shell dl-shell">
+      <aside class="sb-side sb-side--left" id="sidebarLeft" aria-label="站点信息"></aside>
+
+      <!-- 站位用的空块：中间那列（iframe 舞台）是绝对定位、不占流，靠它把左右两栏撑到正确位置 -->
+      <div class="dl-shell-spacer" aria-hidden="true"></div>
+
     <div class="dl-stage" id="dlStage">
       <section class="dl-panel is-active" data-panel="music" aria-label="歌曲">
         <iframe class="dl-frame" data-frame="music" title="歌曲" src="/music?embed=1"></iframe>
@@ -75,10 +86,16 @@
         <iframe class="dl-frame" data-frame="resource" title="站内资源" src="/recommendations?embed=1&view=resource"></iframe>
       </section>
     </div>
+
+      <aside class="sb-side sb-side--right" id="sidebarRight" aria-label="站内资源与更新"></aside>
+    </div>
   </div>
+
+  <div class="dl-toast" id="toast" hidden></div>
 
   <script src="/static/vendor/lucide.min.js"></script>
   <script src="/static/site/rain.js"></script>
   <script src="/static/downloads.js"></script>
+  <script src="/static/site/sidebar.js"></script>
 </body>
 </html>
