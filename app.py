@@ -1890,6 +1890,47 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
                     "INSERT INTO app_meta (key, value) VALUES ('reference_projects_seeded_v1', ?)",
                     (stamp,),
                 )
+        reference_pruned = conn.execute(
+            "SELECT value FROM app_meta WHERE key = 'reference_projects_pruned_v2'"
+        ).fetchone()
+        if not reference_pruned:
+            # 2026-10 的几轮重构删掉了小游戏模块与站内电子书阅读器，参考项目清单跟着收敛一次：
+            # 以 static/references.html 为准，删掉已经不在清单里的条目、更新其余条目的文案与顺序。
+            # 只跑一次（带标记），之后页面内新增 / 编辑的条目不会再被动过。
+            seed_rows = reference_seed_rows()
+            keep_titles = {row[0] for row in seed_rows}
+            existing_ids = {
+                row["title"]: row["id"]
+                for row in conn.execute(
+                    "SELECT id, title FROM reference_projects"
+                ).fetchall()
+            }
+            for title, item_id in existing_ids.items():
+                if title not in keep_titles:
+                    conn.execute(
+                        "DELETE FROM reference_projects WHERE id = ?", (item_id,)
+                    )
+            stamp = now_text()
+            for title, url, description, sort_order in seed_rows:
+                item_id = existing_ids.get(title)
+                if item_id:
+                    conn.execute(
+                        """UPDATE reference_projects
+                           SET url = ?, description = ?, sort_order = ?, updated_at = ?
+                           WHERE id = ?""",
+                        (url, description, sort_order, stamp, item_id),
+                    )
+                else:
+                    conn.execute(
+                        """INSERT INTO reference_projects
+                               (title, url, description, sort_order, created_at, updated_at)
+                           VALUES (?, ?, ?, ?, ?, ?)""",
+                        (title, url, description, sort_order, stamp, stamp),
+                    )
+            conn.execute(
+                "INSERT INTO app_meta (key, value) VALUES ('reference_projects_pruned_v2', ?)",
+                (stamp,),
+            )
         seed_data(conn)
         conn.commit()
     finally:
