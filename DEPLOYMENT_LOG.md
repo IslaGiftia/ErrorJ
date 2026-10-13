@@ -4098,3 +4098,49 @@ iOS「添加到主屏幕」用的 `error-chan-touch.png`（180px）按站长要�
 
 备注：本轮 `app.py` 有改动（举报权限、设备信息、通知拆分），线上生效依赖这次重启；
 静态文件每次请求读磁盘，`git pull` 后立即生效（已用 SHA256 逐文件比对确认）。
+
+## 105. 2026-10-13 13:01:49 设备识别新增鸿蒙
+
+背景：站长要求给留言 / 动态的设备自动识别加上鸿蒙（HarmonyOS / OpenHarmony）。
+实际排查发现自动识别并不在前端：前端只负责管理员的自定义名称和卡片渲染，真正解析 UA 的是
+服务端 `device_info_label()` —— 因为此前定下的规则是「普通账号 / 游客传的 device_info 一律忽略，
+强制用服务端按请求头算出的结果」，所以识别只能落在服务端，改前端不会有任何效果。
+
+完成内容（提交 `0349d1e feat:detect-harmonyos-in-device-info`，7 文件，+29/−11）：
+
+- `device_info_label()` 改成按优先级判断：`OpenHarmony` → `HarmonyOS` → `Android` → `iPhone|iPad|iPod` → 兜底，
+  前两者都返回「来自 鸿蒙」。鸿蒙 4.x 及以下的 UA 里同时带 `Android`，因此必须排在 Android 之前。
+- 只动了这一个函数的判断顺序 + 两处 docstring；接口入参与返回结构、数据库字段、`normalize_device_info`、
+  `device_info_for` 的「管理员自定义优先」、管理员编辑区的「设备名称（可选）」输入框、
+  卡片渲染（`.mg-device` / `.mo-device`）都没有改动。
+- 单测补三条 UA 用例（鸿蒙 4.x 真实 UA、OpenHarmony 5.0、小写 harmonyos）；README / PROJECT_SUMMARY /
+  references 与前端两处注释里的取值列表同步成「来自 鸿蒙 / Android / iOS / Web」。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 113 项全过
+      node --check static/messages.js static/moments.js；python -m json.tool config/changelog-seed.json
+      git diff --check 干净
+      另外跑了一遍 handler 级探针：鸿蒙 4.x / OpenHarmony -> 来自 鸿蒙，Android / iOS / Web 不变，
+      普通账号伪造 device_info 仍被忽略，管理员自定义仍优先（8 组全过）
+提交：0349d1e（fetch/push 后本地 == origin/main == 0349d1e）
+备份：/data/errorjiang-backup/20261013-1302/（停服后复制 inventory.db 3907584 字节
+      与 changelog-seed.json 78831 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only fd2f020 -> 0349d1e；本轮无表结构变更，未单独跑 init_db
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 ddc09190…ec4a 一致）
+      import_changelog_moments.py --date 2026-10-13 --force -> 该日期 9 条（新增 9 / 覆盖 0，无重复）
+      systemctl restart errorjiang
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 0349d1e，/api/health = {"ok": true}
+更新日志    -> /api/moments 里 2026-10-13 13:01:49「设备识别新增鸿蒙」（id=473，kind=log；该日期共 9 条）
+线上识别    -> 用线上部署的 app.py 直接跑设备识别：
+              鸿蒙 4.x（UA 同时带 Android）-> 来自 鸿蒙；OpenHarmony 5.0 -> 来自 鸿蒙
+              普通 Android -> 来自 Android；iPhone -> 来自 iOS；Windows -> 来自 Web
+              线上 app.py 里能直接读到 OpenHarmony / HarmonyOS 两个优先分支
+```
+
+备注：本轮 `app.py` 有改动（识别顺序），线上生效依赖这次重启；静态文件每次请求读磁盘，
+`git pull` 后立即生效。
