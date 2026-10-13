@@ -961,6 +961,12 @@ button.mo-share:hover {
   white-space: nowrap;
 }
 
+/* 游客看到的点赞行没有大拇指按钮，用一个灰色「点赞」当说明 */
+.mo-like-label {
+  color: var(--mo-muted);
+  font-size: 12.5px;
+}
+
 .mo-comments {
   margin-top: 10px;
   display: flex;
@@ -1781,4 +1787,64 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
     font-size: 12px;
     line-height: 1.55;
   }
+}
+
+/* ---------- 游客看到的锁定区：模糊占位条 + 登录提示 ---------- */
+
+.mo-locked-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 12px 14px;
+  border: 1px dashed var(--mo-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mo-hover) 55%, transparent);
+}
+
+.mo-lock-blur {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.mo-lock-blur i {
+  height: 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mo-muted) 34%, transparent);
+  filter: blur(2.5px);
+}
+
+.mo-lock-blur i:nth-child(1) {
+  width: 76%;
+}
+
+.mo-lock-blur i:nth-child(2) {
+  width: 58%;
+}
+
+.mo-lock-blur i:nth-child(3) {
+  width: 66%;
+}
+
+.mo-lock-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--mo-muted);
+  font-size: 12.5px;
+}
+
+.mo-lock-hint svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* 分享卡对游客只留封面和标题，右侧给一句登录提示 */
+.mo-share-locked {
+  margin-left: auto;
+  color: var(--mo-muted);
+  font-size: 12.5px;
+  white-space: nowrap;
 }

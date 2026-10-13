@@ -9832,12 +9832,17 @@ class InventoryHandler(BaseHTTPRequestHandler):
         return self.save_data_file(raw, file_name, folder, max_bytes=max_bytes)
 
     def site_message_files_map(self, message_ids):
-        """按留言 ID 分组返回附件，供列表接口一次性取回。"""
+        """
+        按留言 ID 分组返回附件，供列表接口一次性取回。
+        游客也能看到留言里的图片，非图片附件只给一个「登录后可查看」的锁定占位。
+        """
         if not message_ids:
             return {}
         identity = self.session_identity()
-        if not identity:
-            return {}
+        viewer_signed_in = identity is not None
+        viewer_id = None
+        if identity:
+            viewer_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
         placeholders = ",".join("?" for _ in message_ids)
         rows = query(
             f"""SELECT f.id, f.message_id, f.file_name, f.file_path, f.file_size,
@@ -9849,7 +9854,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 ORDER BY f.id""",
             tuple(message_ids),
         )
-        viewer_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
         is_admin = self.is_admin()
         grouped = {}
         for row in rows:
@@ -9875,7 +9879,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "can_save": bool(is_admin or owned),
                 "locked": False,
             }
-            if visible:
+            if visible and (viewer_signed_in or is_image):
                 entry.update(
                     {
                         "file_name": row["file_name"],
@@ -9883,6 +9887,16 @@ class InventoryHandler(BaseHTTPRequestHandler):
                         "mime_type": row["mime_type"],
                         "url": f"/api/site/message-files/{row['id']}",
                         "pending": not approved,
+                    }
+                )
+            elif visible:
+                # 游客：图片之外的附件只给占位，想看内容要登录
+                entry.update(
+                    {
+                        "file_name": row["file_name"],
+                        "file_size": row["file_size"],
+                        "mime_type": row["mime_type"],
+                        "locked": True,
                     }
                 )
             grouped.setdefault(row["message_id"], []).append(entry)
@@ -10234,11 +10248,15 @@ class InventoryHandler(BaseHTTPRequestHandler):
         self.send_json(200, {"liked": liked, "count": int(count)})
 
     def api_site_messages(self, params):
+        """
+        留言板：游客也能看全部留言，但普通账号的名字只保留最后一个字，
+        回复区整块锁住（内容不下发），互动按钮由前端对游客隐藏。
+        """
         identity = self.session_identity()
-        if not identity:
-            self.send_json(200, {"requires_login": True, "messages": []})
-            return
-        viewer_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
+        viewer_signed_in = identity is not None
+        viewer_id = None
+        if identity:
+            viewer_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
         is_admin = self.is_admin()
         all_rows = query(
             """SELECT id, nickname, content, parent_id, user_id, ip, ip_region,
@@ -10265,18 +10283,22 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 root = visible_root(row)
                 if not root:
                     continue
+                mine = (
+                    viewer_id is not None
+                    and int(row.get("user_id") or 0) == int(viewer_id)
+                )
                 if int(root["id"]) == int(row["id"]):
-                    if row.get("status") == "approved" or int(row.get("user_id") or 0) == int(viewer_id):
+                    if row.get("status") == "approved" or mine:
                         rows.append(row)
-                elif root.get("status") == "approved" or int(root.get("user_id") or 0) == int(viewer_id):
+                elif root.get("status") == "approved" or mine:
                     rows.append(row)
         my_ids = {
             int(row["id"])
             for row in rows
-            if int(row.get("user_id") or 0) == int(viewer_id)
+            if viewer_id is not None
+            and int(row.get("user_id") or 0) == int(viewer_id)
         }
         liked_ids = liked_target_ids(viewer_id, "message", [row["id"] for row in rows])
-        viewer_signed_in = True
         user_ids = sorted(
             {row["user_id"] for row in rows if row.get("user_id") not in (None, 0)}
         )
@@ -10394,6 +10416,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
             root["replies"] = sorted(
                 root.get("replies") or [], key=lambda item: int(item["id"])
             )
+        if not viewer_signed_in:
+            # 游客只看得到留言本身：回复内容整块不下发，只留条数让前端画锁定块
+            for root in roots:
+                root["reply_count"] = len(root.get("replies") or [])
+                root["replies_locked"] = True
+                root["replies"] = []
         self.send_json(200, roots)
 
     def message_attachments(self, payload):
@@ -10742,36 +10770,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
         return grouped, viewer_commented_ids
 
     def api_moments(self, params):
+        """
+        动态：游客也能看全部动态（正文、图片、属地），但普通账号的名字只保留最后一个字，
+        评论 / 回复区整块锁住（内容不下发），点赞、评论输入和分享卡的操作按钮由前端对游客隐藏。
+        """
         identity = self.session_identity()
-        if not identity:
-            rows = query(
-                """SELECT id, content, tags, pinned, kind, created_at
-                   FROM moments
-                   ORDER BY pinned DESC, created_at DESC, id DESC"""
-            )
-            items = []
-            for row in rows:
-                kind = row.get("kind") or "post"
-                item = {
-                    "id": row["id"],
-                    "pinned": bool(row["pinned"]),
-                    "kind": kind,
-                    "created_at": row["created_at"],
-                }
-                # 开发日志就是站内更新日志，本来就对所有人公开，游客照常拿到正文；
-                # 手动发布的动态仍然只给游客一条「需登录」的占位。
-                if kind == "log":
-                    item["content"] = row["content"] or ""
-                    item["tags"] = row["tags"] or ""
-                items.append(item)
-            self.send_json(
-                200,
-                {
-                    "requires_login": True,
-                    "items": items,
-                },
-            )
-            return
+        viewer_signed_in = identity is not None
         rows = query(
             """SELECT id, content, tags, pinned, ip, ip_region, show_region, kind, created_at
                FROM moments
@@ -10779,13 +10783,14 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )
         can_manage = self.is_admin()
         viewer_id = None
-        viewer_id = 0 if identity.get("kind") == "owner" else int(
-            identity.get("user_id") or 0
-        )
+        if identity:
+            viewer_id = 0 if identity.get("kind") == "owner" else int(
+                identity.get("user_id") or 0
+            )
         files = self.moment_files_map([row["id"] for row in rows])
         moment_ids = [int(row["id"]) for row in rows]
         comments, comment_moment_ids = self.moment_comments_map(
-            moment_ids, viewer_id, can_manage, identity is not None
+            moment_ids, viewer_id, can_manage, viewer_signed_in
         )
         share_ids = {}
         if moment_ids:
@@ -10818,27 +10823,43 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     name = "管理员"
                 else:
                     username = str(like.get("username") or "").strip() or "普通用户"
-                    name = username[:32] if identity is not None else mask_username(username)
+                    name = username[:32] if viewer_signed_in else mask_username(username)
                 like_user_map.setdefault(int(like["target_id"]), []).append(name)
-        for row in [
-            item
-            for item in rows
-            if item.get("show_region") and not item.get("ip_region") and item.get("ip")
-        ][:3]:
-            region = lookup_ip_region(row.get("ip"))
-            if region:
-                execute(
-                    "UPDATE moments SET ip_region = ? WHERE id = ?",
-                    (region, row["id"]),
-                )
-                row["ip_region"] = region
+        if viewer_signed_in:
+            # 属地补解析会写库 / 打外部接口，只在登录账号浏览时顺带做
+            for row in [
+                item
+                for item in rows
+                if item.get("show_region") and not item.get("ip_region") and item.get("ip")
+            ][:3]:
+                region = lookup_ip_region(row.get("ip"))
+                if region:
+                    execute(
+                        "UPDATE moments SET ip_region = ? WHERE id = ?",
+                        (region, row["id"]),
+                    )
+                    row["ip_region"] = region
+        comment_counts = {
+            moment_id: len(items) for moment_id, items in comments.items()
+        }
+        if not viewer_signed_in:
+            # 游客：评论内容不下发，只给条数，前端画锁定块
+            comments = {}
+            comment_moment_ids = set()
         for row in rows:
             row["files"] = files.get(row["id"], [])
             row["comments"] = comments.get(row["id"], [])
+            row["comment_count"] = comment_counts.get(int(row["id"]), 0)
+            row["comments_locked"] = not viewer_signed_in
             share = share_ids.get(int(row["id"]))
-            row["share"] = (
-                shared_resource_info(share[0], share[1]) if share else None
-            )
+            share_info = shared_resource_info(share[0], share[1]) if share else None
+            if share_info and not viewer_signed_in:
+                # 分享卡对游客只留标题 / 封面，进去看内容要登录
+                share_info = dict(share_info)
+                share_info["locked"] = True
+                for key in ("url", "file_url", "page_url"):
+                    share_info.pop(key, None)
+            row["share"] = share_info
             row["like_count"] = like_count_map.get(int(row["id"]), 0)
             row["liked"] = int(row["id"]) in liked_set
             row["liked_by_me"] = row["liked"] or any(
@@ -11575,7 +11596,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 )
             row["requires_login"] = is_guest
             if is_guest:
-                row["url"] = ""
+                # 网页 / 工具对游客开放点击访问；其它类型（电影 / 动漫）的详情地址仍然不返回
+                if row.get("kind") not in ("site", "tool"):
+                    row["url"] = ""
                 row["download_url"] = ""
                 row.pop("resource", None)
                 row.pop("resource_type", None)
@@ -13341,7 +13364,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
         self.send_json(200, {"ok": True})
 
     def api_site_message_file(self, path):
-        """留言附件：登录账号可看已通过留言，作者和管理员可看待审附件。"""
+        """
+        留言附件：已通过的留言附件都能看；游客额外只放行图片，
+        非图片附件（PDF / 文本等）仍然要求登录；待审附件只有作者和管理员看得到。
+        """
         file_id = int(path.rsplit("/", 1)[1])
         row = query_one(
             """SELECT f.*, m.status AS message_status, m.user_id AS message_user_id
@@ -13354,14 +13380,16 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 404, "附件不存在。")
             return
         identity = self.session_identity()
-        if not identity:
-            api_error(self, 401, "登录后才可以查看留言附件。")
-            return
         is_admin = self.is_admin()
-        viewer_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
+        viewer_id = None
+        if identity:
+            viewer_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
         owned = bool(
-            row.get("uploaded_by") == viewer_id
-            or row.get("message_user_id") == viewer_id
+            viewer_id is not None
+            and (
+                row.get("uploaded_by") == viewer_id
+                or row.get("message_user_id") == viewer_id
+            )
         )
         approved = (
             (row.get("status") or "approved") == "approved"
@@ -13370,6 +13398,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not approved and not is_admin:
             if not owned:
                 api_error(self, 403, "附件正在审核中。")
+                return
+        if identity is None:
+            extension = os.path.splitext(row.get("file_name") or "")[1].lower()
+            if extension not in MESSAGE_IMAGE_EXTENSIONS:
+                api_error(self, 401, "登录后才可以查看这个附件。")
                 return
         self.send_data_file(row["file_path"])
 

@@ -590,6 +590,16 @@
       missing.appendChild(info);
       return missing;
     }
+    if (share.locked) {
+      // 游客：分享卡照样看得见（封面 + 标题），点进去看内容要登录
+      var locked = el("div", "mo-share is-locked");
+      locked.appendChild(
+        el("span", "mo-share-icon", share.type === "book" ? "📖" : share.type === "music" ? "♪" : "📝")
+      );
+      locked.appendChild(info);
+      locked.appendChild(el("span", "mo-share-locked", "登录后可查看"));
+      return locked;
+    }
     if (share.type === "music") {
       var card = el("div", "mo-share is-music");
       var cover = el("button", "mo-share-cover");
@@ -736,6 +746,18 @@
     btn.innerHTML = '<i data-lucide="thumbs-up" aria-hidden="true"></i>';
     wrap.append(btn, names);
     bindLikeControl(btn, names, targetType, target);
+    if (!canInteract) {
+      /*
+       * 游客：点赞按钮整个不渲染，只留一行脱敏的点赞名字；
+       * 一个赞都没有就整行不显示。灰色「点赞」当这一行的说明。
+       */
+      btn.remove();
+      if (!(target.like_users || []).length) {
+        wrap.hidden = true;
+      } else {
+        wrap.insertBefore(el("span", "mo-like-label", "点赞"), names);
+      }
+    }
     return wrap;
   }
 
@@ -956,9 +978,36 @@
     return row;
   }
 
+  /*
+   * 游客看到的评论 / 回复区：正文不下发，这里画几道模糊占位条 + 一句登录提示，
+   * 「三个点」里的举报不受影响。
+   */
+  function buildCommentsLocked(count) {
+    var box = el("div", "mo-locked-block");
+    var blur = el("div", "mo-lock-blur");
+    blur.setAttribute("aria-hidden", "true");
+    blur.append(el("i", ""), el("i", ""), el("i", ""));
+    box.appendChild(blur);
+    var hint = el("p", "mo-lock-hint");
+    var icon = document.createElement("i");
+    icon.setAttribute("data-lucide", "lock");
+    hint.appendChild(icon);
+    hint.appendChild(
+      document.createTextNode(
+        count > 0 ? "登录后可查看 " + count + " 条评论" : "登录后可查看评论"
+      )
+    );
+    box.appendChild(hint);
+    return box;
+  }
+
   function buildComments(moment, freshIds) {
     var comments = moment.comments || [];
     var box = el("div", "mo-comments");
+    if (moment.comments_locked) {
+      box.appendChild(buildCommentsLocked(moment.comment_count || 0));
+      return box;
+    }
     var grouped = groupComments(comments);
     var ctx = { replies: {}, active: null };
     ctx.closeReply = function () {
@@ -1143,7 +1192,8 @@
       menuItems.push({ label: moment.pinned ? "取消置顶" : "置顶", onPick: togglePin });
       menuItems.push({ label: "编辑", onPick: startEdit });
       menuItems.push({ label: "删除", danger: true, onPick: removeMoment });
-    } else if (canInteract) {
+    } else {
+      // 别人发的动态（含游客看到的）都能举报：游客这一排就只剩这一个入口
       menuItems.push({ label: "举报", report: moment });
     }
     if (menuItems.length) {
@@ -1176,10 +1226,7 @@
       : Promise.resolve({});
     return Promise.all([api("/api/moments"), targetsRequest]).then(function (result) {
       var payload = result[0] || {};
-      momentsRequireLogin = Boolean(payload.requires_login);
       latestMomentRows = Array.isArray(payload) ? payload : (payload.items || []);
-      // 游客先落在「开发日志」那一栏（日志本来就对外公开），登录账号仍默认「我的动态」
-      if (momentsRequireLogin && !explicitMomentKind) setMomentKind("log");
       /*
        * freshTargets: 目标 id → 提醒类型。动态 id 和评论 id 是两张表的自增主键，
        * 可能撞号，所以一定要靠 kind 区分「动态本体」和「某条评论」。
@@ -1246,7 +1293,6 @@
   };
   var currentMomentFilter = "all";
   var latestMomentRows = [];
-  var momentsRequireLogin = false;
 
   function momentMatchesFilter(row) {
     // 分享 = 从 Error酱分享过去的资源；评论 / 点赞 = 任何用户（含管理员）动过的动态
@@ -1605,14 +1651,13 @@
 
   function momentEmptyText() {
     if (currentMomentKind === "log") return "还没有开发日志。";
-    if (momentsRequireLogin) return "请登录后查看我的动态。";
     if (currentMomentFilter !== "all") {
       return (
         MOMENT_FILTER_EMPTY_TEXT[currentMomentFilter] ||
         "没有符合条件的动态。"
       );
     }
-    return "还没有记录，写第一条吧。";
+    return canInteract ? "还没有记录，写第一条吧。" : "还没有动态。";
   }
 
   function renderMomentRows() {
@@ -1636,11 +1681,6 @@
       buildLogList(list, rows);
       refreshIcons();
       updateJumpButton();
-      return;
-    }
-    // 「我的动态」只对登录账号开放，游客看到一句占位提示
-    if (momentsRequireLogin) {
-      list.appendChild(el("div", "mo-empty", "请登录后查看我的动态。"));
       return;
     }
     rows.forEach(function (row) {

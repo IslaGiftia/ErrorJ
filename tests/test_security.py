@@ -838,21 +838,22 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(comment["like_users"], ["other1"])
         self.assertTrue(comment["liked"] is False)
 
-    def test_guest_cannot_see_comment_like_users(self):
+    def test_guest_sees_moments_with_masked_names_and_locked_comments(self):
+        """游客能看动态正文，但普通账号的名字脱敏、评论 / 回复整块锁住。"""
         stamp = app.now_text()
         moment_id = app.execute(
             "INSERT INTO moments (content, created_at) VALUES (?, ?)",
             ("动态内容", stamp),
         )
-        comment_id = app.execute(
+        app.execute(
             """INSERT INTO moment_comments
                    (moment_id, parent_id, user_id, actor, content, created_at)
                VALUES (?, NULL, ?, ?, ?, ?)""",
-            (moment_id, self.author_id, "作者甲", "我的评论", stamp),
+            (moment_id, self.author_id, "作者甲", "游客不该看到的评论", stamp),
         )
         handler, _ = self.make_handler(self.other_id, username="other1")
         handler.api_site_like_toggle(
-            {"target_type": "comment", "target_id": comment_id}
+            {"target_type": "moment", "target_id": moment_id}
         )
         guest = object.__new__(app.InventoryHandler)
         guest.session_identity = lambda: None
@@ -861,11 +862,16 @@ class InteractionTests(unittest.TestCase):
         guest.send_json = lambda status, payload: responses.append((status, payload))
         guest.api_moments({})
         payload = responses[-1][1]
-        self.assertTrue(payload["requires_login"])
-        self.assertEqual(
-            set(payload["items"][0]),
-            # kind 只说明这条是「我的动态」还是「开发日志」，游客也有这一栏，所以照常返回
-            {"id", "pinned", "kind", "created_at"},
+        self.assertIsInstance(payload, list)
+        target = [row for row in payload if int(row["id"]) == moment_id][0]
+        self.assertEqual(target["content"], "动态内容")
+        # 点赞者名字只保留最后一个字
+        self.assertEqual(target["like_users"], [app.mask_username("other1")])
+        self.assertTrue(target["comments_locked"])
+        self.assertEqual(target["comment_count"], 1)
+        self.assertEqual(target["comments"], [])
+        self.assertNotIn(
+            "游客不该看到的评论", json.dumps(payload, ensure_ascii=False)
         )
 
     def test_moment_like_lists_usernames(self):
@@ -990,10 +996,15 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(target["like_users"], ["other1"])
         self.assertEqual(target["like_count"], 1)
 
-    def test_guest_cannot_see_message_like_usernames(self):
+    def test_guest_sees_messages_with_masked_names_and_locked_replies(self):
+        """游客能看留言正文，但普通账号的名字脱敏、回复区整块锁住。"""
         handler, _ = self.make_handler(self.other_id, username="other1")
         handler.api_site_like_toggle(
             {"target_type": "message", "target_id": self.message_id}
+        )
+        reply_handler, _ = self.make_handler(self.author_id, username="author1")
+        reply_handler.api_site_message_create(
+            {"content": "游客不该看到的回复", "parent_id": self.message_id, "files": []}
         )
         guest = object.__new__(app.InventoryHandler)
         guest.session_identity = lambda: None
@@ -1001,9 +1012,17 @@ class InteractionTests(unittest.TestCase):
         responses = []
         guest.send_json = lambda status, payload: responses.append((status, payload))
         guest.api_site_messages({})
-        payload = responses[-1][1]
-        self.assertTrue(payload["requires_login"])
-        self.assertEqual(payload["messages"], [])
+        roots = responses[-1][1]
+        target = [row for row in roots if int(row["id"]) == self.message_id][0]
+        self.assertEqual(target["content"], "测试留言")
+        self.assertEqual(target["nickname"], app.mask_username("author1"))
+        self.assertEqual(target["like_users"], [app.mask_username("other1")])
+        self.assertTrue(target["replies_locked"])
+        self.assertEqual(target["reply_count"], 1)
+        self.assertEqual(target["replies"], [])
+        self.assertNotIn(
+            "游客不该看到的回复", json.dumps(roots, ensure_ascii=False)
+        )
 
     def test_reply_to_reply_is_grouped_and_notifies(self):
         handler, responses = self.make_handler(self.other_id, username="other1")
@@ -1890,7 +1909,8 @@ class ComplianceWorkflowTests(unittest.TestCase):
 
         guest = self.make_handler(None)
         guest.api_site_messages({})
-        self.assertTrue(guest.responses[-1][1]["requires_login"])
+        # 待审的留言对游客也一样不显示
+        self.assertEqual(guest.responses[-1][1], [])
 
         admin = self.make_handler(
             {"kind": "owner", "user_id": 0, "nickname": "管理员"},
@@ -1922,16 +1942,18 @@ class ComplianceWorkflowTests(unittest.TestCase):
 
         guest.api_recommendations({})
         recommendation = guest.responses[-1][1]["items"][0]
-        self.assertEqual(recommendation["url"], "")
+        # 网页 / 工具对游客开放点击访问，所以地址照常返回
+        self.assertEqual(recommendation["url"], "https://example.com/tool")
         self.assertTrue(recommendation["requires_login"])
 
         guest.api_moments({})
-        payload = guest.responses[-1][1]
-        self.assertTrue(payload["requires_login"])
-        self.assertEqual(
-            set(payload["items"][0]),
-            {"id", "pinned", "kind", "created_at"},
-        )
+        moments = guest.responses[-1][1]
+        # 动态对游客整体开放：正文照常返回，评论 / 回复锁住
+        self.assertIsInstance(moments, list)
+        moment = [row for row in moments if int(row["id"]) == self.moment_id][0]
+        self.assertEqual(moment["content"], "动态内容")
+        self.assertTrue(moment["comments_locked"])
+        self.assertEqual(moment["comments"], [])
 
         guest.api_site_music_stream(self.music_id)
         self.assertEqual(guest.responses[-1][0], 401)

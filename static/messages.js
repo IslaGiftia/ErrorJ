@@ -659,6 +659,29 @@
     return form;
   }
 
+  /*
+   * 游客看到的回复区：正文不下发，这里画几道模糊的占位条 + 一句登录提示，
+   * 让「这里本来有回复」这件事看得出来，但看不到内容。
+   */
+  function buildRepliesLocked(count) {
+    var box = el("div", "mg-locked-block");
+    var blur = el("div", "mg-lock-blur");
+    blur.setAttribute("aria-hidden", "true");
+    blur.append(el("i", ""), el("i", ""), el("i", ""));
+    box.appendChild(blur);
+    var hint = el("p", "mg-lock-hint");
+    var icon = document.createElement("i");
+    icon.setAttribute("data-lucide", "lock");
+    hint.appendChild(icon);
+    hint.appendChild(
+      document.createTextNode(
+        count > 0 ? "登录后可查看 " + count + " 条回复" : "登录后可查看回复"
+      )
+    );
+    box.appendChild(hint);
+    return box;
+  }
+
   /* 点「回复」展开 / 收起回复框，展开时按钮变主题色（和动态页的评论回复一致） */
   function bindReplyToggle(btn, form) {
     btn.setAttribute("aria-expanded", "false");
@@ -730,7 +753,20 @@
         btn.disabled = false;
       });
     });
-    wrap.appendChild(btn);
+    if (canPost) {
+      wrap.appendChild(btn);
+      wrap.appendChild(names);
+      return wrap;
+    }
+    /*
+     * 游客：点赞按钮整个不渲染，只留一行脱敏的点赞名字；
+     * 一个赞都没有就整行不显示。灰色「点赞」当这一行的说明。
+     */
+    if (!(target.like_users || []).length) {
+      wrap.hidden = true;
+      return wrap;
+    }
+    wrap.appendChild(el("span", "mg-like-label", "点赞"));
     wrap.appendChild(names);
     return wrap;
   }
@@ -974,32 +1010,35 @@
 
     var repliesBox = el("div", "mg-replies");
     var rootForm = null;
-    if (canPost) {
+    var canDelete = Boolean(message.can_delete);
+    var canReport = message.status === "approved" && !message.mine;
+    if (canPost || canDelete || canReport) {
       var actions = el("div", "mg-item-actions");
-      var replyBtn = null;
-      if (message.can_reply) {
-        replyBtn = el("button", "mg-link-btn", "回复");
+      if (canPost && message.can_reply) {
+        var replyBtn = el("button", "mg-link-btn", "回复");
         replyBtn.type = "button";
         actions.append(replyBtn);
-      }
-      // 举报/删除收进右下角的「三个点」，和「回复」同一行；自己发的不能举报，
-      // 只有管理员或作者本人能删。
-      var canDelete = Boolean(message.can_delete);
-      var canReport = message.status === "approved" && !message.mine;
-      if (canDelete || canReport) {
-        actions.append(buildMoreMenu(message, canDelete, canReport));
-      }
-      item.appendChild(actions);
-      if (replyBtn) {
         rootForm = buildReplyForm(
           message.id,
           "回复 " + (message.nickname || "这条留言") + "…"
         );
         bindReplyToggle(replyBtn, rootForm);
       }
+      /*
+       * 举报 / 删除收进右下角的「三个点」，和「回复」同一行；自己发的不能举报，
+       * 只有管理员或作者本人能删。游客这一排只剩这一个入口。
+       */
+      if (canDelete || canReport) {
+        actions.append(buildMoreMenu(message, canDelete, canReport));
+      }
+      item.appendChild(actions);
     }
     var freshReplyIds = [];
-    (message.replies || []).forEach(function (reply) {
+    var replies = message.replies || [];
+    if (message.replies_locked) {
+      repliesBox.appendChild(buildRepliesLocked(message.reply_count || 0));
+    }
+    replies.forEach(function (reply) {
       var row = el("div", "mg-reply " + (reply.can_save ? "can-save" : "no-save"));
       var replyHead = el("div", "mg-item-head");
       replyHead.appendChild(el("span", "mg-nick", reply.nickname || "匿名"));
@@ -1075,26 +1114,6 @@
       result
     ) {
       var payload = result[0] || {};
-      if (payload.requires_login) {
-        latestMessageRows = [];
-        list.innerHTML = "";
-        var locked = el("div", "mg-locked");
-        locked.appendChild(el("i", "mg-locked-icon", "🔒"));
-        locked.appendChild(el("strong", "", "登录后查看留言"));
-        locked.appendChild(el("p", "", "留言内容仅向经管理员审核通过的登录账号开放。"));
-        /*
-         * 游客点「留言」不再跳登录页，直接在当前页给一句提示。
-         * 想登录的话页面右上角的账号入口一直都在，不会因此走投无路。
-         */
-        var writeBtn = el("button", "mg-btn mg-btn-primary", "留言");
-        writeBtn.type = "button";
-        writeBtn.addEventListener("click", function () {
-          toast("请申请注册账号后留言");
-        });
-        locked.appendChild(writeBtn);
-        list.appendChild(locked);
-        return;
-      }
       latestMessageRows = Array.isArray(payload) ? payload : (payload.messages || []);
       freshTargets = {};
       (result[1] || []).forEach(function (id) {
