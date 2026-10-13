@@ -254,24 +254,35 @@
     }
     covers.forEach(function (item, position) {
       var probe = new Image();
+      var settled = false;
       probe.onload = function () {
         var decoded = probe.decode ? probe.decode() : null;
         if (decoded && typeof decoded.then === "function") {
           decoded.then(
             function () {
-              settle({ position: position, item: item });
+              finish({ position: position, item: item });
             },
             function () {
-              settle({ position: position, item: item });
+              finish({ position: position, item: item });
             }
           );
         } else {
-          settle({ position: position, item: item });
+          finish({ position: position, item: item });
         }
       };
       probe.onerror = function () {
-        settle(null);
+        finish(null);
       };
+      // 单张图卡住（网络慢 / 文件异常）不能拖住整张卡：超时就当它不可用
+      var timer = window.setTimeout(function () {
+        finish(null);
+      }, 6000);
+      function finish(entry) {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        settle(entry);
+      }
       probe.src = item.cover_url;
     });
   }
@@ -287,50 +298,58 @@
     wrap.appendChild(link);
     root.appendChild(wrap);
 
-    prepareCovers(covers, function (usable) {
-      if (!usable.length) {
-        link.removeAttribute("href");
-        return;
-      }
-      start(usable);
-    });
-
-    function start(usable) {
-      // 两层图片叠着，切的时候新图淡入、旧图淡出
-      var layers = [0, 1].map(function (index) {
-        var image = document.createElement("img");
-        image.className = "sb-cover__img" + (index === 0 ? " is-active" : "");
-        image.alt = "";
-        image.decoding = "async";
-        image.src = usable[0].cover_url;
-        link.appendChild(image);
-        return image;
-      });
-
-      var index = 0;
-      var active = 0;
-
-      function apply() {
-        link.href = usable[index].href || "#";
-        link.setAttribute("aria-label", usable[index].title || "站内资源");
-        var next = active === 0 ? 1 : 0;
-        layers[next].src = usable[index].cover_url;
-        layers[next].classList.add("is-active");
-        layers[active].classList.remove("is-active");
-        active = next;
-      }
-
-      if (usable.length > 1) {
-        window.setInterval(function () {
-          if (document.hidden || wrap.matches(":hover")) return;
-          index = (index + 1) % usable.length;
-          apply();
-        }, CAROUSEL_INTERVAL);
-      }
-
-      apply();
-      bindNavigation(link);
+    if (!covers.length) {
+      // 一张封面都没有：只留占位图标
+      link.removeAttribute("href");
+      return root;
     }
+
+    // 两张图一开始就摆上（第一张先显示），免得等所有封面下载完卡片是空的
+    var layers = [0, 1].map(function (index) {
+      var image = document.createElement("img");
+      image.className = "sb-cover__img" + (index === 0 ? " is-active" : "");
+      image.alt = "";
+      image.decoding = "async";
+      image.src = covers[0].cover_url;
+      link.appendChild(image);
+      return image;
+    });
+    link.href = covers[0].href || "#";
+    link.setAttribute("aria-label", covers[0].title || "站内资源");
+    bindNavigation(link);
+
+    var index = 0;
+    var active = 0;
+    var usable = covers;
+    var rotating = false;
+
+    function apply() {
+      link.href = usable[index].href || "#";
+      link.setAttribute("aria-label", usable[index].title || "站内资源");
+      var next = active === 0 ? 1 : 0;
+      layers[next].src = usable[index].cover_url;
+      layers[next].classList.add("is-active");
+      layers[active].classList.remove("is-active");
+      active = next;
+    }
+
+    /*
+     * 所有封面下载 + 解码完之后再定轮播名单：没封面 / 加载失败的条目直接剔除，
+     * 不占那 5 秒，也不会在淡入时才解码而闪一下空白。
+     */
+    prepareCovers(covers, function (ready) {
+      if (ready.length) {
+        usable = ready;
+        index = 0;
+      }
+      if (rotating || usable.length < 2) return;
+      rotating = true;
+      window.setInterval(function () {
+        if (document.hidden || wrap.matches(":hover")) return;
+        index = (index + 1) % usable.length;
+        apply();
+      }, CAROUSEL_INTERVAL);
+    });
 
     return root;
   }
