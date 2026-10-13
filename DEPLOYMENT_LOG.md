@@ -4194,3 +4194,60 @@ iOS「添加到主屏幕」用的 `error-chan-touch.png`（180px）按站长要�
 
 备注：本轮只动前端（HTML / CSS / JS）与文档，没有改后端、数据库或接口；静态文件每次请求读磁盘，
 `git pull` 后立即生效。
+
+## 107. 2026-10-13 13:29:20 开发日志向游客展示概述、留言额度回到同一行
+
+背景：站长纠正了上一轮「开发日志对游客上锁」的范围 —— 之前是整月折叠、月份都不给展开；
+正确的是：月份、日期、每条日志的概述（时间 + 标题）都要照常展示，只锁每条日志右边那个展开箭头。
+另外要求把「今日可留言/回复次数 N/M」放回「IP属地 / 设备平台」同一行、右对齐。
+
+完成内容（提交 `aefe622 fix:show-devlog-summaries-to-guests-and-keep-quota-inline`，5 文件，+18/−27）：
+
+- **开发日志（游客）**：去掉月份层的三处游客限制（`applyLogMonth` 里强制 `open=false`、
+  月份标题点击拦截、以及「游客不默认展开最近一个月」的判断），月份手风琴对游客和登录账号完全一致；
+  保留每条日志的展开拦截（点 `.mo-log-head` → 提示「请登录后操作」并 return，不加 `is-open`、明细保持隐藏）；
+  明细正文对游客不渲染进 DOM（`if (canInteract)` 里才建 `<ul class="mo-log-items">`），
+  所以游客页面里 `ul.mo-log-items li` 是 0 条。
+- **留言编辑区**：`#messageQuota` 从独立的 `.mg-quota-row` 移回 `.mg-compose-meta`，
+  和「IP属地 / 设备平台 / 设备平台输入框」同一行，靠 `margin-left: auto` 右对齐到「发布留言」按钮的右边缘；
+  `.mg-quota` 加 `white-space: nowrap`（窄屏放不下时整块换行、仍然靠右），删掉不再需要的 `.mg-quota-row` 规则。
+- 文档：README / references 里「游客只看得到月份那一行」的描述改成「能看月份、日期和每条日志的概述，
+  只有展开箭头提示登录」。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 113 项全过
+      node --check static/moments.js static/messages.js；python -m json.tool config/changelog-seed.json
+      git diff --check 干净
+      浏览器验收（本地临时库副本 + 8012 端口，8 项全过）：
+      游客 -> 3 个月份组（默认展开最近一个月）、4 个日期、7 条概述、明细 DOM 0 条、
+              点条目箭头「请登录后操作」且未展开、月份手风琴可正常开合；
+      管理员 -> 条目照常展开、明细 34 条照常显示；
+      留言编辑区（桌面 1440x900）-> 勾选项与额度同一行（top 319/325/325）、额度右边缘与
+              「发布留言」按钮完全对齐（1065 = 1065）、额度单行 20px；普通账号下额度仍同一行右对齐、
+              设备平台整块 display:none；手机 390x844 下额度整块换行、右边缘仍对齐且不超屏
+提交：aefe622（fetch/push 后本地 == origin/main == aefe622）
+备份：/data/errorjiang-backup/20261013-1330/（停服后复制 inventory.db 3919872 字节
+      与 changelog-seed.json 80366 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only bdd052f -> aefe622；本轮无表结构变更，未单独跑 init_db
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 083fd5f8…5ffb 一致）
+      import_changelog_moments.py --date 2026-10-13 --force -> 该日期 11 条（新增 11 / 覆盖 0，无重复）
+      systemctl restart errorjiang
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = aefe622，/api/health = {"ok": true}
+更新日志    -> /api/moments 里 2026-10-13 13:29:20「开发日志向游客展示概述、留言额度回到同一行」
+              （id=494，kind=log；该日期共 11 条）
+线上前端    -> messages.html 里额度已经和勾选项同属 .mg-compose-meta、页面里没有 mg-quota-row；
+              messages.css 有额度的 white-space: nowrap；
+              moments.js 有「明细只在登录账号下渲染」与「展开明细要先登录」两处
+线上页面    -> 游客（无登录）打开 https://zhexiyan.cc/moments?kind=log：
+              3 个月份组（默认展开最近一个月：最新的那条就是 13:29 这次更新）、10 个日期标题、
+              87 条日志概述可见（如「13:29 开发日志向游客展示概述、留言额度回到同一行」），
+              明细 DOM 0 条；点某条日志的箭头 -> 弹「请登录后操作」，展开行 0、可见明细 0
+```
+
+备注：本轮只动前端（HTML / CSS / JS）与文档，没有改后端、数据库或接口；
+留言编辑区那部分需要登录才看得到，线上用页面源码 + CSS 内容核对（本地已做浏览器实测）。
