@@ -3919,3 +3919,50 @@ iOS「添加到主屏幕」用的 `error-chan-touch.png`（180px）按站长要�
 
 备注：本轮 `app.py` 有改动（游客可读的留言 / 动态负载与推荐地址放行），线上生效需要
 `systemctl restart errorjiang`；静态文件每次请求读磁盘，`git pull` 后立即生效。
+
+## 102. 2026-10-13 09:15:24 参考项目清单跟进重构（移除已下线模块的条目）
+
+背景：站长要求更新首页「参考项目」页 —— 最近几轮重构删掉或重做了不少页面，清单要跟着收敛，
+已经不存在对应功能的参考条目该删就删。
+
+完成内容（提交 `27af6eb docs:prune-reference-projects-after-refactors`，3 文件，+45/−19）：
+
+- **删除** 3 条（对应功能已经整体下线）：
+  - `Caro-Board`、`2048`：小游戏模块（五子棋 / 2048 / 扫雷 / 记忆翻牌）在前面的重构里整块删除，不再有对应实现。
+  - `APlayer`：歌曲页那条完整播放器（封面 + 播放列表 + 循环 + 随机）已经删掉，换成「点封面播放 / 暂停」，
+    播放器相关的参考不再成立。
+- **改写** Navidrome 的说明：只保留仍然成立的「自托管音乐库的浏览（歌单优先、封面规整）」，
+  并注明现在歌曲页只留歌单列表与点封面播放 / 暂停，进度条 / 随机 / 循环 / 音量那一整条播放条已删除。
+- **重写** 本站自身（Error酱 / ErrorJ）那条说明：从原来 3000+ 字的流水账改成「当前有哪些模块 + 最近几轮
+  改动」，并去掉已经下线的说法（照片墙从独立模块收进工作台、站内阅读器 / 游戏模块不再提）。
+  顺带修掉一个隐患：数据库里 `description` 字段按 2000 字截断，原来的长文在页面上其实是残缺的，
+  现在 615 字完整显示。页头更新时间改成 2026-10-13，并注明这次移除了已下线功能对应的条目。
+- **新增一次性收敛迁移** `reference_projects_pruned_v2`（`app.py init_db`）：因为 `reference_projects`
+  只在首次启动时从静态页播种（`_seeded_v1`），只改 HTML 线上不会变；这条迁移以 `static/references.html`
+  为准，删掉清单里已经没有的条目、刷新其余条目的文案与顺序，并写入标记，只跑一次（之后页面内新增 / 编辑
+  的条目不会再被覆盖，实测：模拟旧库 25 条 → init_db 后 22 条，三条删除、其余文案刷新、标记写入）。
+- 文档：`README.md` 补上两条迁移的说明与维护口径。
+
+部署步骤：
+```text
+本地：python -m unittest discover -s tests -> 109 项全过；git diff --check 干净
+      离库验证：临时库 init_db -> 22 条；手工塞回 Caro-Board / 2048 / APlayer 并清掉 v2 标记 -> 再 init_db
+                -> 22 条、三条已删、ErrorJ 说明 615 字、v2 标记写入
+提交：27af6eb（fetch/push 后本地 == origin/main == 27af6eb）
+备份：/data/errorjiang-backup/references-prune-20261013-0915/（停服后复制 inventory.db 3796992 字节
+      与 changelog-seed.json 72839 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only dd5d55a -> 27af6eb；重启服务时 init_db 自动跑完 v2 收敛（无表结构变更）
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 1bd65ffb…d1d7 一致）
+      import_changelog_moments.py --date 2026-10-13 --force -> 新增 6 条（该日期六条都重建，时间戳唯一）
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 27af6eb，/api/health = {"ok": true}
+更新日志    -> /api/moments 里 2026-10-13 09:15:24「参考项目清单跟进重构：移除已下线模块的条目」
+              （id=449，kind=log）
+线上接口    -> /api/references 返回 22 条（原 25 条），Caro-Board / 2048 / APlayer 已不存在；
+              ErrorJ 说明 615 字（新文案）、Navidrome 说明 92 字（已改写）
+线上页面    -> 游客打开 /references（桌面 1440x900）：页头显示「截至 2026-10-13」并注明移除了已下线功能的条目；
+              页面渲染 22 张卡片、顺序为新清单；静态 references.html 的 SHA256 与本机文件逐字节相同
+```
