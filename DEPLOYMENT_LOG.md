@@ -4434,3 +4434,76 @@ iOS「添加到主屏幕」用的 `error-chan-touch.png`（180px）按站长要�
 
 备注：线上用游客身份实测；管理员 / 普通账号那两种身份（账号列表前 5 条、只看自己）在本地临时库
 副本上用同一份前端实测通过，线上跑的是同一份 `sidebar.js` + `sidebar.css`（hash 一致）。
+
+## 111. 2026-10-13 21:57:18 侧栏四张卡片改版、大屏分档放大，推荐页也接上三栏
+
+背景：三件事一起做 —— 侧栏四张卡片按站长要求重做版式；2K / 4K 大屏上三栏一起放大；
+「推荐」页也接上同一套侧栏（中间四个子页的宽度要和留言 / 动态页逐像素一致，互切不跳）。
+
+完成内容（提交 `4a879a6 feat:polish-side-cards-and-port-columns-to-downloads`，16 文件，+508/−124；
+以及线上修 bug 的 `2ba3f0b fix:draw-cover-card-before-every-cover-settles`，1 文件，+64/−45）：
+
+- **左上卡**：Error酱 用主题紫、统计改成数字在上文字在下、去掉底色方框，头像行与统计行之间
+  以及到上下边框的距离三等分（`justify-content: space-evenly` + 上下内边距清零）。
+- **左下卡**：标题改「注册账户」，去掉头像圈与所有横线、全部左对齐；管理员前 5 个、
+  普通账号只看自己、游客一位占位「登录后展示」。
+- **右上卡**：只有图片，5 秒渐隐渐出；服务端用 `cover_file_ok()` 跳过没封面 / 文件已不在的条目，
+  前端启动前统一 `decode()` 并把加载失败的剔除，修掉了换图闪空白的跳变。
+- **右下卡**：固定 11 条 + 右上角「最新11条」；每条改成「动作词 + 对象名称」（更新动态 + 正文前 24 字、
+  上传歌曲 + 歌名、上传书籍 + 书名、新增足迹 + 地点名、推荐网页 + 标题），动作词与图标同主题色，
+  文字贴右边框渐隐，去掉分割线 / 操作人 / 时间；目标记录已删的只显示动作词。
+- **大屏分档**：`--sb-center-width` / `--sb-side-width` / `--sb-gap` / `--sb-font` 四个变量驱动，
+  ≥1920 → 880/300/28，≥2560 → 1040/340/32，≥3200 → 1200/380/36，正文字号 14→15→16→17px；
+  「顶部」按钮的定位公式改成读同一个 `--sb-center-width`（`messages.css` / `moments.css` 各一行）。
+- **推荐页接三栏**：`downloads.html` 加 `.sb-shell`（左侧栏 + 占位块 + 右侧栏，舞台仍是铺满窗口的
+  absolute iframe），外壳是一层 `pointer-events: none` 的 fixed 浮层（只有卡片可点，
+  `.dl-stage` 显式收回 `pointer-events: auto`），并让出 `--dl-scrollbar-w` 那一条 ——
+  iframe 的滚动条仍在窗口最右侧、和别的页面一样且压不到。滚动在子页 iframe 里，
+  所以推荐页四张卡片是常驻显示。推荐页侧栏里指向 `/downloads?tab=x` 的链接调用
+  `window.ErrorDownloadsTabs.activate()` 原地切标签（`downloads.js` 暴露该 API）。
+- **子页适配**：`embed.css` 加 `scrollbar-gutter: stable` 与 `--embed-center`（档位由 `downloads.js`
+  写进 iframe，因为子页自己的媒体查询按 iframe 宽度算、2K/4K 上永远不会触发）；
+  `music.css` / `books.css` / `recommendations.css` 三处内嵌列宽改读该变量；
+  歌曲页内嵌时把滚动从 `.mu-stage-inner` 挪到文档（否则内容列会被容器自己的滚动条吃掉 15px），
+  `embed.js` 同步摘掉 `back-to-top.js` 的 `data-scroll-target`，让它的「顶部」按钮改看文档滚动。
+- **三页对齐**：留言 / 动态 / 推荐三页的 `html` 都加 `scrollbar-gutter: stable`，
+  内容列位置从此与内容长短无关 —— 顺手修掉了以前留言页与动态页会差半个滚动条宽度的老问题。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 113 项全过
+      8 个改动的 JS 全部 node --check（downloads / sidebar / embed / messages / moments /
+      music / books / recommendations）；python -m json.tool changelog-seed；git diff --check 干净
+      浏览器验收：四标签列宽一致（都 760@x332.5）、侧栏不随子页滚动移动、滚轮在侧栏上转发给子页、
+      游客点封面 / 日志被拦下并提示、内容区可点（命中测试中间是 IFRAME）
+提交：4a879a6 + 2ba3f0b（fetch/push 后本地 == origin/main == 2ba3f0b）
+备份：/data/errorjiang-backup/20261013-2202/（停服后复制 inventory.db 4055040 字节
+      与 changelog-seed.json 84753 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only 0be6d48 -> 4a879a6 -> 2ba3f0b；本轮无表结构变更，未单独跑 init_db
+      changelog-seed.json 经 SCP + install 覆盖（两侧 SHA256 c6acdf50…6330 一致）
+      import_changelog_moments.py --date 2026-10-13 --force -> 该日期 16 条（新增 15 / 覆盖 0）
+      systemctl restart errorjiang（app.py 有改动，必须重启）；第二次只改 JS，未再重启
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 2ba3f0b，/api/health = {"ok": true}
+更新日志    -> /api/moments 里 2026-10-13 21:57:18「侧栏四张卡片改版、大屏分档放大，推荐页也接上三栏」
+              （id=548，kind=log；该日期共 16 条）
+线上前端    -> 服务器 / 本地 / HEAD 的 git blob 一致：sidebar.js 2222c2e6…、sidebar.css 35e59078…、
+              downloads.css fb7d4691…、downloads.js 8c1ec783…
+线上实测    -> 游客访问 https://zhexiyan.cc/messages：左右各 2 张卡；「Error酱」为 rgb(123,104,238)、
+              统计「注册=4 留言=21 动态=10」数字在上、底色透明；「更新日志 最新11条」11 行、
+              行间横线 0px、动作词与图标同色 rgb(123,104,238)、文案形如「更新动态 密密麻麻是我的token」
+              「新增足迹 龙门石窟」；账户卡 1 行占位「登录后展示」、无头像圈、标题无横线；
+              封面卡两层图片且已解码（naturalWidth 640）
+              游客访问 /downloads：左右各 2 张卡、11 行日志；子页内容列 760@x332.5 == 留言页 760@x332.5；
+              中间命中测试 = IFRAME（内容可点）、左侧 = 侧栏卡片；子页 scrollbar-gutter=stable、
+              外壳让出槽位 15px；2560 视口下子页列 1040@x753、侧栏 340；点封面 URL 与标签都不变、
+              弹出「请登录后操作」；两个页面控制台 0 报错
+```
+
+线上发现并当场修掉的 bug：封面卡原来要等**所有**封面 probe 完成才画第一张图，
+而生产里有一张书封 8 秒都没返回，导致整张封面卡空白（连带的「游客点封面没提示」也是它引起的，
+因为卡里没有可点的东西）。改成两层图片立刻摆上、单张 probe 加 6 秒超时并按可用列表轮播，
+修完线上复测：留言页与推荐页封面卡都是 2 层且已解码，游客点封面弹出「请登录后操作」。
