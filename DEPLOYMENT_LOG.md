@@ -5240,3 +5240,94 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 1ffda0fb…13
 备注：`/map` 对游客关闭、需要登录才能打开新增标记流程，所以分类面板那部分是本地用**同一份前端
 文件**（线上 SHA256 与本机逐字节一致）在移动端仿真里逐帧核对；Webhook 那条由单测直接断言
 `notify_async` 的调用次数覆盖。
+
+## 123. 2026-10-14 22:52:46 提示条 / 状态小窗口 / 开发日志折叠 / 右下角「顶部」按钮补出入场动效
+
+背景：站内大多数东西的出现与消失都是硬切 —— 提示条、侧栏状态小窗口、开发日志的展开、右下角的
+「顶部 / ↓ 更新」按钮，点下去内容直接「啪」地出现或消失。目标是补一层克制的入场动效：同一套曲线
+与时长、系统开了「减少动效」自动降级、位置与功能一点都不动。
+
+完成内容（两个提交）：
+
+- **动效词汇集中到一处**（`static/fonts.css`，`70fcc3f feat:add-token-based-entrance-motion-to-toasts-menu-accordion-and-top-button`，
+  17 文件，+262/−10）：`:root` 新增 `--dur-fast 160ms` / `--dur-base 220ms` / `--dur-slow 320ms`
+  与 `--ease-out-strong cubic-bezier(0.23,1,0.32,1)` / `--ease-in-out-strong` / `--ease-standard`，
+  新增 `@keyframes site-toast-in` / `site-toast-fade-in`。各处一律写成 `var(--dur-fast, 160ms)`
+  这种带 fallback 的形式，所以内嵌子页（拿不到 `fonts.css` 的场景）也不会退化成 0s。
+- **6 个页面的提示条**（`messages.css` / `moments.css` / `downloads.css` / `recommendations.css` /
+  `music.css` / `site/site.css` 各加一条 `animation: site-toast-in … backwards`，配套的
+  `messages.js` / `moments.js` / `recommendations.js` / `music.js` / `site/sidebar.js` / `site/site.js`
+  统一在 `box.hidden = false` 前清掉 `toastTimer` / `toastLeaveTimer`）：从下方 8px 淡入，
+  消失时加 `.is-leaving`（`animation: none` + `opacity: 0` + `translate(-50%, 8px)`，
+  120ms ease-in）再 `hidden`。**`backwards` 不能省** —— 少了它，动画开始前那一帧会先按终态
+  （完全不透明、位移归零）画一次，观感上就是先闪一下再滑入。
+- **侧栏状态小窗口**（`site/sidebar.css` + `site/sidebar.js`）：`.sb-presence-menu` 改
+  `transform-origin: top left` + `sb-presence-menu-in`（轻微放大 + 淡入，160ms），关闭仍然瞬时。
+- **开发日志折叠**（`moments.css`）：`.mo-log-month-body:not([hidden])` 与 `.mo-log-body:not([hidden])`
+  加 `mo-log-open`（`opacity: 0` + `translateY(-4px)` 起步），收起保持瞬时，不再出现
+  「箭头在动、内容硬切」。
+- **右下角「顶部 / ↓ 更新」按钮**（`site/back-to-top.js`）：以前 `[hidden]` 是 `display:none`，
+  声明的过渡永远不播、按钮硬闪进出；`70fcc3f` 把隐藏态改走 `visibility: hidden` + `opacity: 0`
+  + `translateY(4px)`，并把 `visibility` 也放进过渡列表（否则隐藏那一刻它立刻生效，
+  那 160ms 的淡出看不见）。**实测发现只改了留言页**，于是有第二个提交
+  `33a9043 fix:keep-back-top-fade-alive-when-pages-hide-by-display-none`（2 文件，+12/−1）：
+  各页 CSS 里都有一句全局的 `[hidden]{display:none !important}`（防作者样式盖掉原生 hidden），
+  它会把隐藏态的按钮真的变成 `display:none`，而浏览器对 `display:none` 的元素不跑过渡 ——
+  只有留言页（它的 CSS 没有那条全局规则）真的淡入淡出。修法是让组件自己的隐藏规则用同权重的
+  `!important` + 更高选择器权重把 `display` 抢回来，隐藏仍只靠 `visibility` / `opacity`。
+  测试里加了 `assertIn("display:inline-flex!important", script)` 锁住这条约束。
+- **减少动效**（`prefers-reduced-motion: reduce`）：所有新增规则都追加了纯淡入淡出版本
+  （`site-toast-fade-in` / `sb-presence-menu-fade` / `mo-log-fade-in`、`transition: none`）。
+  这些覆盖块必须排在基础规则**之后**，同权重下否则会被基础规则盖掉。
+- 文档：`README.md` 与 `static/references.html` 的功能描述同步补上「站内提示条、侧栏状态小窗口、
+  开发日志的展开、右下角「顶部」按钮统一补上了出入场动效」。
+
+部署步骤：
+```text
+本地：python -m unittest discover -s tests -> 125 项全过；node --check
+      static/site/back-to-top.js（另跑 moments / messages / recommendations / sidebar / music）
+      python -m json.tool config/changelog-seed.json；git diff --check 干净
+      逐帧核对（Chrome CDP，1440×900，本地与线上各一遍）：
+        提示条：/messages 游客点赞 -> 0.70 / 0.93 / 0.99 / 1.00（约 160ms），退出
+                .is-leaving 0.89 -> 0.62 -> 0.05，约 120ms 后 hidden；重新触发不会串台
+        /moments：提示条走同一套曲线（display:none 起手也能播 —— CSS 动画在元素重新参与
+                渲染时会重新开始，这也是「按钮能靠 visibility 淡入淡出、提示条不用改」的原因）
+        开发日志：展开月份 0.00 -> 0.70 -> 0.86 -> 0.93 -> 0.97 -> 0.99 -> 1.00（约 140ms）
+        顶部按钮：修复前 /moments、/books、/music、/recommendations 隐藏态 display=none，
+                显示时 0.00 -> 1.00 只用 17ms（等于没动效）；修复后隐藏态 display=flex，
+                0.00 -> 0.41 -> 0.70 -> 0.86 -> 0.93 -> 0.97 -> 0.99 -> 1.00（约 120ms，
+                同时 translateY 4px -> 0）
+        移动端审查（412×915 / 360 / 1440，6 个页面）：控制台与网络异常 0 条
+提交：70fcc3f（fetch → pull --rebase → push；local == origin/main == 70fcc3f）
+      → 33a9043（同上；local == origin/main == 33a9043）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 235cda71…0a44 一致；
+      补的那条重新传一次，两侧 07ae80ec…151a 一致
+备份：/data/errorjiang-backup/20261014-2254/（inventory.db 4681728 字节、
+      changelog-seed.json 101342 字节；服务器当时没有 WAL / SHM 文件）
+      /data/errorjiang-backup/20261014-2320/（补条目那次：inventory.db 4694016 字节、
+      changelog-seed.json 102442 字节）
+服务器：git pull --ff-only 4e99e1d -> 70fcc3f -> 33a9043；本轮无表结构变更，未跑 init_db
+      changelog-seed.json 经 install 覆盖；import_changelog_moments.py
+      --date 2026-10-14 --force -> 先新增 11 条，补条目后新增 12 条
+      本轮只动 static/ 下的前端文件、测试与文档，app.py 没改，未重启 errorjiang
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 33a9043，/api/health = {"ok": true}
+线上前端    -> 服务器 / 本地 / HEAD 逐字节一致：back-to-top.js c6bdb675…1ba3、
+              fonts.css / messages.css / sidebar.css / messages.js
+更新日志    -> /api/moments 里 2026-10-14 共 14 条（12 条日志 + 2 条动态），最新两条日志
+              id=663 22:52:46「提示条、状态小窗口、开发日志折叠补上出入场动效」、
+              id=664 23:12:03「右下角「顶部」按钮的淡入淡出补齐：除留言页外原先还是硬闪」
+线上逐帧    -> /messages 提示条 0.70 / 0.97 / 1.00（约 160ms）、退出 0.89 -> 0.77 -> 0.26 -> hidden；
+              /moments 顶部按钮 0.41(ty 2.35) -> 0.70(1.21) -> 0.86(0.58) -> 0.93(0.27)
+              -> 0.97(0.12) -> 0.99(0.04) -> 1.00(0.01)，约 115ms；
+              /moments 开发日志展开 0.00 -> 0.41 -> 0.70 -> 0.86 -> 0.93 -> 0.97 -> 0.99 -> 1.00；
+              /moments 游客点赞提示条 0.00 -> 0.41 -> … -> 1.00（约 138ms）
+              以上页面控制台与网络异常 0 条
+```
+
+备注：`/map`、`/bookmarks` 对游客关闭、`/downloads` 是标签外壳（「顶部」按钮在四个内嵌子页里），
+所以那几处没有进逐帧清单；内嵌子页与整页共用同一条组件 CSS，同一处修改对它们同样生效。
+另外这轮改动全在前端静态文件里，`git pull` 之后立刻生效，不需要 `systemctl restart`。
