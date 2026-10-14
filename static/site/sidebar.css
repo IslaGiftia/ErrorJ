@@ -692,6 +692,39 @@ a.sb-log:hover {
   background: var(--sb-hover);
 }
 
+/*
+ * 「更新动态」的每一行：鼠标放上去整条居中放大一点点（序号跟着挪 1px，可以接受）。
+ * 卡片本身不动：.sb-card 靠内容撑高、transform 不参与布局，卡片的尺寸和位置都按原样；
+ * 卡片又是 overflow: hidden，放大出来的零点几像素会被内边缘裁掉，不会溢出卡外。
+ * 游客那几条（.sb-log--locked）走的是同一个 a.sb-log，所以一起生效。
+ */
+a.sb-log {
+  position: relative;
+  transition:
+    transform 140ms var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)),
+    background-color 140ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  a.sb-log:hover,
+  a.sb-log:focus-visible {
+    transform: scale(1.015);
+    /* 放大后压住上下相邻行，避免被下一行的背景盖掉 */
+    z-index: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  a.sb-log {
+    transition: none;
+  }
+
+  a.sb-log:hover,
+  a.sb-log:focus-visible {
+    transform: none;
+  }
+}
+
 .sb-log__rank {
   flex: 0 0 auto;
   width: 16px;

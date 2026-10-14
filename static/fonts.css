@@ -125,3 +125,126 @@ html {
     filter: brightness(var(--tap-press-brightness));
   }
 }
+
+/*
+ * 主操作按钮的 hover 抬起（参考首页「留言 / 动态 / 推荐」三个按钮的手感，但不改边框主题色）。
+ *
+ * 只给真正的「动作按钮」：点下去会做一件事的那些 —— 发送 / 发布 / 发布留言 / 上传 /
+ * 保存 / 确定 / 取消 / 提交。图标按钮（返回、关闭、放大、主题切换）、筛选与分段控件、
+ * 点赞、图片墙格子、更多菜单、地图控件都不在名单里：那些一抬会变成整排跳，
+ * 或者给了「这里能点」的假暗示。
+ *
+ * 只动 transform：抬高 2px，按下去回到原位再收 1%。首页那三个按钮自己那套保持现状，不参与这里。
+ * 抬高只在有指针的设备上生效（手机上 hover 会粘住），系统开「减少动效」时整块关掉。
+ */
+.mg-btn,
+.mo-btn,
+.mu-btn,
+.rec-btn,
+.wb-btn,
+.nt-btn,
+.pin-primary-btn,
+.pin-secondary-btn,
+.pin-header-btn,
+.auth-submit,
+.site-dialog-btn,
+.er-report-btn,
+.login-submit,
+.register-submit,
+.mp-dialog-actions .mp-btn {
+  transition:
+    transform 140ms var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)),
+    background-color var(--dur-fast, 160ms) var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)),
+    border-color var(--dur-fast, 160ms) var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)),
+    color var(--dur-fast, 160ms) var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)),
+    opacity var(--dur-fast, 160ms) ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .mg-btn:hover:not(:disabled),
+  .mo-btn:hover:not(:disabled),
+  .mu-btn:hover:not(:disabled),
+  .rec-btn:hover:not(:disabled),
+  .wb-btn:hover:not(:disabled),
+  .nt-btn:hover:not(:disabled),
+  .pin-primary-btn:hover:not(:disabled),
+  .pin-secondary-btn:hover:not(:disabled),
+  .pin-header-btn:hover:not(:disabled),
+  .auth-submit:hover:not(:disabled),
+  .site-dialog-btn:hover:not(:disabled),
+  .er-report-btn:hover:not(:disabled),
+  .login-submit:hover:not(:disabled),
+  .register-submit:hover:not(:disabled),
+  .mp-dialog-actions .mp-btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+  }
+}
+
+/* 按下：回到原位再收一点点，比 hover 更重要的是这一下「我收到了」 */
+.mg-btn:active:not(:disabled),
+.mo-btn:active:not(:disabled),
+.mu-btn:active:not(:disabled),
+.rec-btn:active:not(:disabled),
+.wb-btn:active:not(:disabled),
+.nt-btn:active:not(:disabled),
+.pin-primary-btn:active:not(:disabled),
+.pin-secondary-btn:active:not(:disabled),
+.pin-header-btn:active:not(:disabled),
+.auth-submit:active:not(:disabled),
+.site-dialog-btn:active:not(:disabled),
+.er-report-btn:active:not(:disabled),
+.login-submit:active:not(:disabled),
+.register-submit:active:not(:disabled),
+.mp-dialog-actions .mp-btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.99);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mg-btn,
+  .mo-btn,
+  .mu-btn,
+  .rec-btn,
+  .wb-btn,
+  .nt-btn,
+  .pin-primary-btn,
+  .pin-secondary-btn,
+  .pin-header-btn,
+  .auth-submit,
+  .site-dialog-btn,
+  .er-report-btn,
+  .login-submit,
+  .register-submit,
+  .mp-dialog-actions .mp-btn {
+    transition: none;
+  }
+
+  .mg-btn:hover:not(:disabled),
+  .mo-btn:hover:not(:disabled),
+  .mu-btn:hover:not(:disabled),
+  .rec-btn:hover:not(:disabled),
+  .wb-btn:hover:not(:disabled),
+  .nt-btn:hover:not(:disabled),
+  .pin-primary-btn:hover:not(:disabled),
+  .pin-secondary-btn:hover:not(:disabled),
+  .pin-header-btn:hover:not(:disabled),
+  .auth-submit:hover:not(:disabled),
+  .site-dialog-btn:hover:not(:disabled),
+  .er-report-btn:hover:not(:disabled),
+  .mg-btn:active:not(:disabled),
+  .mo-btn:active:not(:disabled),
+  .mu-btn:active:not(:disabled),
+  .rec-btn:active:not(:disabled),
+  .wb-btn:active:not(:disabled),
+  .nt-btn:active:not(:disabled),
+  .pin-primary-btn:active:not(:disabled),
+  .pin-secondary-btn:active:not(:disabled),
+  .pin-header-btn:active:not(:disabled),
+  .auth-submit:active:not(:disabled),
+  .site-dialog-btn:active:not(:disabled),
+  .er-report-btn:active:not(:disabled),
+  .login-submit:active:not(:disabled),
+  .register-submit:active:not(:disabled),
+  .mp-dialog-actions .mp-btn:active:not(:disabled) {
+    transform: none;
+  }
+}
