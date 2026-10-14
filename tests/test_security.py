@@ -2739,6 +2739,9 @@ class ComplianceWorkflowTests(unittest.TestCase):
         )
         self.assertIn("errorjumpvisibilitychange", script)
         self.assertIn(".site-back-top[hidden]", script)
+        # 各页的全局 [hidden]{display:none !important} 会让按钮在隐藏时真的
+        # display:none，Chrome 对 display:none 的元素不跑过渡，淡入淡出就没了
+        self.assertIn("display:inline-flex!important", script)
 
     def test_report_modal_has_explicit_hidden_rule(self):
         css = (app.STATIC_DIR / "site" / "report.css").read_text(encoding="utf-8")

@@ -26,9 +26,17 @@
      * visibility 也放进过渡列表：否则隐藏那一刻它立刻生效，透明度那 160ms 的淡出就看不见了
      * （visibility 会在过渡结束后才真正切成 hidden）。
      */
+    /*
+     * display 这里必须抢回 inline-flex：站点各页都有一句全局的
+     * [hidden]{display:none !important}（防止作者样式盖掉原生 hidden），
+     * 它会把隐藏态的按钮真的变成 display:none，而 Chrome 对 display:none 的
+     * 元素不跑过渡 —— 除了留言页（它的 CSS 没有那条全局规则），其余页面的
+     * 淡入淡出全都会失效。所以用同权重的 !important + 更高的选择器权重顶回去，
+     * 隐藏态只靠 visibility / opacity，元素留在渲染树里过渡才播得出来。
+     */
     ".site-back-top{position:fixed;right:22px;bottom:var(--site-back-top-bottom,22px);z-index:39;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;border:1px solid rgba(123,104,238,.52);border-radius:50%;background:#6d5be8;color:#fff;box-shadow:0 10px 24px rgba(80,60,200,.32);cursor:pointer;opacity:1;transform:none;transition:bottom var(--dur-fast, 160ms) var(--ease-out-strong, cubic-bezier(0.23,1,0.32,1)),opacity var(--dur-fast, 160ms) var(--ease-out-strong, cubic-bezier(0.23,1,0.32,1)),transform var(--dur-fast, 160ms) var(--ease-out-strong, cubic-bezier(0.23,1,0.32,1)),visibility var(--dur-fast, 160ms) var(--ease-out-strong, cubic-bezier(0.23,1,0.32,1))}",
     ".site-back-top:hover{transform:translateY(-2px)}",
-    ".site-back-top[hidden]{visibility:hidden;opacity:0;transform:translateY(4px);pointer-events:none}",
+    ".site-back-top[hidden]{display:inline-flex!important;visibility:hidden;opacity:0;transform:translateY(4px);pointer-events:none}",
     ".site-back-top svg{width:20px;height:20px}",
     "@media(max-width:640px){.site-back-top{right:14px;width:42px;height:42px}}",
     "@media(prefers-reduced-motion:reduce){.site-back-top{transition:none}}",
