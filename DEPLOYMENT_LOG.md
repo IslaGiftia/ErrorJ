@@ -5138,3 +5138,49 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 6a2036cc…70
 
 备注：这次是纯图标方向调整，没有动任何 DOM 结构、事件绑定或菜单逻辑；线上核对的是实际下发
 的静态文件（与本机逐字节一致）。
+
+## 121. 2026-10-14 19:42:10 动态卡片的时间 / 设备信息 / IP 属地顺序与留言页对齐
+
+背景：站长要求把动态卡片头部的「时间、IP 属地、设备平台」顺序改成和留言卡片一致
+（例：「40 分钟前 · 来自 Android 陕西」），并允许直接照搬留言页的显示顺序。
+
+完成内容（提交 `aaca8d9 style:align-moment-meta-order-with-messages`，1 文件，+5/−4）：
+
+- 留言卡片头部的顺序是「昵称 → 时间 → 设备信息 → IP 属地」（`static/messages.js` 的
+  `buildMessage()`），动态卡片原来是「昵称 →（置顶）→ 时间 → 属地 → 设备」。本轮把动态卡片
+  `static/moments.js` 里两段 append 调换过来，变成「昵称 →（置顶）→ 时间 → 设备 → 属地」。
+- 分隔用的「·」是 `.mo-device::before` 这条伪元素（和留言页 `.mg-device::before` 同一套写法，
+  `margin-right: 6px; content: "·"`），所以调换顺序之后它正好落在「时间和设备」之间，
+  最终渲染成「40 分钟前 · 来自 Android 陕西」，与留言页一致；只显示设备或只显示属地时照旧
+  不补空位。字号、颜色、间距、`gap`、`flex-wrap` 全部沿用原样式，没有动 CSS。
+- 动态评论（`buildCommentNode`）本来就不显示属地与设备，无需对齐；留言页那边的回复行顺序不变。
+
+部署步骤：
+```text
+本地：node --check static/moments.js；python -m py_compile app.py；
+      python -m unittest discover -s tests -> 124 项全过；git diff --check 干净
+      真浏览器（桩数据，三种组合）：有设备 + 有属地 -> mo-nick > mo-time > mo-device > mo-region；
+      只有属地 -> mo-nick > mo-time > mo-region；只有设备 -> mo-nick > mo-pin-badge > mo-time > mo-device；
+      截图确认渲染成「41 分钟前 · 来自 Android 陕西」
+提交：aaca8d9（fetch → pull --rebase → push；local == origin/main == aaca8d9）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 268fd2f1…da59 一致
+备份：/data/errorjiang-backup/20261014-1943/（停服后复制 inventory.db 4628480 字节
+      与 changelog-seed.json 99864 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only f2034ab -> aaca8d9；本轮无表结构变更，未跑 init_db
+      changelog-seed.json 经 install 覆盖；import_changelog_moments.py
+      --date 2026-10-14 --force -> 新增 9 条
+      systemctl restart errorjiang
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = aaca8d9，/api/health = {"ok": true}
+线上前端    -> 服务器 / 本地 / HEAD 逐字节一致：moments.js 0e1a08c3…
+线上实测    -> 游客访问 /moments?kind=post（1440×1000 真浏览器）：12 张卡片，其中 2 张带设备信息，
+              两张的头部顺序都是 mo-nick > mo-time > mo-device > mo-region，
+              文案分别是「40 分钟前 来自 Android 陕西」「20 小时前 来自 iQOO 12 pro 赛道版
+              16胳膊+1特波 新加坡」，与留言页的顺序一致；控制台 / 网络异常 0 条
+```
+
+备注：`/moments` 游客默认停在「开发日志」栏（那一栏没有动态卡片），所以线上核对时用
+`?kind=post` 打开「我的动态」栏；这次只调换了两个节点的插入顺序，没有改任何数据字段或样式。
