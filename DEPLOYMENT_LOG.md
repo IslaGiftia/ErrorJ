@@ -5397,3 +5397,86 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 一致
 
 备注：入口里的地图从此是静态画，不再跟随 `/map` 里浏览的区域（旧版是活的 Leaflet 小地图 +
 标记点）。如果以后想让红点跟着最新标记走，需要把图上的红点抠掉再叠一个定位点。
+
+## 125. 2026-10-15 00:27:46 首页日志区跟着鼠标动、更新行放大、全站动作按钮加抬起与按下反馈
+
+背景：站长先问「有没有跟随鼠标、文字变形的特效」（首页左下角公开动态区），做完又问留言 / 动态 /
+推荐三栏里那四张卡能不能加 hover 放大，最后收窄成两件事：只给右下「更新日志」的每一行做整体放大，
+卡片本身必须纹丝不动；再给全站的动作按钮补上和首页「留言 / 动态 / 推荐」一样的抬起反馈，
+但**不加边框主题色**，首页那三个按钮保持原样不参与。
+
+完成内容（提交 `ddb9b54 feat:add-cursor-follow-feed-log-row-hover-and-button-lift`，5 文件，+320/−4）：
+
+- **首页左下角动态区的鼠标跟随**（`static/site/activity.js`，+160 行）：指针在面板内时按指针位置
+  逐行算位移与字重 —— 影响半径 44px，平滑衰减（smoothstep），指针上方的行往上让、下方的行往下让，
+  最大 ±2.5px（选「顶开」而不是「吸过去」，相邻行的文字永远不会挤到一起），再按指针在面板里的
+  左右位置朝指针方向最多偏 ±1.5px，字重从 400 抬到最多 500（按 5 一档量化，值没变就不写 DOM）。
+  回弹不靠 CSS 过渡（`font-variation-settings` 过渡不可靠），而是在同一个 rAF 循环里按 160ms
+  三次方缓动跑回原点，到位后清掉内联样式并停掉循环。行位置用布局偏移（`offsetTop`，展开态减
+  `scrollTop`）算，不用 `getBoundingClientRect`，这样已经被位移过的行不会反过来影响下一帧，
+  也不会每帧引发布局；每帧只读一次面板位置，读在前写在后。面板块被重建（20 秒轮询里数据变了）
+  时会重测行、指针还在面板里就立刻重算一次。`prefers-reduced-motion: reduce` 下整个跟随关掉。
+- **右下「更新日志」每一行的 hover 放大**（`static/site/sidebar.css`，+33 行）：`a.sb-log` 在
+  `@media (hover: hover) and (pointer: fine)` 里 `transform: scale(1.015)`（居中，序号跟着挪 1px），
+  140ms 强 ease-out，被放大的行给 `z-index: 1` 压住上下相邻行；键盘 focus 走同一套。
+  卡片不会动：`.sb-card` 靠内容撑高、`transform` 不参与布局，卡片又是 `overflow: hidden`，
+  放大溢出的一两像素被内边缘裁掉。`prefers-reduced-motion` 下不缩放。
+- **全站动作按钮的抬起与按下反馈**（`static/fonts.css`，+123 行）：白名单 15 个选择器 ——
+  `mg-btn` / `mo-btn` / `mu-btn` / `rec-btn` / `wb-btn` / `nt-btn`、书签的
+  `pin-primary-btn` / `pin-secondary-btn` / `pin-header-btn`、`auth-submit`、
+  `login-submit` / `register-submit`、`site-dialog-btn`、`er-report-btn`、
+  `mp-dialog-actions .mp-btn`（地图弹窗里的按钮）。hover 抬高 `translateY(-2px)`、
+  按下 `translateY(0) scale(0.99)`，只动 `transform`，**没有**边框主题色变化；
+  `transition` 里顺带把 `background-color / border-color / color / opacity` 也纳入
+  160ms 同一条曲线（这几个类原来在各自页面的 CSS 里连过渡都没写，hover 是硬切）。
+  图标按钮、地图工具栏按钮、筛选与分段控件、点赞、图片墙格子、更多菜单都不在名单里；
+  首页「留言 / 动态 / 推荐」那三个按钮自己那套（抬高 + 边框变主色）保持原样。
+  整块包在 `@media (hover: hover) and (pointer: fine)` 里，`prefers-reduced-motion: reduce`
+  下 `transition: none` 且 `transform: none`。
+- 文档：`README.md`（首页动态区、三栏侧栏、手机点按反馈三处）与 `static/references.html`
+  的功能描述同步补上这三件事。
+
+部署步骤：
+```text
+本地：python -m unittest discover -s tests -> 125 项全过；node --check static/site/activity.js；
+      python -m json.tool config/changelog-seed.json；git diff --check 干净
+      浏览器逐项核对（Chrome CDP，deviceScaleFactor 1/2，本地与线上各一遍）：
+        首页动态区：指针停在第三行 -> 逐行 y = -0.1 / -1.4 / -2.5 / +1.4 / +0.1，
+                    字重 wght 400 / 455 / 500 / 455 / 400；连续扫过面板 1 秒 60~61 帧（无掉帧）；
+                    指针离开后峰值 2.5 -> 2.2 -> 1.4 -> 0.6 -> 0.1 -> 0，约 94ms 完全回位；
+                    展开态 20 行、`scrollTop=60` 时指针指向哪行就是哪行（布局偏移换算正确）；
+                    `wght` 确实生效：100 / 400 / 800 三档文本宽度 258.94 / 254.77 / 247.86
+        更新行：hover -> matrix(1.015, 0, 0, 1.015, 0, 0)，移开回 none；hover 前后
+                `.sb-card` 的 x / y / 宽 / 高完全一致（1116.5 / 218 / 260 / 80.796875）
+        按钮：留言 / 动态 / 推荐 / 工作台 / 书签 / 笔记 / 注册七个页面 hover 均为
+              matrix(1, 0, 0, 1, 0, -2)、移开回 none；按下 matrix(0.99, 0, 0, 0.99, 0, 0)、
+              松手回到 -2px；白名单核对：地图弹窗按钮算得
+              `transform, background-color, border-color, color, opacity`，
+              地图工具栏 `.mp-btn` 与 `.mp-icon-btn` 仍是它们自己的 `all`（没被碰到）
+        CSSOM 核对：hover 规则确实挂在 `(hover: hover) and (pointer: fine)` 里、
+                    reduced-motion 块里 `transition: none` + `transform: none`
+        减少动效：模拟 reduce 后按钮与日志行的 transform 都是 none
+        控制台与异常 0 条
+提交：ddb9b54（fetch → pull --rebase → push；local == origin/main == ddb9b54）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 一致
+备份：/data/errorjiang-backup/20261015-0030/（inventory.db 与 changelog-seed.json）
+服务器：git pull --ff-only -> ddb9b54；本轮无表结构变更，未跑 init_db
+      changelog-seed.json 经 install 覆盖；import_changelog_moments.py
+      --date 2026-10-15 --force -> 新增 1 条
+      本轮只动 static/ 下的前端文件与文档，app.py 没改，未重启 errorjiang
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = ddb9b54，/api/health = {"ok": true}
+线上前端    -> 服务器 / 本地 / 公网 HTTPS 抓取逐字节一致：activity.js、sidebar.css、fonts.css
+更新日志    -> /api/moments 里 2026-10-15 共 1 条，00:27:46「首页日志区跟着鼠标动、
+              更新行放大、全站动作按钮加抬起与按下反馈」
+线上逐帧    -> 与本地一致：更新行 hover 1.015、卡片矩形不变；七个页面的动作按钮
+              hover 抬高 2px、按下 0.99；首页动态区跟随与回弹数值同本地
+```
+
+备注：触摸设备上不启用这套 hover（`@media (hover: hover) and (pointer: fine)`）；这一轮
+headless Chrome 模拟不了 `hover: none`（模拟后 `matchMedia` 仍报 `hover: hover`），
+所以触摸端的屏蔽是按 CSS 媒体查询核对的，没有做运行时模拟。登录页在本地会被判定成已登录
+自动跳走，那页的按钮用计算样式核对（`transform, background-color, border-color, color, opacity` 已生效）。
