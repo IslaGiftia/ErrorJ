@@ -5331,3 +5331,69 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 235cda71…0a
 备注：`/map`、`/bookmarks` 对游客关闭、`/downloads` 是标签外壳（「顶部」按钮在四个内嵌子页里），
 所以那几处没有进逐帧清单；内嵌子页与整页共用同一条组件 CSS，同一处修改对它们同样生效。
 另外这轮改动全在前端静态文件里，`git pull` 之后立刻生效，不需要 `systemctl restart`。
+
+## 124. 2026-10-14 23:28:04 首页「足迹」入口换成线稿地图，去掉圆形裁剪与呼吸光晕
+
+背景：站长拿来两张自己生成的线稿城市地图（一张白线、一张黑线，4000×4000、透明底），想直接当首页
+右下角「足迹」入口的画：暗色模式用白线那张、浅色模式用黑线那张，**不裁成圆形**；并且提出方图旁边
+再亮一圈圆形呼吸光晕会很突兀 —— 去掉呼吸，只保留角标，改成入口做轻微缩放来提示。
+
+完成内容（提交 `6c5bfe2 feat:swap-home-footprint-dock-to-line-art-maps`，9 文件，+244/−518，含两个新 PNG）：
+
+- **画面**：原图 4000×4000（2.4MB / 2.6MB）按原画幅等比缩到 512×512（不裁切、保留透明底，
+  线稿一笔没改），落成 `static/site/map-dock-light.png`（黑线，浅色主题）与
+  `static/site/map-dock-dark.png`（白线，深色主题），两张分别 321976 / 199116 字节。
+  站内主题是手动切的（`html[data-theme]`），所以入口里放两张 `img`、用 CSS 按 `data-theme` 切显隐。
+- **样式**（`static/site/minimap.css` → `static/site/map-dock.css`，改名）：
+  `.map-dock` 去掉 `border-radius: 50%` 与 `clip-path`，方图 1:1 铺满；删掉
+  `.map-dock-glow`（呼吸光晕）、`.map-dock-tint`、`.map-dock-mini` 与其 `is-guest` 静态底图规则；
+  「有新标记」改成 `.map-dock.has-pending .map-dock-pulse` 的 `dockPendingPulse`
+  （`scale 1 → 1.035 → 1`，2.4s ease-in-out，只动 transform）。动画挂在内层包一层，
+  和外面 `:hover` 的 1.04 缩放互不覆盖；`prefers-reduced-motion: reduce` 下不缩放，提示只靠角标。
+- **脚本**（`static/site/minimap.js` → `static/site/map-dock.js`，改名）：删掉整个 Leaflet 小地图
+  （`L.map` / 瓦片层 / 圆点图层 / `fitBounds` / `invalidateSize` / 主题底图切换 / GCJ 转换 / 分类配色），
+  只保留原来就在这一层做的状态逻辑：未读角标与「N 个标记 / N 条提醒」文案、`has-pending` 类、
+  链接指向最新未读标记、游客 / 无权限时的点击提示，以及「只在数据真的变了才动 DOM」那套防闪的守卫。
+- **首页**（`static/site/site.html`）：入口里换成 `.map-dock-pulse` + 两张 `.map-dock-art`；
+  顺手摘掉首页的 `leaflet.css` / `leaflet.js`（只为小地图才加载的 14806 + 147552 字节）
+  和已经没人引用的 `static/site/map-dock-guest-light.jpg`（238414 字节）。`/map` 页面自己还用它那份
+  Leaflet，`static/vendor/leaflet/` 与 `static/map.js` 原样不动。
+- 文档：`README.md` 里描述入口的段落（含游客权限、页脚对齐、标签页标题三处顺带提到「圆盘」的句子）
+  与 `static/references.html` 的功能描述同步改成新画面。
+
+部署步骤：
+```text
+本地：python -m unittest discover -s tests -> 125 项全过；node --check static/site/map-dock.js；
+      python -m json.tool config/changelog-seed.json；git diff --check 干净
+      浏览器逐项核对（Chrome CDP，deviceScaleFactor 2，本地与线上各一遍）：
+        浅色 / 深色：map-dock-art-light / -dark 的 display 正确互换，两张图 naturalWidth 512；
+                     .map-dock 计算出的 border-radius = 0px
+        有新标记：has-pending 下 animationName = dockPendingPulse，逐帧采样 transform 从 1
+                 （约 1.2s 到 1.035，再回落），整个周期 2.4s
+        游客 / 无权限：dispatch errorauthchange 后不发 /api/map（请求列表里 0 条），
+                     文案与角标收起，点击弹「请登录后操作」且 location 仍在 /
+        减少动效：animationName = none、transform = none，角标照常显示
+        首页网络：tile / autonavi / arcgis / leaflet 相关请求 0 条，控制台与网络异常 0 条
+        视口：桌面 1440×900、手机 412×915 × 浅色 / 深色 各截图确认
+提交：6c5bfe2（fetch → pull --rebase → push；local == origin/main == 6c5bfe2）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 一致
+备份：/data/errorjiang-backup/20261014-2330/（inventory.db 与 changelog-seed.json）
+服务器：git pull --ff-only -> 6c5bfe2；本轮无表结构变更，未跑 init_db
+      changelog-seed.json 经 install 覆盖；import_changelog_moments.py
+      --date 2026-10-14 --force -> 新增 13 条
+      本轮只动 static/ 下的前端文件与文档，app.py 没改，未重启 errorjiang
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 6c5bfe2，/api/health = {"ok": true}
+线上前端    -> 服务器 / 本地 / 公网 HTTPS 抓取逐字节一致：map-dock.js、map-dock.css、
+              map-dock-light.png、map-dock-dark.png、site.html
+更新日志    -> /api/moments 里 2026-10-14 共 15 条（13 条日志 + 2 条动态），最新日志
+              23:28:04「首页「足迹」入口换成线稿地图，去掉圆形裁剪与呼吸光晕」
+线上逐帧    -> 与本地一致：圆角 0px、两张图按主题互换、pulse 峰值 1.035、
+              游客态 0 次 /api/map 请求、0 条瓦片请求、控制台与网络异常 0 条
+```
+
+备注：入口里的地图从此是静态画，不再跟随 `/map` 里浏览的区域（旧版是活的 Leaflet 小地图 +
+标记点）。如果以后想让红点跟着最新标记走，需要把图上的红点抠掉再叠一个定位点。
