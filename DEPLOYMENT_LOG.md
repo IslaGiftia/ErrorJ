@@ -4948,3 +4948,75 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 1a76bfd3…fb
 备注：设备选项那部分（只看得到当前设备那一个、点选后的 payload）是在本地用**同一份前端文件**
 加桩接口逐设备验的，线上前端 SHA256 与本机一致；设备识别与服务端状态读写由单测覆盖
 （含 Windows / macOS / Linux / Android / iOS 与认不出的六种输入）。
+
+## 118. 2026-10-14 12:04:10 左下卡片：胶囊固定尺寸右对齐、设备名短显示、隐身只给本人和管理员看
+
+背景：站长拿到上一版的弹窗与左下卡片后提了四条 —— ① 胶囊要贴卡片右边框排成一列、尺寸固定，
+文字放不下时在圆点和右边框之间无缝滚动并在两端渐隐渐显，鼠标悬停暂停；② 选中设备那一项之后
+胶囊里只显示设备名（`Win`），弹窗选项文案仍然是「在线-Win」；③ 「待审核」整套删掉，未审核账号
+不进这张卡；④ 「注册 N 天 · X 前活跃」只有管理员看得到。之后又补了一条：**隐身改成
+「本人 + 管理员」可见，普通账号看到的仍是「离线」**。
+
+完成内容（提交 `09871b1 feat:fixed-size-status-chips-and-admin-only-visibility`，
+7 文件，+265/−66）：
+
+- **胶囊固定尺寸 + 右对齐成一列**（`static/site/sidebar.css` / `sidebar.js`）：文字区固定成
+  `calc(2em + 1px)`（正好放下「在线」两个字），整个胶囊宽度因此与内容无关；
+  `.sb-user-row__namerow .sb-presence { margin-left: auto }` 把它顶到行尾。实测每行
+  「用户名左内缩 = 胶囊右内缩 = 24px」「四枚胶囊宽度都是 49.98px」，左右边缘自然对齐。
+- **超长文字无缝滚动**：`setupMarquee()` 量出放不下就克隆一份拼成首尾相接的轨道，
+  `translateX(0 → -50%)` 匀速循环（约 18px/s，限 2.6–9s），两端 6px 用 `mask-image` 渐隐；
+  悬停时 `animation-play-state: paused`；`prefers-reduced-motion` 下不滚。
+  实测：`在线 / Win / Mac / iOS` 不滚，`Linux / Android` 滚（克隆份 1 个），悬停位移冻结、移开继续。
+- **设备名短显示**（`app.py`）：`presence_payload()` 里选了设备后缀时 `label` 直接取后缀
+  （`Win / Mac / Linux / Android / iOS`，仍然是 `tone = online` 绿色），弹窗选项文案照旧从设备名
+  拼成「在线-Win」。
+- **隐身可见范围**（`app.py`）：`presence_for_viewer(presence, revealed)`，
+  `revealed = 本人 or 管理员`；不可见时连 `mode / suffix / text` 一起抹成默认值，接口里翻不出真相。
+  站长左上那枚同理（`owner_status_for(revealed)`）。
+- **左下卡片**（`app.py` + `sidebar.js`）：查询收窄成 `status = 'approved'`，未审核账号整条不进卡，
+  「待审核」胶囊与 `.sb-chip` 样式一并删除；`registered_days / last_login_at / last_view_at`
+  只在 `viewer_is_admin` 时下发，前端拿不到就整行不渲染 —— 普通账号（含自己那行）与游客都看不到
+  「注册 N 天 · X 前活跃」。游客只剩脱敏用户名（保留最后一个字）。
+- **文档 / 测试**：README、PROJECT_SUMMARY.md、`static/references.html` 同步；测试补上
+  「普通账号视角拿不到注册 / 活跃字段、管理员视角拿得到」「隐身对普通账号是离线、对管理员是隐身」
+  「站长隐身时访客看离线」「待审核账号不进卡片」（共 124 项）。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 124 项全过
+      10 个改动 JS 全部 node --check；python -m json.tool config/changelog-seed.json；
+      git diff --check 干净
+      真浏览器（桩接口）：管理员 / 普通账号 / 游客三种身份量胶囊布局（宽度 49.98、两侧内缩 24）
+      与滚动（在线 / Win 不滚、Android 滚且悬停冻结）、注册 / 活跃行只管理员可见、游客脱敏无胶囊
+提交：09871b1（fetch → pull --rebase → push；local == origin/main == 09871b1）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 6cd52a2f…ebca 一致
+备份：/data/errorjiang-backup/20261014-1205/（停服后复制 inventory.db 4558848 字节
+      与 changelog-seed.json 96421 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only 907921b -> 09871b1；本轮无表结构变更，未跑 init_db
+      changelog-seed.json 经 install 覆盖；import_changelog_moments.py
+      --date 2026-10-14 --force -> 新增 6 条
+      systemctl restart errorjiang
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 09871b1，/api/health = {"ok": true}
+线上前端    -> 服务器 / 本地 / HEAD 逐字节一致：app.py 53ea6ff5…、sidebar.js 6bcb5430…、
+              sidebar.css fadb3074…
+更新日志    -> /api/moments 里 2026-10-14 六条 kind=log：12:04:10「左下卡片：胶囊固定尺寸右对齐、
+              设备名短显示、隐身只给本人和管理员看」、11:32:55、11:13:21、10:13:33、09:30:13、00:01:47
+线上接口    -> 游客 /api/site/sidebar：users.scope=masked，4 条全是脱敏用户名、没有 presence、
+              没有注册 / 活跃字段；presence = {"tone":"offline","label":"离线","mode":"auto",
+              "suffix":"","text":""} —— 而 user_status 里站长当前正是 mode='invisible'
+              （11:36:45 设的），也就是说**线上真实跑了一遍「隐身对访客显示离线且不泄露」**
+线上实测    -> 游客访问 /messages（1600×1000 真浏览器）：左下 4 行只有脱敏用户名（没有活跃行、
+              没有状态胶囊），左上 Error酱 胶囊是只读 SPAN、文案「离线」（站长隐身中）；
+              控制台 / 网络异常 0 条
+线上数据    -> users 4 条全是 approved（无待审核账号，所以未审核不进卡这条由单测覆盖）；
+              user_status：站长 mode='invisible'、牛大能 mode='auto'
+```
+
+备注：三种身份下的胶囊布局 / 滚动 / 可见性是在本地用**同一份前端文件**加桩接口逐项验的
+（线上前端 SHA256 与本机一致）；服务端的隐身可见范围、注册 / 活跃字段的下发范围、未审核账号
+过滤以及设备后缀识别都由单测在真实 SQLite 上覆盖。
