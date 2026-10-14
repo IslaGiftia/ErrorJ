@@ -5525,3 +5525,44 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 一致
 
 备注：这一轮是纯资源替换，前端行为（角标、提示、跳转、主题切换）与上一轮完全一致，
 所以线上只核对了换图、圆角与请求数，没有重跑全部交互用例。
+
+## 127. 2026-10-15 01:45:38 首页「足迹」入口再换一版线稿地图
+
+背景：站长又给了一对新版的线稿城市地图（同样白线 / 黑线一对、4000×4000 透明底），要求只替换
+首页右下角「足迹」入口的画面，暗色用白线那张、浅色用黑线那张，**其它任何东西都不许改**。
+
+完成内容（提交 `24fcf41 chore:refresh-home-footprint-dock-art-again`，2 文件，纯资源替换）：
+
+- `static/site/map-dock-dark.png`（暗色，白线）与 `static/site/map-dock-light.png`（浅色，黑线）
+  换成新图：按原画幅等比缩到 512×512，不裁切、保留透明底，136929 / 216908 字节
+  （上一版是 140604 / 226540）；原图 4000×4000 的 alpha bbox 是 (78, 161, 3975, 3910)。
+- 其它一个字符都没改：`map-dock.css` / `map-dock.js` / `site.html` 未动，画幅规则
+  （1:1 铺满、不裁圆）、角标、点开的提示与跳转规则保持原样；README 与 `references.html`
+  的描述依旧成立，因此没有文档改动。
+
+部署步骤：
+```text
+本地：node tmp/dock-shot.mjs 逐项核对（Chrome CDP，deviceScaleFactor 2）：
+        浅色：art-light 显示、art-dark 隐藏，两张图 naturalWidth 512，.map-dock 圆角 0px
+        深色：两张图的 display 正确互换
+        手机 412×915：入口 92px 正常
+        控制台与网络异常 0 条，首页瓦片类请求 0 条
+提交：24fcf41（fetch → pull --rebase → push；local == origin/main == 24fcf41）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 一致
+备份：/data/errorjiang-backup/20261015-0150/（inventory.db 与 changelog-seed.json）
+服务器：git pull --ff-only -> 24fcf41；本轮无表结构变更，未跑 init_db
+      changelog-seed.json 经 install 覆盖；import_changelog_moments.py
+      --date 2026-10-15 --force -> 新增 3 条（当天累计）
+      本轮只换静态图片，app.py 没改，未重启 errorjiang
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 24fcf41，/api/health = {"ok": true}
+线上前端    -> 服务器 / 本地 / 公网 HTTPS 抓取逐字节一致：map-dock-dark.png、map-dock-light.png
+更新日志    -> /api/moments 里 2026-10-15 共 3 条，最新一条 01:45:38
+              「首页「足迹」入口的线稿地图又换了一版」
+线上逐帧    -> 浅色 / 深色换图正确，入口圆角 0px，手机 92px 正常，控制台 0 条异常
+```
+
+备注：同样是纯资源替换，入口的行为（角标、提示、跳转、主题切换）与上一轮完全一致。
