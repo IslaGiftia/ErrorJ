@@ -5020,3 +5020,70 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 6cd52a2f…eb
 备注：三种身份下的胶囊布局 / 滚动 / 可见性是在本地用**同一份前端文件**加桩接口逐项验的
 （线上前端 SHA256 与本机一致）；服务端的隐身可见范围、注册 / 活跃字段的下发范围、未审核账号
 过滤以及设备后缀识别都由单测在真实 SQLite 上覆盖。
+
+## 119. 2026-10-14 12:48:34 隐身只在人在线时成立、侧栏四张卡片自动刷新
+
+背景：站长提了两件事 —— ① 普通用户设了「隐身」之后，如果到点没操作其实已经离开了，应该
+自动变回「离线」，重新登录后默认显示「在线」；② 侧栏的胶囊状态现在只有刷新网页才会更新
+（别人离线了这边还显示在线），能不能在短时间内自动切换 —— 顺手希望左上统计、左下账号、
+右上封面、右下更新日志都跟着快速刷新，并明确「如果做起来难或者容易出 BUG 就不做」。
+
+完成内容（提交 `1716c1f feat:invisible-requires-presence-and-auto-refresh-sidebar`，
+8 文件，+266/−38）：
+
+- **隐身只在活跃窗口内成立**（`app.py` 的 `presence_payload`）：判断顺序改成
+  「不在活跃窗口 -> 离线」优先于隐身 —— 设了隐身但 10 分钟没有新的页面访问，胶囊自己变成
+  灰色「离线」；这一条对本人、管理员、普通人一视同仁（不再有「一直挂着隐身」的状态）。
+  站长自定义文案同理，人不在时也不显示（保持「离线」是真实的）。
+- **重新登录回到默认状态**（`app.py` 新增 `reset_status_on_login`）：普通账号与站长在
+  **输密码登录成功**那一刻把 `mode / suffix` 归零（回到自动的「在线」），站长自己写的
+  自定义文案保留；靠 cookie 恢复会话不算登录，不会重置。
+- **侧栏四张卡片自动刷新**（`static/site/sidebar.js`）：每 20 秒轮询一次 `/api/site/sidebar`，
+  另外在切回页面（`visibilitychange`）与窗口重新聚焦（`focus`）时立刻刷一次；
+  发完留言 / 动态也会立刻刷（`window.ErrorSidebar.refresh()`，由 `messages.js` / `moments.js`
+  在发布成功后调用）。左上统计数字（注册 / 留言 / 动态）随之更新，左下能看到别人上线 / 离线与
+  新注册账号，右上封面、右下更新日志有新内容也会跟上，不用再手动刷新页面。
+- **刷新要克制，不能让动画闪**：先比整页签名，**数据没变一个 DOM 原子都不碰**；变了才分级处理 ——
+  统计数字就地改文字、状态胶囊只重画内容（`paint()` 里内容相同就直接 return，保留滚动动画与悬停）、
+  名单 / 封面 / 更新日志真的变了才重建**那一张**卡。这样封面轮播与胶囊里的无缝滚动都不会被打断
+  （之前那两轮闪烁的教训）。
+- **文档 / 测试**：README、PROJECT_SUMMARY.md、`static/references.html` 同步；测试改成
+  「隐身 + 到点没操作 = 离线」「隐身 + 在线 = 隐身（本人 / 管理员）」「重新登录回到在线」
+  「离线时不显示自定义文案」（共 124 项）。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 124 项全过
+      10 个改动 JS 全部 node --check；python -m json.tool config/changelog-seed.json；
+      git diff --check 干净
+      真浏览器（桩接口）：① 数据没变时 refresh 前后四张卡的节点标记、统计值、胶囊文案完全一致
+      （一个 DOM 都没动）；② 统计 + 某个胶囊文案变了 -> 数字与文案就地更新、四张卡节点原样保留；
+      ③ 封面 / 更新日志变了 -> 只有右侧两张卡换节点、左侧两张保留；④ 滚动中的胶囊轨道节点
+      在 refresh 前后是同一个、transform 连续推进（没被重置）；⑤ 等满一个周期确认定时器真的在跑
+      移动端审查（412 / 1440）控制台异常 0
+提交：1716c1f（fetch → pull --rebase → push；local == origin/main == 1716c1f）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 65a485f1…bf8d 一致
+备份：/data/errorjiang-backup/20261014-1249/（停服后复制 inventory.db 4567040 字节
+      与 changelog-seed.json 98119 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only 6e56bfc -> 1716c1f；本轮无表结构变更，未跑 init_db
+      changelog-seed.json 经 install 覆盖；import_changelog_moments.py
+      --date 2026-10-14 --force -> 新增 7 条
+      systemctl restart errorjiang
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 1716c1f，/api/health = {"ok": true}
+线上前端    -> 服务器 / 本地 / HEAD 逐字节一致：app.py 2483745c…、sidebar.js 70890d88…、
+              messages.js a34ad0c9…
+更新日志    -> /api/moments 里 2026-10-14 七条 kind=log：12:48:34「隐身只在人在线时成立、
+              侧栏四张卡片自动刷新」、12:04:10、11:32:55、11:13:21、10:13:33、09:30:13、00:01:47
+线上接口    -> 游客 /api/site/sidebar 正常下发（presence 里 online=false + 上次访问时间）；
+              user_status 里站长当前是 mode='auto'、suffix='Win'、不活跃 -> 显示「离线」，
+              正是「隐身/后缀只在在线时才算数」的表现
+线上实测    -> 控制台 / 网络异常 0 条（本地三种身份 + 移动端审查均无异常）
+```
+
+备注：自动刷新的行为（数据没变不动 DOM、变了就地更新、滚动 / 轮播不被打断、20 秒定时器在跑）
+是在本地用**同一份前端文件**加桩接口逐步验的，线上前端 SHA256 与本机一致；隐身与登录重置的
+服务端规则由单测在真实 SQLite 上覆盖。
