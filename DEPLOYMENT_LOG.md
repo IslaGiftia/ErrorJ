@@ -4807,3 +4807,79 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 4f53687c…8e
 与本机逐字节一致）；自定义状态是纯本地 + 桩接口验证的，线上只核对了实际下发的前端与接口；
 seed 在第一次导入后按站长口吻补了「注册账户」那一条，重新 SCP + `--force` 导入同一天
 （同一天整日重建，不产生重复），线上最新一条 id=590。
+
+## 116. 2026-10-14 11:13:21 状态胶囊升级：在线 / 隐身 / 离线可选，左下卡片对所有身份开放
+
+背景：站长提了四件事 —— ① 胶囊里「在线」两个字没在圆点和右边框中间，看着难受；② 自定义文案
+3 个字、4 个字、更多时同样要居中；③ 左下「注册账户」放开：普通账号也要能看到别人的用户名和
+活跃时间、游客也能看到这张卡（用户名、注册天数、活跃时间的数字要脱敏）；④ 左下每个用户名右边
+也加一枚状态胶囊，点自己的胶囊在**下方**弹小窗口选 在线 / 离线 / 隐身（在线可选 WIFI / 5G 后缀，
+隐身橘、在线绿、离线灰），管理员多一个自定义输入框，不要中间弹框、不要多余文字。
+
+完成内容（提交 `3a71cbf feat:status-picker-popover-and-open-user-card-to-everyone`，
+7 文件，+573/−186）：
+
+- **胶囊文字居中**（`static/site/sidebar.css`）：原来左边距 7px / 右边距 9px / 圆点到文字 5px，
+  左右不对称。改成左边距、圆点到文字的 gap、文字到右边框内边距统一为 7px，实测 2 / 5 / 7 个字
+  与 3 / 6 字自定义文案的几何间距全是 7.00 / 7.00。
+- **状态模型**（`app.py`）：新增 `user_status` 表（`user_id = 0` 是站长那枚），存 `mode`
+  （`auto` / `invisible`）、`suffix`（`''` / `WIFI` / `5G`）、`text`（只有站长的自定义文案）与
+  `updated_at`。显示优先级：隐身 > 站长自定义文案 > 在线[-后缀] / 离线；「在线 / 离线」都由
+  `access_log` 里该账号最近一次真实页面访问（10 分钟窗口）自动判定，**只有隐身会被记住**，
+  点在线 / 离线都是清掉隐身、回到自动。旧的自定义状态存在 `app_meta.owner_status_v1`，
+  线上是空值，所以不需要迁移数据。
+- **状态小窗口**（`static/site/sidebar.js` / `sidebar.css`）：点自己的胶囊，在胶囊正下方弹一个
+  挂在 `<body>` 上的小窗口（卡片本身 `overflow: hidden`，塞进卡片会被裁掉），下面放不下就翻到
+  上方；五项 在线 / 在线-WIFI / 在线-5G / 离线 / 隐身（圆点绿 / 绿 / 绿 / 灰 / 橘），点一下立即
+  生效并关闭，没有任何说明文字；站长多一个输入框 + 确定键。别人 / 游客的胶囊是只读 `span`。
+- **左下卡片放开权限**（`app.py` + `sidebar.js`）：管理员和普通账号现在看同一份前 5 个账号
+  （昵称 + 状态胶囊 + 注册天数 + 最近活跃），不再「普通账号只看自己」；普通账号若不在前 5 里会把
+  自己那行补在最前面（否则没地方点自己的状态）。游客也能看到这张卡，但**服务端就不下发**
+  用户名/天数/时间的真实值：用户名只保留最后一个字，注册天数与活跃时间整段脱敏成
+  「注册 ** 天 · **前活跃」，而且游客的 user 条目里根本没有 `presence` 字段 —— 游客只能看到
+  左上「Error酱」那一枚胶囊（只读）。旧的「登录后展示」占位与相关 CSS 已删。
+- **接口**：`POST /api/site/user-status`（任何登录账号，游客 401；普通账号提交的 `text` 被忽略，
+  只有站长能写自定义文案），旧的 `/api/admin/owner-status` 已下线；`required_permission` 里
+  登记为「登录即可」。
+- **文档 / 测试**：README、PROJECT_SUMMARY.md、`static/references.html` 同步；测试改成
+  「隐身持久 / 在线-后缀 / 自定义文案只有站长能写 / 普通账号只能改自己 / 游客脱敏且没有状态」
+  两组共 123 项。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 123 项全过
+      10 个改动 JS 全部 node --check；python -m json.tool config/changelog-seed.json；
+      git diff --check 干净
+      真浏览器（桩接口）：四种文案的居中几何值、弹窗位置（BODY 层、贴在胶囊下方、不出视口）、
+      五项与圆点颜色、点「在线-WIFI」/「隐身」/自定义文案后的胶囊、普通账号自己可点别人只读、
+      游客脱敏且无胶囊 全部核对
+提交：3a71cbf（fetch → pull --rebase → push；local == origin/main == 3a71cbf）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 8ebea33b…8f8c 一致
+备份：/data/errorjiang-backup/20261014-1114/（停服后复制 inventory.db 4530176 字节
+      与 changelog-seed.json 93226 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only 0551903 -> 3a71cbf
+      本轮有表结构变更（新增 user_status 表），按 runbook 在 pull 之后先跑一次
+      runuser -u errorjiang -- python3 -c 'import app; app.init_db()' -> migration-ok
+      changelog-seed.json 经 install 覆盖；import_changelog_moments.py
+      --date 2026-10-14 --force -> 新增 4 条
+      systemctl restart errorjiang
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 3a71cbf，/api/health = {"ok": true}
+数据库      -> user_status 表已建（当前 0 行，还没人设过状态）；access_log 的 5 个索引都在
+更新日志    -> /api/moments 里 2026-10-14 四条 kind=log：11:13:21「状态胶囊升级：在线 / 隐身 /
+              离线可选，左下卡片对所有身份开放」、10:13:33、09:30:13、00:01:47
+线上接口    -> 游客 /api/site/sidebar：users.scope=masked，条目只有 {name(脱敏), status, masked}，
+              **没有 presence 字段**；presence 只有左上那一份 {"tone":"offline","label":"离线",…}
+线上前端    -> 服务器 / 本地 / HEAD 逐字节一致：app.py ea147ea4…、sidebar.js 470ca661…、
+              sidebar.css c9af45fe…；references.html MATCH
+线上实测    -> 游客访问 /messages（1600×1000 真浏览器）：左上 Error酱 胶囊是只读 SPAN、文案「离线」、
+              圆点→文字与文字→右边框都是 7.00；左下卡片 4 行全部脱敏「注册 ** 天 · **前活跃」、
+              **没有任何状态胶囊**；点左上胶囊既不弹窗也不跳转；控制台 / 网络异常 0 条
+```
+
+备注：登录态那部分（普通账号自己的胶囊可点、别人只读、站长的自定义输入框）是在本地用
+**同一份前端文件**加桩接口逐项验的，线上前端 SHA256 与本机一致；服务端的状态读写、权限与脱敏
+由单测在真实 SQLite 上覆盖。
