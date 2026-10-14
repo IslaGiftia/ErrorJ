@@ -1074,12 +1074,13 @@
         hasTag(moment, "更新日志") ? formatStamp(moment.created_at) : formatTime(moment.created_at)
       )
     );
-    if (moment.region) {
-      head.appendChild(el("span", "mo-region", moment.region));
-    }
-    // 设备信息（来自 鸿蒙 / Android / iOS / Web，或管理员自定义的名称）
+    // 顺序和留言页保持一致：时间 -> 设备信息 -> IP 属地
+    // （「·」由 .mo-device::before 提供，正好落在时间和设备之间）
     if (moment.device_info) {
       head.appendChild(el("span", "mo-device", moment.device_info));
+    }
+    if (moment.region) {
+      head.appendChild(el("span", "mo-region", moment.region));
     }
     body.appendChild(head);
 
