@@ -4652,3 +4652,85 @@ iOS「添加到主屏幕」用的 `error-chan-touch.png`（180px）按站长要�
 
 备注：点击直达 / 高亮的**行为**是在本地临时库上用真实浏览器逐类型验过的
 （线上跑的是同一份前端文件，git blob 一致）；线上侧栏版式与日志过滤用游客身份直接核对。
+
+## 114. 2026-10-14 09:30:13 足迹入口闪烁彻底修复、更新日志不再打开独立模块页
+
+背景：站长反馈两件事 —— ① 移动端首页右下角「足迹」入口还是有「紫色方块快速闪烁」（前两轮
+只修了「重复重建瓦片」，没修干净）；② 留言 / 动态页点更新日志里的「上传歌曲 / 上传书籍 /
+推荐网页 / 站内资源」会新开标签页打开那四个独立模块页，要求**不跳转**、只弹一句
+「请在推荐页查看」，并且把「点击后新建标签页打开这四个独立模块」这套功能 / 代码 / 逻辑整段删掉，
+顺手清掉重构后遗留的旧页面。
+
+完成内容（提交 `1ed5e0f fix:dock-flicker-and-confine-log-links-to-the-recommend-page`，
+10 文件，+149/−928）：
+
+- **足迹入口闪烁**（`static/site/minimap.css` / `minimap.js` / `site.html`）：
+  ① 有新标记时的呼吸光晕从「动画 `.map-dock` 的 box-shadow」改成一层独立的圆形图层
+  `.map-dock-glow`，只动 `opacity / transform`（合成器友好，不再每帧重绘圆盘里的地图）；
+  ② 圆盘底部那枚「N 个标记 / N 条提醒」胶囊去掉 `backdrop-filter: blur(6px)`（底图每帧在变时
+  必须反复重算背景模糊，手机上最典型的表现就是胶囊位置闪出一块方形），改成实色底；
+  ③ 圆盘子层加 `isolation: isolate` + `translateZ(0)`，让 Leaflet 带
+  `mix-blend-mode: plus-lighter` 的瓦片和用 transform 缩放的图层都被圆角一次性裁掉；
+  ④ `fitAll()` 只在第一次拿到数据时跑（以前页面重新可见 / pageshow / storage /
+  登录状态回来都会再缩放到全部标记一次），`invalidateSize()` 只在容器尺寸真的变了时才调；
+  ⑤ `prefers-reduced-motion` 下光晕保持常亮，仍然看得出有新标记。
+- **更新日志点击行为**（`static/site/sidebar.js` + `app.py`）：歌曲 / 书籍 / 网页 / 站内资源
+  这四类在留言 / 动态页**不再是链接**（不渲染 `href`、不渲染 `target="_blank"`），点击只弹
+  「请在推荐页查看」且不跳转；推荐页内部仍然是原地切标签 + 高亮那一条，链接统一指向
+  `/downloads?tab=…&focus=…`，所以中键 / 右键新开标签页也只会落在推荐页。后端算出来的
+  `href` / `url` 同步改成指回推荐页（`music_upload → /downloads?tab=music`、
+  `book_upload → /downloads?tab=books`、`recommendation_create → /downloads?tab=web|resource`），
+  顺手修掉了「站内资源」那条日志链接 tab 写成 `web` 的老问题。更新动态 / 新增足迹保持原样。
+- **删掉重构遗留的旧页面**：`static/hub.html`（早期那版「小屋」原型页：留言 / 照片墙 / 音乐 /
+  推荐塞在一页）没有任何引用、也没有路由，但挂在 `/static/hub.html` 下谁都能直接打开。
+  已删除，并同步清掉 README / PROJECT_SUMMARY 里对它的描述（含已经失效的 `/hub` 路由示例）。
+  另外扫了一遍 `static/` 下全部 html / css / js 的相互引用，除它之外没有别的孤儿页面。
+- **测试**：新增 `test_sidebar_log_urls_point_back_to_the_recommend_page`，固化「更新日志里
+  推荐类条目的地址必须落在 `/downloads`、不再指向 `/music`、`/books`」（共 120 项）。
+- **文档**：README、PROJECT_SUMMARY.md、`static/references.html` 同步这次的行为变化。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 120 项全过
+      10 个改动 JS 全部 node --check；python -m json.tool config/changelog-seed.json；
+      git diff --check 干净
+      真浏览器端到端（桩库 + 桩接口）：留言页四类推荐行不再是链接、点击只弹「请在推荐页查看」
+      且 URL 不变；推荐页点「站内资源」那条原地切到 resource 标签；封面卡 / 动态 / 足迹行不变
+      移动端 112 个组合（16 页 × 7 视口）审查：水平溢出 0、控制台 / 网络异常 0
+提交：1ed5e0f（fetch → pull --rebase → push；local == origin/main == 1ed5e0f）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 c7380f43…b60c 一致
+备份：/data/errorjiang-backup/20261014-0931/（停服后复制 inventory.db 4292608 字节
+      与 changelog-seed.json 89893 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only 720d000 -> 1ed5e0f；本轮无表结构变更，未单独跑 init_db
+      changelog-seed.json 经 install 覆盖（两侧 SHA256 c7380f43…b60c 一致）
+      import_changelog_moments.py --date 2026-10-14 --force -> 新增 2 条（该日期按 --force
+      规则整日重建，旧的 00:01:47 那条一并重放，不产生重复）
+      systemctl restart errorjiang
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 1ed5e0f，/api/health = {"ok": true}
+更新日志    -> /api/moments 里 2026-10-14 两条 kind=log：id=584 09:30:13「足迹入口闪烁彻底修复、
+              更新日志不再打开独立模块页」、id=583 00:01:47 上一条；无重复
+线上接口    -> /api/site/sidebar：music_upload href=/downloads?tab=music
+              url=/downloads?tab=music&focus=13；book_upload href=/downloads?tab=books；
+              recommendation_create href=/downloads?tab=web url=/downloads?tab=web&focus=4
+              —— 四个推荐模块的地址已经全部指回推荐页，不再有 /music、/books 这类落点
+线上前端    -> 服务器 / 本地 / HEAD 的静态文件逐字节一致：minimap.css MATCH、minimap.js MATCH、
+              sidebar.js MATCH、site.html MATCH、references.html MATCH、downloads.js MATCH；
+              /static/hub.html 返回 404；控制台 0 报错
+线上实测    -> 游客访问 /messages（1440×900 真浏览器）：11 行更新日志；四类推荐条目
+              （推荐网页 / 上传歌曲 / 上传书籍）都没有 href 和 target，点它们停在 /messages 并提示
+              「请登录后操作」（游客分支优先，与改动前一致）；
+              首页（412×915 真浏览器）：圆盘里有 .map-dock-glow 节点、border-radius 50%、
+              加 has-pending 后动画 = dockPendingBreath、胶囊 backdrop-filter = none、
+              圆盘子层 isolation = isolate
+本地实测    -> 登录态（同一份前端文件 + 桩接口）：四类推荐行不再渲染成链接、点击只弹
+              「请在推荐页查看」且不跳转；推荐页内部点这几条原地切标签且 tab 正确
+              （网页 -> web、站内 -> resource）；动态 / 足迹行行为不变
+```
+
+备注：登录态那部分行为是在本地用**同一份前端文件**加桩接口逐类型验的（线上前端 SHA256
+与本机逐字节一致），线上侧用游客身份直接核对了实际下发的前端与接口；旧页面 `static/hub.html`
+的 404 也在线上直接确认过。
