@@ -4734,3 +4734,76 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 c7380f43…b6
 备注：登录态那部分行为是在本地用**同一份前端文件**加桩接口逐类型验的（线上前端 SHA256
 与本机逐字节一致），线上侧用游客身份直接核对了实际下发的前端与接口；旧页面 `static/hub.html`
 的 404 也在线上直接确认过。
+
+## 115. 2026-10-14 10:13:33 Error酱 卡片加在线状态与自定义状态、「注册账户」改显示最近活跃
+
+背景：站长要求左上「基础信息卡」里 Error酱 名字旁边加一个状态提示 —— 在网页内显示「在线」、
+不在显示「离线」，并且能自定义成「摸鱼中」「在记笔记」「在吃东西」「在听歌」这类；同一轮里
+先修了站长实测到的一个表述问题：左下「注册账户」明明人就在站内，却显示「10 小时之前登录」。
+
+完成内容（提交 `2789ecc feat:add-owner-presence-and-custom-status-to-the-sidebar-card`，
+8 文件，+349/−13）：
+
+- **「注册账户」改说「最近活跃」**（`app.py` + `static/site/sidebar.js`）：
+  `users.last_login_at` 只在真的输密码登录那一刻写，靠记住的会话继续浏览不会更新，所以长期挂着的
+  账号会一直显示成「很多天前登录」。侧栏接口新增 `last_view_at`（一次 `GROUP BY` 聚合，
+  `access_log` 里每个账号最新的一条真实页面访问），前端取「最近访问」和「最近登录」里更晚的那个
+  显示成「刚刚活跃 / N 分钟前活跃 / N 天前活跃」；没有访问记录时退回原来的「…前登录」/「还没登录过」。
+  同时把 `/books` 补进 `PAGE_VIEW_PATHS`（之前逛书架不记页面访问）。
+- **Error酱 状态胶囊**（`app.py` + `static/site/sidebar.js` / `sidebar.css` / `downloads.html`）：
+  名字右边一枚胶囊，圆点 + 文案。在线判定不看会话（会话能挂好几天），而是看 `access_log` 里
+  `actor_kind = 'owner'` 最近一次真实页面访问，`OWNER_ONLINE_WINDOW_MINUTES = 10` 分钟窗口内算
+  在线（绿点），否则离线（灰点）。站长点胶囊弹出站内对话框写一句自定义状态（存 `app_meta`
+  的 `owner_status_v1`，最长 `OWNER_STATUS_MAX_LEN = 12` 个字），留空即清除、回到自动的在线 / 离线；
+  有自定义文案时圆点颜色仍旧表示在线还是离线。游客 / 普通账号只拿到只读的 `span`，
+  `POST /api/admin/owner-status` 只有站长能调（处理器里再判一次 `is_admin()`，普通账号 403）。
+  状态改动写一条工作台日志 `owner_status_update`，不进首页「更新日志」卡片。
+- **数据库**：新增索引 `idx_access_log_actor(actor_kind, created_at)`（`CREATE INDEX IF NOT EXISTS`，
+  重启时由 `init_db()` 建），让在线判定稳定走索引；顺带把 `is_recent_place` 的“最近 N 小时”抽成
+  通用的 `is_recent_time(value, seconds)`，两处共用。
+- **文档**：README、PROJECT_SUMMARY.md、`static/references.html` 同步；`static/downloads.html`
+  补上 `dialog.js`（推荐页侧栏也要用站内对话框，之前那页没引）。
+- **测试**：新增 2 条 —— 「注册账户优先显示最近活跃」（`last_view_at` 取值与留空退回）、
+  「状态在线判定 + 自定义状态读写 + 普通账号 403 + 超长 400」（共 122 项）。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 122 项全过
+      10 个改动 JS 全部 node --check；python -m json.tool config/changelog-seed.json；
+      git diff --check 干净
+      真浏览器（桩接口）：站长在线 / 点开对话框输入「摸鱼中」-> 胶囊立刻变「摸鱼中」+ 提示、
+      离线 + 自定义、游客只读 四种情况；移动端审查（首页 / 留言 / 动态 / 推荐）控制台异常 0
+提交：2789ecc（fetch → pull --rebase → push；local == origin/main == 2789ecc）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 4f53687c…8ec2 一致
+备份：/data/errorjiang-backup/20261014-1014/（停服后复制 inventory.db 4304896 字节
+      与 changelog-seed.json 91727 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only 76f03ed -> 2789ecc
+      本轮有表结构变更（access_log 新增索引），按 runbook 在 pull 之后先跑一次
+      runuser -u errorjiang -- python3 -c 'import app; app.init_db()' -> migration-ok
+      changelog-seed.json 经 install 覆盖；import_changelog_moments.py
+      --date 2026-10-14 --force -> 新增 3 条
+      systemctl restart errorjiang
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 2789ecc，/api/health = {"ok": true}
+数据库      -> access_log 索引：idx_access_log_created / path / ip / user / **actor**（新索引已建）
+更新日志    -> /api/moments 里 2026-10-14 三条 kind=log：10:13:33「Error酱 卡片加上在线状态、
+              「注册账户」改显示最近活跃」、09:30:13 上一条、00:01:47 更早一条
+线上接口    -> /api/site/sidebar 多了 presence：{"text":"","updated_at":"",
+              "last_active_at":"2026-10-14 09:51:23","online":false} —— 这一条正是站长账号
+              （actor_kind='owner'）最近一次真实页面访问；人一进站就会翻成 online:true
+线上前端    -> 服务器 / 本地 / HEAD 的静态文件逐字节一致：sidebar.js MATCH、sidebar.css MATCH、
+              downloads.html MATCH、references.html MATCH、minimap.js MATCH
+线上实测    -> 游客访问 /messages（1600×1000 真浏览器）：卡片上有 .sb-presence，标签是只读的 SPAN、
+              文案「离线」、点它既不跳转也不弹窗；/downloads 侧栏稍晚渲染，加载完同样有状态胶囊、
+              window.ErrorDialog 已就绪；两页控制台 / 网络异常 0 条
+线上数据核对-> 站长 owner 访问记录 1092 条、最近一条 2026-10-14 09:51:23；
+              新查询（ORDER BY created_at DESC LIMIT 1）与旧查询（MAX）结果一致
+```
+
+备注：登录态那部分行为是在本地用同一份前端文件加桩接口逐类型验的（线上前端 SHA256
+与本机逐字节一致）；自定义状态是纯本地 + 桩接口验证的，线上只核对了实际下发的前端与接口；
+seed 在第一次导入后按站长口吻补了「注册账户」那一条，重新 SCP + `--force` 导入同一天
+（同一天整日重建，不产生重复），线上最新一条 id=590。
