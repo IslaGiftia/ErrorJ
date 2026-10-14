@@ -298,7 +298,7 @@
     button.setAttribute("aria-haspopup", "true");
     button.setAttribute("aria-expanded", "false");
     button.setAttribute("aria-label", "更多操作");
-    button.innerHTML = '<i data-lucide="ellipsis" aria-hidden="true"></i>';
+    button.innerHTML = '<i data-lucide="ellipsis-vertical" aria-hidden="true"></i>';
 
     var menu = el("div", "rec-more-menu");
     menu.hidden = true;

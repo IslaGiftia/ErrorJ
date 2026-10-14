@@ -941,7 +941,7 @@
     btn.setAttribute("aria-haspopup", "true");
     btn.setAttribute("aria-expanded", "false");
     btn.setAttribute("aria-label", "更多操作");
-    btn.innerHTML = '<i data-lucide="ellipsis" aria-hidden="true"></i>';
+    btn.innerHTML = '<i data-lucide="ellipsis-vertical" aria-hidden="true"></i>';
     var menu = el("div", "mg-more-menu");
     menu.hidden = true;
     menu.setAttribute("role", "menu");
