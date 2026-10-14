@@ -4883,3 +4883,68 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 8ebea33b…8f
 备注：登录态那部分（普通账号自己的胶囊可点、别人只读、站长的自定义输入框）是在本地用
 **同一份前端文件**加桩接口逐项验的，线上前端 SHA256 与本机一致；服务端的状态读写、权限与脱敏
 由单测在真实 SQLite 上覆盖。
+
+## 117. 2026-10-14 11:32:55 状态弹窗收敛成三项，设备后缀跟着当前设备走
+
+背景：站长看了上一版的状态弹窗（在线 / 在线-WIFI / 在线-5G / 离线 / 隐身）后提三件事 ——
+① 把「离线」「在线-5G」「在线-WIFI」删掉（左右侧栏只在电脑端显示，网络类型本来也拿不到）；
+② 确认手动点「在线」之后，到点没活跃会不会自动变离线，不是就改成是；
+③ 设备后缀改成跟着**当前设备**走：Windows 就多一个「在线-Win」，macOS / Linux / Android / iOS
+分别是「在线-Mac / 在线-Linux / 在线-Android / 在线-iOS」，只出现读到的那一个。
+
+完成内容（提交 `092dae6 feat:trim-status-menu-to-online-device-and-invisible`，
+6 文件，+113/−29）：
+
+- **弹窗只剩三项**（`static/site/sidebar.js`）：`presenceOptions()` 按当前设备生成
+  在线 / 在线-<设备> / 隐身 三项，设备认不出来就只有 在线 / 隐身。「离线」从菜单里去掉 ——
+  在线还是离线由系统按活跃时间判断，不需要也不能手选；WIFI / 5G 后缀整条删掉。
+- **「在线」不会被锁定**（`app.py`）：点「在线」只是把 `mode` 置回 `auto` 并清掉后缀，
+  显示仍然每次按 `access_log` 里最近一次真实页面访问重算，超过 10 分钟窗口就自动变「离线」。
+  这一条以前就是对的，本轮补了 `test_status_suffix_only_for_the_detected_device_and_expires_to_offline`
+  把它钉住（窗口内 -> `在线-Win`；30 分钟没活跃 -> `离线`）。
+- **设备后缀**（`app.py` + `sidebar.js`）：新增 `device_suffix(hint, user_agent)`
+  （先看 `Sec-CH-UA-Platform`，再退回 UA；每一份来源里都先判 Windows、iOS、Android，再判 Mac、
+  Linux —— 安卓 UA 带 linux、iOS UA 带 mac os x，顺序错了会认错），侧栏接口把它放进
+  `viewer.device`，前端只拿它多出那**一个**选项。后缀取值收敛为 `Win / Mac / Linux / Android / iOS`
+  （`normalize_status_suffix` 大小写不敏感，旧的 `WIFI` / `5G` 认不出当没选）。
+- **文档 / 测试**：README、PROJECT_SUMMARY.md、`static/references.html` 改成新规则；共 124 项测试。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 124 项全过
+      10 个改动 JS 全部 node --check；python -m json.tool config/changelog-seed.json；
+      git diff --check 干净
+      真浏览器（桩接口）：设备为 Win / Android / 认不出 三种情况下弹窗条目分别是
+      「在线 / 在线-Win / 隐身」「在线 / 在线-Android / 隐身」「在线 / 隐身」，
+      点设备项后胶囊与提交的 payload（suffix=Win / Android）、点「在线」后清空后缀、
+      点「隐身」变橘色 都逐项核对
+提交：092dae6（fetch → pull --rebase → push；local == origin/main == 092dae6）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 1a76bfd3…fb92 一致
+备份：/data/errorjiang-backup/20261014-1134/（停服后复制 inventory.db 4546560 字节
+      与 changelog-seed.json 95051 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only e6f1cca -> 092dae6
+      本轮**无表结构变更**（user_status 上一版已建好），未跑 init_db
+      changelog-seed.json 经 install 覆盖；import_changelog_moments.py
+      --date 2026-10-14 --force -> 新增 5 条
+      systemctl restart errorjiang
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 092dae6，/api/health = {"ok": true}
+线上前端    -> 服务器 / 本地 / HEAD 逐字节一致：app.py 75bc2e45…、sidebar.js b68b2ec8…；
+              changelog-seed.json 1a76bfd3… 两侧一致
+线上接口    -> 游客 /api/site/sidebar：viewer.device = "Win"（按请求头读出来的当前设备），
+              presence = {"tone":"offline","label":"离线",…}；users.scope=masked 且条目里没有 presence
+更新日志    -> /api/moments 里 2026-10-14 五条 kind=log：11:32:55「状态弹窗收敛成三项，
+              设备后缀跟着当前设备走」、11:13:21、10:13:33、09:30:13、00:01:47
+线上实测    -> 游客访问 /messages（1600×1000 真浏览器）：左上 Error酱 胶囊仍是只读 SPAN、
+              圆点→文字与文字→右边框都是 7.00、点它不弹窗不跳转；左下 4 行脱敏且无胶囊；
+              控制台 / 网络异常 0 条
+线上数据    -> user_status 表现有两行（站长 11:17:31、牛大能 11:18:05，都是 auto 无后缀），
+              没有需要迁移的旧 WIFI / 5G 值
+```
+
+备注：设备选项那部分（只看得到当前设备那一个、点选后的 payload）是在本地用**同一份前端文件**
+加桩接口逐设备验的，线上前端 SHA256 与本机一致；设备识别与服务端状态读写由单测覆盖
+（含 Windows / macOS / Linux / Android / iOS 与认不出的六种输入）。
