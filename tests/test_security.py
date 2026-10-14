@@ -855,6 +855,67 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(row[0]["href"], "/downloads?tab=music")
         self.assertEqual(row[0]["url"], f"/downloads?tab=music&focus={music_id}")
 
+    def test_sidebar_user_card_prefers_recent_activity_over_password_login(self):
+        """左下「注册账户」显示最近活跃，而不是只看输密码那一刻的登录时间。
+
+        `users.last_login_at` 只在真的输密码登录时写，靠记住的会话继续浏览不会更新，所以
+        一直挂着的账号会显示成很多天前登录；接口另外回一次 `access_log` 里最新的页面访问，
+        没有访问记录（访问日志没开 / 记录已被清理）时留空，前端退回原来的「…前登录」。
+        """
+        login_stamp = "2026-01-01 08:00:00"
+        view_stamp = "2026-10-14 09:05:00"
+        app.execute(
+            "UPDATE users SET last_login_at = ? WHERE id = ?",
+            (login_stamp, self.author_id),
+        )
+        app.execute(
+            """INSERT INTO access_log
+                   (created_at, actor_kind, path, status, user_id, actor_name)
+               VALUES (?, 'member', '/messages', 200, ?, '作者甲')""",
+            (view_stamp, self.author_id),
+        )
+        users = app.sidebar_users(self.author_id, True)
+        rows = {item["id"]: item for item in users["items"]}
+        self.assertEqual(rows[self.author_id]["last_login_at"], login_stamp)
+        self.assertEqual(rows[self.author_id]["last_view_at"], view_stamp)
+        self.assertEqual(rows[self.other_id]["last_view_at"], "")
+
+    def test_owner_status_online_and_custom_text(self):
+        """左上卡片的状态：在线按站长最近一次页面访问算，站长可以自定义一句状态。
+
+        自定义状态存 app_meta、只有站长能写；留空即回到自动的在线 / 离线。
+        """
+        self.assertFalse(app.owner_status()["online"])
+        self.assertEqual(app.owner_status()["text"], "")
+        app.execute(
+            """INSERT INTO access_log
+                   (created_at, actor_kind, path, status, user_id, actor_name)
+               VALUES (?, 'owner', '/messages', 200, 0, '管理员')""",
+            (app.now_text(),),
+        )
+        presence = app.owner_status()
+        self.assertTrue(presence["online"])
+        self.assertEqual(presence["text"], "")
+
+        # 普通账号改不了
+        handler, responses = self.make_handler(self.author_id, username="author1")
+        handler.api_admin_owner_status_save({"text": "摸鱼中"})
+        self.assertEqual(responses[-1][0], 403)
+        self.assertEqual(app.owner_status()["text"], "")
+
+        # 站长可以设置，也能清回自动
+        owner, owner_responses = self.make_handler(0, kind="owner", username="管理员")
+        owner.api_admin_owner_status_save({"text": "摸鱼中"})
+        self.assertEqual(owner_responses[-1][0], 200)
+        self.assertEqual(owner_responses[-1][1]["presence"]["text"], "摸鱼中")
+        self.assertEqual(app.owner_status()["text"], "摸鱼中")
+        owner.api_admin_owner_status_save({"text": ""})
+        self.assertEqual(app.owner_status()["text"], "")
+
+        # 太长会被拦下
+        owner.api_admin_owner_status_save({"text": "摸" * (app.OWNER_STATUS_MAX_LEN + 1)})
+        self.assertEqual(owner_responses[-1][0], 400)
+
     def test_new_moment_notifies_members_only(self):
         stamp = app.now_text()
         app.execute(

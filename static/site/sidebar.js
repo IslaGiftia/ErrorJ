@@ -2,7 +2,8 @@
  * 留言页 / 动态页共用的左右侧栏。
  *
  * 数据来自 /api/site/sidebar：
- *   左上 基础信息卡（Error酱 头像 + 已加入天数 + 注册 / 留言 / 动态 三项统计）
+ *   左上 基础信息卡（Error酱 头像 + 在线状态 + 已加入天数 + 注册 / 留言 / 动态 三项统计）
+ *     状态：在线 / 离线按站长最近一次真实页面访问算；站长点一下可以自定义一句状态
  *   左下 注册账户卡（管理员看前 5 个账号，普通账号只看自己，游客只占一位并提示「登录后展示」）
  *   右上 资源封面卡（歌曲 / 电子书封面，只有图片、渐隐渐出轮播）
  *   右下 更新日志卡（管理员的上传 / 发布类更新，前 8 条，点击跳转）
@@ -151,6 +152,25 @@
     return match[1] + "-" + match[2] + "-" + match[3] + " " + match[4] + ":" + match[5];
   }
 
+  /*
+   * 「注册账户」每行第二句：优先说「最近活跃」，而不是「最近登录」。
+   *
+   * last_login_at 只在真的输密码登录那一刻写，靠浏览器里记住的会话继续浏览不会更新 ——
+   * 所以一个一直在站内逛的账号也会显示成「10 小时前登录」（站长实测过）。
+   * 这里改成取「最近一次页面访问」（last_view_at，来自 access_log）和「最近一次登录」里
+   * 更晚的那个：人在站内就是「刚刚活跃 / N 分钟前活跃」。访问日志没开或记录已被清理时
+   * last_view_at 为空，自动退回原来的「…前登录」。
+   */
+  function activityText(item) {
+    var lastView = String((item && item.last_view_at) || "");
+    var lastLogin = String((item && item.last_login_at) || "");
+    if (lastView && (!lastLogin || lastView >= lastLogin)) {
+      return relTime(lastView) + "活跃";
+    }
+    if (lastLogin) return relTime(lastLogin) + "登录";
+    return "还没登录过";
+  }
+
   function card(title, metaText, bottom) {
     var wrap = el("section", "sb-card " + (bottom ? "sb-card--bottom" : "sb-card--top"));
     if (title) {
@@ -168,6 +188,80 @@
 
   /* ---------------- 左上：基础信息卡 ---------------- */
 
+  /*
+   * 「Error酱」名字旁边的状态。
+   *
+   * 在线 / 离线不是看会话（会话能挂好几天，登录着不代表人在），后端按「站长最近一次真实
+   * 页面访问」算，10 分钟窗口内有访问就算在线 —— 见 app.py 的 owner_status()。
+   * 站长自己可以点这枚状态写一句（「摸鱼中」「在记笔记」「在吃东西」…），留空就回到自动的
+   * 在线 / 离线；游客和普通账号只读，点它没有任何反应。
+   */
+  function buildPresence(data) {
+    var viewer = data.viewer || {};
+    var editable = Boolean(viewer.admin);
+    var presence = data.presence || {};
+    var node = document.createElement(editable ? "button" : "span");
+    node.className = "sb-presence";
+    if (editable) node.type = "button";
+    var dot = el("span", "sb-presence__dot");
+    dot.setAttribute("aria-hidden", "true");
+    var label = el("span", "sb-presence__text");
+    node.append(dot, label);
+
+    function paint(next) {
+      presence = next || {};
+      var custom = String(presence.text || "");
+      var online = Boolean(presence.online);
+      var text = custom || (online ? "在线" : "离线");
+      label.textContent = text;
+      node.classList.toggle("is-online", online);
+      node.classList.toggle("is-custom", Boolean(custom));
+      node.title = custom ? text + (online ? "（在线）" : "（离线）") : text;
+      if (editable) {
+        node.setAttribute("aria-label", "Error酱的状态：" + text + "，点击可以修改");
+      }
+    }
+
+    paint(presence);
+
+    if (!editable) return node;
+    node.addEventListener("click", function () {
+      if (!window.ErrorDialog) return;
+      window.ErrorDialog.prompt(
+        "留空即恢复自动的在线 / 离线。常用状态：摸鱼中 / 在记笔记 / 在吃东西 / 在听歌。",
+        {
+          title: "设置 Error酱 的状态",
+          value: presence.text || "",
+          placeholder: "例如：摸鱼中",
+          confirmText: "保存",
+        }
+      ).then(function (value) {
+        if (value === null) return;
+        fetch("/api/admin/owner-status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: String(value || "").trim() }),
+          cache: "no-store",
+        })
+          .then(function (response) {
+            return response.ok ? response.json() : null;
+          })
+          .then(function (result) {
+            if (!result || !result.presence) {
+              if (window.ErrorDialog) {
+                window.ErrorDialog.alert("状态没保存成功，请稍后再试。");
+              }
+              return;
+            }
+            paint(result.presence);
+            toast(result.presence.text ? "状态已更新" : "已恢复自动的在线 / 离线");
+          })
+          .catch(function () {});
+      });
+    });
+    return node;
+  }
+
   function buildProfile(data) {
     var stats = data.stats || {};
     var root = el("section", "sb-card sb-card--top");
@@ -181,7 +275,10 @@
     userRow.appendChild(avatar);
 
     var textBox = el("div", "sb-user__text");
-    textBox.appendChild(el("div", "sb-user__name", "Error酱"));
+    var nameRow = el("div", "sb-user__namerow");
+    nameRow.appendChild(el("div", "sb-user__name", "Error酱"));
+    nameRow.appendChild(buildPresence(data));
+    textBox.appendChild(nameRow);
     textBox.appendChild(el("div", "sb-user__role", "已加入 " + (stats.site_days || 0) + " 天"));
     userRow.appendChild(textBox);
     body.appendChild(userRow);
@@ -233,9 +330,7 @@
       main.appendChild(el("div", "sb-user-row__name", item.name));
       var pieces = [];
       if (item.registered_days) pieces.push("注册 " + item.registered_days + " 天");
-      pieces.push(
-        item.last_login_at ? relTime(item.last_login_at) + "登录" : "还没登录过"
-      );
+      pieces.push(activityText(item));
       main.appendChild(el("div", "sb-user-row__sub", pieces.join(" · ")));
       row.appendChild(main);
       if (item.status === "pending") {

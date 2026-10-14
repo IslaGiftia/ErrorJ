@@ -414,6 +414,7 @@ PAGE_VIEW_PATHS = {
     "/downloads",
     "/recommendations",
     "/music",
+    "/books",
     "/reporting",
 }
 PUBLIC_ACTIVITY_LABELS = {
@@ -1514,6 +1515,7 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             CREATE INDEX IF NOT EXISTS idx_access_log_path ON access_log(path);
             CREATE INDEX IF NOT EXISTS idx_access_log_ip ON access_log(ip);
             CREATE INDEX IF NOT EXISTS idx_access_log_user ON access_log(user_id);
+            CREATE INDEX IF NOT EXISTS idx_access_log_actor ON access_log(actor_kind, created_at);
             CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(kind, user_id);
             CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
             """
@@ -5282,16 +5284,21 @@ def mask_username(value):
     return "*" * (len(text) - 1) + text[-1]
 
 
-def is_recent_place(created_at, hours=24):
-    """标记点是否在最近 N 小时内创建（用于首次没记录时的提醒基线）。"""
-    text = str(created_at or "").strip()
+def is_recent_time(value, seconds):
+    """某个「YYYY-MM-DD HH:MM:SS」时间戳是否落在最近 N 秒内（解析不了算「不在」）。"""
+    text = str(value or "").strip()
     if not text:
         return False
     try:
         moment = datetime.strptime(text[:19], "%Y-%m-%d %H:%M:%S")
     except ValueError:
         return False
-    return datetime.now() - moment <= timedelta(hours=hours)
+    return datetime.now() - moment <= timedelta(seconds=seconds)
+
+
+def is_recent_place(created_at, hours=24):
+    """标记点是否在最近 N 小时内创建（用于首次没记录时的提醒基线）。"""
+    return is_recent_time(created_at, hours * 3600)
 
 
 # ---------- 留言 / 动态页的左右侧栏 ----------
@@ -5466,18 +5473,98 @@ def sidebar_users(viewer_id, is_admin):
         )
         scope = "self"
     items = []
+    last_views = sidebar_last_views([row["id"] for row in rows])
     for row in rows:
+        user_id = int(row["id"])
         items.append(
             {
-                "id": int(row["id"]),
+                "id": user_id,
                 "name": str(row.get("nickname") or row.get("username") or "普通用户"),
                 "username": str(row.get("username") or ""),
                 "status": str(row.get("status") or ""),
                 "registered_days": days_since(row.get("created_at")),
                 "last_login_at": str(row.get("last_login_at") or ""),
+                # 最近一次真实页面访问（access_log）：用来把「多久没来了」说准
+                "last_view_at": last_views.get(user_id, ""),
             }
         )
     return {"scope": scope, "total": len(items), "items": items}
+
+
+# ---------- 侧栏「Error酱」卡片上的在线状态 ----------
+
+# 自定义状态（「摸鱼中」「在记笔记」…）存在 app_meta 里；留空就回到自动的在线 / 离线
+OWNER_STATUS_META_KEY = "owner_status_v1"
+OWNER_STATUS_MAX_LEN = 12
+# 站长多久之内有过一次真实页面访问就算「在线」
+OWNER_ONLINE_WINDOW_MINUTES = 10
+
+
+def owner_status():
+    """Error酱 的在线状态：自动的在线 / 离线 + 站长自定义的一句话状态。
+
+    「在线」不看会话 —— 会话能挂好几天，登录着不代表人就在；这里看 `access_log` 里站长
+    （`actor_kind = 'owner'`）最近一次**真实页面访问**，超过窗口就算离线。
+    自定义状态由站长自己设置，只有站长能看到那个入口，游客 / 普通账号只读。
+    """
+    text = ""
+    updated_at = ""
+    raw = app_meta_get(OWNER_STATUS_META_KEY, "")
+    if raw:
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError):
+            data = {}
+        if isinstance(data, dict):
+            text = str(data.get("text") or "").strip()[:OWNER_STATUS_MAX_LEN]
+            updated_at = str(data.get("updated_at") or "")
+    # 走 idx_access_log_actor(actor_kind, created_at)，取最近一条即可
+    row = query_one(
+        """SELECT created_at FROM access_log
+           WHERE actor_kind = 'owner'
+           ORDER BY created_at DESC LIMIT 1"""
+    )
+    last_active = str((row or {}).get("created_at") or "")
+    return {
+        "text": text,
+        "updated_at": updated_at,
+        "last_active_at": last_active,
+        "online": is_recent_time(last_active, OWNER_ONLINE_WINDOW_MINUTES * 60),
+    }
+
+
+def owner_status_save(text):
+    """设置 / 清除站长自定义状态，返回真正存下来的文案（空字符串表示已清除）。"""
+    value = str(text or "").strip()[:OWNER_STATUS_MAX_LEN]
+    if value:
+        app_meta_set(
+            OWNER_STATUS_META_KEY,
+            json.dumps({"text": value, "updated_at": now_text()}, ensure_ascii=False),
+        )
+    else:
+        app_meta_set(OWNER_STATUS_META_KEY, "")
+    return value
+
+
+def sidebar_last_views(user_ids):
+    """每个账号最近一次真实页面访问（`access_log`），一次查回这几个账号的新时间。
+
+    `users.last_login_at` 只在**真的输密码登录**那一刻写，靠记住的会话继续浏览不会更新，
+    所以长期挂着的账号会一直显示成「很多天前登录」。侧栏卡片要回答的是「这个人最近来过吗」，
+    所以另外取 `access_log` 里每个账号最新的一条页面访问；访问日志没开或已被清理时返回空，
+    前端会自动退回原来的「…前登录」。
+    """
+    ids = sorted({int(value) for value in user_ids if int(value or 0) > 0})
+    if not ids:
+        return {}
+    placeholders = ",".join("?" for _ in ids)
+    rows = query(
+        f"""SELECT user_id, MAX(created_at) AS at FROM access_log
+            WHERE user_id IN ({placeholders})
+            GROUP BY user_id""",
+        tuple(ids),
+    )
+    return {int(row["user_id"]): str(row.get("at") or "") for row in rows}
 
 
 def sidebar_activities():
@@ -7654,6 +7741,22 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_site_upload_limits(self):
         self.send_json(200, {"limits": upload_limits()})
 
+    def api_admin_owner_status_save(self, payload):
+        """站长设置 / 清除「Error酱」的自定义状态，留空就回到自动的在线 / 离线。"""
+        if not self.is_admin():
+            api_error(self, 403, "只有站长可以设置状态。")
+            return
+        text = str((payload or {}).get("text") or "").strip()
+        if len(text) > OWNER_STATUS_MAX_LEN:
+            api_error(self, 400, f"状态最多 {OWNER_STATUS_MAX_LEN} 个字。")
+            return
+        saved = owner_status_save(text)
+        self.log_activity(
+            "owner_status_update",
+            f"把「Error酱」的状态改成「{saved}」" if saved else "清除了「Error酱」的自定义状态",
+        )
+        self.send_json(200, {"ok": True, "presence": owner_status()})
+
     def api_admin_upload_limits(self):
         self.send_json(
             200,
@@ -9332,6 +9435,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_admin_password(payload)
             elif path == "/api/admin/upload-limits":
                 self.api_admin_upload_limits_save(payload)
+            elif path == "/api/admin/owner-status":
+                self.api_admin_owner_status_save(payload)
             elif path == "/api/admin/notify/test":
                 self.api_admin_notify_test(payload)
             elif path == "/api/admin/share-links":
@@ -14171,6 +14276,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "covers": sidebar_covers(),
                     "users": None,
                     "activities": sidebar_activities(),
+                    "presence": owner_status(),
                 },
             )
             return
@@ -14204,6 +14310,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "covers": sidebar_covers(),
                 "users": sidebar_users(viewer_id, is_admin),
                 "activities": sidebar_activities(),
+                "presence": owner_status(),
             },
         )
 
