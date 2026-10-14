@@ -1171,6 +1171,17 @@ def init_db():
                 ip TEXT
             );
 
+            -- 每个账号在侧栏卡片上自己选的展示状态：user_id = 0 表示站长（Error酱）。
+            -- 「在线 / 在线-WIFI / 在线-5G / 离线」都由活跃时间自动判定，只有 mode = 'invisible'
+            -- 会被记住；suffix 是本人手选的网络后缀，text 只有站长能写。
+            CREATE TABLE IF NOT EXISTS user_status (
+                user_id INTEGER PRIMARY KEY,
+                mode TEXT NOT NULL DEFAULT 'auto',
+                suffix TEXT NOT NULL DEFAULT '',
+                text TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT ''
+            );
+
             CREATE TABLE IF NOT EXISTS message_views (
                 user_id INTEGER PRIMARY KEY,
                 last_seen_id INTEGER NOT NULL DEFAULT 0,
@@ -5454,28 +5465,50 @@ def sidebar_covers(limit=SIDEBAR_COVER_LIMIT):
     return items[:limit]
 
 
-def sidebar_users(viewer_id, is_admin):
-    """左下用户列表卡片：管理员看全部注册账号，普通账号只看自己。"""
-    if is_admin:
-        rows = query(
-            """SELECT id, username, nickname, status, created_at, last_login_at
-               FROM users WHERE status IN ('approved', 'pending')
-               ORDER BY CASE status WHEN 'approved' THEN 0 ELSE 1 END, id DESC
-               LIMIT ?""",
-            (SIDEBAR_USER_LIMIT,),
-        )
-        scope = "all"
-    else:
-        rows = query(
-            """SELECT id, username, nickname, status, created_at, last_login_at
-               FROM users WHERE id = ?""",
-            (int(viewer_id or 0),),
-        )
-        scope = "self"
+def sidebar_users(viewer_id=0, masked=False):
+    """左下「注册账户」卡片：管理员和普通账号看到的是同一份前 5 个账号。
+
+    - **普通账号也能看到别人**（用户名、注册天数、最近活跃），不再只显示自己。
+    - **游客也看得到这张卡**，但用户名脱敏（保留最后一个字）、注册天数与活跃时间的数字
+      整段换成 `**`，而且不下发任何人的状态 —— 游客只能看到左上「Error酱」那一枚状态胶囊。
+    - 普通账号如果不在前 5 里，会把自己那行补在最前面，否则他没地方点自己的状态胶囊。
+      站长（viewer_id = 0）不在 users 表里，本来就不会也不需要出现在这张卡上。
+    """
+    rows = query(
+        """SELECT id, username, nickname, status, created_at, last_login_at
+           FROM users WHERE status IN ('approved', 'pending')
+           ORDER BY CASE status WHEN 'approved' THEN 0 ELSE 1 END, id DESC
+           LIMIT ?""",
+        (SIDEBAR_USER_LIMIT,),
+    )
+    if viewer_id:
+        if int(viewer_id) not in [int(row["id"]) for row in rows]:
+            mine = query_one(
+                """SELECT id, username, nickname, status, created_at, last_login_at
+                   FROM users WHERE id = ?""",
+                (int(viewer_id),),
+            )
+            if mine:
+                rows = [mine] + rows[: max(0, SIDEBAR_USER_CARD_LIMIT - 1)]
+    rows = rows[:SIDEBAR_USER_CARD_LIMIT]
+    if masked:
+        return {
+            "scope": "masked",
+            "total": len(rows),
+            "items": [
+                {
+                    "name": mask_username(row.get("nickname") or row.get("username")),
+                    "status": str(row.get("status") or ""),
+                    "masked": True,
+                }
+                for row in rows
+            ],
+        }
     items = []
     last_views = sidebar_last_views([row["id"] for row in rows])
     for row in rows:
         user_id = int(row["id"])
+        last_view = last_views.get(user_id, "")
         items.append(
             {
                 "id": user_id,
@@ -5485,65 +5518,130 @@ def sidebar_users(viewer_id, is_admin):
                 "registered_days": days_since(row.get("created_at")),
                 "last_login_at": str(row.get("last_login_at") or ""),
                 # 最近一次真实页面访问（access_log）：用来把「多久没来了」说准
-                "last_view_at": last_views.get(user_id, ""),
+                "last_view_at": last_view,
+                "presence": member_status(user_id, last_view),
+                "self": bool(viewer_id) and user_id == int(viewer_id),
             }
         )
-    return {"scope": scope, "total": len(items), "items": items}
+    return {"scope": "all", "total": len(items), "items": items}
 
 
-# ---------- 侧栏「Error酱」卡片上的在线状态 ----------
+# ---------- 侧栏卡片上的展示状态 ----------
 
-# 自定义状态（「摸鱼中」「在记笔记」…）存在 app_meta 里；留空就回到自动的在线 / 离线
-OWNER_STATUS_META_KEY = "owner_status_v1"
-OWNER_STATUS_MAX_LEN = 12
-# 站长多久之内有过一次真实页面访问就算「在线」
-OWNER_ONLINE_WINDOW_MINUTES = 10
+# 「在线 / 在线-WIFI / 在线-5G / 离线」都由活跃时间自动判定，只有「隐身」是手动记下来的
+USER_STATUS_MODES = ("auto", "invisible")
+# 本人手选的网络后缀（服务器拿不到网络类型，只能自己挑）；空字符串 = 只显示「在线」
+USER_STATUS_SUFFIXES = ("", "WIFI", "5G")
+# 站长自定义文案最多几个字（只有站长能用）
+USER_STATUS_MAX_LEN = 12
+# 多久之内有过一次真实页面访问就算「在线」
+ONLINE_WINDOW_MINUTES = 10
+# 左下「注册账户」卡片最多显示几行
+SIDEBAR_USER_CARD_LIMIT = 5
 
 
-def owner_status():
-    """Error酱 的在线状态：自动的在线 / 离线 + 站长自定义的一句话状态。
+def user_status_row(user_id):
+    """读某个账号自己选的状态（没有就返回默认的「自动」）。"""
+    row = query_one(
+        "SELECT mode, suffix, text, updated_at FROM user_status WHERE user_id = ?",
+        (int(user_id or 0),),
+    )
+    mode = str((row or {}).get("mode") or "auto")
+    suffix = str((row or {}).get("suffix") or "")
+    return {
+        "mode": mode if mode in USER_STATUS_MODES else "auto",
+        "suffix": suffix if suffix in USER_STATUS_SUFFIXES else "",
+        "text": str((row or {}).get("text") or "")[:USER_STATUS_MAX_LEN],
+        "updated_at": str((row or {}).get("updated_at") or ""),
+    }
 
-    「在线」不看会话 —— 会话能挂好几天，登录着不代表人就在；这里看 `access_log` 里站长
-    （`actor_kind = 'owner'`）最近一次**真实页面访问**，超过窗口就算离线。
-    自定义状态由站长自己设置，只有站长能看到那个入口，游客 / 普通账号只读。
+
+def user_status_save(user_id, mode, suffix, text=None):
+    """写某个账号的状态；`text` 传 None 表示这一栏不动（普通账号只能改 mode / suffix）。"""
+    entry = user_status_row(user_id)
+    mode = str(mode or "").strip().lower()
+    suffix = str(suffix or "").strip().upper()
+    mode = mode if mode in USER_STATUS_MODES else "auto"
+    suffix = suffix if suffix in USER_STATUS_SUFFIXES else ""
+    if text is not None:
+        entry["text"] = str(text or "").strip()[:USER_STATUS_MAX_LEN]
+    execute(
+        """INSERT INTO user_status (user_id, mode, suffix, text, updated_at)
+               VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET
+               mode = excluded.mode,
+               suffix = excluded.suffix,
+               text = excluded.text,
+               updated_at = excluded.updated_at""",
+        (int(user_id or 0), mode, suffix, entry["text"], now_text()),
+    )
+    return user_status_row(user_id)
+
+
+def presence_payload(entry, online, last_active):
+    """把「自己选的状态 + 是否最近活跃」拼成前端直接画的状态对象。
+
+    显示优先级：隐身 > 站长自定义文案 > 在线[-后缀] / 离线。
+    自定义文案在的时候，圆点仍然表示真实的在线 / 离线。
     """
-    text = ""
-    updated_at = ""
-    raw = app_meta_get(OWNER_STATUS_META_KEY, "")
-    if raw:
-        try:
-            data = json.loads(raw)
-        except (TypeError, ValueError):
-            data = {}
-        if isinstance(data, dict):
-            text = str(data.get("text") or "").strip()[:OWNER_STATUS_MAX_LEN]
-            updated_at = str(data.get("updated_at") or "")
-    # 走 idx_access_log_actor(actor_kind, created_at)，取最近一条即可
+    if entry["mode"] == "invisible":
+        tone, label = "invisible", "隐身"
+    elif entry["text"]:
+        tone = "online" if online else "offline"
+        label = entry["text"]
+    elif not online:
+        tone, label = "offline", "离线"
+    else:
+        tone = "online"
+        label = "在线" + ("-" + entry["suffix"] if entry["suffix"] else "")
+    return {
+        "tone": tone,
+        "label": label,
+        "mode": entry["mode"],
+        "suffix": entry["suffix"],
+        "text": entry["text"],
+        "online": bool(online),
+        "last_active_at": str(last_active or ""),
+        "updated_at": entry["updated_at"],
+    }
+
+
+def owner_last_active():
+    """站长最近一次真实页面访问（走 idx_access_log_actor）。"""
     row = query_one(
         """SELECT created_at FROM access_log
            WHERE actor_kind = 'owner'
            ORDER BY created_at DESC LIMIT 1"""
     )
-    last_active = str((row or {}).get("created_at") or "")
-    return {
-        "text": text,
-        "updated_at": updated_at,
-        "last_active_at": last_active,
-        "online": is_recent_time(last_active, OWNER_ONLINE_WINDOW_MINUTES * 60),
-    }
+    return str((row or {}).get("created_at") or "")
 
 
-def owner_status_save(text):
-    """设置 / 清除站长自定义状态，返回真正存下来的文案（空字符串表示已清除）。"""
-    value = str(text or "").strip()[:OWNER_STATUS_MAX_LEN]
-    if value:
-        app_meta_set(
-            OWNER_STATUS_META_KEY,
-            json.dumps({"text": value, "updated_at": now_text()}, ensure_ascii=False),
-        )
-    else:
-        app_meta_set(OWNER_STATUS_META_KEY, "")
-    return value
+def owner_status():
+    """右上「Error酱」卡片的状态。"""
+    last_active = owner_last_active()
+    entry = user_status_row(0)
+    return presence_payload(
+        entry, is_recent_time(last_active, ONLINE_WINDOW_MINUTES * 60), last_active
+    )
+
+
+def member_status(user_id, last_view=""):
+    """某个注册账号的状态（`last_view` 由调用方批量查好后传进来）。"""
+    entry = user_status_row(user_id)
+    return presence_payload(
+        entry, is_recent_time(last_view, ONLINE_WINDOW_MINUTES * 60), last_view
+    )
+
+
+def member_last_view(user_id):
+    """单个注册账号最近一次真实页面访问（走 idx_access_log_user）。"""
+    row = query_one(
+        """SELECT created_at FROM access_log
+           WHERE user_id = ?
+           ORDER BY created_at DESC LIMIT 1""",
+        (int(user_id or 0),),
+    )
+    return str((row or {}).get("created_at") or "")
 
 
 def sidebar_last_views(user_ids):
@@ -5867,6 +5965,9 @@ def required_permission(path, method):
         return None
     if path == "/api/map/seen" and method == "POST":
         # 记录「已看到标记」是读状态，任何登录账号都可以
+        return ""
+    if path == "/api/site/user-status" and method == "POST":
+        # 设置自己的展示状态：任何登录账号都可以（处理器里再判身份，游客 401）
         return ""
     # 公开站点模块：游客能否访问由游客角色权限控制；登录账号一律可以浏览
     if path in SITE_MEMBER_PAGES:
@@ -7741,21 +7842,30 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_site_upload_limits(self):
         self.send_json(200, {"limits": upload_limits()})
 
-    def api_admin_owner_status_save(self, payload):
-        """站长设置 / 清除「Error酱」的自定义状态，留空就回到自动的在线 / 离线。"""
-        if not self.is_admin():
-            api_error(self, 403, "只有站长可以设置状态。")
+    def api_site_user_status_save(self, payload):
+        """本人设置自己的展示状态：在线 / 在线-WIFI / 在线-5G / 离线 / 隐身。
+
+        「在线 / 离线」都只是回到自动判断（按活跃时间），只有「隐身」会被记住；站长多一个
+        自定义文案。任何人都只能改自己的状态 —— 别人的胶囊是只读的。
+        """
+        identity = self.session_identity()
+        if identity is None:
+            api_error(self, 401, "请登录后操作")
             return
-        text = str((payload or {}).get("text") or "").strip()
-        if len(text) > OWNER_STATUS_MAX_LEN:
-            api_error(self, 400, f"状态最多 {OWNER_STATUS_MAX_LEN} 个字。")
+        is_owner = identity.get("kind") in ("owner", "admin")
+        user_id = 0 if is_owner else int(identity.get("user_id") or 0)
+        if not is_owner and not user_id:
+            api_error(self, 403, "当前账号不能设置状态。")
             return
-        saved = owner_status_save(text)
-        self.log_activity(
-            "owner_status_update",
-            f"把「Error酱」的状态改成「{saved}」" if saved else "清除了「Error酱」的自定义状态",
+        data = payload or {}
+        # 自定义文案只有站长能写，普通账号带了也忽略
+        text = str(data.get("text") or "").strip() if (is_owner and "text" in data) else None
+        user_status_save(user_id, data.get("mode"), data.get("suffix"), text)
+        presence = (
+            owner_status() if is_owner else member_status(user_id, member_last_view(user_id))
         )
-        self.send_json(200, {"ok": True, "presence": owner_status()})
+        self.log_activity("user_status_update", f"把展示状态改成「{presence['label']}」")
+        self.send_json(200, {"ok": True, "presence": presence})
 
     def api_admin_upload_limits(self):
         self.send_json(
@@ -9435,8 +9545,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_admin_password(payload)
             elif path == "/api/admin/upload-limits":
                 self.api_admin_upload_limits_save(payload)
-            elif path == "/api/admin/owner-status":
-                self.api_admin_owner_status_save(payload)
+            elif path == "/api/site/user-status":
+                self.api_site_user_status_save(payload)
             elif path == "/api/admin/notify/test":
                 self.api_admin_notify_test(payload)
             elif path == "/api/admin/share-links":
@@ -14274,7 +14384,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "viewer": {"signed_in": False, "name": "游客", "role": "guest"},
                     "stats": sidebar_stats(),
                     "covers": sidebar_covers(),
-                    "users": None,
+                    "users": sidebar_users(masked=True),
                     "activities": sidebar_activities(),
                     "presence": owner_status(),
                 },
@@ -14308,7 +14418,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 },
                 "stats": sidebar_stats(),
                 "covers": sidebar_covers(),
-                "users": sidebar_users(viewer_id, is_admin),
+                "users": sidebar_users(viewer_id),
                 "activities": sidebar_activities(),
                 "presence": owner_status(),
             },

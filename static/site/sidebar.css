@@ -258,16 +258,18 @@
 
 /*
  * 状态胶囊：圆点在左、文案在右。
- * 在线用站内一贯的绿色（和 PING / 提醒同一个 #4caf7d），离线是灰点；
- * 自定义状态只换文案，圆点颜色照旧表示在线 / 离线。
+ *
+ * 左右间距必须对称 —— 左边距（圆点到胶囊左边框）、圆点到文字的 gap、文字到右边框的
+ * 内边距三者取同一个值，文字才真的落在「圆点和右边框中间」；自定义 3~4 个字甚至更长时
+ * 也一样居中。
  */
 .sb-presence {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  max-width: 9em;
-  padding: 1px 9px 1px 7px;
+  gap: 7px;
+  max-width: 13em;
+  padding: 2px 7px;
   border: 1px solid var(--sb-border);
   border-radius: 999px;
   background: var(--sb-hover);
@@ -275,7 +277,7 @@
   font-family: inherit;
   font-size: 0.769em;
   font-weight: 600;
-  line-height: 1.7;
+  line-height: 1.6;
   white-space: nowrap;
   overflow: hidden;
 }
@@ -304,6 +306,18 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, #4caf7d 20%, transparent);
 }
 
+/* 隐身：橘色（在线绿、隐身橘、离线灰） */
+.sb-presence.is-invisible {
+  border-color: color-mix(in srgb, #e08a2e 45%, var(--sb-border));
+  background: color-mix(in srgb, #e08a2e 14%, var(--sb-surface));
+  color: color-mix(in srgb, #a9621c 78%, var(--sb-text));
+}
+
+.sb-presence.is-invisible .sb-presence__dot {
+  background: #e08a2e;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #e08a2e 20%, transparent);
+}
+
 /* 只有站长那一颗是可点的按钮，其它身份是纯展示的 span */
 button.sb-presence {
   cursor: pointer;
@@ -317,6 +331,104 @@ button.sb-presence:hover {
 button.sb-presence:focus-visible {
   outline: 2px solid var(--sb-accent);
   outline-offset: 2px;
+}
+
+/*
+ * 点胶囊弹出来的小窗口：挂在 <body> 上（卡片自己有 overflow: hidden，塞进卡片会被裁掉），
+ * 用 fixed 定位贴在胶囊正下方。
+ */
+.sb-presence-menu {
+  position: fixed;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--sb-border);
+  border-radius: 8px;
+  background: var(--sb-surface);
+  box-shadow: var(--sb-shadow);
+  font-size: 13px;
+}
+
+.sb-presence-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--sb-text);
+  font-family: inherit;
+  font-size: 1em;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sb-presence-menu__item:hover {
+  background: var(--sb-hover);
+}
+
+.sb-presence-menu__item.is-current {
+  color: var(--sb-accent);
+  font-weight: 600;
+}
+
+.sb-presence-menu__dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--sb-faint);
+}
+
+.sb-presence-menu__dot.is-online {
+  background: #4caf7d;
+}
+
+.sb-presence-menu__dot.is-invisible {
+  background: #e08a2e;
+}
+
+.sb-presence-menu__custom {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--sb-border);
+}
+
+.sb-presence-menu__custom input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 8.5em;
+  padding: 5px 8px;
+  border: 1px solid var(--sb-border);
+  border-radius: 6px;
+  background: var(--sb-hover);
+  color: var(--sb-text);
+  font-family: inherit;
+  font-size: 1em;
+}
+
+.sb-presence-menu__custom input:focus-visible {
+  outline: 2px solid var(--sb-accent);
+  outline-offset: 1px;
+}
+
+.sb-presence-menu__ok {
+  flex: 0 0 auto;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--sb-accent);
+  color: #fff;
+  font-family: inherit;
+  font-size: 1em;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .sb-stats {
@@ -402,13 +514,19 @@ button.sb-presence:focus-visible {
   white-space: nowrap;
 }
 
-/* 游客：整张卡只占一位注册用户的高度 */
-.sb-user-row--locked {
-  cursor: pointer;
+/* ---------- 状态胶囊（左上 Error酱 + 左下每个账号） ---------- */
+
+/* 名字 + 胶囊：名字过长时让胶囊保持在右边不被挤掉 */
+.sb-user-row__namerow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
 }
 
-.sb-user-row--locked:hover {
-  background: var(--sb-hover);
+.sb-user-row__namerow .sb-user-row__name {
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 /* ---------- 右上：资源封面卡（只有图片，渐隐渐出） ---------- */

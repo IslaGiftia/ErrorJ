@@ -874,47 +874,88 @@ class InteractionTests(unittest.TestCase):
                VALUES (?, 'member', '/messages', 200, ?, '作者甲')""",
             (view_stamp, self.author_id),
         )
-        users = app.sidebar_users(self.author_id, True)
+        users = app.sidebar_users(self.author_id)
         rows = {item["id"]: item for item in users["items"]}
         self.assertEqual(rows[self.author_id]["last_login_at"], login_stamp)
         self.assertEqual(rows[self.author_id]["last_view_at"], view_stamp)
         self.assertEqual(rows[self.other_id]["last_view_at"], "")
 
-    def test_owner_status_online_and_custom_text(self):
-        """左上卡片的状态：在线按站长最近一次页面访问算，站长可以自定义一句状态。
+    def test_status_invisible_suffix_and_owner_custom_text(self):
+        """状态：只有「隐身」会被记住；在线 / 离线按活跃时间自动判；后缀只影响在线。"""
+        self.assertEqual(app.owner_status()["label"], "离线")
+        self.assertEqual(app.owner_status()["tone"], "offline")
 
-        自定义状态存 app_meta、只有站长能写；留空即回到自动的在线 / 离线。
-        """
-        self.assertFalse(app.owner_status()["online"])
-        self.assertEqual(app.owner_status()["text"], "")
+        # 站长可以写自定义文案（同一次请求就把状态回到自动）
+        owner, owner_responses = self.make_handler(0, kind="owner", username="管理员")
+        owner.api_site_user_status_save({"mode": "auto", "suffix": "", "text": "摸鱼中"})
+        self.assertEqual(owner_responses[-1][0], 200)
+        self.assertEqual(app.owner_status()["label"], "摸鱼中")
+        # 文案在的时候圆点仍然表示真实的在线 / 离线（这里没有访问记录 -> 灰点）
+        self.assertEqual(app.owner_status()["tone"], "offline")
+        self.assertEqual(app.owner_status()["text"], "摸鱼中")
+
+        # 有访问记录 -> 在线；选 WIFI 后缀就拼在后面
         app.execute(
             """INSERT INTO access_log
                    (created_at, actor_kind, path, status, user_id, actor_name)
                VALUES (?, 'owner', '/messages', 200, 0, '管理员')""",
             (app.now_text(),),
         )
-        presence = app.owner_status()
-        self.assertTrue(presence["online"])
-        self.assertEqual(presence["text"], "")
+        owner.api_site_user_status_save(
+            {"mode": "auto", "suffix": "WIFI", "text": ""}
+        )
+        self.assertEqual(app.owner_status()["label"], "在线-WIFI")
+        self.assertEqual(app.owner_status()["tone"], "online")
 
-        # 普通账号改不了
-        handler, responses = self.make_handler(self.author_id, username="author1")
-        handler.api_admin_owner_status_save({"text": "摸鱼中"})
-        self.assertEqual(responses[-1][0], 403)
-        self.assertEqual(app.owner_status()["text"], "")
+        # 隐身会盖住在线
+        owner.api_site_user_status_save({"mode": "invisible", "suffix": ""})
+        self.assertEqual(app.owner_status()["label"], "隐身")
+        self.assertEqual(app.owner_status()["tone"], "invisible")
 
-        # 站长可以设置，也能清回自动
-        owner, owner_responses = self.make_handler(0, kind="owner", username="管理员")
-        owner.api_admin_owner_status_save({"text": "摸鱼中"})
-        self.assertEqual(owner_responses[-1][0], 200)
-        self.assertEqual(owner_responses[-1][1]["presence"]["text"], "摸鱼中")
-        self.assertEqual(app.owner_status()["text"], "摸鱼中")
-        owner.api_admin_owner_status_save({"text": ""})
-        self.assertEqual(app.owner_status()["text"], "")
+        # 点「离线 / 在线」都只是取消隐身；没有后缀就只显示「在线」
+        owner.api_site_user_status_save({"mode": "auto", "suffix": "", "text": ""})
+        self.assertEqual(app.owner_status()["label"], "在线")
 
-        # 太长会被拦下
-        owner.api_admin_owner_status_save({"text": "摸" * (app.OWNER_STATUS_MAX_LEN + 1)})
-        self.assertEqual(owner_responses[-1][0], 400)
+    def test_member_status_is_self_only_and_guests_see_masked_users(self):
+        """普通账号只能改自己的状态、写不了自定义文案；游客看到的是脱敏列表且没有状态。"""
+        member, responses = self.make_handler(self.author_id, username="author1")
+        member.api_site_user_status_save(
+            {"mode": "invisible", "suffix": "5G", "text": "偷偷摸鱼"}
+        )
+        self.assertEqual(responses[-1][0], 200)
+        self.assertEqual(responses[-1][1]["presence"]["label"], "隐身")
+        # 普通账号没有自定义权限，提交的文案被忽略
+        self.assertEqual(app.user_status_row(self.author_id)["text"], "")
+
+        app.execute(
+            """INSERT INTO access_log
+                   (created_at, actor_kind, path, status, user_id, actor_name)
+               VALUES (?, 'member', '/messages', 200, ?, '作者甲')""",
+            (app.now_text(), self.author_id),
+        )
+        users = app.sidebar_users(self.author_id)
+        rows = {item["id"]: item for item in users["items"]}
+        self.assertTrue(rows[self.author_id]["self"])
+        self.assertFalse(rows[self.other_id]["self"])
+        self.assertEqual(rows[self.author_id]["presence"]["label"], "隐身")
+        self.assertEqual(rows[self.other_id]["presence"]["label"], "离线")
+
+        # 游客：用户名脱敏、时间脱敏、不下发任何人的状态
+        guests = app.sidebar_users(masked=True)
+        self.assertEqual(guests["scope"], "masked")
+        self.assertTrue(guests["items"])
+        for item in guests["items"]:
+            self.assertTrue(item["masked"])
+            self.assertNotIn("presence", item)
+            self.assertTrue(item["name"].startswith("*"))
+
+        # 游客不能设置状态
+        guest = object.__new__(app.InventoryHandler)
+        guest.session_identity = lambda: None
+        guest_responses = []
+        guest.send_json = lambda status, payload: guest_responses.append((status, payload))
+        guest.api_site_user_status_save({"mode": "auto"})
+        self.assertEqual(guest_responses[-1][0], 401)
 
     def test_new_moment_notifies_members_only(self):
         stamp = app.now_text()

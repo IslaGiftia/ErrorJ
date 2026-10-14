@@ -189,80 +189,181 @@
   /* ---------------- 左上：基础信息卡 ---------------- */
 
   /*
-   * 「Error酱」名字旁边的状态。
+   * 状态胶囊（左上「Error酱」一枚，左下每个账号各一枚）。
    *
    * 在线 / 离线不是看会话（会话能挂好几天，登录着不代表人在），后端按「站长最近一次真实
-   * 页面访问」算，10 分钟窗口内有访问就算在线 —— 见 app.py 的 owner_status()。
-   * 站长自己可以点这枚状态写一句（「摸鱼中」「在记笔记」「在吃东西」…），留空就回到自动的
-   * 在线 / 离线；游客和普通账号只读，点它没有任何反应。
+   * 页面访问」算，10 分钟窗口内有访问就算在线 —— 见 app.py 的 presence_payload()。
+   * 只有本人那一枚是可点的：点开在胶囊下方弹一个小窗口（在线 / 在线-WIFI / 在线-5G /
+   * 离线 / 隐身），站长多一个自定义输入框。别人的胶囊、游客看到的胶囊都只读。
    */
-  function buildPresence(data) {
-    var viewer = data.viewer || {};
-    var editable = Boolean(viewer.admin);
-    var presence = data.presence || {};
-    var node = document.createElement(editable ? "button" : "span");
+  var PRESENCE_OPTIONS = [
+    { mode: "auto", suffix: "", tone: "online", label: "在线" },
+    { mode: "auto", suffix: "WIFI", tone: "online", label: "在线-WIFI" },
+    { mode: "auto", suffix: "5G", tone: "online", label: "在线-5G" },
+    { mode: "auto", suffix: "", tone: "offline", label: "离线" },
+    { mode: "invisible", suffix: "", tone: "invisible", label: "隐身" },
+  ];
+  var presenceMenu = null;
+  var presenceMenuDismiss = null;
+
+  function presenceChip(presence, options) {
+    var opts = options || {};
+    var node = document.createElement(opts.editable ? "button" : "span");
     node.className = "sb-presence";
-    if (editable) node.type = "button";
+    if (opts.editable) node.type = "button";
+    if (opts.id) node.dataset.presenceId = String(opts.id);
     var dot = el("span", "sb-presence__dot");
     dot.setAttribute("aria-hidden", "true");
     var label = el("span", "sb-presence__text");
     node.append(dot, label);
+    var state = {};
 
     function paint(next) {
-      presence = next || {};
-      var custom = String(presence.text || "");
-      var online = Boolean(presence.online);
-      var text = custom || (online ? "在线" : "离线");
+      state = next || {};
+      var text = String(state.label || "离线");
       label.textContent = text;
-      node.classList.toggle("is-online", online);
-      node.classList.toggle("is-custom", Boolean(custom));
-      node.title = custom ? text + (online ? "（在线）" : "（离线）") : text;
-      if (editable) {
-        node.setAttribute("aria-label", "Error酱的状态：" + text + "，点击可以修改");
+      node.classList.remove("is-online", "is-offline", "is-invisible");
+      node.classList.add("is-" + (state.tone || "offline"));
+      node.classList.toggle("is-custom", Boolean(state.text));
+      if (opts.editable) {
+        node.setAttribute("aria-label", "我的状态：" + text + "，点击可以修改");
+      } else {
+        node.title = text;
       }
     }
 
     paint(presence);
 
-    if (!editable) return node;
-    node.addEventListener("click", function () {
-      if (!window.ErrorDialog) return;
-      window.ErrorDialog.prompt(
-        "留空即恢复自动的在线 / 离线。常用状态：摸鱼中 / 在记笔记 / 在吃东西 / 在听歌。",
-        {
-          title: "设置 Error酱 的状态",
-          value: presence.text || "",
-          placeholder: "例如：摸鱼中",
-          confirmText: "保存",
-        }
-      ).then(function (value) {
-        if (value === null) return;
-        fetch("/api/admin/owner-status", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: String(value || "").trim() }),
-          cache: "no-store",
+    if (!opts.editable) return node;
+
+    function save(mode, suffix, text) {
+      var payload = { mode: mode, suffix: suffix };
+      if (opts.withCustom) payload.text = String(text || "");
+      return fetch("/api/site/user-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        cache: "no-store",
+      })
+        .then(function (response) {
+          return response.ok ? response.json() : null;
         })
-          .then(function (response) {
-            return response.ok ? response.json() : null;
-          })
-          .then(function (result) {
-            if (!result || !result.presence) {
-              if (window.ErrorDialog) {
-                window.ErrorDialog.alert("状态没保存成功，请稍后再试。");
-              }
-              return;
+        .then(function (result) {
+          if (!result || !result.presence) {
+            if (window.ErrorDialog) {
+              window.ErrorDialog.alert("状态没保存成功，请稍后再试。");
             }
-            paint(result.presence);
-            toast(result.presence.text ? "状态已更新" : "已恢复自动的在线 / 离线");
-          })
-          .catch(function () {});
-      });
+            return;
+          }
+          paint(result.presence);
+          closePresenceMenu();
+          toast("状态已更新");
+        })
+        .catch(function () {});
+    }
+
+    node.addEventListener("click", function (event) {
+      event.stopPropagation();
+      openPresenceMenu(node, state, opts, save);
     });
     return node;
   }
 
+  function closePresenceMenu() {
+    if (presenceMenuDismiss) {
+      document.removeEventListener("click", presenceMenuDismiss);
+      document.removeEventListener("keydown", presenceMenuKey);
+      window.removeEventListener("resize", presenceMenuDismiss);
+      window.removeEventListener("scroll", presenceMenuDismiss, true);
+      presenceMenuDismiss = null;
+    }
+    if (presenceMenu) {
+      presenceMenu.remove();
+      presenceMenu = null;
+    }
+  }
+
+  function presenceMenuKey(event) {
+    if (event.key === "Escape") closePresenceMenu();
+  }
+
+  function isCurrentPresence(option, presence) {
+    if (option.mode === "invisible") return presence.mode === "invisible";
+    if (presence.mode === "invisible") return false;
+    return (presence.tone || "offline") === option.tone &&
+      (presence.suffix || "") === option.suffix;
+  }
+
+  /*
+   * 小窗口挂在 <body> 上（卡片自己 overflow: hidden，塞进卡片会被裁掉），
+   * 用 fixed 定位贴在胶囊正下方；万一下面放不下就翻到胶囊上面。
+   */
+  function placePresenceMenu(anchor) {
+    var rect = anchor.getBoundingClientRect();
+    var width = presenceMenu.offsetWidth;
+    var height = presenceMenu.offsetHeight;
+    var left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - width - 8));
+    var top = rect.bottom + 6;
+    if (top + height > window.innerHeight - 8) {
+      top = Math.max(8, rect.top - height - 6);
+    }
+    presenceMenu.style.left = Math.round(left) + "px";
+    presenceMenu.style.top = Math.round(top) + "px";
+  }
+
+  function openPresenceMenu(anchor, presence, opts, save) {
+    if (presenceMenu && presenceMenu.dataset.anchor === anchor.dataset.presenceId) {
+      closePresenceMenu();
+      return;
+    }
+    closePresenceMenu();
+    var menu = el("div", "sb-presence-menu");
+    menu.setAttribute("role", "menu");
+    menu.dataset.anchor = anchor.dataset.presenceId || "";
+    PRESENCE_OPTIONS.forEach(function (option) {
+      var item = el("button", "sb-presence-menu__item");
+      item.type = "button";
+      if (isCurrentPresence(option, presence)) item.classList.add("is-current");
+      var dot = el("span", "sb-presence-menu__dot is-" + option.tone);
+      dot.setAttribute("aria-hidden", "true");
+      item.append(dot, el("span", "", option.label));
+      item.addEventListener("click", function (event) {
+        event.stopPropagation();
+        save(option.mode, option.suffix, opts.withCustom ? "" : null);
+      });
+      menu.appendChild(item);
+    });
+    if (opts.withCustom) {
+      var form = el("form", "sb-presence-menu__custom");
+      var input = document.createElement("input");
+      input.type = "text";
+      input.maxLength = 12;
+      input.placeholder = "自定义状态";
+      input.value = String(presence.text || "");
+      var ok = el("button", "sb-presence-menu__ok", "确定");
+      ok.type = "submit";
+      form.append(input, ok);
+      form.addEventListener("click", function (event) { event.stopPropagation(); });
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        save("auto", "", input.value);
+      });
+      menu.appendChild(form);
+    }
+    document.body.appendChild(menu);
+    presenceMenu = menu;
+    placePresenceMenu(anchor);
+    presenceMenuDismiss = closePresenceMenu;
+    window.setTimeout(function () {
+      document.addEventListener("click", closePresenceMenu);
+      document.addEventListener("keydown", presenceMenuKey);
+      window.addEventListener("resize", closePresenceMenu);
+      window.addEventListener("scroll", closePresenceMenu, true);
+    }, 0);
+  }
+
   function buildProfile(data) {
+    var viewer = data.viewer || {};
     var stats = data.stats || {};
     var root = el("section", "sb-card sb-card--top");
     var body = el("div", "sb-card__body");
@@ -277,7 +378,14 @@
     var textBox = el("div", "sb-user__text");
     var nameRow = el("div", "sb-user__namerow");
     nameRow.appendChild(el("div", "sb-user__name", "Error酱"));
-    nameRow.appendChild(buildPresence(data));
+    nameRow.appendChild(
+      presenceChip(data.presence, {
+        // 只有站长能点开改（自定义输入框也只给站长），游客和普通账号只读
+        editable: Boolean(viewer.admin),
+        withCustom: Boolean(viewer.admin),
+        id: "owner",
+      })
+    );
     textBox.appendChild(nameRow);
     textBox.appendChild(el("div", "sb-user__role", "已加入 " + (stats.site_days || 0) + " 天"));
     userRow.appendChild(textBox);
@@ -303,22 +411,23 @@
 
   /* ---------------- 左下：注册账户卡 ---------------- */
 
+  /*
+   * 每行第二句：
+   * - 游客看到的是脱敏版 —— 用户名保留最后一个字、注册天数与活跃时间的数字和单位整段隐去；
+   * - 登录账号看真实值（活跃时间取「最近访问 / 最近登录」里更晚的那个）。
+   */
+  function userSubText(item) {
+    if (item.masked) return "注册 ** 天 · **前活跃";
+    var pieces = [];
+    if (item.registered_days) pieces.push("注册 " + item.registered_days + " 天");
+    pieces.push(activityText(item));
+    return pieces.join(" · ");
+  }
+
   function buildUsers(data) {
-    var isAll = !signedIn || (data.users && data.users.scope === "all");
     var items = data.users && Array.isArray(data.users.items) ? data.users.items : [];
     // 标题右边不再显示注册用户总数
     var built = card("注册账户", "", true);
-
-    if (!signedIn) {
-      // 游客：只占一位注册用户的高度，点一下提示登录
-      var locked = el("div", "sb-user-row sb-user-row--locked");
-      var lockedMain = el("div", "sb-user-row__main");
-      lockedMain.appendChild(el("div", "sb-user-row__name", "登录后展示"));
-      locked.appendChild(lockedMain);
-      bindNavigation(locked);
-      built.body.appendChild(locked);
-      return built.root;
-    }
 
     if (!items.length) {
       built.body.appendChild(el("div", "sb-user-row__name", "还没有注册账号。"));
@@ -327,11 +436,20 @@
     items.slice(0, USER_LIMIT).forEach(function (item) {
       var row = el("div", "sb-user-row");
       var main = el("div", "sb-user-row__main");
-      main.appendChild(el("div", "sb-user-row__name", item.name));
-      var pieces = [];
-      if (item.registered_days) pieces.push("注册 " + item.registered_days + " 天");
-      pieces.push(activityText(item));
-      main.appendChild(el("div", "sb-user-row__sub", pieces.join(" · ")));
+      var nameRow = el("div", "sb-user-row__namerow");
+      nameRow.appendChild(el("span", "sb-user-row__name", item.name));
+      // 状态胶囊：游客那边后端根本不下发（游客只看得到左上「Error酱」那一枚）；
+      // 登录账号里，只有自己那一枚可点，别人的只读。
+      if (item.presence) {
+        nameRow.appendChild(
+          presenceChip(item.presence, {
+            editable: Boolean(item.self),
+            id: "user-" + item.id,
+          })
+        );
+      }
+      main.appendChild(nameRow);
+      main.appendChild(el("div", "sb-user-row__sub", userSubText(item)));
       row.appendChild(main);
       if (item.status === "pending") {
         row.appendChild(el("span", "sb-chip", "待审核"));
