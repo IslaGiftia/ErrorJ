@@ -1314,12 +1314,27 @@
     catPick.field = field === "sub" ? "sub" : "top";
     renderCatPick();
     var modal = $("mapCatPickModal");
-    if (modal) modal.hidden = false;
+    if (!modal) return;
+    var sheet = modal.querySelector(".mp-catpick-sheet");
+    if (sheet) sheet.classList.remove("is-entering");
+    modal.hidden = false;
+    /*
+     * 下一帧再加 .is-entering 启动进场动画：这一帧画的是「面板还在屏幕外」的状态，
+     * 不会先闪一下最终位置（手机上点分类框时的那下闪屏就是这么来的）。
+     */
+    if (sheet) {
+      window.requestAnimationFrame(function () {
+        sheet.classList.add("is-entering");
+      });
+    }
   }
 
   function closeCatPick() {
     var modal = $("mapCatPickModal");
-    if (modal) modal.hidden = true;
+    if (!modal) return;
+    var sheet = modal.querySelector(".mp-catpick-sheet");
+    if (sheet) sheet.classList.remove("is-entering");
+    modal.hidden = true;
   }
 
   function optionText(select) {

@@ -13596,12 +13596,15 @@ class InventoryHandler(BaseHTTPRequestHandler):
         detail = f"{author} 新增了标记点「{name}」"
         if address:
             detail += f"（{address}）"
-        notify_async(
-            "place",
-            "Error酱：有新的标记点",
-            f"{detail}\n查看位置：{link}",
-            link,
-        )
+        # 站长自己在足迹页新增标记不推 Webhook（自己的操作不用推给自己）；
+        # 普通账号（默认有 map:write）新增时照旧推送
+        if not self.is_admin():
+            notify_async(
+                "place",
+                "Error酱：有新的标记点",
+                f"{detail}\n查看位置：{link}",
+                link,
+            )
         self.log_activity(
             "map_place_create",
             f"新增标记「{name}」" + (f"（{address}）" if address else ""),

@@ -2365,7 +2365,19 @@ body {
   border-top-right-radius: 14px;
   background: var(--mp-surface);
   box-shadow: var(--mp-shadow);
-  animation: mp-catpick-in 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+  /*
+   * 进场动画改由 JS 在「显示之后的下一帧」加 .is-entering 触发：
+   * 以前动画写在元素上，打开的第一帧偶尔会先按最终位置画一次再跳回起点滑上来，
+   * 手机上就是点分类框时「闪一下屏」。这里先把面板摆到屏幕外并固定成独立图层，
+   * 再让动画从同一个位置开始，首帧就不会闪。
+   */
+  transform: translateY(100%);
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
+.mp-catpick-sheet.is-entering {
+  animation: mp-catpick-in 0.24s cubic-bezier(0.32, 0.72, 0, 1) forwards;
 }
 
 @keyframes mp-catpick-in {
@@ -2430,7 +2442,12 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* 关掉动效时面板直接显示（不能停在屏幕外的初始位置） */
   .mp-catpick-sheet {
+    transform: none;
+  }
+
+  .mp-catpick-sheet.is-entering {
     animation: none;
   }
 }

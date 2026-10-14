@@ -1521,6 +1521,27 @@ class InteractionTests(unittest.TestCase):
             any(item.get("id") == "notify-map" for item in items)
         )
 
+    def test_admin_map_place_create_skips_webhook(self):
+        """站长在足迹页新增标记不推 Webhook；普通账号（默认有 map:write）新增照旧推。"""
+        payload = {
+            "name": "站长加的标记",
+            "lat": 34.34,
+            "lng": 108.94,
+            "address": "测试路 1 号",
+        }
+        calls = []
+        owner, owner_responses = self.make_handler(0, kind="owner", username="owner")
+        member, member_responses = self.make_handler(self.author_id, username="author1")
+        with patch.object(app, "notify_async", lambda *args, **kwargs: calls.append(args)):
+            owner.api_map_place_create(dict(payload))
+            self.assertEqual(owner_responses[-1][0], 201)
+            self.assertEqual(calls, [])
+
+            member.api_map_place_create(dict(payload, name="普通账号加的标记"))
+            self.assertEqual(member_responses[-1][0], 201)
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0][0], "place")
+
     def test_deleting_place_cleans_interactions_and_notifications(self):
         stamp = app.now_text()
         place_id = app.execute(
