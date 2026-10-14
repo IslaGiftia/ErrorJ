@@ -9,8 +9,7 @@
   <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=4">
 <link rel="stylesheet" href="/static/site/site.css">
 <link rel="stylesheet" href="/static/site/rain.css">
-<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="/static/site/minimap.css">
+<link rel="stylesheet" href="/static/site/map-dock.css">
 <link rel="stylesheet" href="/static/site/activity.css">
   <script>
     (function () {
@@ -49,9 +48,10 @@
   </div>
 
   <a class="map-dock" id="mapDock" href="/map" aria-label="打开足迹" title="足迹">
-    <span class="map-dock-mini" id="mapDockMini" aria-hidden="true"></span>
-    <span class="map-dock-tint" aria-hidden="true"></span>
-    <span class="map-dock-glow" aria-hidden="true"></span>
+    <span class="map-dock-pulse" aria-hidden="true">
+      <img class="map-dock-art map-dock-art-light" src="/static/site/map-dock-light.png" width="512" height="512" alt="" decoding="async">
+      <img class="map-dock-art map-dock-art-dark" src="/static/site/map-dock-dark.png" width="512" height="512" alt="" decoding="async">
+    </span>
     <span class="map-dock-count" id="mapDockCount" hidden>足迹</span>
     <span class="map-dock-badge" id="mapDockBadge" hidden aria-hidden="true">0</span>
   </a>
@@ -175,8 +175,7 @@
     </div>
   </div>
 
-<script src="/static/vendor/leaflet/leaflet.js"></script>
-<script src="/static/site/minimap.js"></script>
+<script src="/static/site/map-dock.js"></script>
 <script src="/static/site/hud.js"></script>
 <script src="/static/site/activity.js"></script>
 <script src="/static/site/rain.js"></script>

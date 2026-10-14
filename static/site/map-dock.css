@@ -1,11 +1,16 @@
 /*
- * 圆盘下方的「N 个标记」标签：浅色主题用浅底深字，深色主题保持原来的深底白字。
+ * 首页右下角的「足迹」入口。
+ * 画面是两张静态线稿地图（浅色主题用黑线那张、深色主题用白线那张），
+ * 按原画幅 1:1 直接铺在入口里，不裁成圆形，也不再往里塞一张活的 Leaflet 小地图。
+ * 「有新标记 / 新提醒」时不再呼吸光晕（方图旁边亮一圈圆环会很突兀），
+ * 只保留角标，入口自己做一次小幅缩放提示。
+ */
+/*
+ * 入口下方「N 个标记」标签：浅色主题用浅底深字，深色主题保持原来的深底白字。
  * 换色只走这两个变量（做法同 books.css 封面上的浮层），尺寸、圆角、内边距、
  * 字号和绝对定位都不动。
  */
 :root {
-  /* 不含 backdrop-filter 的实底：手机上圆盘里的地图每帧都在变，
-     半透明 + 背景模糊的胶囊会被反复重绘成一闪一闪的方块，这里直接用纯色底。 */
   --dock-count-bg: rgba(255, 255, 255, 0.94);
   --dock-count-ink: #1b1f27;
   --dock-count-border: rgba(24, 31, 45, 0.14);
@@ -25,7 +30,6 @@
   display: block;
   width: clamp(108px, 9vw, 144px);
   aspect-ratio: 1 / 1;
-  border-radius: 50%;
   font-size: clamp(11px, 0.55vw, 13px);
   text-decoration: none;
   color: #fff;
@@ -36,40 +40,28 @@
   transform: scale(1.04);
 }
 
-.map-dock.has-pending {
-  border-radius: 50%;
-  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.12);
-}
-
 /*
- * 「有新标记」的呼吸光晕单独放在一层圆形图层上：
- * 只动 opacity / transform（合成器友好），不再每帧重绘圆盘里的地图与胶囊，
- * 光晕本身也永远是圆的，不会闪出方块。节奏与站内其它入口一致（2.4s ease-in-out）。
+ * 「有新标记 / 新提醒」的提示：线稿整块轻微放大缩小。
+ * 动画挂在内层，和外面 :hover 的 1.04 缩放互不覆盖；只动 transform，走合成器。
+ * 节奏与站内其它入口一致（2.4s ease-in-out）。
  */
-.map-dock-glow {
+.map-dock-pulse {
   position: absolute;
   inset: 0;
-  border-radius: 50%;
-  pointer-events: none;
-  opacity: 0;
-  box-shadow:
-    0 0 0 5px color-mix(in srgb, var(--primary, #4f46e5) 22%, transparent),
-    0 0 26px color-mix(in srgb, var(--primary, #4f46e5) 55%, transparent);
+  display: block;
 }
 
-.map-dock.has-pending .map-dock-glow {
-  animation: dockPendingBreath 2.4s ease-in-out infinite;
+.map-dock.has-pending .map-dock-pulse {
+  animation: dockPendingPulse 2.4s ease-in-out infinite;
 }
 
-@keyframes dockPendingBreath {
+@keyframes dockPendingPulse {
   0%,
   100% {
-    opacity: 0.3;
     transform: scale(1);
   }
   50% {
-    opacity: 1;
-    transform: scale(1.06);
+    transform: scale(1.035);
   }
 }
 
@@ -78,56 +70,27 @@
   outline-offset: 4px;
 }
 
-.map-dock-mini,
-.map-dock-tint {
+/* 两张线稿都是 1:1 原画幅，contain 不会裁掉任何一笔 */
+.map-dock-art {
   position: absolute;
   inset: 0;
-  border-radius: 50%;
-}
-
-.map-dock-mini {
-  overflow: hidden;
-  clip-path: circle(50% at 50% 50%);
-  border-radius: 50%;
-  background: #c9d2cf;
-  /*
-   * 地图瓦片带 mix-blend-mode: plus-lighter，Leaflet 的图层又用 transform 缩放，
-   * 这两者在圆角裁剪里都可能先合成再裁剪，手机上就会闪出方块。
-   * 让圆盘子层自成一层并隔离混合，圆角就在这一层一次性裁好。
-   */
-  isolation: isolate;
-  transform: translateZ(0);
-}
-
-.map-dock.is-guest .map-dock-mini {
-  background-color: #eef1f5;
-  background-image: url("/static/site/map-dock-guest-light.jpg");
-  background-position: center;
-  background-size: cover;
-}
-
-[data-theme="dark"] .map-dock.is-guest .map-dock-mini {
-  filter: brightness(0.52) saturate(0.52) contrast(1.06);
-}
-
-.map-dock-tint {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
   pointer-events: none;
-  opacity: 0;
-  background: rgba(18, 25, 35, 0.18);
 }
 
-[data-theme="dark"] .map-dock.is-guest .map-dock-tint {
-  opacity: 1;
-}
-
-.map-dock-mini .leaflet-container,
-.map-dock-mini .leaflet-pane,
-.map-dock-mini .leaflet-tile {
-  background: transparent;
-}
-
-.map-dock-mini .leaflet-control-container {
+/* 浅色主题用黑线那张，深色主题换白线那张；主题是手动切换的，所以按 data-theme 换图 */
+.map-dock-art-dark {
   display: none;
+}
+
+[data-theme="dark"] .map-dock-art-light {
+  display: none;
+}
+
+[data-theme="dark"] .map-dock-art-dark {
+  display: block;
 }
 
 .map-dock-count {
@@ -324,11 +287,9 @@
     transition: none;
   }
 
-  /* 关掉动效也要能看出「有新标记」：光晕保持常亮 */
-  .map-dock.has-pending .map-dock-glow {
+  /* 关掉动效也要能看出「有新标记」：不缩放了，靠角标 */
+  .map-dock.has-pending .map-dock-pulse {
     animation: none;
-    opacity: 1;
-    transform: none;
   }
 }
 
