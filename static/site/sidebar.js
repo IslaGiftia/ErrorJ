@@ -27,6 +27,17 @@
     map_place_create: "map-pin",
     recommendation_create: "star",
   };
+  /*
+   * 推荐页（/downloads）的四个子模块：歌曲 / 书籍 / 网页 / 站内资源。
+   * 它们只活在推荐页里（外壳用 iframe 装这四个内嵌子页），没有对外的独立入口 ——
+   * 更新日志点这几类时不再新开标签页去打开独立页面，在留言 / 动态页统一提示
+   * 「请在推荐页查看」，在推荐页内部则原地切到对应标签并高亮那一条。
+   */
+  var RECOMMEND_ACTIONS = {
+    music_upload: true,
+    book_upload: true,
+    recommendation_create: true,
+  };
 
   var toastTimer = null;
   var signedIn = false;
@@ -71,9 +82,11 @@
   /*
    * 卡片里的跳转：
    * - 游客：一律拦下，只提示「请登录后操作」；
-   * - 内容就在当前页（动态页点「更新动态」、推荐页点歌曲 / 书籍 / 网页 / 站内那几类）：
-   *   不新开标签页，原地把这条内容高亮起来呼吸（推荐页还要顺手把中间内容流切到对应标签）；
-   * - 其它情况：新标签页打开目标内容（当前页连同左右四张卡片原地不动）。
+   * - 歌曲 / 书籍 / 网页 / 站内资源：推荐页里原地切标签 + 高亮那一条；
+   *   其它页面（留言 / 动态）不跳转，只提示「请在推荐页查看」；
+   * - 动态页点「更新动态」：不新开标签页，原地把那条动态高亮起来呼吸；
+   * - 其余（留言页点「更新动态」、点「新增足迹」）：新标签页打开目标页面，
+   *   当前页连同左右四张卡片原地不动。
    */
   function bindNavigation(node, item) {
     node.addEventListener("click", function (event) {
@@ -83,15 +96,24 @@
         toast("请登录后操作");
         return;
       }
-      if (!item || !item.url) return;
-      if (location.pathname === "/downloads" && item.tab) {
-        var tabs = window.ErrorDownloadsTabs;
-        if (tabs && tabs.focus) {
-          event.preventDefault();
-          tabs.focus(item.tab, item.target_id);
+      if (!item) return;
+      if (RECOMMEND_ACTIONS[item.action]) {
+        // 推荐页内部：原地切标签，不重载 iframe、不新开标签
+        if (location.pathname === "/downloads" && item.tab) {
+          var tabs = window.ErrorDownloadsTabs;
+          if (tabs && tabs.focus) {
+            event.preventDefault();
+            tabs.focus(item.tab, item.target_id);
+            return;
+          }
         }
+        // 留言 / 动态页：这四个模块没有独立入口，指路到推荐页
+        event.preventDefault();
+        event.stopPropagation();
+        toast("请在推荐页查看");
         return;
       }
+      if (!item.url) return;
       if (location.pathname === "/moments" && item.action === "moment_create") {
         event.preventDefault();
         if (window.ErrorFocus) window.ErrorFocus.apply(item.target_id);
@@ -364,15 +386,28 @@
     }
     items.forEach(function (item, position) {
       var row = el("a", "sb-log" + (signedIn ? "" : " sb-log--locked"));
+      var recommendOnly = Boolean(RECOMMEND_ACTIONS[item.action]);
+      var onDownloads = location.pathname === "/downloads" && Boolean(item.tab);
       var samePage =
-        (location.pathname === "/downloads" && item.tab) ||
+        onDownloads ||
         (location.pathname === "/moments" && item.action === "moment_create");
       if (signedIn && item.url) {
-        row.href = item.url;
-        if (!samePage) {
-          // 目标不在当前页：新标签页打开，当前页（含左右四张卡片）原地不动
-          row.target = "_blank";
-          row.rel = "noopener";
+        if (recommendOnly && !onDownloads) {
+          // 留言 / 动态页上这几行不是链接：点了只提示「请在推荐页查看」，不做任何跳转
+        } else if (recommendOnly) {
+          // 推荐页内部：链接也只指向推荐页的对应那一栏（中键 / 右键新开标签页同样落在推荐页，
+          // 不会跑到那四个独立子页里去），点击时由 bindNavigation 原地切标签
+          row.href =
+            "/downloads?tab=" +
+            encodeURIComponent(item.tab) +
+            (item.target_id ? "&focus=" + encodeURIComponent(item.target_id) : "");
+        } else {
+          row.href = item.url;
+          if (!samePage) {
+            // 目标不在当前页：新标签页打开，当前页（含左右四张卡片）原地不动
+            row.target = "_blank";
+            row.rel = "noopener";
+          }
         }
       }
       row.appendChild(el("span", "sb-log__rank", String(position + 1)));

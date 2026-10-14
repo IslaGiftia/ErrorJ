@@ -4,13 +4,15 @@
  * 字号和绝对定位都不动。
  */
 :root {
-  --dock-count-bg: rgba(255, 255, 255, 0.86);
+  /* 不含 backdrop-filter 的实底：手机上圆盘里的地图每帧都在变，
+     半透明 + 背景模糊的胶囊会被反复重绘成一闪一闪的方块，这里直接用纯色底。 */
+  --dock-count-bg: rgba(255, 255, 255, 0.94);
   --dock-count-ink: #1b1f27;
   --dock-count-border: rgba(24, 31, 45, 0.14);
 }
 
 :root[data-theme="dark"] {
-  --dock-count-bg: rgba(12, 16, 22, 0.72);
+  --dock-count-bg: rgba(12, 16, 22, 0.86);
   --dock-count-ink: #ffffff;
   --dock-count-border: rgba(255, 255, 255, 0.45);
 }
@@ -36,18 +38,38 @@
 
 .map-dock.has-pending {
   border-radius: 50%;
-  animation: dockPendingPulse 2.4s ease-in-out infinite;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.12);
 }
 
-@keyframes dockPendingPulse {
+/*
+ * 「有新标记」的呼吸光晕单独放在一层圆形图层上：
+ * 只动 opacity / transform（合成器友好），不再每帧重绘圆盘里的地图与胶囊，
+ * 光晕本身也永远是圆的，不会闪出方块。节奏与站内其它入口一致（2.4s ease-in-out）。
+ */
+.map-dock-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, var(--primary, #4f46e5) 22%, transparent),
+    0 0 26px color-mix(in srgb, var(--primary, #4f46e5) 55%, transparent);
+}
+
+.map-dock.has-pending .map-dock-glow {
+  animation: dockPendingBreath 2.4s ease-in-out infinite;
+}
+
+@keyframes dockPendingBreath {
   0%,
   100% {
-    box-shadow: 0 10px 34px rgba(0, 0, 0, 0.12);
+    opacity: 0.3;
+    transform: scale(1);
   }
   50% {
-    box-shadow:
-      0 0 0 5px color-mix(in srgb, var(--primary, #4f46e5) 22%, transparent),
-      0 0 26px color-mix(in srgb, var(--primary, #4f46e5) 55%, transparent);
+    opacity: 1;
+    transform: scale(1.06);
   }
 }
 
@@ -68,6 +90,13 @@
   clip-path: circle(50% at 50% 50%);
   border-radius: 50%;
   background: #c9d2cf;
+  /*
+   * 地图瓦片带 mix-blend-mode: plus-lighter，Leaflet 的图层又用 transform 缩放，
+   * 这两者在圆角裁剪里都可能先合成再裁剪，手机上就会闪出方块。
+   * 让圆盘子层自成一层并隔离混合，圆角就在这一层一次性裁好。
+   */
+  isolation: isolate;
+  transform: translateZ(0);
 }
 
 .map-dock.is-guest .map-dock-mini {
@@ -112,8 +141,6 @@
   border-radius: 999px;
   background: var(--dock-count-bg);
   color: var(--dock-count-ink);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
   font-size: 0.85em;
   font-weight: 800;
   line-height: 1.65em;
@@ -297,8 +324,11 @@
     transition: none;
   }
 
-  .map-dock.has-pending {
+  /* 关掉动效也要能看出「有新标记」：光晕保持常亮 */
+  .map-dock.has-pending .map-dock-glow {
     animation: none;
+    opacity: 1;
+    transform: none;
   }
 }
 

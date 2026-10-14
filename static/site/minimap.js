@@ -206,6 +206,21 @@
     mini.fitBounds(bounds, { padding: [10, 10], maxZoom: 11 });
   }
 
+  // 只在第一次拿到数据时自动缩放到全部标记。之后每次取数（页面重新可见 / pageshow /
+  // storage / 登录状态回来）再 fitBounds 一次，圆盘里的地图就会反复缩放重绘，
+  // 手机上看起来就是「方块快速闪烁」。
+  var autoFitted = false;
+  // 上一次真正生效的容器尺寸：容器尺寸没变就不再 invalidateSize()（同样会触发重绘）
+  var appliedSize = "";
+
+  function refreshSize() {
+    var size = mini.getSize();
+    var key = size.x + "x" + size.y;
+    if (key === appliedSize) return;
+    appliedSize = key;
+    mini.invalidateSize();
+  }
+
   function applyThemeBase() {
     var base = themeBase();
     if (base.id === currentBase.id) return;
@@ -376,9 +391,12 @@
           dotsSignature = signature;
           renderDots();
         }
-        if (!savedView && places.length) fitAll();
+        if (!savedView && !autoFitted && places.length) {
+          autoFitted = true;
+          fitAll();
+        }
         updateDockPending();
-        mini.invalidateSize();
+        refreshSize();
       })
       .catch(function (err) {
         if (requestId !== mapRequestSerial) return;

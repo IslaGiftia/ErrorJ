@@ -829,6 +829,32 @@ class InteractionTests(unittest.TestCase):
         row = [item for item in items if item["target"] == "还在的歌"]
         self.assertEqual(len(row), 1)
 
+    def test_sidebar_log_urls_point_back_to_the_recommend_page(self):
+        """更新日志里歌曲 / 书籍 / 网页 / 站内资源都指回推荐页，不再指向独立子页。
+
+        站长要求删掉「点日志新开标签页打开那四个独立模块」这套逻辑，所以接口算出来的
+        地址必须落在 /downloads 上；前端也据此在留言 / 动态页只提示「请在推荐页查看」。
+        """
+        stamp = app.now_text()
+        music_id = app.execute(
+            """INSERT INTO site_music
+                   (title, artist, source_type, source_id, sort_order, created_at)
+               VALUES (?, ?, 'url', ?, 0, ?)""",
+            ("指回推荐页的歌", "歌手", "https://example.com/z.mp3", stamp),
+        )
+        app.execute(
+            """INSERT INTO activity_log
+                   (created_at, actor_kind, user_id, action, summary, target_type, target_id)
+               VALUES (?, 'owner', 0, 'music_upload', ?, 'music', ?)""",
+            (stamp, "上传歌曲：指回推荐页的歌", music_id),
+        )
+        items = app.sidebar_activities()
+        row = [item for item in items if item["target"] == "指回推荐页的歌"]
+        self.assertEqual(len(row), 1)
+        self.assertEqual(row[0]["tab"], "music")
+        self.assertEqual(row[0]["href"], "/downloads?tab=music")
+        self.assertEqual(row[0]["url"], f"/downloads?tab=music&focus={music_id}")
+
     def test_new_moment_notifies_members_only(self):
         stamp = app.now_text()
         app.execute(

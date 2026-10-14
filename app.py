@@ -5525,6 +5525,10 @@ def sidebar_activities():
         if action == "recommendation_create":
             tab = "resource" if str(hit.get("kind") or "") == "resource" else "web"
         base = SIDEBAR_ACTIVITY_HREFS.get(action, "")
+        # 歌曲 / 书籍 / 网页 / 站内资源只活在推荐页里（没有独立入口），日志的地址统一
+        # 指回推荐页对应的那一栏，不再指向 /music、/books 这些独立子页
+        if tab:
+            base = f"/downloads?tab={tab}"
         focus_param = SIDEBAR_FOCUS_PARAM.get(action, "focus")
         url = base
         if base:
