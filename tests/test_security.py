@@ -894,7 +894,7 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(app.owner_status()["tone"], "offline")
         self.assertEqual(app.owner_status()["text"], "摸鱼中")
 
-        # 有访问记录 -> 在线；选 WIFI 后缀就拼在后面
+        # 有访问记录 -> 在线；选当前设备后缀就拼在后面
         app.execute(
             """INSERT INTO access_log
                    (created_at, actor_kind, path, status, user_id, actor_name)
@@ -902,9 +902,9 @@ class InteractionTests(unittest.TestCase):
             (app.now_text(),),
         )
         owner.api_site_user_status_save(
-            {"mode": "auto", "suffix": "WIFI", "text": ""}
+            {"mode": "auto", "suffix": "Win", "text": ""}
         )
-        self.assertEqual(app.owner_status()["label"], "在线-WIFI")
+        self.assertEqual(app.owner_status()["label"], "在线-Win")
         self.assertEqual(app.owner_status()["tone"], "online")
 
         # 隐身会盖住在线
@@ -912,15 +912,51 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(app.owner_status()["label"], "隐身")
         self.assertEqual(app.owner_status()["tone"], "invisible")
 
-        # 点「离线 / 在线」都只是取消隐身；没有后缀就只显示「在线」
+        # 点「在线」只是取消隐身；没有后缀就只显示「在线」
         owner.api_site_user_status_save({"mode": "auto", "suffix": "", "text": ""})
         self.assertEqual(app.owner_status()["label"], "在线")
+
+    def test_status_suffix_only_for_the_detected_device_and_expires_to_offline(self):
+        """后缀只认当前设备那一项；「在线」不是手动固定，过了活跃窗口就自动变「离线」。"""
+        self.assertEqual(
+            app.device_suffix("Windows desktop", "Mozilla/5.0 (Windows NT 10.0)"), "Win"
+        )
+        self.assertEqual(app.device_suffix("macOS desktop", ""), "Mac")
+        self.assertEqual(
+            app.device_suffix("", "Mozilla/5.0 (X11; Linux x86_64) Firefox/120"), "Linux"
+        )
+        # 安卓 UA 里带 linux、iOS UA 里带 mac os x，都要认对
+        self.assertEqual(
+            app.device_suffix("", "Mozilla/5.0 (Linux; Android 14; Pixel 7) Mobile Safari"),
+            "Android",
+        )
+        self.assertEqual(
+            app.device_suffix("", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)"),
+            "iOS",
+        )
+        self.assertEqual(app.device_suffix("", "curl/8.0"), "")
+
+        # 后缀只接受设备名（大小写不敏感），旧的 WIFI / 5G 认不出就当没选
+        self.assertEqual(app.user_status_save(self.author_id, "auto", "win")["suffix"], "Win")
+        self.assertEqual(app.user_status_save(self.author_id, "auto", "WIFI")["suffix"], "")
+        self.assertEqual(app.user_status_save(self.author_id, "auto", "5G")["suffix"], "")
+        app.user_status_save(self.author_id, "auto", "Win")
+
+        # 窗口内活跃 -> 在线-Win
+        self.assertEqual(
+            app.member_status(self.author_id, app.now_text())["label"], "在线-Win"
+        )
+        # 超过窗口没有活跃 -> 自动变离线，不需要本人再点一次
+        stale = (app.datetime.now() - app.timedelta(minutes=30)).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        self.assertEqual(app.member_status(self.author_id, stale)["label"], "离线")
 
     def test_member_status_is_self_only_and_guests_see_masked_users(self):
         """普通账号只能改自己的状态、写不了自定义文案；游客看到的是脱敏列表且没有状态。"""
         member, responses = self.make_handler(self.author_id, username="author1")
         member.api_site_user_status_save(
-            {"mode": "invisible", "suffix": "5G", "text": "偷偷摸鱼"}
+            {"mode": "invisible", "suffix": "Android", "text": "偷偷摸鱼"}
         )
         self.assertEqual(responses[-1][0], 200)
         self.assertEqual(responses[-1][1]["presence"]["label"], "隐身")

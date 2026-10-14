@@ -1172,8 +1172,9 @@ def init_db():
             );
 
             -- 每个账号在侧栏卡片上自己选的展示状态：user_id = 0 表示站长（Error酱）。
-            -- 「在线 / 在线-WIFI / 在线-5G / 离线」都由活跃时间自动判定，只有 mode = 'invisible'
-            -- 会被记住；suffix 是本人手选的网络后缀，text 只有站长能写。
+            -- 「在线 / 在线-<设备> / 离线」都由活跃时间自动判定，只有 mode = 'invisible'
+            -- 会被记住；suffix 是本人手选的当前设备后缀（Win / Mac / Linux / Android / iOS），
+            -- text 只有站长能写。
             CREATE TABLE IF NOT EXISTS user_status (
                 user_id INTEGER PRIMARY KEY,
                 mode TEXT NOT NULL DEFAULT 'auto',
@@ -5528,10 +5529,38 @@ def sidebar_users(viewer_id=0, masked=False):
 
 # ---------- 侧栏卡片上的展示状态 ----------
 
-# 「在线 / 在线-WIFI / 在线-5G / 离线」都由活跃时间自动判定，只有「隐身」是手动记下来的
+# 「在线 / 在线-<设备> / 离线」都由活跃时间自动判定，只有「隐身」是手动记下来的
 USER_STATUS_MODES = ("auto", "invisible")
-# 本人手选的网络后缀（服务器拿不到网络类型，只能自己挑）；空字符串 = 只显示「在线」
-USER_STATUS_SUFFIXES = ("", "WIFI", "5G")
+# 本人手选的设备后缀（只列出当前设备那一个）；空字符串 = 只显示「在线」
+USER_STATUS_SUFFIXES = ("", "Win", "Mac", "Linux", "Android", "iOS")
+_USER_STATUS_SUFFIX_LOOKUP = {value.lower(): value for value in USER_STATUS_SUFFIXES if value}
+
+
+def normalize_status_suffix(value):
+    """把前端传来的设备后缀归一到标准写法（大小写不敏感，认不出就当没选）。"""
+    return _USER_STATUS_SUFFIX_LOOKUP.get(str(value or "").strip().lower(), "")
+
+
+def device_suffix(hint="", user_agent=""):
+    """把浏览器上报的平台 / UA 映射成状态后缀：Win / Mac / Linux / Android / iOS。
+
+    先看 Sec-CH-UA-Platform，没有再退回 UA；每一份来源里都先判 Windows 与 iOS / Android
+    再判 Mac / Linux —— 安卓的 UA 里带 linux、iOS 的 UA 里带 mac os x，顺序错了会认错。
+    """
+    for source in (str(hint or "").lower(), str(user_agent or "").lower()):
+        if not source:
+            continue
+        if "windows" in source:
+            return "Win"
+        if any(token in source for token in ("iphone", "ipad", "ipod", "ios")):
+            return "iOS"
+        if "android" in source:
+            return "Android"
+        if "mac" in source or "darwin" in source:
+            return "Mac"
+        if "linux" in source or "x11" in source:
+            return "Linux"
+    return ""
 # 站长自定义文案最多几个字（只有站长能用）
 USER_STATUS_MAX_LEN = 12
 # 多久之内有过一次真实页面访问就算「在线」
@@ -5547,10 +5576,9 @@ def user_status_row(user_id):
         (int(user_id or 0),),
     )
     mode = str((row or {}).get("mode") or "auto")
-    suffix = str((row or {}).get("suffix") or "")
     return {
         "mode": mode if mode in USER_STATUS_MODES else "auto",
-        "suffix": suffix if suffix in USER_STATUS_SUFFIXES else "",
+        "suffix": normalize_status_suffix((row or {}).get("suffix")),
         "text": str((row or {}).get("text") or "")[:USER_STATUS_MAX_LEN],
         "updated_at": str((row or {}).get("updated_at") or ""),
     }
@@ -5560,9 +5588,8 @@ def user_status_save(user_id, mode, suffix, text=None):
     """写某个账号的状态；`text` 传 None 表示这一栏不动（普通账号只能改 mode / suffix）。"""
     entry = user_status_row(user_id)
     mode = str(mode or "").strip().lower()
-    suffix = str(suffix or "").strip().upper()
     mode = mode if mode in USER_STATUS_MODES else "auto"
-    suffix = suffix if suffix in USER_STATUS_SUFFIXES else ""
+    suffix = normalize_status_suffix(suffix)
     if text is not None:
         entry["text"] = str(text or "").strip()[:USER_STATUS_MAX_LEN]
     execute(
@@ -7843,7 +7870,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         self.send_json(200, {"limits": upload_limits()})
 
     def api_site_user_status_save(self, payload):
-        """本人设置自己的展示状态：在线 / 在线-WIFI / 在线-5G / 离线 / 隐身。
+        """本人设置自己的展示状态：在线 / 在线-<设备> / 隐身。
 
         「在线 / 离线」都只是回到自动判断（按活跃时间），只有「隐身」会被记住；站长多一个
         自定义文案。任何人都只能改自己的状态 —— 别人的胶囊是只读的。
@@ -14377,11 +14404,21 @@ class InventoryHandler(BaseHTTPRequestHandler):
         列表是登录后才给的（游客那边前端只摆一位并提示登录）。
         """
         identity = self.session_identity()
+        # 当前这台设备读出来是什么（Windows / macOS / Linux / Android / iOS），
+        # 前端只拿它多出一个「在线-Win」这类选项，不多不少
+        viewer_device = device_suffix(
+            self.client_platform(), self.headers.get("User-Agent") or ""
+        )
         if identity is None:
             self.send_json(
                 200,
                 {
-                    "viewer": {"signed_in": False, "name": "游客", "role": "guest"},
+                    "viewer": {
+                        "signed_in": False,
+                        "name": "游客",
+                        "role": "guest",
+                        "device": viewer_device,
+                    },
                     "stats": sidebar_stats(),
                     "covers": sidebar_covers(),
                     "users": sidebar_users(masked=True),
@@ -14415,6 +14452,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "role": str(identity.get("role") or "member"),
                     "admin": bool(is_admin),
                     "registered_days": registered_days,
+                    "device": viewer_device,
                 },
                 "stats": sidebar_stats(),
                 "covers": sidebar_covers(),

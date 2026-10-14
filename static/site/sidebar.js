@@ -193,16 +193,24 @@
    *
    * 在线 / 离线不是看会话（会话能挂好几天，登录着不代表人在），后端按「站长最近一次真实
    * 页面访问」算，10 分钟窗口内有访问就算在线 —— 见 app.py 的 presence_payload()。
-   * 只有本人那一枚是可点的：点开在胶囊下方弹一个小窗口（在线 / 在线-WIFI / 在线-5G /
-   * 离线 / 隐身），站长多一个自定义输入框。别人的胶囊、游客看到的胶囊都只读。
+   * 只有本人那一枚是可点的：点开在胶囊下方弹一个小窗口 —— 在线 / 在线-<当前设备> / 隐身
+   * （设备那一项只有后端认出当前设备时才有，例如 Windows 就只多一个「在线-Win」），站长
+   * 多一个自定义输入框。别人的胶囊、游客看到的胶囊都只读。
    */
-  var PRESENCE_OPTIONS = [
-    { mode: "auto", suffix: "", tone: "online", label: "在线" },
-    { mode: "auto", suffix: "WIFI", tone: "online", label: "在线-WIFI" },
-    { mode: "auto", suffix: "5G", tone: "online", label: "在线-5G" },
-    { mode: "auto", suffix: "", tone: "offline", label: "离线" },
-    { mode: "invisible", suffix: "", tone: "invisible", label: "隐身" },
-  ];
+  function presenceOptions(device) {
+    // 「离线」不在选项里 —— 在线还是离线由系统按活跃时间判，本人只能决定要不要带设备后缀
+    var options = [{ mode: "auto", suffix: "", tone: "online", label: "在线" }];
+    if (device) {
+      options.push({
+        mode: "auto",
+        suffix: device,
+        tone: "online",
+        label: "在线-" + device,
+      });
+    }
+    options.push({ mode: "invisible", suffix: "", tone: "invisible", label: "隐身" });
+    return options;
+  }
   var presenceMenu = null;
   var presenceMenuDismiss = null;
 
@@ -320,7 +328,7 @@
     var menu = el("div", "sb-presence-menu");
     menu.setAttribute("role", "menu");
     menu.dataset.anchor = anchor.dataset.presenceId || "";
-    PRESENCE_OPTIONS.forEach(function (option) {
+    presenceOptions(opts.device).forEach(function (option) {
       var item = el("button", "sb-presence-menu__item");
       item.type = "button";
       if (isCurrentPresence(option, presence)) item.classList.add("is-current");
@@ -383,6 +391,7 @@
         // 只有站长能点开改（自定义输入框也只给站长），游客和普通账号只读
         editable: Boolean(viewer.admin),
         withCustom: Boolean(viewer.admin),
+        device: viewer.device,
         id: "owner",
       })
     );
@@ -444,6 +453,7 @@
         nameRow.appendChild(
           presenceChip(item.presence, {
             editable: Boolean(item.self),
+            device: (data.viewer || {}).device,
             id: "user-" + item.id,
           })
         );
