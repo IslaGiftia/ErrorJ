@@ -5184,3 +5184,59 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 268fd2f1…da
 
 备注：`/moments` 游客默认停在「开发日志」栏（那一栏没有动态卡片），所以线上核对时用
 `?kind=post` 打开「我的动态」栏；这次只调换了两个节点的插入顺序，没有改任何数据字段或样式。
+
+## 122. 2026-10-14 20:30:10 站长新增足迹不推 Webhook、手机端选分类不再闪屏
+
+背景：站长提了两件事 —— ① 自己在足迹页新增标记不要推送通知 Webhook；② 手机端在
+「添加标记 / 编辑标记」里点「一级分类」「二级分类」的输入框时会闪屏，百分百复现，要求检查修复。
+
+完成内容（提交 `110e13c fix:skip-webhook-for-owner-places-and-stop-catpick-flash`，
+4 文件，+65/−9）：
+
+- **站长新增标记不推 Webhook**（`app.py` 的 `api_map_place_create`）：新增标记后的
+  `notify_async("place", ...)` 外面加了一道 `if not self.is_admin()` —— 站长自己的操作不再推到
+  手机 / 群里；`map:write` 是普通账户的默认权限，普通账号新增标记时照旧推送，提醒不会少。
+- **手机端选分类的闪屏**（`static/map.css` + `static/map.js`）：根因是底部面板的进场动画写死在
+  元素上（`animation: mp-catpick-in`），点开的第一帧浏览器偶尔会先按**最终位置**画一次、再跳回
+  起点滑上来，手机上就是「闪一下屏」。改成：面板默认 `transform: translateY(100%)`（屏幕外）
+  并固定成独立图层（`will-change: transform` + `backface-visibility: hidden`），
+  `openCatPick()` 里先显示、再在**下一帧**加 `.is-entering` 触发动画，这样第一帧画的一定是
+  「还在屏幕外」的状态；`closeCatPick()` 顺手清掉这个类，重开还有动画。
+  `prefers-reduced-motion` 下把 `transform` 复位成 `none`，面板直接出现（不会停在屏幕外）。
+- **测试**：新增 `test_admin_map_place_create_skips_webhook`（站长新增 -> `notify_async` 调用 0 次、
+  返回 201；普通账号新增 -> 调用 1 次且事件名是 `place`），共 125 项。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 125 项全过；
+      node --check static/map.js（另跑 moments / messages / recommendations / sidebar）；
+      python -m json.tool config/changelog-seed.json；git diff --check 干净
+      真机断点（412×915 移动端仿真，真触摸事件）逐帧核对分类面板：
+        点下去同一帧 panel.top = 915（= 视口高，完全在屏幕外，没有先闪最终位置）、
+        .is-entering 还没加上；下一帧动画开始（translateY 62px 正在往上滑）；
+        500ms 后 transform 归零、top 565 / bottom 915 贴住底边、列表 5 行；
+        关闭后类被清掉、再打开第一帧同样在屏幕外；
+        prefers-reduced-motion=reduce 时 transform 立刻是 none（面板直接可见、动效关掉）
+      地图页移动端审查（412 / 360 / 1440）：控制台与网络异常 0 条
+提交：110e13c（fetch → pull --rebase → push；local == origin/main == 110e13c）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 1ffda0fb…13bf 一致
+备份：/data/errorjiang-backup/20261014-2031/（停服后复制 inventory.db 4653056 字节
+      与 changelog-seed.json 100442 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only 2787919 -> 110e13c；本轮无表结构变更，未跑 init_db
+      changelog-seed.json 经 install 覆盖；import_changelog_moments.py
+      --date 2026-10-14 --force -> 新增 10 条
+      systemctl restart errorjiang（app.py 有改动，必须重启）
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 110e13c，/api/health = {"ok": true}
+线上前端    -> 服务器 / 本地 / HEAD 逐字节一致：app.py 44f565cf…、map.js bda70b54…、
+              map.css 126913dc…
+更新日志    -> /api/moments 里 2026-10-14 共 11 条（10 条日志 + 1 条动态），最新日志 id=640
+              20:30:10「站长新增足迹不推 Webhook，手机端选分类不再闪屏」
+```
+
+备注：`/map` 对游客关闭、需要登录才能打开新增标记流程，所以分类面板那部分是本地用**同一份前端
+文件**（线上 SHA256 与本机逐字节一致）在移动端仿真里逐帧核对；Webhook 那条由单测直接断言
+`notify_async` 的调用次数覆盖。
