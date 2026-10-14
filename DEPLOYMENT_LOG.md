@@ -5087,3 +5087,54 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 65a485f1…bf
 备注：自动刷新的行为（数据没变不动 DOM、变了就地更新、滚动 / 轮播不被打断、20 秒定时器在跑）
 是在本地用**同一份前端文件**加桩接口逐步验的，线上前端 SHA256 与本机一致；隐身与登录重置的
 服务端规则由单测在真实 SQLite 上覆盖。
+
+## 120. 2026-10-14 15:28:58 留言 / 动态 / 推荐的「更多」按钮改成竖排三个点
+
+背景：站长要求把留言、动态，以及推荐页「网页」和「站内资源」两栏卡片上的「三个点（更多）」
+按钮全部改成竖排三个点，位置不动、视觉对齐不变、不碰任何功能逻辑。
+
+完成内容（提交 `d8326b3 style:use-vertical-ellipsis-for-card-more-buttons`，3 文件，+3/−3）：
+
+- 只换图标名：`data-lucide="ellipsis"` → `data-lucide="ellipsis-vertical"`，三处分别是
+  `static/messages.js`（留言卡片的「更多」）、`static/moments.js`（动态卡片）、
+  `static/recommendations.js` 的 `buildMoreMenu()`。
+- 影响范围正是站长点的两栏：`buildMoreMenu()` 只被 `buildFlatMenu()` 调用，而 `buildFlatMenu()`
+  只挂在 `buildFlatCard()` 上 —— 也就是 `kind` 为 `site` / `tool`（网页与工具）与 `resource`
+  （站内资源）的卡片；电影 / 动漫卡片本来就没有这个按钮，其它页面（笔记 / 书签 / 参考项目等）
+  一行没改。
+- 按钮尺寸与位置来自 CSS（30×30，图标 18×18，移动端 36×36），lucide 图标统一 24×24 viewBox，
+  所以换方向不会改变任何盒模型；菜单结构、点击回调、`aria-*`、hover 显示逻辑全部未动。
+
+部署步骤：
+```text
+本地：node --check static/messages.js / moments.js / recommendations.js；python -m py_compile app.py；
+      python -m unittest discover -s tests -> 124 项全过；git diff --check 干净
+      真浏览器（本地 + 线上）：三个点按钮渲染出的 svg 三个圆点 cx 全为 12、cy 为 5/12/19
+      （竖排），按钮盒 30×30 与改动前一致；点一下菜单照常弹出（留言「删除」、
+      动态「置顶/编辑/删除」、推荐网页与站内均正常）
+提交：d8326b3（fetch → pull --rebase → push；local == origin/main == d8326b3）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 6a2036cc…705b 一致
+备份：/data/errorjiang-backup/20261014-1530/（停服后复制 inventory.db 4591616 字节
+      与 changelog-seed.json 99334 字节；服务器当时没有 WAL / SHM 文件）
+服务器：git pull --ff-only a082e55 -> d8326b3；本轮无表结构变更，未跑 init_db
+      changelog-seed.json 经 install 覆盖；import_changelog_moments.py
+      --date 2026-10-14 --force -> 新增 8 条
+      systemctl restart errorjiang
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = d8326b3，/api/health = {"ok": true}
+线上前端    -> 服务器 / 本地 / HEAD 逐字节一致：messages.js f4f9efc4…、moments.js 9015130e…、
+              recommendations.js 292bacb1…
+更新日志    -> /api/moments 里 2026-10-14 八条 kind=log，最新一条 id=620 15:28:58
+              「留言 / 动态 / 推荐的「更多」按钮改成竖排三个点」
+线上实测    -> 真浏览器（1440×1000）逐页核对：/messages 22 张卡片 22 个按钮全部竖排、
+              点第一个菜单弹出「删除」；/recommendations?view=web 4 张卡 4 个按钮竖排、
+              菜单正常；/recommendations?view=resource 1 张卡 1 个按钮竖排、菜单正常；
+              /moments 游客默认停在「开发日志」（0 张卡片、0 个按钮），该页的竖排效果在本地
+              用管理员身份验过（2 张卡、菜单「置顶 / 编辑 / 删除」）。线上控制台 / 网络异常 0 条
+```
+
+备注：这次是纯图标方向调整，没有动任何 DOM 结构、事件绑定或菜单逻辑；线上核对的是实际下发
+的静态文件（与本机逐字节一致）。
