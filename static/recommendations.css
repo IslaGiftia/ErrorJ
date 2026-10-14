@@ -804,6 +804,16 @@ body[data-notify-module="recommendations"] textarea {
   color: #fff;
   font-size: 13px;
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.28);
+  animation: site-toast-in var(--dur-fast, 160ms)
+    var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)) backwards;
+}
+
+/* 消失：先在原处淡出往下 8px，120ms 后再 hidden（由 toast() 里的定时器收尾） */
+.rec-toast.is-leaving {
+  animation: none;
+  opacity: 0;
+  transform: translate(-50%, 8px);
+  transition: opacity 120ms ease-in, transform 120ms ease-in;
 }
 
 /* 提示条跟着主题走：浅色主题浅底深字，深色主题维持原来的深底白字 */
@@ -1029,6 +1039,17 @@ body[data-notify-module="recommendations"] textarea {
   .rec-card::after {
     animation: none !important;
     transition: none !important;
+  }
+
+  /* toast：关掉位移，只保留淡入淡出 */
+  .rec-toast {
+    animation: site-toast-fade-in var(--dur-fast, 160ms)
+      var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)) backwards;
+  }
+
+  .rec-toast.is-leaving {
+    transform: translateX(-50%);
+    transition: opacity 120ms ease-in;
   }
 }
 

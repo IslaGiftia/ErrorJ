@@ -374,6 +374,12 @@
   }
 }
 
+@keyframes sb-presence-menu-fade {
+  from {
+    opacity: 0;
+  }
+}
+
 .sb-presence.is-online {
   border-color: color-mix(in srgb, #4caf7d 42%, var(--sb-border));
   background: color-mix(in srgb, #4caf7d 12%, var(--sb-surface));
@@ -428,6 +434,24 @@ button.sb-presence:focus-visible {
   background: var(--sb-surface);
   box-shadow: var(--sb-shadow);
   font-size: 13px;
+  /* 菜单是点在胶囊下方弹出来的：原点落在左上角，让它看起来是从胶囊里长出来的 */
+  transform-origin: top left;
+  animation: sb-presence-menu-in var(--dur-fast, 160ms)
+    var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)) both;
+}
+
+@keyframes sb-presence-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+/* 减少动效：小窗口只淡入、不缩放（放在基础规则后面，免得被它盖掉） */
+@media (prefers-reduced-motion: reduce) {
+  .sb-presence-menu {
+    animation-name: sb-presence-menu-fade;
+  }
 }
 
 .sb-presence-menu__item {

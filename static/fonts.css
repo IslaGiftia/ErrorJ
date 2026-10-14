@@ -26,6 +26,24 @@
   --dur-slow: 320ms;
 }
 
+/*
+ * 各页 toast 共用的入场：从下往上 8px 淡入（各页的胶囊底色 / 圆角仍写在各自的类里）。
+ * 元素自己是 translateX(-50%) 居中的，所以关键帧里必须带上这个 -50%，
+ * 只写 translateY 会让 toast 横向跳一下。
+ */
+@keyframes site-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+}
+
+@keyframes site-toast-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
 body {
   font-family: "vivo Sans SC", "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
 }

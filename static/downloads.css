@@ -352,6 +352,16 @@ body {
   border: 1px solid var(--dl-tip-border);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
   z-index: 60;
+  animation: site-toast-in var(--dur-fast, 160ms)
+    var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)) backwards;
+}
+
+/* 消失：先在原处淡出往下 8px，120ms 后再 hidden（由 toast() 里的定时器收尾） */
+.dl-toast.is-leaving {
+  animation: none;
+  opacity: 0;
+  transform: translate(-50%, 8px);
+  transition: opacity 120ms ease-in, transform 120ms ease-in;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -365,6 +375,16 @@ body {
 
   .dl-tab.has-pending {
     animation: none;
+  }
+
+  /* toast：关掉位移，只保留淡入淡出 */
+  .dl-toast {
+    animation-name: site-toast-fade-in;
+  }
+
+  .dl-toast.is-leaving {
+    transform: translateX(-50%);
+    transition: opacity 120ms ease-in;
   }
 }
 

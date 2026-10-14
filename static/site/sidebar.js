@@ -41,6 +41,7 @@
   };
 
   var toastTimer = null;
+  var toastLeaveTimer = null;
   var signedIn = false;
 
   function $(id) {
@@ -73,10 +74,16 @@
     var box = $("toast");
     if (!box) return;
     box.textContent = text;
+    box.classList.remove("is-leaving");
     box.hidden = false;
     clearTimeout(toastTimer);
+    clearTimeout(toastLeaveTimer);
     toastTimer = setTimeout(function () {
-      box.hidden = true;
+      box.classList.add("is-leaving");
+      toastLeaveTimer = setTimeout(function () {
+        box.hidden = true;
+        box.classList.remove("is-leaving");
+      }, 120);
     }, 2600);
   }
 

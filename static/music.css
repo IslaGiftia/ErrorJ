@@ -659,6 +659,16 @@ button.mu-row-cover:focus-visible {
   font-size: 13px;
   box-shadow: var(--mu-shadow);
   transform: translateX(-50%);
+  animation: site-toast-in var(--dur-fast, 160ms)
+    var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)) backwards;
+}
+
+/* 消失：先在原处淡出往下 8px，120ms 后再 hidden（由 toast() 里的定时器收尾） */
+.mu-toast.is-leaving {
+  animation: none;
+  opacity: 0;
+  transform: translate(-50%, 8px);
+  transition: opacity 120ms ease-in, transform 120ms ease-in;
 }
 
 /* 提示条跟着主题走：浅色主题浅底深字，深色主题维持原来的深底白字 */
@@ -760,6 +770,16 @@ button.mu-row-cover:focus-visible {
 
   .mu-row.is-playing .mu-row-cover {
     animation: none;
+  }
+
+  /* toast：关掉位移，只保留淡入淡出 */
+  .mu-toast {
+    animation-name: site-toast-fade-in;
+  }
+
+  .mu-toast.is-leaving {
+    transform: translateX(-50%);
+    transition: opacity 120ms ease-in;
   }
 }
 

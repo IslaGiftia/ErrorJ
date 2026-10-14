@@ -8,6 +8,7 @@
   var FILE_EXTENSIONS = IMAGE_EXTENSIONS.concat([".pdf", ".txt", ".md"]);
   var pendingFiles = [];
   var toastTimer = null;
+  var toastLeaveTimer = null;
   var canPost = false;
   var isAdmin = false;
   // 自定义设备名称的权限点：管理员天然具备，普通账号由站长在账号权限里单独开
@@ -52,10 +53,16 @@
     var box = $("toast");
     if (!box) return;
     box.textContent = text;
+    box.classList.remove("is-leaving");
     box.hidden = false;
     clearTimeout(toastTimer);
+    clearTimeout(toastLeaveTimer);
     toastTimer = setTimeout(function () {
-      box.hidden = true;
+      box.classList.add("is-leaving");
+      toastLeaveTimer = setTimeout(function () {
+        box.hidden = true;
+        box.classList.remove("is-leaving");
+      }, 120);
     }, 2600);
   }
 

@@ -72,13 +72,20 @@
   }
 
   var toastTimer = null;
+  var toastLeaveTimer = null;
   function toast(message) {
     var el = $("musicToast");
     el.textContent = message;
+    el.classList.remove("is-leaving");
     el.hidden = false;
     clearTimeout(toastTimer);
+    clearTimeout(toastLeaveTimer);
     toastTimer = setTimeout(function () {
-      el.hidden = true;
+      el.classList.add("is-leaving");
+      toastLeaveTimer = setTimeout(function () {
+        el.hidden = true;
+        el.classList.remove("is-leaving");
+      }, 120);
     }, 3000);
   }
 

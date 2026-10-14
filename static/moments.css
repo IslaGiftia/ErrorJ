@@ -1250,6 +1250,12 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
   }
 }
 
+@keyframes mo-log-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
 .mo-edit textarea {
   width: 100%;
   min-height: 84px;
@@ -1293,6 +1299,28 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
   border: 1px solid var(--mo-toast-border);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
   z-index: 40;
+  animation: site-toast-in var(--dur-fast, 160ms)
+    var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)) backwards;
+}
+
+/* 消失：先在原处淡出往下 8px，120ms 后再 hidden（由 toast() 里的定时器收尾） */
+.mo-toast.is-leaving {
+  animation: none;
+  opacity: 0;
+  transform: translate(-50%, 8px);
+  transition: opacity 120ms ease-in, transform 120ms ease-in;
+}
+
+/* 减少动效：toast 只淡入淡出、不做位移 */
+@media (prefers-reduced-motion: reduce) {
+  .mo-toast {
+    animation-name: site-toast-fade-in;
+  }
+
+  .mo-toast.is-leaving {
+    transform: translateX(-50%);
+    transition: opacity 120ms ease-in;
+  }
 }
 
 .mo-icon-btn {
@@ -1714,6 +1742,12 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
   display: none;
 }
 
+/* 展开时轻轻淡入（和单条明细同一套；收起仍是瞬间） */
+.mo-log-month-body:not([hidden]) {
+  animation: mo-log-open var(--dur-fast, 160ms)
+    var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)) backwards;
+}
+
 .mo-log-month-body::before {
   content: "";
   position: absolute;
@@ -1811,6 +1845,27 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
 
 .mo-log-body[hidden] {
   display: none;
+}
+
+/* 展开时轻轻淡入（收起仍是瞬间——收起来就该立刻消失，不该拖。） */
+.mo-log-body:not([hidden]) {
+  animation: mo-log-open var(--dur-fast, 160ms)
+    var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)) backwards;
+}
+
+@keyframes mo-log-open {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/* 减少动效：折叠只淡入、不做位移（放在基础规则后面，免得被后面的规则盖掉） */
+@media (prefers-reduced-motion: reduce) {
+  .mo-log-body:not([hidden]),
+  .mo-log-month-body:not([hidden]) {
+    animation-name: mo-log-fade-in;
+  }
 }
 
 .mo-log-items {

@@ -58,6 +58,7 @@
     lastColumnCount: 0,
   };
   var toastTimer = null;
+  var toastLeaveTimer = null;
 
   function $(id) {
     return document.getElementById(id);
@@ -99,10 +100,16 @@
   function toast(text) {
     var box = $("recToast");
     box.textContent = text;
+    box.classList.remove("is-leaving");
     box.hidden = false;
     clearTimeout(toastTimer);
+    clearTimeout(toastLeaveTimer);
     toastTimer = setTimeout(function () {
-      box.hidden = true;
+      box.classList.add("is-leaving");
+      toastLeaveTimer = setTimeout(function () {
+        box.hidden = true;
+        box.classList.remove("is-leaving");
+      }, 120);
     }, 2400);
   }
 

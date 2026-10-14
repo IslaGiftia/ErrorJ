@@ -58,14 +58,21 @@
 
   var landingToast = document.getElementById("landingToast");
   var landingToastTimer = null;
+  var landingToastLeaveTimer = null;
 
   function showLandingToast(message) {
     if (!landingToast) return;
     landingToast.textContent = message;
+    landingToast.classList.remove("is-leaving");
     landingToast.hidden = false;
     clearTimeout(landingToastTimer);
+    clearTimeout(landingToastLeaveTimer);
     landingToastTimer = setTimeout(function () {
-      landingToast.hidden = true;
+      landingToast.classList.add("is-leaving");
+      landingToastLeaveTimer = setTimeout(function () {
+        landingToast.hidden = true;
+        landingToast.classList.remove("is-leaving");
+      }, 120);
     }, 2200);
   }
 

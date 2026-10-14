@@ -16,9 +16,19 @@
   var pending = null;
 
   style.textContent = [
-    ".site-back-top{position:fixed;right:22px;bottom:var(--site-back-top-bottom,22px);z-index:39;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;border:1px solid rgba(123,104,238,.52);border-radius:50%;background:#6d5be8;color:#fff;box-shadow:0 10px 24px rgba(80,60,200,.32);cursor:pointer;transition:bottom .18s ease,opacity .18s ease,transform .18s ease}",
+    /*
+     * 显隐走 opacity / transform，不用 display：
+     * 以前 [hidden] 是 display:none，下面那条 transition 永远不会播放，按钮是硬闪进出。
+     * visibility:hidden 一样会把它移出可聚焦与无障碍树，但元素仍保留布局盒，
+     * positionButton() 里读布局的代码不受影响。
+     */
+    /*
+     * visibility 也放进过渡列表：否则隐藏那一刻它立刻生效，透明度那 160ms 的淡出就看不见了
+     * （visibility 会在过渡结束后才真正切成 hidden）。
+     */
+    ".site-back-top{position:fixed;right:22px;bottom:var(--site-back-top-bottom,22px);z-index:39;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;border:1px solid rgba(123,104,238,.52);border-radius:50%;background:#6d5be8;color:#fff;box-shadow:0 10px 24px rgba(80,60,200,.32);cursor:pointer;opacity:1;transform:none;transition:bottom var(--dur-fast, 160ms) var(--ease-out-strong, cubic-bezier(0.23,1,0.32,1)),opacity var(--dur-fast, 160ms) var(--ease-out-strong, cubic-bezier(0.23,1,0.32,1)),transform var(--dur-fast, 160ms) var(--ease-out-strong, cubic-bezier(0.23,1,0.32,1)),visibility var(--dur-fast, 160ms) var(--ease-out-strong, cubic-bezier(0.23,1,0.32,1))}",
     ".site-back-top:hover{transform:translateY(-2px)}",
-    ".site-back-top[hidden]{display:none!important}",
+    ".site-back-top[hidden]{visibility:hidden;opacity:0;transform:translateY(4px);pointer-events:none}",
     ".site-back-top svg{width:20px;height:20px}",
     "@media(max-width:640px){.site-back-top{right:14px;width:42px;height:42px}}",
     "@media(prefers-reduced-motion:reduce){.site-back-top{transition:none}}",
