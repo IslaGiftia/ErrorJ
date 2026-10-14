@@ -874,11 +874,18 @@ class InteractionTests(unittest.TestCase):
                VALUES (?, 'member', '/messages', 200, ?, '作者甲')""",
             (view_stamp, self.author_id),
         )
-        users = app.sidebar_users(self.author_id)
-        rows = {item["id"]: item for item in users["items"]}
+        # 「注册 N 天 · X 前活跃」只有管理员看得到
+        admin_view = app.sidebar_users(self.author_id, viewer_is_admin=True)
+        rows = {item["id"]: item for item in admin_view["items"]}
         self.assertEqual(rows[self.author_id]["last_login_at"], login_stamp)
         self.assertEqual(rows[self.author_id]["last_view_at"], view_stamp)
         self.assertEqual(rows[self.other_id]["last_view_at"], "")
+        # 普通账号视角不下发这几个字段（连自己那行也没有）
+        member_view = app.sidebar_users(self.author_id)
+        for item in member_view["items"]:
+            self.assertNotIn("last_view_at", item)
+            self.assertNotIn("last_login_at", item)
+            self.assertNotIn("registered_days", item)
 
     def test_status_invisible_suffix_and_owner_custom_text(self):
         """状态：只有「隐身」会被记住；在线 / 离线按活跃时间自动判；后缀只影响在线。"""
@@ -904,7 +911,8 @@ class InteractionTests(unittest.TestCase):
         owner.api_site_user_status_save(
             {"mode": "auto", "suffix": "Win", "text": ""}
         )
-        self.assertEqual(app.owner_status()["label"], "在线-Win")
+        # 有设备后缀时胶囊里只显示设备名（仍然是绿色的在线）
+        self.assertEqual(app.owner_status()["label"], "Win")
         self.assertEqual(app.owner_status()["tone"], "online")
 
         # 隐身会盖住在线
@@ -942,9 +950,9 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(app.user_status_save(self.author_id, "auto", "5G")["suffix"], "")
         app.user_status_save(self.author_id, "auto", "Win")
 
-        # 窗口内活跃 -> 在线-Win
+        # 窗口内活跃 -> 胶囊里显示设备名
         self.assertEqual(
-            app.member_status(self.author_id, app.now_text())["label"], "在线-Win"
+            app.member_status(self.author_id, app.now_text())["label"], "Win"
         )
         # 超过窗口没有活跃 -> 自动变离线，不需要本人再点一次
         stale = (app.datetime.now() - app.timedelta(minutes=30)).strftime(
@@ -976,14 +984,49 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(rows[self.author_id]["presence"]["label"], "隐身")
         self.assertEqual(rows[self.other_id]["presence"]["label"], "离线")
 
-        # 游客：用户名脱敏、时间脱敏、不下发任何人的状态
+        # 隐身给本人和管理员看，普通账号看到的一律是「离线」，接口里也翻不出隐身
+        others = app.sidebar_users(self.other_id)
+        other_rows = {item["id"]: item for item in others["items"]}
+        invisible_row = other_rows[self.author_id]["presence"]
+        self.assertEqual(invisible_row["label"], "离线")
+        self.assertEqual(invisible_row["tone"], "offline")
+        self.assertEqual(invisible_row["mode"], "auto")
+        # 管理员看得到别人真实的橘色「隐身」
+        admin_rows = {
+            item["id"]: item
+            for item in app.sidebar_users(viewer_is_admin=True)["items"]
+        }
+        self.assertEqual(admin_rows[self.author_id]["presence"]["label"], "隐身")
+        self.assertEqual(admin_rows[self.author_id]["presence"]["tone"], "invisible")
+        # 站长设隐身时，访客看到的 Error酱 也是「离线」，站长自己看才是「隐身」
+        app.user_status_save(0, "invisible", "", None)
+        self.assertEqual(app.owner_status_for(True)["label"], "隐身")
+        self.assertEqual(app.owner_status_for(False)["label"], "离线")
+        app.user_status_save(0, "auto", "", None)
+
+        # 游客：用户名脱敏、只给脱敏名字，不下发任何人的状态、也不给注册 / 活跃时间
         guests = app.sidebar_users(masked=True)
         self.assertEqual(guests["scope"], "masked")
         self.assertTrue(guests["items"])
         for item in guests["items"]:
             self.assertTrue(item["masked"])
             self.assertNotIn("presence", item)
+            self.assertNotIn("registered_days", item)
+            self.assertNotIn("last_view_at", item)
             self.assertTrue(item["name"].startswith("*"))
+
+        # 未通过审核的账号不进这张卡
+        stamp = app.now_text()
+        pending_id = app.execute(
+            """INSERT INTO users
+                   (username, nickname, password_hash, status, role, created_at, updated_at)
+               VALUES (?, ?, ?, 'pending', 'member', ?, ?)""",
+            ("pending9", "待审核的", "hash", stamp, stamp),
+        )
+        after = app.sidebar_users(masked=True)
+        self.assertNotIn(pending_id, [item.get("id") for item in after["items"]])
+        admin_after = app.sidebar_users(viewer_is_admin=True)
+        self.assertNotIn(pending_id, [item["id"] for item in admin_after["items"]])
 
         # 游客不能设置状态
         guest = object.__new__(app.InventoryHandler)

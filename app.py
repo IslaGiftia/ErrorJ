@@ -5466,40 +5466,41 @@ def sidebar_covers(limit=SIDEBAR_COVER_LIMIT):
     return items[:limit]
 
 
-def sidebar_users(viewer_id=0, masked=False):
-    """左下「注册账户」卡片：管理员和普通账号看到的是同一份前 5 个账号。
+def sidebar_users(viewer_id=0, masked=False, viewer_is_admin=False):
+    """左下「注册账户」卡片：只放**已通过审核**的账号，最多 5 行。
 
-    - **普通账号也能看到别人**（用户名、注册天数、最近活跃），不再只显示自己。
-    - **游客也看得到这张卡**，但用户名脱敏（保留最后一个字）、注册天数与活跃时间的数字
-      整段换成 `**`，而且不下发任何人的状态 —— 游客只能看到左上「Error酱」那一枚状态胶囊。
+    - 管理员和普通账号看到同一份前 5 个账号、每行都带状态胶囊，但「注册 N 天 · X 前活跃」
+      那一行**只有管理员看得到**（普通账号连自己那行也不显示）。
+    - **游客也看得到这张卡**，但用户名脱敏（只保留最后一个字），不显示注册 / 活跃时间，
+      也不下发任何人的状态 —— 游客只能看到左上「Error酱」那一枚状态胶囊。
     - 普通账号如果不在前 5 里，会把自己那行补在最前面，否则他没地方点自己的状态胶囊。
       站长（viewer_id = 0）不在 users 表里，本来就不会也不需要出现在这张卡上。
     """
     rows = query(
-        """SELECT id, username, nickname, status, created_at, last_login_at
-           FROM users WHERE status IN ('approved', 'pending')
-           ORDER BY CASE status WHEN 'approved' THEN 0 ELSE 1 END, id DESC
+        """SELECT id, username, nickname, created_at, last_login_at
+           FROM users WHERE status = 'approved'
+           ORDER BY id DESC
            LIMIT ?""",
         (SIDEBAR_USER_LIMIT,),
     )
     if viewer_id:
         if int(viewer_id) not in [int(row["id"]) for row in rows]:
             mine = query_one(
-                """SELECT id, username, nickname, status, created_at, last_login_at
-                   FROM users WHERE id = ?""",
+                """SELECT id, username, nickname, created_at, last_login_at
+                   FROM users WHERE id = ? AND status = 'approved'""",
                 (int(viewer_id),),
             )
             if mine:
                 rows = [mine] + rows[: max(0, SIDEBAR_USER_CARD_LIMIT - 1)]
     rows = rows[:SIDEBAR_USER_CARD_LIMIT]
     if masked:
+        # 游客：只给脱敏用户名，不给任何时间信息、不给状态
         return {
             "scope": "masked",
             "total": len(rows),
             "items": [
                 {
                     "name": mask_username(row.get("nickname") or row.get("username")),
-                    "status": str(row.get("status") or ""),
                     "masked": True,
                 }
                 for row in rows
@@ -5510,20 +5511,22 @@ def sidebar_users(viewer_id=0, masked=False):
     for row in rows:
         user_id = int(row["id"])
         last_view = last_views.get(user_id, "")
-        items.append(
-            {
-                "id": user_id,
-                "name": str(row.get("nickname") or row.get("username") or "普通用户"),
-                "username": str(row.get("username") or ""),
-                "status": str(row.get("status") or ""),
-                "registered_days": days_since(row.get("created_at")),
-                "last_login_at": str(row.get("last_login_at") or ""),
-                # 最近一次真实页面访问（access_log）：用来把「多久没来了」说准
-                "last_view_at": last_view,
-                "presence": member_status(user_id, last_view),
-                "self": bool(viewer_id) and user_id == int(viewer_id),
-            }
-        )
+        is_self = bool(viewer_id) and user_id == int(viewer_id)
+        item = {
+            "id": user_id,
+            "name": str(row.get("nickname") or row.get("username") or "普通用户"),
+            # 隐身只给本人和管理员看：普通账号、访客看到的一律是「离线」
+            "presence": member_status(
+                user_id, last_view, is_self or viewer_is_admin
+            ),
+            "self": is_self,
+        }
+        if viewer_is_admin:
+            # 「注册 N 天 · X 前活跃」只有管理员看得到
+            item["registered_days"] = days_since(row.get("created_at"))
+            item["last_login_at"] = str(row.get("last_login_at") or "")
+            item["last_view_at"] = last_view
+        items.append(item)
     return {"scope": "all", "total": len(items), "items": items}
 
 
@@ -5620,7 +5623,8 @@ def presence_payload(entry, online, last_active):
         tone, label = "offline", "离线"
     else:
         tone = "online"
-        label = "在线" + ("-" + entry["suffix"] if entry["suffix"] else "")
+        # 有设备后缀时胶囊里只显示设备名（Win / Mac / Linux / Android / iOS），仍然是绿色的「在线」
+        label = entry["suffix"] or "在线"
     return {
         "tone": tone,
         "label": label,
@@ -5631,6 +5635,18 @@ def presence_payload(entry, online, last_active):
         "last_active_at": str(last_active or ""),
         "updated_at": entry["updated_at"],
     }
+
+
+def presence_for_viewer(presence, revealed):
+    """隐身只给「本人」和「管理员」看：普通账号与访客看到的一律是灰色的「离线」。
+
+    不可见时把 mode / suffix / text 一起抹掉，免得接口里还能翻出「他其实在隐身」。
+    """
+    if revealed or presence.get("mode") != "invisible":
+        return presence
+    masked = dict(presence)
+    masked.update({"tone": "offline", "label": "离线", "mode": "auto", "suffix": "", "text": ""})
+    return masked
 
 
 def owner_last_active():
@@ -5644,19 +5660,30 @@ def owner_last_active():
 
 
 def owner_status():
-    """右上「Error酱」卡片的状态。"""
+    """右上「Error酱」卡片的状态（站长本人视角）。"""
+    return owner_status_for(True)
+
+
+def owner_status_for(revealed):
+    """右上「Error酱」卡片的状态；`revealed` = 看的人能不能看到隐身的真实状态。"""
     last_active = owner_last_active()
     entry = user_status_row(0)
-    return presence_payload(
-        entry, is_recent_time(last_active, ONLINE_WINDOW_MINUTES * 60), last_active
+    return presence_for_viewer(
+        presence_payload(
+            entry, is_recent_time(last_active, ONLINE_WINDOW_MINUTES * 60), last_active
+        ),
+        revealed,
     )
 
 
-def member_status(user_id, last_view=""):
+def member_status(user_id, last_view="", revealed=True):
     """某个注册账号的状态（`last_view` 由调用方批量查好后传进来）。"""
     entry = user_status_row(user_id)
-    return presence_payload(
-        entry, is_recent_time(last_view, ONLINE_WINDOW_MINUTES * 60), last_view
+    return presence_for_viewer(
+        presence_payload(
+            entry, is_recent_time(last_view, ONLINE_WINDOW_MINUTES * 60), last_view
+        ),
+        revealed,
     )
 
 
@@ -14423,7 +14450,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "covers": sidebar_covers(),
                     "users": sidebar_users(masked=True),
                     "activities": sidebar_activities(),
-                    "presence": owner_status(),
+                    # 游客不是站长本人：站长设了隐身的话，游客看到的是「离线」
+                    "presence": owner_status_for(False),
                 },
             )
             return
@@ -14456,9 +14484,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 },
                 "stats": sidebar_stats(),
                 "covers": sidebar_covers(),
-                "users": sidebar_users(viewer_id),
+                "users": sidebar_users(
+                    viewer_id, viewer_is_admin=is_admin
+                ),
                 "activities": sidebar_activities(),
-                "presence": owner_status(),
+                "presence": owner_status_for(
+                    identity.get("kind") in ("owner", "admin")
+                ),
             },
         )
 

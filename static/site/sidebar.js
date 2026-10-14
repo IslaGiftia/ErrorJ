@@ -4,7 +4,7 @@
  * 数据来自 /api/site/sidebar：
  *   左上 基础信息卡（Error酱 头像 + 在线状态 + 已加入天数 + 注册 / 留言 / 动态 三项统计）
  *     状态：在线 / 离线按站长最近一次真实页面访问算；站长点一下可以自定义一句状态
- *   左下 注册账户卡（管理员看前 5 个账号，普通账号只看自己，游客只占一位并提示「登录后展示」）
+ *   左下 注册账户卡（只放已通过审核的账号、最多 5 行；游客只有脱敏用户名、看不到任何状态胶囊）
  *   右上 资源封面卡（歌曲 / 电子书封面，只有图片、渐隐渐出轮播）
  *   右下 更新日志卡（管理员的上传 / 发布类更新，前 8 条，点击跳转）
  *
@@ -213,23 +213,66 @@
   }
   var presenceMenu = null;
   var presenceMenuDismiss = null;
+  // 节点没进文档量不出宽度，所以侧栏渲染完再统一处理滚动
+  var marqueeReady = false;
+
+  /*
+   * 文字比文字区宽时，克隆一份拼成首尾相接的轨道，匀速往左循环；靠两端遮罩做渐隐渐显。
+   * 鼠标悬停在胶囊上会暂停（见 sidebar.css 的 animation-play-state）。
+   */
+  function setupMarquee(box) {
+    var track = box.querySelector(".sb-presence__track");
+    var text = box.querySelector(".sb-presence__text");
+    if (!track || !text || box.classList.contains("is-scrolling")) return;
+    if (text.scrollWidth <= box.clientWidth + 1) return;
+    var gap = el("span", "sb-presence__gap");
+    var clone = text.cloneNode(true);
+    clone.classList.add("sb-presence__text--clone");
+    clone.setAttribute("aria-hidden", "true");
+    track.append(gap, clone, gap.cloneNode(false));
+    box.classList.add("is-scrolling");
+    var half = track.scrollWidth / 2;
+    // 大约每秒 18px，太快看不清、太慢像卡住；限定在 2.6s ~ 9s
+    var seconds = Math.min(9, Math.max(2.6, half / 18));
+    box.style.setProperty("--sb-presence-duration", seconds.toFixed(2) + "s");
+  }
+
+  function setupMarquees(root) {
+    Array.prototype.forEach.call(
+      root.querySelectorAll(".sb-presence--fixed .sb-presence__scroll"),
+      setupMarquee
+    );
+  }
 
   function presenceChip(presence, options) {
     var opts = options || {};
     var node = document.createElement(opts.editable ? "button" : "span");
     node.className = "sb-presence";
+    // 左下卡片里的胶囊统一尺寸、右对齐成一列，文字放不下就在圆点和右边框之间无缝滚动
+    if (opts.fixed) node.classList.add("sb-presence--fixed");
     if (opts.editable) node.type = "button";
     if (opts.id) node.dataset.presenceId = String(opts.id);
     var dot = el("span", "sb-presence__dot");
     dot.setAttribute("aria-hidden", "true");
+    var box = el("span", "sb-presence__scroll");
+    var track = el("span", "sb-presence__track");
     var label = el("span", "sb-presence__text");
-    node.append(dot, label);
+    track.appendChild(label);
+    box.appendChild(track);
+    node.append(dot, box);
     var state = {};
 
     function paint(next) {
       state = next || {};
       var text = String(state.label || "离线");
       label.textContent = text;
+      // 滚过一次就把克隆份去掉，内容变了要重新量
+      Array.prototype.slice
+        .call(track.querySelectorAll(".sb-presence__text--clone, .sb-presence__gap"))
+        .forEach(function (extra) {
+          extra.remove();
+        });
+      box.classList.remove("is-scrolling");
       node.classList.remove("is-online", "is-offline", "is-invisible");
       node.classList.add("is-" + (state.tone || "offline"));
       node.classList.toggle("is-custom", Boolean(state.text));
@@ -238,6 +281,7 @@
       } else {
         node.title = text;
       }
+      if (opts.fixed && marqueeReady) setupMarquee(box);
     }
 
     paint(presence);
@@ -421,12 +465,13 @@
   /* ---------------- 左下：注册账户卡 ---------------- */
 
   /*
-   * 每行第二句：
-   * - 游客看到的是脱敏版 —— 用户名保留最后一个字、注册天数与活跃时间的数字和单位整段隐去；
-   * - 登录账号看真实值（活跃时间取「最近访问 / 最近登录」里更晚的那个）。
+   * 每行第二句「注册 N 天 · X 前活跃」**只有管理员看得到**（活跃时间取「最近访问 /
+   * 最近登录」里更晚的那个）。普通账号连自己那行也不显示，游客那边后端压根不下发这几个字段，
+   * 所以这里拿不到数据就整行不渲染。
    */
   function userSubText(item) {
-    if (item.masked) return "注册 ** 天 · **前活跃";
+    if (item.masked) return "";
+    if (!item.registered_days && !item.last_view_at && !item.last_login_at) return "";
     var pieces = [];
     if (item.registered_days) pieces.push("注册 " + item.registered_days + " 天");
     pieces.push(activityText(item));
@@ -454,16 +499,16 @@
           presenceChip(item.presence, {
             editable: Boolean(item.self),
             device: (data.viewer || {}).device,
+            // 左下卡片的胶囊固定尺寸、右对齐成一列：装不下就在胶囊里无缝滚动
+            fixed: true,
             id: "user-" + item.id,
           })
         );
       }
       main.appendChild(nameRow);
-      main.appendChild(el("div", "sb-user-row__sub", userSubText(item)));
+      var sub = userSubText(item);
+      if (sub) main.appendChild(el("div", "sb-user-row__sub", sub));
       row.appendChild(main);
-      if (item.status === "pending") {
-        row.appendChild(el("span", "sb-chip", "待审核"));
-      }
       built.body.appendChild(row);
     });
     return built.root;
@@ -658,6 +703,8 @@
     left.append(buildProfile(data), buildUsers(data));
     right.append(buildCovers(data), buildLogs(data));
     refreshIcons();
+    marqueeReady = true;
+    setupMarquees(left);
   }
 
   fetch("/api/site/sidebar", { cache: "no-store" })

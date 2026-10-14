@@ -248,7 +248,7 @@
   white-space: nowrap;
 }
 
-/* 「Error酱」名字 + 状态胶囊：名字过长时让状态保持在右边不被挤掉 */
+/* 名字 + 状态胶囊：名字过长时让胶囊保持在右边不被挤掉 */
 .sb-user__namerow {
   display: flex;
   align-items: center;
@@ -282,6 +282,14 @@
   overflow: hidden;
 }
 
+/*
+ * 左下卡片里的胶囊统一尺寸（文字区就是「在线」两个字的宽度），所以不管里面是
+ * 「在线」还是「Win」，方块大小完全一致，左边缘自然也对齐成一列。
+ */
+.sb-presence--fixed {
+  max-width: none;
+}
+
 .sb-presence__dot {
   flex: 0 0 auto;
   width: 6px;
@@ -290,9 +298,80 @@
   background: var(--sb-faint);
 }
 
+/*
+ * 文字区：固定成「在线」两个字的宽度，装不下的文字（例如 Win / Linux / Android、
+ * 或者更长的自定义文案）在这个窗口里无缝向左循环，两端做渐隐渐显。
+ */
+.sb-presence__scroll {
+  position: relative;
+  flex: 0 0 auto;
+  width: calc(2em + 1px);
+  overflow: hidden;
+}
+
+.sb-presence__track {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
 .sb-presence__text {
+  flex: 0 0 auto;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.sb-presence__gap {
+  flex: 0 0 auto;
+  width: 1.4em;
+}
+
+/* 放得下就居中显示，不做任何遮罩，免得把字的两端削掉 */
+.sb-presence__scroll:not(.is-scrolling) {
+  display: flex;
+  justify-content: center;
+}
+
+/* 放不下才滚：两端各留一条渐隐带（文字碰到圆点 / 右边框时淡出淡入） */
+.sb-presence__scroll.is-scrolling {
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 6px,
+    #000 calc(100% - 6px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 6px,
+    #000 calc(100% - 6px),
+    transparent 100%
+  );
+}
+
+.sb-presence__scroll.is-scrolling .sb-presence__track {
+  animation: sbPresenceScroll var(--sb-presence-duration, 4s) linear infinite;
+}
+
+@keyframes sbPresenceScroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* 鼠标放上去暂停，方便看清 */
+.sb-presence:hover .sb-presence__track {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sb-presence__scroll.is-scrolling .sb-presence__track {
+    animation: none;
+  }
 }
 
 .sb-presence.is-online {
@@ -504,19 +583,13 @@ button.sb-presence:focus-visible {
   white-space: nowrap;
 }
 
-.sb-chip {
-  flex: 0 0 auto;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--sb-accent-soft);
-  color: var(--sb-accent);
-  font-size: 0.846em;
-  white-space: nowrap;
-}
-
 /* ---------- 状态胶囊（左上 Error酱 + 左下每个账号） ---------- */
 
-/* 名字 + 胶囊：名字过长时让胶囊保持在右边不被挤掉 */
+/*
+ * 名字 + 胶囊：名字过长时让胶囊保持在右边不被挤掉。
+ * 左上 Error酱 那枚跟着名字排；左下卡片里那几枚靠 margin-left: auto 顶到行尾，
+ * 于是所有胶囊左边缘 / 右边缘都对齐成一列。
+ */
 .sb-user-row__namerow {
   display: flex;
   align-items: center;
@@ -527,6 +600,10 @@ button.sb-presence:focus-visible {
 .sb-user-row__namerow .sb-user-row__name {
   flex: 0 1 auto;
   min-width: 0;
+}
+
+.sb-user-row__namerow .sb-presence {
+  margin-left: auto;
 }
 
 /* ---------- 右上：资源封面卡（只有图片，渐隐渐出） ---------- */
