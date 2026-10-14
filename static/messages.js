@@ -412,6 +412,8 @@
       if (result && result.daily_limit) {
         applyQuota(result.daily_limit, result.daily_remaining);
       }
+      // 左上卡片的三项统计立刻跟上（不等侧栏下一轮轮询）
+      if (window.ErrorSidebar) window.ErrorSidebar.refresh();
       return loadMessages();
     }).catch(function (err) {
       if (sendBusy.canceled || ErrorProgress.isAborted(err)) {

@@ -331,6 +331,8 @@
       pendingImages = [];
       renderPending();
       toast("已发布");
+      // 左上卡片的三项统计立刻跟上（不等侧栏下一轮轮询）
+      if (window.ErrorSidebar) window.ErrorSidebar.refresh();
       return loadMoments();
     }).catch(function (err) {
       if (publishBusy.canceled || ErrorProgress.isAborted(err)) {

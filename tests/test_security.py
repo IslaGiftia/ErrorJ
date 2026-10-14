@@ -888,34 +888,36 @@ class InteractionTests(unittest.TestCase):
             self.assertNotIn("registered_days", item)
 
     def test_status_invisible_suffix_and_owner_custom_text(self):
-        """状态：只有「隐身」会被记住；在线 / 离线按活跃时间自动判；后缀只影响在线。"""
+        """状态：只有「隐身」会被记住；它和自定义文案都只在人还在活跃窗口内时才显示。"""
         self.assertEqual(app.owner_status()["label"], "离线")
         self.assertEqual(app.owner_status()["tone"], "offline")
 
-        # 站长可以写自定义文案（同一次请求就把状态回到自动）
+        # 站长可以写自定义文案
         owner, owner_responses = self.make_handler(0, kind="owner", username="管理员")
         owner.api_site_user_status_save({"mode": "auto", "suffix": "", "text": "摸鱼中"})
         self.assertEqual(owner_responses[-1][0], 200)
-        self.assertEqual(app.owner_status()["label"], "摸鱼中")
-        # 文案在的时候圆点仍然表示真实的在线 / 离线（这里没有访问记录 -> 灰点）
-        self.assertEqual(app.owner_status()["tone"], "offline")
         self.assertEqual(app.owner_status()["text"], "摸鱼中")
+        # 没有访问记录 = 人不在：文案也不显示，就是「离线」
+        self.assertEqual(app.owner_status()["label"], "离线")
 
-        # 有访问记录 -> 在线；选当前设备后缀就拼在后面
+        # 有访问记录 -> 在线，文案才显示出来
         app.execute(
             """INSERT INTO access_log
                    (created_at, actor_kind, path, status, user_id, actor_name)
                VALUES (?, 'owner', '/messages', 200, 0, '管理员')""",
             (app.now_text(),),
         )
+        self.assertEqual(app.owner_status()["label"], "摸鱼中")
+        self.assertEqual(app.owner_status()["tone"], "online")
+
+        # 选当前设备后缀，胶囊里就只显示设备名
         owner.api_site_user_status_save(
             {"mode": "auto", "suffix": "Win", "text": ""}
         )
-        # 有设备后缀时胶囊里只显示设备名（仍然是绿色的在线）
         self.assertEqual(app.owner_status()["label"], "Win")
         self.assertEqual(app.owner_status()["tone"], "online")
 
-        # 隐身会盖住在线
+        # 隐身盖住在线（人在活跃窗口内才成立）
         owner.api_site_user_status_save({"mode": "invisible", "suffix": ""})
         self.assertEqual(app.owner_status()["label"], "隐身")
         self.assertEqual(app.owner_status()["tone"], "invisible")
@@ -923,6 +925,18 @@ class InteractionTests(unittest.TestCase):
         # 点「在线」只是取消隐身；没有后缀就只显示「在线」
         owner.api_site_user_status_save({"mode": "auto", "suffix": "", "text": ""})
         self.assertEqual(app.owner_status()["label"], "在线")
+
+        # 隐身但到点没操作 = 真的离线，不会一直挂着隐身
+        owner.api_site_user_status_save({"mode": "invisible", "suffix": ""})
+        stale = (app.datetime.now() - app.timedelta(minutes=30)).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        self.assertEqual(app.member_status(0, stale)["label"], "离线")
+        self.assertEqual(app.member_status(0, stale)["tone"], "offline")
+        # 重新登录后回到默认的「在线」
+        app.reset_status_on_login(0)
+        self.assertEqual(app.user_status_row(0)["mode"], "auto")
+        self.assertEqual(app.member_status(0, app.now_text())["label"], "在线")
 
     def test_status_suffix_only_for_the_detected_device_and_expires_to_offline(self):
         """后缀只认当前设备那一项；「在线」不是手动固定，过了活跃窗口就自动变「离线」。"""
@@ -962,6 +976,13 @@ class InteractionTests(unittest.TestCase):
 
     def test_member_status_is_self_only_and_guests_see_masked_users(self):
         """普通账号只能改自己的状态、写不了自定义文案；游客看到的是脱敏列表且没有状态。"""
+        # 先在站内有访问记录（人确实在线），隐身才成立
+        app.execute(
+            """INSERT INTO access_log
+                   (created_at, actor_kind, path, status, user_id, actor_name)
+               VALUES (?, 'member', '/messages', 200, ?, '作者甲')""",
+            (app.now_text(), self.author_id),
+        )
         member, responses = self.make_handler(self.author_id, username="author1")
         member.api_site_user_status_save(
             {"mode": "invisible", "suffix": "Android", "text": "偷偷摸鱼"}
@@ -971,12 +992,6 @@ class InteractionTests(unittest.TestCase):
         # 普通账号没有自定义权限，提交的文案被忽略
         self.assertEqual(app.user_status_row(self.author_id)["text"], "")
 
-        app.execute(
-            """INSERT INTO access_log
-                   (created_at, actor_kind, path, status, user_id, actor_name)
-               VALUES (?, 'member', '/messages', 200, ?, '作者甲')""",
-            (app.now_text(), self.author_id),
-        )
         users = app.sidebar_users(self.author_id)
         rows = {item["id"]: item for item in users["items"]}
         self.assertTrue(rows[self.author_id]["self"])
@@ -998,10 +1013,19 @@ class InteractionTests(unittest.TestCase):
         }
         self.assertEqual(admin_rows[self.author_id]["presence"]["label"], "隐身")
         self.assertEqual(admin_rows[self.author_id]["presence"]["tone"], "invisible")
-        # 站长设隐身时，访客看到的 Error酱 也是「离线」，站长自己看才是「隐身」
+        # 站长设隐身时（且在活跃窗口内），访客看到的 Error酱 也是「离线」，
+        # 站长自己看才是「隐身」；站长离开活跃窗口后对谁都是「离线」
+        app.execute(
+            """INSERT INTO access_log
+                   (created_at, actor_kind, path, status, user_id, actor_name)
+               VALUES (?, 'owner', '/messages', 200, 0, '管理员')""",
+            (app.now_text(),),
+        )
         app.user_status_save(0, "invisible", "", None)
         self.assertEqual(app.owner_status_for(True)["label"], "隐身")
         self.assertEqual(app.owner_status_for(False)["label"], "离线")
+        app.execute("DELETE FROM access_log WHERE actor_kind = 'owner'")
+        self.assertEqual(app.owner_status_for(True)["label"], "离线")
         app.user_status_save(0, "auto", "", None)
 
         # 游客：用户名脱敏、只给脱敏名字，不下发任何人的状态、也不给注册 / 活跃时间

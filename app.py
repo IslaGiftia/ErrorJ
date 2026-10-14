@@ -5611,16 +5611,17 @@ def user_status_save(user_id, mode, suffix, text=None):
 def presence_payload(entry, online, last_active):
     """把「自己选的状态 + 是否最近活跃」拼成前端直接画的状态对象。
 
-    显示优先级：隐身 > 站长自定义文案 > 在线[-后缀] / 离线。
+    「隐身」只在人还在活跃窗口内时才成立 —— 到点没操作就是真的离线了，直接显示「离线」，
+    不会一直挂着隐身。显示优先级：离线 > 隐身（在线时）> 站长自定义文案 > 在线[-设备名]。
     自定义文案在的时候，圆点仍然表示真实的在线 / 离线。
     """
-    if entry["mode"] == "invisible":
+    if not online:
+        tone, label = "offline", "离线"
+    elif entry["mode"] == "invisible":
         tone, label = "invisible", "隐身"
     elif entry["text"]:
-        tone = "online" if online else "offline"
+        tone = "online"
         label = entry["text"]
-    elif not online:
-        tone, label = "offline", "离线"
     else:
         tone = "online"
         # 有设备后缀时胶囊里只显示设备名（Win / Mac / Linux / Android / iOS），仍然是绿色的「在线」
@@ -5647,6 +5648,12 @@ def presence_for_viewer(presence, revealed):
     masked = dict(presence)
     masked.update({"tone": "offline", "label": "离线", "mode": "auto", "suffix": "", "text": ""})
     return masked
+
+
+def reset_status_on_login(user_id):
+    """重新登录之后状态回到默认：清掉「隐身」和手选的设备后缀（站长自定义文案保留）。"""
+    entry = user_status_row(user_id)
+    user_status_save(user_id, "auto", "", entry["text"])
 
 
 def owner_last_active():
@@ -7899,8 +7906,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_site_user_status_save(self, payload):
         """本人设置自己的展示状态：在线 / 在线-<设备> / 隐身。
 
-        「在线 / 离线」都只是回到自动判断（按活跃时间），只有「隐身」会被记住；站长多一个
-        自定义文案。任何人都只能改自己的状态 —— 别人的胶囊是只读的。
+        「在线 / 离线」都只是回到自动判断（按活跃时间），只有「隐身」会被记住 —— 而且隐身
+        只在人还在活跃窗口内时成立，到点没操作就显示「离线」（见 presence_payload）；
+        站长多一个自定义文案。任何人都只能改自己的状态 —— 别人的胶囊是只读的。
         """
         identity = self.session_identity()
         if identity is None:
@@ -8073,6 +8081,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?",
                 (now_text(), now_text(), user["id"]),
             )
+            # 重新登录后状态回到默认的「在线」（清掉隐身 / 设备后缀）
+            reset_status_on_login(user["id"])
             self.log_activity(
                 "login", "登录成功", target_type="user", target_id=user["id"], actor=identity
             )
@@ -8093,6 +8103,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "username": "管理员",
                 "role": "owner",
             }
+            # 重新登录后状态回到默认的「在线」（清掉隐身 / 设备后缀）
+            reset_status_on_login(0)
             self.log_activity("login", "管理员登录成功", actor=identity)
         login_succeeded(identifier)
         days = AUTH_SESSION_DAYS_REMEMBER if payload.get("remember") else AUTH_SESSION_DAYS

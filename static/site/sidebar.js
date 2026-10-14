@@ -215,6 +215,20 @@
   var presenceMenuDismiss = null;
   // 节点没进文档量不出宽度，所以侧栏渲染完再统一处理滚动
   var marqueeReady = false;
+  // 自动刷新：卡片节点、状态胶囊、三个统计数字都留着引用，好就地更新
+  var POLL_INTERVAL = 20000;
+  var pollTimer = null;
+  var lastSignature = "";
+  var lastUsersSignature = "";
+  var lastCoversSignature = "";
+  var lastLogsSignature = "";
+  var profileCard = null;
+  var usersCard = null;
+  var coversCard = null;
+  var logsCard = null;
+  var ownerChip = null;
+  var statNodes = [];
+  var userRows = [];
 
   /*
    * 文字比文字区宽时，克隆一份拼成首尾相接的轨道，匀速往左循环；靠两端遮罩做渐隐渐显。
@@ -265,6 +279,18 @@
     function paint(next) {
       state = next || {};
       var text = String(state.label || "离线");
+      // 内容没变就一个 DOM 原子都不碰：轮询刷新时不能把滚动动画、悬停状态重置掉
+      if (
+        node.dataset.painted === "1" &&
+        label.textContent === text &&
+        node.dataset.tone === String(state.tone || "offline") &&
+        node.dataset.text === String(state.text || "")
+      ) {
+        return;
+      }
+      node.dataset.painted = "1";
+      node.dataset.tone = String(state.tone || "offline");
+      node.dataset.text = String(state.text || "");
       label.textContent = text;
       // 滚过一次就把克隆份去掉，内容变了要重新量
       Array.prototype.slice
@@ -285,6 +311,9 @@
     }
 
     paint(presence);
+
+    // 轮询刷新时只重画内容，不动节点（保留滚动动画与悬停状态）
+    node.__sbPaint = paint;
 
     if (!opts.editable) return node;
 
@@ -445,6 +474,7 @@
     body.appendChild(userRow);
 
     var grid = el("div", "sb-stats");
+    statNodes = [];
     [
       ["注册", stats.user_total || 0],
       ["留言", stats.message_total || 0],
@@ -452,7 +482,9 @@
     ].forEach(function (pair) {
       var box = el("div", "sb-stat");
       // 数字在上、文字在下
-      box.appendChild(el("span", "sb-stat__value", pair[1]));
+      var value = el("span", "sb-stat__value", pair[1]);
+      statNodes.push(value);
+      box.appendChild(value);
       box.appendChild(el("span", "sb-stat__label", pair[0]));
       grid.appendChild(box);
     });
@@ -482,6 +514,7 @@
     var items = data.users && Array.isArray(data.users.items) ? data.users.items : [];
     // 标题右边不再显示注册用户总数
     var built = card("注册账户", "", true);
+    userRows = [];
 
     if (!items.length) {
       built.body.appendChild(el("div", "sb-user-row__name", "还没有注册账号。"));
@@ -494,20 +527,25 @@
       nameRow.appendChild(el("span", "sb-user-row__name", item.name));
       // 状态胶囊：游客那边后端根本不下发（游客只看得到左上「Error酱」那一枚）；
       // 登录账号里，只有自己那一枚可点，别人的只读。
+      var chip = null;
       if (item.presence) {
-        nameRow.appendChild(
-          presenceChip(item.presence, {
-            editable: Boolean(item.self),
-            device: (data.viewer || {}).device,
-            // 左下卡片的胶囊固定尺寸、右对齐成一列：装不下就在胶囊里无缝滚动
-            fixed: true,
-            id: "user-" + item.id,
-          })
-        );
+        chip = presenceChip(item.presence, {
+          editable: Boolean(item.self),
+          device: (data.viewer || {}).device,
+          // 左下卡片的胶囊固定尺寸、右对齐成一列：装不下就在胶囊里无缝滚动
+          fixed: true,
+          id: "user-" + item.id,
+        });
+        nameRow.appendChild(chip);
       }
       main.appendChild(nameRow);
       var sub = userSubText(item);
-      if (sub) main.appendChild(el("div", "sb-user-row__sub", sub));
+      var subNode = null;
+      if (sub) {
+        subNode = el("div", "sb-user-row__sub", sub);
+        main.appendChild(subNode);
+      }
+      userRows.push({ chip: chip, sub: subNode, main: main });
       row.appendChild(main);
       built.body.appendChild(row);
     });
@@ -700,12 +738,162 @@
     signedIn = Boolean(data.viewer.signed_in);
     left.textContent = "";
     right.textContent = "";
-    left.append(buildProfile(data), buildUsers(data));
-    right.append(buildCovers(data), buildLogs(data));
+    profileCard = buildProfile(data);
+    usersCard = buildUsers(data);
+    coversCard = buildCovers(data);
+    logsCard = buildLogs(data);
+    left.append(profileCard, usersCard);
+    right.append(coversCard, logsCard);
     refreshIcons();
     marqueeReady = true;
     setupMarquees(left);
+    ownerChip = profileCard.querySelector(".sb-presence");
+    lastSignature = sidebarSignature(data);
+    lastUsersSignature = usersSignature(data);
+    lastCoversSignature = coversSignature(data);
+    lastLogsSignature = logsSignature(data);
+    startPolling();
   }
+
+  /*
+   * 四个卡片的自动刷新。
+   *
+   * 轮询本身很便宜：先比签名，数据没变就直接返回，一个 DOM 原子都不碰 ——
+   * 这样封面轮播、胶囊里的滚动动画、悬停状态都不会被重置（之前的闪烁就是这么来的）。
+   * 变了才按卡片分别处理：数字就地改文字、胶囊只重画内容、名单 / 封面 / 日志变了才整卡重建。
+   */
+  function sidebarSignature(data) {
+    return JSON.stringify([
+      data.stats || null,
+      data.presence ? [data.presence.label, data.presence.tone, data.presence.text] : null,
+      ((data.users && data.users.items) || []).map(function (item) {
+        return [
+          item.id || item.name,
+          item.name,
+          item.self || false,
+          item.presence ? item.presence.label + "|" + item.presence.tone : "",
+          item.registered_days || "",
+          activityText(item),
+        ];
+      }),
+      (data.covers || []).map(function (item) {
+        return item.cover_url;
+      }).join(","),
+      coversSignature(data),
+      logsSignature(data),
+    ]);
+  }
+
+  function coversSignature(data) {
+    return JSON.stringify(
+      (((data || {}).covers) || []).map(function (item) {
+        return item.cover_url + "|" + (item.href || "");
+      })
+    );
+  }
+
+  function logsSignature(data) {
+    return JSON.stringify(
+      (((data || {}).activities) || []).map(function (item) {
+        return item.id + "|" + item.label + "|" + (item.target || "");
+      })
+    );
+  }
+
+  function usersSignature(data) {
+    return JSON.stringify(
+      (((data || {}).users || {}).items || []).map(function (item) {
+        return [item.id || item.name, item.name, item.self || false, item.masked || false];
+      })
+    );
+  }
+
+  function patchPresence(node, presence) {
+    if (node && typeof node.__sbPaint === "function") node.__sbPaint(presence);
+  }
+
+  function replaceCard(oldNode, newNode) {
+    if (!oldNode || !oldNode.parentNode) return newNode;
+    oldNode.parentNode.replaceChild(newNode, oldNode);
+    return newNode;
+  }
+
+  function patch(data) {
+    // 正在选状态就先别动 DOM，免得把弹出的小窗口弄掉，下一个周期再说
+    if (presenceMenu) return;
+    var stats = data.stats || {};
+    [stats.user_total, stats.message_total, stats.moment_total].forEach(
+      function (value, index) {
+        var node = statNodes[index];
+        if (!node) return;
+        var text = String(value || 0);
+        if (node.textContent !== text) node.textContent = text;
+      }
+    );
+    patchPresence(ownerChip, data.presence);
+    var items = (data.users && data.users.items) || [];
+    var nextUsers = usersSignature(data);
+    if (nextUsers !== lastUsersSignature) {
+      usersCard = replaceCard(usersCard, buildUsers(data));
+      lastUsersSignature = nextUsers;
+      setupMarquees(left);
+    } else {
+      items.forEach(function (item, index) {
+        var row = userRows[index];
+        if (!row) return;
+        patchPresence(row.chip, item.presence);
+        var sub = userSubText(item);
+        if (row.sub) {
+          if (row.sub.textContent !== sub) row.sub.textContent = sub;
+        } else if (sub && row.main) {
+          row.sub = el("div", "sb-user-row__sub", sub);
+          row.main.appendChild(row.sub);
+        }
+      });
+    }
+    var coversKey = coversSignature(data);
+    if (coversKey !== lastCoversSignature) {
+      coversCard = replaceCard(coversCard, buildCovers(data));
+      lastCoversSignature = coversKey;
+    }
+    var logsKey = logsSignature(data);
+    if (logsKey !== lastLogsSignature) {
+      logsCard = replaceCard(logsCard, buildLogs(data));
+      lastLogsSignature = logsKey;
+    }
+    refreshIcons();
+  }
+
+  function refresh() {
+    if (!marqueeReady) return Promise.resolve();
+    return fetch("/api/site/sidebar", { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (data) {
+        if (!data || !data.viewer) return;
+        var next = sidebarSignature(data);
+        if (next === lastSignature) return;
+        patch(data);
+        lastSignature = next;
+      })
+      .catch(function () {});
+  }
+
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = window.setInterval(function () {
+      if (document.hidden) return;
+      refresh();
+    }, POLL_INTERVAL);
+  }
+
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) refresh();
+  });
+  window.addEventListener("focus", refresh);
+  // 页面里发完留言 / 动态可以直接调它，让左上统计和左下状态立刻跟上
+  window.ErrorSidebar = { refresh: refresh };
 
   fetch("/api/site/sidebar", { cache: "no-store" })
     .then(function (response) {
