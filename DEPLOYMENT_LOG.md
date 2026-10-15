@@ -5566,3 +5566,73 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 一致
 ```
 
 备注：同样是纯资源替换，入口的行为（角标、提示、跳转、主题切换）与上一轮完全一致。
+
+## 128. 2026-10-15 08:58:15 提示条统一成圆角矩形与同一底色、设备来源改成只认系统
+
+背景：站长提了三件事 —— ① 游客点没权限的入口时，提示条形状不一致（首页「足迹」入口是方形，
+上面四个大模块是椭圆胶囊），要求统一成带圆角的矩形；② 暗色模式下各页提示条填充色不一样
+（推荐页不是纯黑，别的页面接近纯黑），要求统一成推荐页那种、不要纯黑；③ 手机端首页游客点四个
+大模块时提示文案会折行，要求做移动端优化让它一行放下。另外要更新站内「参考项目」，并且
+**不要**再写「截至某月某日」这种文案。最后一起发布。
+
+完成内容（提交 `f9547cb fix:unify-toast-shape-and-dark-fill-and-detect-os-only`，18 文件，+79/−30）：
+
+- **形状统一成 8px 圆角矩形**：`.landing-toast`（首页，原本是最早的 `border-radius: 999px` 胶囊）
+  与 `.rec-toast`（推荐页）改成 8px，`.nt-toast`（笔记）也顺带从 999px 改成 8px；
+  其余提示条（足迹入口 / 留言 / 动态 / 歌曲 / 书籍 / 书签 / 地图 / 推荐下载页）本来就是 8px。
+- **暗色填充统一成 `#20232a`**（推荐页原来的颜色，不再是近黑）：足迹入口 `.dock-map-toast`
+  （原 `#0f0f10`）、留言 `--mg-toast-bg`、动态 `--mo-toast-bg`、书签 `--pin-toast-bg`、
+  地图 `--mp-toast-bg`、笔记 `--nt-toast-bg`、歌曲 `.mu-toast`（原 `#252a34`）、
+  书籍 `.bk-toast`（原 `#252a34`）、推荐下载页 `--dl-tip-bg`（原 `#2b2b31`）、
+  旧页面的 `--toast-bg`（原 `#0f0f0f`）；首页 `.landing-toast` 原来是跟着 `--panel` 的
+  半透明面板色，现在暗色固定 `#20232a`、浅色补一条 `:root:not([data-theme="dark"])` 的白底深字
+  （和其余提示条同一套写法）。
+- **手机端不折行**：`.landing-toast` 是绝对定位 + `left: 50%`，shrink-to-fit 会被压成「半个屏幕宽」，
+  12 个字就折行；改成 `width: max-content` + `max-width: calc(100vw - 28px)`，
+  放得下时永远一行，真超宽才折。
+- **设备来源只认系统**（`app.py` 的 `device_info_label()`）：从原来只分「鸿蒙 / Android / iOS / Web」
+  改成按系统判定 —— 鸿蒙（OpenHarmony / HarmonyOS，卡片上仍写「鸿蒙」）→ Android → iOS
+  （含 iPadOS 13+ 把自己报成 Macintosh 的新版 UA，靠 `Mobile` 认出来）→ ChromeOS → Windows →
+  macOS → Linux → 兜底「来自 Web」；只认系统、不认浏览器（Chrome / Firefox / Edge / QQ 浏览器
+  在电脑上都是「来自 Windows」）。测试补了 macOS / Linux / ChromeOS / iPad 新 UA 四个用例，
+  其余断言（空 UA、非浏览器 UA 记「来自 Web」）不变。
+- **「参考项目」更新**（`static/references.html`）：删掉两处「截至 2026-10-13」式文案
+  （正文开头与源码仓库那条），改成不带日期的写法，「2026-10 的几轮重构」也改成「近几轮重构」；
+  功能描述末尾补上设备来源与提示条这两件事。
+
+部署步骤：
+```text
+本地：python -m unittest discover -s tests -> 125 项全过；node --check static/messages.js；
+      python -m json.tool config/changelog-seed.json；git diff --check 干净
+      浏览器逐项核对（Chrome CDP，deviceScaleFactor 2，桌面 1440 与手机 360 / 390）：
+        把六种提示条分别注入页面量计算样式（文案用「该模块仅管理员可以访问。」）：
+          首页 .landing-toast / 足迹 .dock-map-toast / 留言 .mg-toast / 推荐 .rec-toast /
+          歌曲 .mu-toast / 笔记 .nt-toast -> 全部 border-radius = 8px
+        暗色：六种的计算背景色全是 rgb(32, 35, 42)（= #20232a）；浅色：白底深字
+              rgba(255, 255, 255, 0.97) / rgb(27, 31, 39)
+        手机 360×640 与 390×844：首页提示条 190px 宽、高度 41px = 一行，完全落在视口内
+        控制台与异常 0 条
+      设备标签用 18 条真实 UA 过了一遍（Windows / macOS / Linux / ChromeOS / iPhone /
+        iPad 新旧 UA / Android / 鸿蒙 4 / 鸿蒙 5 / 空 UA / curl），结果与预期一致
+提交：f9547cb（fetch → pull --rebase → push；local == origin/main == f9547cb）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 一致
+备份：/data/errorjiang-backup/20261015-0900/（inventory.db 与 changelog-seed.json）
+服务器：git pull --ff-only -> f9547cb；本轮无表结构变更，未跑 init_db
+      changelog-seed.json 经 install 覆盖；import_changelog_moments.py
+      --date 2026-10-15 --force -> 新增 4 条（当天累计）
+      systemctl restart errorjiang（app.py 有改动，必须重启）
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = f9547cb，/api/health = {"ok": true}
+线上前端    -> 服务器 / 本地 / 公网 HTTPS 抓取逐字节一致：site.css、map-dock.css、messages.css、
+              moments.css、music.css、recommendations.css、notes.css、books.css、bookmarks.css、
+              map.css、downloads.css、styles.css、app.py
+更新日志    -> /api/moments 里 2026-10-15 共 4 条，最新一条 08:58:15
+              「提示条统一成圆角矩形与同一底色、设备来源改成只认系统」
+线上逐帧    -> 提示条 8px 圆角 + #20232a、手机一行；新留言的设备来源按系统显示
+```
+
+备注：设备来源是发布那一刻写进数据库的文本，历史留言 / 动态不会跟着变（数据库里没存原始 UA），
+只有新发的内容是新文案 —— 这一点也在站内更新日志里对用户写明了。
