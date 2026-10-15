@@ -2394,10 +2394,23 @@ class ComplianceWorkflowTests(unittest.TestCase):
         self.assertEqual(app.LOG_RETENTION_DAYS, 180)
 
     def test_device_info_label_and_normalize(self):
-        """UA 自动识别：鸿蒙优先，其次 Android / iOS，电脑端记「来自 Web」。"""
+        """UA 自动识别只认系统：鸿蒙 / Android / iOS 优先，其次 ChromeOS / Windows / macOS / Linux。"""
         windows = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0"
         android = "Mozilla/5.0 (Linux; Android 14; Pixel 7) Mobile Safari/537.36"
         iphone = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148"
+        ipad_new = (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+            "(KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+        )
+        mac = (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+            "(KHTML, like Gecko) Version/18.0 Safari/605.1.15"
+        )
+        linux = "Mozilla/5.0 (X11; Linux x86_64; rv:142.0) Gecko/20100101 Firefox/142.0"
+        chromeos = (
+            "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
+        )
         # 鸿蒙 4.x 及以下的 UA 里同时带 Android，必须优先判成鸿蒙
         harmony4 = (
             "Mozilla/5.0 (Linux; Android 12; HarmonyOS; ALN-AL80; HMSCore 6.12.0.302) "
@@ -2408,9 +2421,13 @@ class ComplianceWorkflowTests(unittest.TestCase):
             "Mozilla/5.0 (Phone; OpenHarmony 5.0) AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/114.0.0.0 Safari/537.36 ArkWeb/4.1.6.1 Mobile"
         )
-        self.assertEqual(app.device_info_label(windows), "来自 Web")
+        self.assertEqual(app.device_info_label(windows), "来自 Windows")
         self.assertEqual(app.device_info_label(android), "来自 Android")
         self.assertEqual(app.device_info_label(iphone), "来自 iOS")
+        self.assertEqual(app.device_info_label(ipad_new), "来自 iOS")
+        self.assertEqual(app.device_info_label(mac), "来自 macOS")
+        self.assertEqual(app.device_info_label(linux), "来自 Linux")
+        self.assertEqual(app.device_info_label(chromeos), "来自 ChromeOS")
         self.assertEqual(app.device_info_label(harmony4), "来自 鸿蒙")
         self.assertEqual(app.device_info_label(open_harmony), "来自 鸿蒙")
         self.assertEqual(app.device_info_label("harmonyos"), "来自 鸿蒙")

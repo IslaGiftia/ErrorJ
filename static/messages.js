@@ -1016,7 +1016,8 @@
     var head = el("div", "mg-item-head");
     head.appendChild(el("span", "mg-nick", message.nickname || "匿名"));
     head.appendChild(el("span", "mg-time", formatTime(message.created_at)));
-    // 设备信息（来自 鸿蒙 / Android / iOS / Web，或管理员自定义的名称）
+    // 设备信息（自动识别成「来自 Windows / macOS / Linux / 鸿蒙 / Android / iOS / ChromeOS」，
+    // 认不出记「来自 Web」；有 site:device_name 权限的账号也可以自定义名称）
     if (message.device_info) {
       head.appendChild(el("span", "mg-device", message.device_info));
     }

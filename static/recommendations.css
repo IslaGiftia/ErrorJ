@@ -799,7 +799,7 @@ body[data-notify-module="recommendations"] textarea {
   max-width: min(560px, calc(100vw - 24px));
   padding: 10px 16px;
   transform: translateX(-50%);
-  border-radius: 999px;
+  border-radius: 8px;
   background: #20232a;
   color: #fff;
   font-size: 13px;

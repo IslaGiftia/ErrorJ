@@ -1669,7 +1669,7 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
         ):
             if column not in music_columns:
                 conn.execute(ddl)
-        # 「设备信息」：留言和动态都记录一条「来自 Web / Android / iOS」或管理员自定义的名称
+        # 「设备信息」：留言和动态都记录一条「来自 <系统>」或管理员自定义的名称
         for table in ("site_messages", "moments"):
             table_columns = {
                 row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
@@ -6208,19 +6208,31 @@ def describe_user_agent(user_agent):
 
 def device_info_label(user_agent):
     """
-    留言 / 动态卡片上展示的「设备信息」自动识别结果，按 UA 关键字依次判断：
-    鸿蒙（OpenHarmony / HarmonyOS，鸿蒙 4.x 及以下的 UA 同时带 Android，必须先判）→
-    Android → iOS → 其它（电脑端）统一记「来自 Web」。
+    留言 / 动态卡片上展示的「设备信息」自动识别结果：只认系统，不认浏览器。
+    判断顺序有讲究：
+      鸿蒙（OpenHarmony / HarmonyOS，鸿蒙 4.x 及以下的 UA 同时带 Android，必须先判；卡片上写「鸿蒙」）→
+      Android（它的 UA 里同时带 Linux）→ iOS（iPhone / iPad / iPod）→
+      iPadOS 13+ 的新 UA 会把自己报成 Macintosh，靠同一个 UA 里的 Mobile 认出来（先于 macOS）→
+      ChromeOS（带 CrOS）→ Windows → macOS → Linux →
+      认不出来（含空 UA）就记「来自 Web」。
     """
     text = str(user_agent or "")
-    if re.search(r"OpenHarmony", text, re.I):
-        return "来自 鸿蒙"
-    if re.search(r"HarmonyOS", text, re.I):
+    if re.search(r"OpenHarmony|HarmonyOS", text, re.I):
         return "来自 鸿蒙"
     if re.search(r"Android", text, re.I):
         return "来自 Android"
     if re.search(r"iPhone|iPad|iPod", text, re.I):
         return "来自 iOS"
+    if re.search(r"Macintosh", text, re.I) and re.search(r"Mobile", text, re.I):
+        return "来自 iOS"
+    if re.search(r"CrOS", text):
+        return "来自 ChromeOS"
+    if re.search(r"Windows", text, re.I):
+        return "来自 Windows"
+    if re.search(r"Macintosh|Mac OS X", text, re.I):
+        return "来自 macOS"
+    if re.search(r"Linux", text, re.I):
+        return "来自 Linux"
     return "来自 Web"
 
 
@@ -11225,7 +11237,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
         留言 / 动态要落库的「设备信息」：
         要不要公开由提交时的 show_device 开关决定（和「IP属地」一样是可选项，默认不公开，
         不公开时落空串、卡片上不显示）；文案一律由服务端按 User-Agent 自动识别
-        （来自 鸿蒙 / Android / iOS / Web）；只有具备 `site:device_name` 权限的账号
+        （来自 Windows / macOS / Linux / 鸿蒙 / Android / iOS / ChromeOS，认不出记「来自 Web」）；
+        只有具备 `site:device_name` 权限的账号
         （管理员天然具备，也可以在「工作台 → 账号权限」里单独开放给普通账号）
         能用 payload 里的 device_info 覆盖成自定义名称，其他人传了也一律忽略，
         防止普通账号或游客伪造设备名称。

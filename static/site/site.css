@@ -757,14 +757,31 @@ img {
   transform: translateX(-50%);
   padding: 9px 16px;
   border: 1px solid var(--line);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
-  color: var(--text);
+  /*
+   * 全站提示条统一成 8px 圆角矩形（这里原来是最早的胶囊形），
+   * 暗色填充也统一成跟推荐页一样的 #20232a，不再用近黑的底色。
+   */
+  border-radius: 8px;
+  border-color: transparent;
+  background: #20232a;
+  color: #ffffff;
   font-size: 13px;
   box-shadow: var(--shadow);
   backdrop-filter: blur(10px);
+  /*
+   * 绝对定位元素的 shrink-to-fit 会被 left:50% 限制成「半个屏幕宽」，
+   * 手机上十二个字就会折行；max-content 让它先按一行铺开，再用 max-width 兜底。
+   */
+  width: max-content;
+  max-width: calc(100vw - 28px);
   animation: site-toast-in var(--dur-fast, 160ms)
     var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)) backwards;
+}
+
+:root:not([data-theme="dark"]) .landing-toast {
+  background: rgba(255, 255, 255, 0.97);
+  color: #1b1f27;
+  border-color: rgba(24, 31, 45, 0.14);
 }
 
 /* 消失：先在原处淡出往下 8px，120ms 后再 hidden（由 showLandingToast() 里的定时器收尾） */

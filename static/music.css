@@ -654,7 +654,7 @@ button.mu-row-cover:focus-visible {
   max-width: min(480px, calc(100vw - 32px));
   padding: 10px 16px;
   border-radius: 8px;
-  background: #252a34;
+  background: #20232a;
   color: #fff;
   font-size: 13px;
   box-shadow: var(--mu-shadow);

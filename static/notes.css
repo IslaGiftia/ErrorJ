@@ -38,7 +38,7 @@
   --nt-code-bg: #1f1f23;
   --nt-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
   --nt-backdrop: rgba(0, 0, 0, 0.62);
-  --nt-toast-bg: #0f0f10;
+  --nt-toast-bg: #20232a;
   --nt-h1: #a78bfa;
   --nt-h2: #45c7b8;
   --nt-h3: #e0a458;
@@ -1146,7 +1146,7 @@ button:disabled {
   transform: translateX(-50%);
   max-width: min(90vw, 460px);
   padding: 9px 16px;
-  border-radius: 999px;
+  border-radius: 8px;
   background: var(--nt-toast-bg);
   color: #fff;
   font-size: 13px;
