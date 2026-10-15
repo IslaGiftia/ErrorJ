@@ -5636,3 +5636,59 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 一致
 
 备注：设备来源是发布那一刻写进数据库的文本，历史留言 / 动态不会跟着变（数据库里没存原始 UA），
 只有新发的内容是新文案 —— 这一点也在站内更新日志里对用户写明了。
+
+## 129. 2026-10-15 09:29:07 首页主题按钮刷新不闪旧图标、PING / FPS 贴紧足迹入口
+
+背景：站长报了两件事 —— ① 首页刷新时，右上角切换浅色 / 暗色的按钮会短暂显示「之前的图标」；
+② PING / FPS 离下面的足迹入口太远。要求检查修复，改完发布。
+
+完成内容（提交 `6c47c44 fix:kill-theme-toggle-icon-flash-and-tighten-hud-gap`，5 文件，+58/−14）：
+
+- **主题按钮首屏图标**：先用逐帧记录复现了原来的时序（`#themeGlyph` 的每帧内容）：
+  深色 `◑` → `☾` → 月亮 SVG；浅色 `◑` → `☀` → 太阳 SVG；
+  跟随系统 + 系统深色 `◑` → **`☀`（主题是深色却亮着太阳）** → 月亮 SVG。两个原因：
+  按钮 HTML 里写死的占位字形是 `◑`（首帧一定先画它），以及 `site.js` 的 `applyTheme()`
+  用「偏好」而不是「解析后的深色状态」挑图标，`auto + 系统深色` 就会先亮成太阳、
+  等 morphicons 模块加载完才被改回月亮。修法：
+  HTML 占位符改成同时放 `<span class="theme-glyph__sun">☀</span>` 与
+  `<span class="theme-glyph__moon">☾</span>`，由 `site.css` 按 `html[data-theme]` 选显示哪个
+  （首页 `<head>` 的内联主题脚本在 body 解析前就定下主题，所以**第一帧就是对的图标**）；
+  `site.js` 改用 `dark ? "moon" : "sun"`。改后时序：深色 `☾` → 月亮 SVG，
+  浅色 `☀` → 太阳 SVG，`auto + 系统深色` `☾` → 月亮 SVG（不再出现太阳）。
+- **PING / FPS 贴紧入口**（`static/site/map-dock.css`）：线稿图最上面约 8% 是透明的，
+  而 HUD 的位置原来是「入口整高 + 固定 10px」，所以它到画面**实际可见**顶边的距离被撑到
+  20 / 22 / 25 / 27px（1440 / 1920 / 2560 / 3200），屏幕越大越远。改成
+  `入口高度 × 0.92 + 8px`，四个断点（含 640px 那条）统一，间距恒定 8px。
+- 文档：`README.md` 里还残留的两段「圆形小地图入口 / 圆盘」描述（上一轮换线稿图时漏改）补成
+  现在的线稿入口 + 贴紧的 PING / FPS 描述。
+
+部署步骤：
+```text
+本地：python -m unittest discover -s tests -> 125 项全过；node --check static/site/site.js；
+      python -m json.tool config/changelog-seed.json；git diff --check 干净
+      浏览器逐帧核对（Chrome CDP，本地与线上各一遍）：
+        主题按钮：从文档最开始逐帧记录 #themeGlyph（只看 CSS 真正显示出来的那个字形）
+                  深色/浅色/跟随系统+系统深色三种情况，首帧就是 ☾ / ☀ / ☾，然后换成同名 SVG
+        点击切换：dark -> light -> dark，图标与 title 跟着走，形变动画正常
+        HUD 间距：1440 / 1920 / 2560 / 3200 四个视口，面板下沿到画面可见顶边都是 8px
+                  （修复前分别是 20 / 22 / 25 / 27px）
+提交：6c47c44（fetch → pull --rebase → push；local == origin/main == 6c47c44）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 一致
+备份：/data/errorjiang-backup/20261015-0930/（inventory.db 与 changelog-seed.json）
+服务器：git pull --ff-only -> 6c47c44；本轮无表结构变更，未跑 init_db
+      changelog-seed.json 经 install 覆盖；import_changelog_moments.py
+      --date 2026-10-15 --force -> 新增 5 条（当天累计）
+      本轮只动 static/ 下的前端文件与文档，app.py 没改，未重启 errorjiang
+```
+
+验证结果：
+```text
+服务        -> errorjiang / nginx 全部 active，服务器 HEAD = 6c47c44，/api/health = {"ok": true}
+线上前端    -> 服务器 / 本地 / 公网 HTTPS 抓取逐字节一致：site.html、site.css、site.js、map-dock.css
+更新日志    -> /api/moments 里 2026-10-15 共 5 条，最新一条 09:29:07
+              「首页主题按钮刷新不再闪旧图标、PING / FPS 贴紧足迹入口」
+线上逐帧    -> 主题按钮首帧就是当前主题的图标（不再闪 ◑ 或太阳）；HUD 间距 8px；点击切换正常
+```
+
+备注：主题按钮的占位符现在是「两个字形 + CSS 选择」，不依赖 JS 也能显示正确图标；
+morphicons 模块接管后换成同名 SVG，视觉上只差字形换成矢量，不会出现别的图标。
