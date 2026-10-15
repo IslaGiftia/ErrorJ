@@ -14,10 +14,14 @@
     } catch (err) {}
     var glyph = document.getElementById("themeGlyph");
     if (glyph) {
-      // 有 morphicons 就渲染成太阳/月亮图标并做形变；没有则保留原来的文字字形兜底
-      var iconName = pref === "dark" ? "moon" : "sun";
+      /*
+       * 图标跟的是「最终是深色还是浅色」，不是偏好本身：
+       * 「跟随系统」+ 系统深色时 pref 是 auto、主题却是深色，按 pref 判断会亮成太阳，
+       * 等 morphicons 模块加载完再被改回月亮 —— 刷新时看到的那一下闪就是这个。
+       */
+      var iconName = dark ? "moon" : "sun";
       if (!(window.ErrorMorph && window.ErrorMorph.morph(glyph, iconName))) {
-        glyph.textContent = pref === "dark" ? "☾" : "☀";
+        glyph.textContent = dark ? "☾" : "☀";
       }
     }
     var toggle = document.getElementById("themeToggle");

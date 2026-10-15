@@ -142,10 +142,15 @@
 }
 
 /* 地图入口上方的信息面板（与圆盘圆心左右对称、全透明） */
+/*
+ * PING / FPS 面板贴着入口上方：线稿图最上面约 8% 是透明的，
+ * 所以这里用「入口高度 × 0.92 + 8px」而不是整高 + 一段固定间距 ——
+ * 这样不管入口多大，面板下沿到画面实际可见的顶边都是 8px。
+ */
 .dock-hud {
   position: fixed;
   right: calc(20px + clamp(108px, 9vw, 144px) / 2);
-  bottom: calc(22px + env(safe-area-inset-bottom, 0px) + clamp(108px, 9vw, 144px) + 10px);
+  bottom: calc(22px + env(safe-area-inset-bottom, 0px) + clamp(108px, 9vw, 144px) * 0.92 + 8px);
   z-index: 69;
   display: inline-flex;
   align-items: baseline;
@@ -217,7 +222,7 @@
 
   .dock-hud {
     right: calc(28px + clamp(144px, 8vw, 168px) / 2);
-    bottom: calc(32px + env(safe-area-inset-bottom, 0px) + clamp(144px, 8vw, 168px) + 10px);
+    bottom: calc(32px + env(safe-area-inset-bottom, 0px) + clamp(144px, 8vw, 168px) * 0.92 + 8px);
     font-size: 13px;
   }
 }
@@ -232,7 +237,7 @@
 
   .dock-hud {
     right: calc(40px + clamp(176px, 7.4vw, 200px) / 2);
-    bottom: calc(44px + env(safe-area-inset-bottom, 0px) + clamp(176px, 7.4vw, 200px) + 10px);
+    bottom: calc(44px + env(safe-area-inset-bottom, 0px) + clamp(176px, 7.4vw, 200px) * 0.92 + 8px);
     font-size: 15px;
   }
 }
@@ -247,7 +252,7 @@
 
   .dock-hud {
     right: calc(52px + 108px);
-    bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 216px + 10px);
+    bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 216px * 0.92 + 8px);
     font-size: 17px;
   }
 }
@@ -267,7 +272,7 @@
 
   .dock-hud {
     right: calc(12px + 46px);
-    bottom: calc(12px + env(safe-area-inset-bottom, 0px) + 92px + 8px);
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px) + 92px * 0.92 + 8px);
     font-size: 10px;
   }
 

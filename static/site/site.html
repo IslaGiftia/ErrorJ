@@ -29,8 +29,15 @@
       <span class="auth-status-dot" id="authStatusDot"></span>
       <span id="authStatusText">游客</span>
     </button>
+    <!--
+      字形占位符由 CSS 按 html[data-theme] 选（首页 <head> 里那段内联脚本在解析 body 之前
+      就把主题定下来了），所以首屏第一帧画出来就是当前主题对应的那个图标，
+      不会先闪一下别的字形；JS / morphicons 随后把它换成同一个图标的 SVG 版本。
+    -->
     <button class="theme-float icon-btn" id="themeToggle" aria-label="切换外观" title="外观：跟随系统">
-      <span class="theme-glyph" id="themeGlyph">◑</span>
+      <span class="theme-glyph" id="themeGlyph"
+        ><span class="theme-glyph__sun">☀</span><span class="theme-glyph__moon">☾</span></span
+      >
     </button>
   </div>
 

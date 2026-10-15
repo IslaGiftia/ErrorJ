@@ -152,6 +152,29 @@ img {
   border-color: var(--primary);
 }
 
+/*
+ * 主题按钮的字形占位：两个字形都放在 HTML 里，由 html[data-theme] 决定显示哪个。
+ * 内联在 <head> 的主题脚本先于 body 解析执行，所以第一帧就是对的图标，
+ * 不会再先亮一下「◑」或者跟当前主题相反的那个。JS 接管后这段会被替换成 SVG。
+ */
+.theme-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.theme-glyph__moon {
+  display: none;
+}
+
+html[data-theme="dark"] .theme-glyph__sun {
+  display: none;
+}
+
+html[data-theme="dark"] .theme-glyph__moon {
+  display: inline;
+}
+
 .menu-btn {
   display: none;
 }
