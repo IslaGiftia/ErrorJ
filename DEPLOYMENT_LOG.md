@@ -5692,3 +5692,47 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 一致
 
 备注：主题按钮的占位符现在是「两个字形 + CSS 选择」，不依赖 JS 也能显示正确图标；
 morphicons 模块接管后换成同名 SVG，视觉上只差字形换成矢量，不会出现别的图标。
+
+## 130. 2026-10-16 12:20:05 自动备份收尾更稳：打包遇到文件变动不再中断
+
+背景：盘点服务器磁盘时发现 `/var/log/errorjiang-backup.log` 里 2026-10-12、10-13、10-15
+三天的记录都没有「清理旧备份 / 完成」两行。查证是备份脚本 `tools/backup_linux.sh` 的缺陷：
+在 `set -euo pipefail` 下，打包上传文件时如果正好有文件在变化（网站运行中有人在传文件），
+GNU tar 会打印 `file changed as we read it` 并返回退出码 1（警告级，归档本身完整），
+`set -e` 会当场中止脚本，导致当天跳过后面的旧备份清理。因为备份数远低于 14 份上限一直没暴露，
+但保留策略有可能失效。要求修复并发布。（本次盘点还顺手清掉了服务器上散落的根目录
+`/inventory.db`、`/changelog-seed.json`、误拼空目录和 Docker 测试镜像 / 构建缓存，磁盘 7.7G -> 7.1G。）
+
+完成内容（提交 `26a7b47 fix:keep-backup-pruning-when-tar-warns-file-changed`，1 文件，+13/−2）：
+
+- `tools/backup_linux.sh`：打包步骤改为显式接收 tar 退出码 —— 0 正常、1 按警告处理
+  （打印「打包期间有文件变动，按警告处理」后继续）、2 及以上为真失败照旧中止；
+  旧备份清理和「完成」输出不再被跳过。
+- 本地做了确定性复现：用「一边 tar 一边持续追加的文件」触发 `file changed as we read it`
+  （GNU tar 1.35 返回 1），确认新分支会接受警告继续执行。
+
+部署步骤：
+```text
+本地：bash -n tools/backup_linux.sh 语法通过；GNU tar 1.35 复现场景 rc=1 且被按警告接受；
+      python -m json.tool config/changelog-seed.json；git diff --check 干净
+提交：26a7b47（fetch → pull --rebase → push；local == origin/main == 26a7b47）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 一致
+备份：/data/errorjiang-backup/20261016-1221/（inventory.db 与 changelog-seed.json）
+服务器：systemctl stop -> cp 备份 -> git pull --ff-only -> 26a7b47
+      changelog-seed.json 经 install 覆盖；import_changelog_moments.py
+      --date 2026-10-16 --force -> 新增 1 条
+      systemctl start；本轮未改 app.py，未跑 init_db
+```
+
+验证结果：
+```text
+服务      -> errorjiang / nginx active，HEAD = 26a7b47，/api/health = {"ok": true}
+脚本哈希  -> 服务器 tools/backup_linux.sh SHA256 与本地一致（6704dc49...）
+实跑备份  -> 服务器上以 /tmp 为目标实跑一次：真实再次遇到 "file changed as we read it"，
+            脚本按警告处理并照常执行「清理旧备份」与「完成」，rc=0（旧脚本此场景会中断）；
+            产出 inventory.db 4.8M + files.tar.gz 498M；测试目录跑完已删
+更新日志  -> /api/moments 里 2026-10-16 12:20:05「自动备份收尾更稳：打包遇到文件变动不再中断」
+            （id 694，kind = log）公网可查
+```
+
+备注：保留策略本身（KEEP=14、只按 8+6 位时间戳目录计数）没变；这次只修「被打断」的路径。
