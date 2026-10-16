@@ -49,58 +49,29 @@ html.is-embed .rec-header-actions a[href="/"] {
   display: none;
 }
 
-/* 外层推荐页已经有「举报与投诉」，内嵌页不再重复一个 */
-html.is-embed a[href="/reporting"] {
-  display: none;
-}
-
 /*
  * 右下角「顶部」按钮：内嵌到推荐页时完全对齐动态页那颗——
  * 同样的方形毛玻璃、同样的尺寸、同样的位置（落在 760 内容列内侧右下角，
  * 和推荐页左上角的悬浮按钮共用 28px 内缩，左右对称），以及同一套「有新内容就呼吸 + 点击跳过去」的逻辑。
  */
 :root {
-  --embed-btn-border: #e3e6eb;
-  --embed-btn-bg: rgba(255, 255, 255, 0.86);
-  --embed-btn-ink: #1f2329;
   --embed-btn-accent: #7b68ee;
   --embed-btn-shadow: 0 6px 20px rgba(24, 31, 45, 0.18);
 }
 
 :root[data-theme="dark"] {
-  --embed-btn-border: #3f3f46;
-  --embed-btn-bg: rgba(38, 38, 38, 0.86);
-  --embed-btn-ink: #f4f4f5;
   --embed-btn-accent: #a78bfa;
   --embed-btn-shadow: 0 6px 20px rgba(0, 0, 0, 0.42);
 }
 
+/*
+ * 推荐页里那三颗「顶部」按钮：只补位置（收进中间那列内容内侧右下角，
+ * 和左上角四枚悬浮按钮共用 28px 内缩）。方形毛玻璃的长相来自 fonts.css
+ * 的公共 .site-back-top，互动时的呼吸形态也在那边。
+ */
 html.is-embed .site-back-top {
-  flex-direction: column;
-  gap: 2px;
   right: calc(max(0px, (100% - var(--embed-center, 760px)) / 2) + 16px + 12px);
   bottom: calc(var(--site-back-top-bottom, 22px) + 28px);
-  width: 48px;
-  height: 58px;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--embed-btn-border) 85%, transparent);
-  background: var(--embed-btn-bg);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
-  color: var(--embed-btn-ink);
-  box-shadow: var(--embed-btn-shadow);
-}
-
-html.is-embed .site-back-top::after {
-  content: "顶部";
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1;
-}
-
-html.is-embed .site-back-top svg {
-  width: 18px;
-  height: 18px;
 }
 
 /* 有新内容时：箭头翻向下、文案换成子页名（歌曲 / 书籍 / 推荐），沿用同一套呼吸 */
@@ -109,14 +80,6 @@ html.is-embed .site-back-top.is-pending {
   border-color: color-mix(in srgb, var(--embed-btn-accent) 55%, transparent);
   color: var(--embed-btn-accent);
   animation: embedBackTopPulse 3.6s ease-in-out infinite;
-}
-
-html.is-embed .site-back-top.is-pending::after {
-  content: attr(data-fresh-label);
-}
-
-html.is-embed .site-back-top.is-pending svg {
-  transform: rotate(180deg);
 }
 
 @keyframes embedBackTopPulse {
@@ -130,13 +93,6 @@ html.is-embed .site-back-top.is-pending svg {
       var(--embed-btn-base),
       0 0 0 3px color-mix(in srgb, var(--embed-btn-accent) 16%, transparent),
       0 0 18px color-mix(in srgb, var(--embed-btn-accent) 36%, transparent);
-  }
-}
-
-@media (max-width: 640px) {
-  html.is-embed .site-back-top {
-    width: 44px;
-    height: 52px;
   }
 }
 

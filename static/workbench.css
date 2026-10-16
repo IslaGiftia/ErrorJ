@@ -2,12 +2,12 @@
   --wb-bg: #f5f6f8;
   --wb-surface: #ffffff;
   --wb-text: #1f2329;
-  --wb-muted: #6f7888;
-  --wb-faint: #98a1af;
-  --wb-line: #e2e5eb;
+  --wb-muted: #7b8494;
+  --wb-faint: #a4acb9;
+  --wb-line: #e3e6eb;
   --wb-hover: #eef0f4;
   --wb-accent: #7b68ee;
-  --wb-accent-strong: #6653df;
+  --wb-accent-strong: #6956e5;
   --wb-accent-soft: #efedff;
   --wb-danger: #d64545;
   --wb-danger-soft: #fff0f0;
@@ -26,7 +26,7 @@
   --wb-line: #3f3f46;
   --wb-hover: #323238;
   --wb-accent: #a78bfa;
-  --wb-accent-strong: #b9a5ff;
+  --wb-accent-strong: #b8a3ff;
   --wb-accent-soft: #322d4c;
   --wb-danger: #f87171;
   --wb-danger-soft: #3d2020;
@@ -121,7 +121,7 @@ svg {
   place-items: center;
   width: 30px;
   height: 30px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--wb-accent-soft);
   color: var(--wb-accent);
 }
@@ -145,7 +145,7 @@ svg {
   height: 36px;
   padding: 0 12px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--wb-muted);
 }
@@ -179,7 +179,7 @@ svg {
   height: 36px;
   padding: 0 13px;
   border: 1px solid var(--wb-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--wb-surface);
   color: var(--wb-text);
   font-size: 13px;
@@ -200,7 +200,7 @@ svg {
 .wb-btn-primary {
   border-color: var(--wb-accent);
   background: var(--wb-accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .wb-btn-primary:hover {
@@ -261,7 +261,7 @@ svg {
 .wb-stat {
   padding: 18px;
   border: 1px solid var(--wb-line);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   background: var(--wb-surface);
   box-shadow: var(--wb-shadow);
 }
@@ -292,7 +292,7 @@ svg {
 
 .wb-panel {
   border: 1px solid var(--wb-line);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   background: var(--wb-surface);
   box-shadow: var(--wb-shadow);
   overflow: hidden;
@@ -327,7 +327,7 @@ svg {
   align-items: center;
   gap: 10px;
   padding: 10px;
-  border-radius: 8px;
+  border-radius: var(--radius);
 }
 
 .wb-recent-item:hover {
@@ -340,7 +340,7 @@ svg {
   place-items: center;
   width: 34px;
   height: 34px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--wb-accent-soft);
   color: var(--wb-accent);
 }
@@ -398,7 +398,7 @@ svg {
   height: 38px;
   padding: 0 11px;
   border: 1px solid var(--wb-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--wb-surface);
   color: var(--wb-muted);
 }
@@ -422,7 +422,7 @@ svg {
 .wb-form-grid textarea {
   width: 100%;
   border: 1px solid var(--wb-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--wb-bg);
   outline: 0;
 }
@@ -444,7 +444,7 @@ svg {
   align-items: center;
   padding: 14px 16px;
   border: 1px solid var(--wb-line);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: var(--wb-surface);
   box-shadow: var(--wb-shadow);
 }
@@ -484,7 +484,7 @@ svg {
   display: inline-flex;
   align-items: center;
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--wb-accent-soft);
   color: var(--wb-accent);
   font-size: 11px;
@@ -523,7 +523,7 @@ svg {
   width: 32px;
   height: 32px;
   border: 1px solid var(--wb-line);
-  border-radius: 7px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--wb-muted);
 }
@@ -541,7 +541,7 @@ svg {
 .wb-empty {
   padding: 42px 20px;
   border: 1px dashed var(--wb-line);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   color: var(--wb-faint);
   text-align: center;
 }
@@ -567,7 +567,7 @@ svg {
   overflow-y: auto;
   padding: 20px;
   border: 1px solid var(--wb-line);
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   background: var(--wb-surface);
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
 }
@@ -631,7 +631,7 @@ svg {
   min-height: 110px;
   padding: 16px;
   border: 1px dashed color-mix(in srgb, var(--wb-accent) 45%, var(--wb-line));
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--wb-accent) 5%, var(--wb-surface));
   text-align: center;
   cursor: pointer;
@@ -681,9 +681,9 @@ svg {
   transform: translateX(-50%);
   max-width: min(90vw, 520px);
   padding: 10px 16px;
-  border-radius: 999px;
-  background: #20242c;
-  color: #fff;
+  border-radius: var(--radius);
+  background: var(--toast-bg);
+  color: var(--toast-ink);
   box-shadow: var(--wb-shadow);
 }
 
@@ -786,9 +786,9 @@ svg {
   height: 18px;
   margin-left: 4px;
   padding: 0 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--wb-accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 11px;
   font-style: normal;
   font-weight: 700;
@@ -815,7 +815,7 @@ svg {
   min-height: 34px;
   padding: 0 13px;
   border: 1px solid var(--wb-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--wb-surface);
   color: var(--wb-muted);
   font: inherit;
@@ -842,9 +842,9 @@ svg {
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--wb-accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 11px;
   font-style: normal;
 }
@@ -864,7 +864,7 @@ svg {
 .wb-user-card {
   padding: 14px;
   border: 1px solid var(--wb-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--wb-surface);
 }
 
@@ -904,7 +904,7 @@ svg {
   align-items: center;
   height: 20px;
   padding: 0 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--wb-hover);
   color: var(--wb-muted);
   font-size: 11px;
@@ -985,7 +985,7 @@ svg {
   height: 34px;
   padding: 0 10px;
   border: 1px solid var(--wb-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--wb-surface-2, var(--wb-hover));
   color: var(--wb-text);
   font: inherit;
@@ -1001,7 +1001,7 @@ svg {
   margin-top: 12px;
   padding: 10px 12px;
   border: 1px solid var(--wb-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--wb-surface-2, var(--wb-hover));
 }
 
@@ -1029,7 +1029,7 @@ svg {
   height: 34px;
   padding: 0 8px;
   border: 1px solid var(--wb-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--wb-surface);
   color: var(--wb-text);
   font: inherit;
@@ -1055,7 +1055,7 @@ svg {
   min-height: 34px;
   padding: 0 10px;
   border: 1px solid var(--wb-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--wb-surface);
   color: var(--wb-text);
   font: inherit;
@@ -1086,7 +1086,7 @@ svg {
   gap: 6px;
   padding: 3px 8px;
   border: 1px solid var(--wb-line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--wb-surface);
   font-size: 12.5px;
 }
@@ -1110,7 +1110,7 @@ svg {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--wb-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   overflow: hidden;
   background: var(--wb-surface);
 }
@@ -1186,7 +1186,7 @@ svg {
   gap: 14px;
   padding: 12px;
   border: 1px solid var(--wb-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--wb-surface);
   flex-wrap: wrap;
 }
@@ -1210,7 +1210,7 @@ svg {
   width: 96px;
   height: 96px;
   border: 1px solid var(--wb-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   overflow: hidden;
   background: var(--wb-hover);
   color: var(--wb-muted);
@@ -1252,7 +1252,7 @@ svg {
   max-width: 100%;
   max-height: 74vh;
   margin: 0 auto;
-  border-radius: 8px;
+  border-radius: var(--radius);
 }
 
 .wb-review-preview-body iframe {
@@ -1260,7 +1260,7 @@ svg {
   width: 100%;
   height: 74vh;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--wb-hover);
 }
 
@@ -1299,7 +1299,7 @@ svg {
   margin: 12px 0 0;
   padding: 10px;
   border: 1px solid var(--wb-line);
-  border-radius: 7px;
+  border-radius: var(--radius);
   background: var(--wb-bg);
   color: var(--wb-muted);
   font: 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace;
@@ -1354,7 +1354,7 @@ svg {
   height: 34px;
   padding: 0 10px;
   border: 1px solid var(--wb-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--wb-surface);
   color: var(--wb-text);
   font: inherit;
@@ -1382,10 +1382,10 @@ svg {
 .wb-notify-event {
   width: 100%;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   color: var(--wb-text);
   font-size: 13px;
-  transition: background-color 0.15s ease;
+  transition: background-color var(--dur-fast) ease;
 }
 
 .wb-notify-event:hover {
@@ -1418,7 +1418,7 @@ a.wb-btn {
   height: 38px;
   padding: 0 10px;
   border: 1px solid var(--wb-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--wb-surface);
   color: var(--wb-text);
   font: inherit;
@@ -1435,7 +1435,7 @@ a.wb-btn {
   flex-direction: column;
   margin-top: 12px;
   border: 1px solid var(--wb-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   overflow: hidden;
   background: var(--wb-surface);
 }
@@ -1471,7 +1471,7 @@ a.wb-btn {
 .wb-log-tag {
   flex: 0 0 auto;
   padding: 1px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--wb-accent) 12%, transparent);
   color: var(--wb-accent);
   font-size: 11.5px;
@@ -1583,7 +1583,7 @@ a.wb-btn {
 .wb-role-perm {
   padding: 7px 10px;
   border: 1px solid var(--wb-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--wb-surface);
 }
 
@@ -1606,7 +1606,7 @@ a.wb-btn {
 
 .wb-role-fixed {
   padding: 4px 9px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--wb-hover);
   color: var(--wb-muted);
   font-size: 12px;
@@ -1626,7 +1626,7 @@ a.wb-btn {
   height: 32px;
   padding: 0 8px;
   border: 1px solid var(--wb-line);
-  border-radius: 7px;
+  border-radius: var(--radius);
   background: var(--wb-surface);
   color: var(--wb-text);
   font-size: 12.5px;

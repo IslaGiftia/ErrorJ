@@ -5,7 +5,16 @@
 
   var script = document.currentScript;
   var scrollSelector = script && script.getAttribute("data-scroll-target");
-  var container = scrollSelector ? document.querySelector(scrollSelector) : null;
+  /*
+   * 一个页面可能有不止一个滚动容器：书签的导航视图 / 列表视图、笔记的列表栏 / 正文栏
+   * 都各自是滚动容器，只是同一时刻只有一个是可见的。这里把它们全收着，
+   * 用的时候挑当前真正可见的那个 —— 藏起来的那个滚不动，也不该参与「滚到哪儿了」的判断。
+   */
+  var containers = scrollSelector
+    ? Array.prototype.slice.call(document.querySelectorAll(scrollSelector))
+    : [];
+  /* 最近一次真正滚动 / 滚轮过的容器，见 currentContainer() */
+  var lastScrolled = null;
   var button = document.createElement("button");
   var style = document.createElement("style");
   var scrollingElement = document.scrollingElement || document.documentElement;
@@ -34,11 +43,15 @@
      * 淡入淡出全都会失效。所以用同权重的 !important + 更高的选择器权重顶回去，
      * 隐藏态只靠 visibility / opacity，元素留在渲染树里过渡才播得出来。
      */
-    ".site-back-top{position:fixed;right:22px;bottom:var(--site-back-top-bottom,22px);z-index:39;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;border:1px solid rgba(123,104,238,.52);border-radius:50%;background:#6d5be8;color:#fff;box-shadow:0 10px 24px rgba(80,60,200,.32);cursor:pointer;opacity:1;transform:none;transition:bottom var(--dur-fast, 160ms) var(--ease-out-strong, cubic-bezier(0.23,1,0.32,1)),opacity var(--dur-fast, 160ms) var(--ease-out-strong, cubic-bezier(0.23,1,0.32,1)),transform var(--dur-fast, 160ms) var(--ease-out-strong, cubic-bezier(0.23,1,0.32,1)),visibility var(--dur-fast, 160ms) var(--ease-out-strong, cubic-bezier(0.23,1,0.32,1))}",
+    /*
+     * 这里只管定位、显隐和过渡 —— 尺寸 / 圆角 / 毛玻璃底色 / 文字都归 static/fonts.css 的
+     * .site-back-top 管。两边刻意不碰同一个属性：字体样式表是静态加载的，本脚本注入的
+     * 样式挂在它后面，同权重会盖掉它，所以各管一半最省事。
+     */
+    ".site-back-top{position:fixed;right:22px;bottom:var(--site-back-top-bottom,22px);z-index:39;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;opacity:1;transform:none;transition:bottom var(--dur-fast, 160ms) var(--ease-out-strong, cubic-bezier(0.23,1,0.32,1)),opacity var(--dur-fast, 160ms) var(--ease-out-strong, cubic-bezier(0.23,1,0.32,1)),transform var(--dur-fast, 160ms) var(--ease-out-strong, cubic-bezier(0.23,1,0.32,1)),visibility var(--dur-fast, 160ms) var(--ease-out-strong, cubic-bezier(0.23,1,0.32,1))}",
     ".site-back-top:hover{transform:translateY(-2px)}",
     ".site-back-top[hidden]{display:inline-flex!important;visibility:hidden;opacity:0;transform:translateY(4px);pointer-events:none}",
-    ".site-back-top svg{width:20px;height:20px}",
-    "@media(max-width:640px){.site-back-top{right:14px;width:42px;height:42px}}",
+    "@media(max-width:640px){.site-back-top{right:14px}}",
     "@media(prefers-reduced-motion:reduce){.site-back-top{transition:none}}",
   ].join("");
 
@@ -67,16 +80,30 @@
   }
 
   function scrollTop() {
-    return container
-      ? container.scrollTop
-      : window.scrollY || scrollingElement.scrollTop || 0;
+    var box = currentContainer();
+    return box ? box.scrollTop : window.scrollY || scrollingElement.scrollTop || 0;
   }
 
   function overflows() {
-    if (container) {
-      return container.scrollHeight > container.clientHeight + 8;
+    var box = currentContainer();
+    if (box) {
+      return box.scrollHeight > box.clientHeight + 8;
     }
     return document.documentElement.scrollHeight > window.innerHeight + 8;
+  }
+
+  /*
+   * 当前真正在滚的那个容器。先看「最近一次滚过谁」—— 桌面上的笔记页列表栏和正文栏
+   * 是同时可见的，只按可见性挑会一直选中列表栏，用户在正文里滚到哪儿按钮都没反应。
+   * 还没滚动过（或那个容器已经不在文档里）时，退回到第一个可见的容器；
+   * 都没有容器就是 null，走窗口滚动。
+   */
+  function currentContainer() {
+    if (lastScrolled && lastScrolled.isConnected) return lastScrolled;
+    for (var i = 0; i < containers.length; i += 1) {
+      if (containers[i].offsetParent !== null) return containers[i];
+    }
+    return containers.length ? containers[0] : null;
   }
 
   function visibleJumpButton() {
@@ -90,6 +117,12 @@
     var base = 22;
     if (player && player.getBoundingClientRect().height > 0) {
       base = Math.round(player.getBoundingClientRect().height) + 16;
+    }
+    /* 仓库页有底部导航栏（桌面上 display:none，高度为 0 会被跳过），按钮得抬到它上面 */
+    var nav = document.querySelector(".bottom-nav");
+    if (nav) {
+      var navHeight = Math.round(nav.getBoundingClientRect().height);
+      if (navHeight > 0) base = Math.max(base, navHeight + 16);
     }
     return base;
   }
@@ -144,18 +177,44 @@
       pending.onActivate();
       return;
     }
-    if (container) {
-      container.scrollTo({ top: 0, behavior: "smooth" });
+    var box = currentContainer();
+    if (box) {
+      box.scrollTo({ top: 0, behavior: "smooth" });
     } else {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
     button.hidden = true;
   });
 
-  var listenerTarget = container || window;
-  listenerTarget.addEventListener("wheel", onWheel, { passive: true });
-  listenerTarget.addEventListener("touchmove", onTouchMove, { passive: true });
-  listenerTarget.addEventListener("scroll", hideIfNeeded, { passive: true });
+  (containers.length ? containers : [window]).forEach(function (target) {
+    function remember() {
+      lastScrolled = target === window ? null : target;
+    }
+    target.addEventListener(
+      "wheel",
+      function (event) {
+        remember();
+        onWheel(event);
+      },
+      { passive: true }
+    );
+    target.addEventListener(
+      "touchmove",
+      function (event) {
+        remember();
+        onTouchMove(event);
+      },
+      { passive: true }
+    );
+    target.addEventListener(
+      "scroll",
+      function () {
+        remember();
+        hideIfNeeded();
+      },
+      { passive: true }
+    );
+  });
   window.addEventListener("resize", refresh);
   document.addEventListener("errorjumpvisibilitychange", refresh);
   document.addEventListener("errorauthchange", refresh);

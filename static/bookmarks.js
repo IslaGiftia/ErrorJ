@@ -1061,22 +1061,6 @@
     await loadAll();
   }
 
-  async function importFirefoxBookmarks() {
-    try {
-      showToast("正在读取 Firefox 书签...");
-      const result = await api("/api/bookmarks/firefox/import", {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
-      showToast(
-        `Firefox 导入完成：${result.imported} 个已放入${IMPORT_PENDING_LABEL}，跳过 ${result.skipped_duplicates}`
-      );
-      await loadAll();
-    } catch (error) {
-      showToast(error.message, "error");
-    }
-  }
-
   async function refreshCheckStatus(finalize = false) {
     const status = await api("/api/bookmarks/check-links");
     state.checkStatus = status;
@@ -1141,7 +1125,6 @@
     $("folderBackdrop").addEventListener("click", closeMobileFolders);
     $("newFolderBtn").addEventListener("click", () => openFolderModal());
     $("headerAddBookmark").addEventListener("click", () => openBookmarkModal());
-    $("importFirefoxBtn").addEventListener("click", importFirefoxBookmarks);
     $("checkLinksBtn").addEventListener("click", startLinkCheck);
     $("cleanupBtn").addEventListener("click", renderCleanup);
     $("brokenOnlyBtn").addEventListener("click", () => {

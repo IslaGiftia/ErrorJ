@@ -73,10 +73,11 @@
     clearTimeout(landingToastLeaveTimer);
     landingToastTimer = setTimeout(function () {
       landingToast.classList.add("is-leaving");
+      // 和 .landing-toast.is-leaving 的过渡时长（--dur-fast 160ms）对齐，别让淡出被提前掐断
       landingToastLeaveTimer = setTimeout(function () {
         landingToast.hidden = true;
         landingToast.classList.remove("is-leaving");
-      }, 120);
+      }, 160);
     }, 2200);
   }
 

@@ -30,9 +30,6 @@ html {
   --mo-danger: #d64545;
   --mo-danger-soft: #fff0f0;
   --mo-shadow: 0 1px 3px rgba(24, 31, 45, 0.06);
-  --mo-toast-bg: rgba(255, 255, 255, 0.97);
-  --mo-toast-ink: #1b1f27;
-  --mo-toast-border: rgba(24, 31, 45, 0.14);
   /* 纯图标按钮的悬停提示：浅色主题浅底深字（和地图页 .mp-tip 同一套配色） */
   --mo-tip-bg: rgba(255, 255, 255, 0.98);
   --mo-tip-ink: #1b1f27;
@@ -54,9 +51,6 @@ html {
   --mo-danger: #f87171;
   --mo-danger-soft: #3d2020;
   --mo-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
-  --mo-toast-bg: #20232a;
-  --mo-toast-ink: #ffffff;
-  --mo-toast-border: transparent;
   --mo-tip-bg: #2b2b31;
   --mo-tip-ink: #f4f4f5;
   --mo-tip-border: transparent;
@@ -110,7 +104,7 @@ body {
 .mo-card {
   background: var(--mo-surface);
   border: 1px solid var(--mo-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   box-shadow: var(--mo-shadow);
 }
 
@@ -123,7 +117,7 @@ body {
   min-height: 92px;
   padding: 10px 12px;
   border: 1px solid var(--mo-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mo-bg);
   color: var(--mo-text);
   font: inherit;
@@ -146,7 +140,7 @@ body {
   width: 100%;
   padding: 8px 12px;
   border: 1px solid var(--mo-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mo-bg);
   color: var(--mo-text);
   font: inherit;
@@ -221,7 +215,7 @@ body {
   min-width: 0;
   padding: 5px 8px;
   border: 1px solid var(--mo-border);
-  border-radius: 7px;
+  border-radius: var(--radius);
   background: var(--mo-surface);
   color: var(--mo-text);
   font: inherit;
@@ -263,7 +257,7 @@ body {
   align-items: center;
   gap: 6px;
   padding: 8px 14px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   border: 1px solid transparent;
   background: var(--mo-surface);
   color: var(--mo-text);
@@ -285,7 +279,7 @@ body {
   margin-left: auto;
   background: var(--mo-accent);
   border-color: var(--mo-accent);
-  color: #ffffff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 
@@ -322,7 +316,7 @@ body {
   width: 72px;
   height: 72px;
   border: 1px solid var(--mo-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   overflow: hidden;
   background: var(--mo-bg);
 }
@@ -342,7 +336,7 @@ body {
   height: 20px;
   padding: 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: rgba(0, 0, 0, 0.55);
   color: #ffffff;
   font-size: 13px;
@@ -398,7 +392,7 @@ body {
   height: var(--mo-dock-btn-h);
   padding: 0 14px;
   border: 1px solid color-mix(in srgb, var(--mo-border) 78%, transparent);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--mo-surface) 78%, transparent);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
@@ -423,7 +417,7 @@ body {
   width: 15px;
   height: 15px;
   color: var(--mo-muted);
-  transition: transform 0.18s ease;
+  transition: transform var(--dur-fast) ease;
 }
 
 /* 栏位切换：只留图标的方形按钮，和筛选 / 写动态同一套外壳 */
@@ -462,7 +456,7 @@ body {
 .mo-send-float {
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.24s ease;
+  transition: opacity var(--dur-base) ease;
 }
 
 .mo-send-float.is-visible {
@@ -492,7 +486,7 @@ body {
   top: calc(100% + 8px);
   padding: 5px 9px;
   border: 1px solid var(--mo-tip-border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--mo-tip-bg);
   color: var(--mo-tip-ink);
   font-size: 12px;
@@ -503,7 +497,7 @@ body {
   visibility: hidden;
   pointer-events: none;
   transform: translateY(-2px);
-  transition: opacity 0.14s ease-out, transform 0.14s ease-out, visibility 0s linear 0.14s;
+  transition: opacity var(--dur-fast) ease-out, transform var(--dur-fast) ease-out, visibility 0s linear var(--dur-fast);
 }
 
 .mo-tip:hover::after,
@@ -533,12 +527,12 @@ body {
   overflow-y: auto;
   padding: 5px;
   border: 1px solid var(--mo-border);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--mo-surface) 96%, transparent);
   -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
   box-shadow: 0 12px 32px rgba(24, 31, 45, 0.18);
-  animation: moFilterMenuIn 0.16s ease;
+  animation: moFilterMenuIn var(--dur-fast) ease;
 }
 
 .mo-filter-menu[hidden] {
@@ -564,7 +558,7 @@ body {
   width: 100%;
   padding: 9px 12px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--mo-text);
   font: inherit;
@@ -636,7 +630,7 @@ body {
 
 .mo-pin-badge {
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--mo-accent-soft);
   color: var(--mo-accent);
   font-size: 11px;
@@ -683,7 +677,7 @@ body {
   width: 100%;
   padding: 0;
   border: 1px solid var(--mo-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   overflow: hidden;
   line-height: 0;
   font: inherit;
@@ -757,7 +751,7 @@ body {
 
 .mo-tag {
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--mo-hover);
   color: var(--mo-muted);
   font-size: 12px;
@@ -766,7 +760,7 @@ body {
 .mo-link-btn {
   padding: 3px 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--mo-muted);
   font: inherit;
@@ -797,7 +791,7 @@ body {
   margin-top: 10px;
   padding: 10px 12px;
   border: 1px solid var(--mo-border);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: var(--mo-bg);
   color: var(--mo-text);
   font: inherit;
@@ -824,7 +818,7 @@ button.mo-share:hover {
   height: 34px;
   display: grid;
   place-items: center;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mo-accent-soft);
   color: var(--mo-accent);
   font-size: 17px;
@@ -879,7 +873,7 @@ button.mo-share:hover {
   height: var(--mo-share-cover);
   padding: 0;
   border: 0;
-  border-radius: 9px;
+  border-radius: var(--radius);
   overflow: hidden;
   background: var(--mo-accent-soft);
   color: var(--mo-accent);
@@ -918,16 +912,16 @@ button.mo-share:hover {
   border: 0;
   border-radius: 50%;
   background: var(--mo-accent);
-  color: #fff;
+  color: var(--on-accent);
   font: inherit;
   line-height: 1;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background var(--dur-fast) ease, color var(--dur-fast) ease;
 }
 
 .mo-share-play:hover {
   background: var(--mo-accent-hover);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .mo-share-play svg {
@@ -959,13 +953,13 @@ button.mo-share:hover {
   justify-content: center;
   padding: 4px 6px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--mo-faint);
   font: inherit;
   line-height: 1;
   cursor: pointer;
-  transition: color 0.15s ease, background 0.15s ease;
+  transition: color var(--dur-fast) ease, background var(--dur-fast) ease;
 }
 
 .mo-like-btn svg {
@@ -1111,7 +1105,7 @@ button.mo-share:hover {
   max-height: 140px;
   padding: 6px 10px;
   border: 1px solid var(--mo-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mo-surface);
   color: var(--mo-text);
   font: inherit;
@@ -1176,37 +1170,15 @@ button.mo-share:hover {
 }
 
 /* ============================================================
- * 右下角「顶部」按钮：方形毛玻璃，落在卡片内侧右下角，
- * 和左上角悬浮按钮共用 --mo-float-inset，左右完全对称（同留言页）
+ * 右下角「顶部」按钮：落在卡片内侧右下角，和左上角悬浮按钮共用
+ * --mo-float-inset，左右完全对称（同留言页）。按钮本身的长相来自 fonts.css
+ * 的公共 .site-back-top，这里只补它独有的定位和互动形态。
  * ============================================================ */
 body[data-notify-module="moments"] .site-back-top {
-  flex-direction: column;
-  gap: 2px;
   right: calc(
     max(0px, (100vw - var(--sb-center-width, 760px)) / 2) + var(--mo-page-pad) + var(--mo-float-inset)
   );
   bottom: calc(var(--site-back-top-bottom, 22px) + 28px);
-  width: 48px;
-  height: 58px;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--mo-border) 85%, transparent);
-  background: color-mix(in srgb, var(--mo-surface) 86%, transparent);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
-  color: var(--mo-text);
-  box-shadow: 0 6px 20px rgba(24, 31, 45, 0.18);
-}
-
-body[data-notify-module="moments"] .site-back-top::after {
-  content: "顶部";
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1;
-}
-
-body[data-notify-module="moments"] .site-back-top svg {
-  width: 18px;
-  height: 18px;
 }
 
 /* 有新评论 / 新动态时：箭头翻向下、文案换成「评论 / 动态」、沿用同一套呼吸 */
@@ -1215,21 +1187,6 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
   --mo-fresh-base: 0 6px 20px rgba(24, 31, 45, 0.18);
   color: var(--mo-accent);
   animation: moFreshPulse 3.6s ease-in-out infinite;
-}
-
-body[data-notify-module="moments"] .site-back-top.is-pending::after {
-  content: attr(data-fresh-label);
-}
-
-body[data-notify-module="moments"] .site-back-top.is-pending svg {
-  transform: rotate(180deg);
-}
-
-@media (max-width: 640px) {
-  body[data-notify-module="moments"] .site-back-top {
-    width: 44px;
-    height: 52px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1261,7 +1218,7 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
   min-height: 84px;
   padding: 10px 12px;
   border: 1px solid var(--mo-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mo-bg);
   color: var(--mo-text);
   font: inherit;
@@ -1282,7 +1239,7 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
   color: var(--mo-muted);
   background: var(--mo-surface);
   border: 1px dashed var(--mo-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
 }
 
 .mo-toast {
@@ -1292,23 +1249,23 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
   transform: translateX(-50%);
   max-width: min(90vw, 480px);
   padding: 10px 18px;
-  border-radius: 8px;
-  background: var(--mo-toast-bg);
-  color: var(--mo-toast-ink);
+  border-radius: var(--radius);
+  background: var(--toast-bg);
+  color: var(--toast-ink);
   font-size: 13px;
-  border: 1px solid var(--mo-toast-border);
+  border: 1px solid var(--toast-border);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
   z-index: 40;
-  animation: site-toast-in var(--dur-fast, 160ms)
+  animation: site-toast-in var(--dur-fast)
     var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)) backwards;
 }
 
-/* 消失：先在原处淡出往下 8px，120ms 后再 hidden（由 toast() 里的定时器收尾） */
+/* 消失：先在原处淡出往下 8px，等过渡播完（--dur-fast 160ms）再 hidden（由 toast() 里的定时器收尾） */
 .mo-toast.is-leaving {
   animation: none;
   opacity: 0;
   transform: translate(-50%, 8px);
-  transition: opacity 120ms ease-in, transform 120ms ease-in;
+  transition: opacity var(--dur-fast) ease-in, transform var(--dur-fast) ease-in;
 }
 
 /* 减少动效：toast 只淡入淡出、不做位移 */
@@ -1319,7 +1276,7 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
 
   .mo-toast.is-leaving {
     transform: translateX(-50%);
-    transition: opacity 120ms ease-in;
+    transition: opacity var(--dur-fast) ease-in;
   }
 }
 
@@ -1330,7 +1287,7 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
   width: 32px;
   height: 32px;
   border: 1px solid var(--mo-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mo-surface);
   color: var(--mo-muted);
   cursor: pointer;
@@ -1397,7 +1354,7 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
   background: rgba(20, 24, 32, 0.55);
   color: #fff;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: background var(--dur-fast) ease;
 }
 
 .mo-viewer-close:hover,
@@ -1444,7 +1401,7 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
   z-index: 2;
   transform: translateX(-50%);
   padding: 4px 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(20, 24, 32, 0.55);
   color: #fff;
   font-size: 13px;
@@ -1469,13 +1426,13 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
   height: 30px;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--mo-muted);
   cursor: pointer;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+  transition: opacity var(--dur-fast) ease, background var(--dur-fast) ease, color var(--dur-fast) ease;
 }
 
 .mo-more-btn svg {
@@ -1523,7 +1480,7 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
   min-width: 112px;
   padding: 4px;
   border: 1px solid var(--mo-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mo-surface);
   box-shadow: 0 10px 28px rgba(24, 31, 45, 0.18);
 }
@@ -1535,7 +1492,7 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
 .mo-more-item {
   padding: 8px 12px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--mo-text);
   font: inherit;
@@ -1744,7 +1701,7 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
 
 /* 展开时轻轻淡入（和单条明细同一套；收起仍是瞬间） */
 .mo-log-month-body:not([hidden]) {
-  animation: mo-log-open var(--dur-fast, 160ms)
+  animation: mo-log-open var(--dur-fast)
     var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)) backwards;
 }
 
@@ -1832,7 +1789,7 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
 .mo-log-caret svg {
   width: 14px;
   height: 14px;
-  transition: transform 0.16s ease-out;
+  transition: transform var(--dur-fast) ease-out;
 }
 
 .mo-log-row.is-open .mo-log-caret svg {
@@ -1849,7 +1806,7 @@ body[data-notify-module="moments"] .site-back-top.is-pending svg {
 
 /* 展开时轻轻淡入（收起仍是瞬间——收起来就该立刻消失，不该拖。） */
 .mo-log-body:not([hidden]) {
-  animation: mo-log-open var(--dur-fast, 160ms)
+  animation: mo-log-open var(--dur-fast)
     var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)) backwards;
 }
 

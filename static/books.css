@@ -4,14 +4,14 @@ html {
 }
 
 :root {
-  --bk-bg: #f4f5f8;
+  --bk-bg: #f5f6f8;
   --bk-surface: #ffffff;
   --bk-surface-2: #f6f7f9;
-  --bk-text: #1b1f27;
-  --bk-muted: #666f7d;
-  --bk-faint: #98a1af;
-  --bk-line: #e4e7ec;
-  --bk-hover: #f1f3f7;
+  --bk-text: #1f2329;
+  --bk-muted: #7b8494;
+  --bk-faint: #a4acb9;
+  --bk-line: #e3e6eb;
+  --bk-hover: #eef0f4;
   --bk-accent: #7b68ee;
   --bk-accent-soft: #efedff;
   --bk-danger: #d64545;
@@ -29,16 +29,16 @@ html {
 }
 
 :root[data-theme="dark"] {
-  --bk-bg: #131316;
-  --bk-surface: #1e1e22;
+  --bk-bg: #171717;
+  --bk-surface: #262626;
   --bk-surface-2: #26262b;
-  --bk-text: #f2f3f5;
+  --bk-text: #f4f4f5;
   --bk-muted: #a1a1aa;
-  --bk-faint: #77777f;
-  --bk-line: #33333a;
-  --bk-hover: #2a2a30;
+  --bk-faint: #71717a;
+  --bk-line: #3f3f46;
+  --bk-hover: #323238;
   --bk-accent: #a78bfa;
-  --bk-accent-soft: #302a4a;
+  --bk-accent-soft: #322d4c;
   --bk-danger: #f87171;
   --bk-shadow: 0 14px 36px rgba(0, 0, 0, 0.5);
   --bk-badge-bg: rgba(16, 18, 24, 0.72);
@@ -91,7 +91,7 @@ body {
   align-items: center;
   gap: 8px;
   padding: 6px 10px 6px 8px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   color: var(--bk-text);
   text-decoration: none;
 }
@@ -142,10 +142,10 @@ body {
   aspect-ratio: 2 / 3;
   overflow: hidden;
   border: 1px solid var(--bk-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: linear-gradient(150deg, var(--bk-accent-soft), var(--bk-surface-2));
   box-shadow: 0 8px 20px rgba(24, 31, 45, 0.12);
-  transition: transform 0.16s ease, box-shadow 0.16s ease;
+  transition: transform var(--dur-fast) ease, box-shadow var(--dur-fast) ease;
 }
 
 .bk-card:hover .bk-cover {
@@ -193,7 +193,7 @@ body {
   top: 8px;
   right: 8px;
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--bk-badge-bg);
   color: var(--bk-badge-ink);
   backdrop-filter: blur(6px);
@@ -233,7 +233,7 @@ body {
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--bk-faint);
   cursor: pointer;
@@ -249,7 +249,7 @@ body {
   align-items: center;
   gap: 2px;
   padding: 3px;
-  border-radius: 9px;
+  border-radius: var(--radius);
   background: var(--bk-actions-bg);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.24);
   backdrop-filter: blur(7px);
@@ -311,7 +311,7 @@ body {
   overflow-y: auto;
   padding: 22px;
   border: 1px solid var(--bk-line);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   background: var(--bk-surface);
   box-shadow: 0 24px 60px rgba(10, 14, 24, 0.34);
 }
@@ -360,7 +360,7 @@ body {
   min-height: 108px;
   padding: 18px;
   border: 1px dashed var(--bk-line);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: var(--bk-surface-2);
   color: var(--bk-muted);
 }
@@ -398,7 +398,7 @@ body {
 .bk-field textarea {
   padding: 8px 10px;
   border: 1px solid var(--bk-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--bk-surface-2);
   color: var(--bk-text);
   font: inherit;
@@ -430,7 +430,7 @@ body {
 .bk-form-error {
   margin: 0 0 10px;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: color-mix(in srgb, var(--bk-danger) 12%, transparent);
   color: var(--bk-danger);
   font-size: 12.5px;
@@ -460,7 +460,7 @@ body {
   width: 34px;
   height: 34px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--bk-muted);
   cursor: pointer;
@@ -483,7 +483,7 @@ body {
   min-height: 36px;
   padding: 0 13px;
   border: 1px solid var(--bk-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--bk-surface);
   color: var(--bk-text);
   font: inherit;
@@ -505,12 +505,12 @@ body {
 .bk-btn-primary {
   border-color: var(--bk-accent);
   background: var(--bk-accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .bk-btn-primary:hover {
   background: color-mix(in srgb, var(--bk-accent) 88%, #000);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .bk-btn-danger {
@@ -526,19 +526,12 @@ body {
   z-index: 120;
   max-width: min(480px, calc(100vw - 32px));
   padding: 10px 16px;
-  border-radius: 8px;
-  background: #20232a;
-  color: #fff;
+  border-radius: var(--radius);
+  background: var(--toast-bg);
+  color: var(--toast-ink);
   font-size: 13px;
   box-shadow: var(--bk-shadow);
   transform: translateX(-50%);
-}
-
-/* 提示条跟着主题走：浅色主题浅底深字，深色主题维持原来的深底白字 */
-:root:not([data-theme="dark"]) .bk-toast {
-  background: rgba(255, 255, 255, 0.97);
-  color: #1b1f27;
-  border: 1px solid rgba(24, 31, 45, 0.14);
 }
 
 .bk-dialog .pg-rows {

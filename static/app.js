@@ -180,10 +180,6 @@ function hideImageZoom() {
   zoom.querySelector("img").src = "";
 }
 
-function updateBackTop() {
-  $("backTop").hidden = window.scrollY < 240;
-}
-
 function confirmDialog(text, action) {
   state.confirmAction = action;
   $("confirmText").textContent = text;
@@ -1596,11 +1592,6 @@ function bindStaticEvents() {
   document.addEventListener("mouseout", (event) => {
     if (event.target.closest(".part-thumb, .part-cell img")) hideImageZoom();
   });
-  window.addEventListener("scroll", updateBackTop, { passive: true });
-  $("backTop").addEventListener("click", () => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  });
-
   document.querySelectorAll(".modal-close").forEach((button) => {
     button.addEventListener("click", () => {
       const modal = button.closest(".modal-overlay");

@@ -5,9 +5,10 @@
   --text: #111827;
   --muted: #6b7280;
   --line: #e5e7eb;
-  --primary: #4f46e5;
-  --primary-strong: #4338ca;
-  --accent: #4f46e5;
+  /* 品牌主色：全站统一的 #7B68EE 紫（深色下是 #A78BFA） */
+  --primary: #7b68ee;
+  --primary-strong: #5d4fd1;
+  --accent: #7b68ee;
   --warn: #f2b544;
   --ok: #4caf7d;
   --shadow: 0 10px 30px rgba(17, 24, 39, 0.08);
@@ -20,9 +21,9 @@
   --text: #fafafa;
   --muted: #a3a3a3;
   --line: #3f3f46;
-  --primary: #4f46e5;
-  --primary-strong: #6366f1;
-  --accent: #818cf8;
+  --primary: #a78bfa;
+  --primary-strong: #c4b5fd;
+  --accent: #a78bfa;
   --warn: #f2b544;
   --ok: #4ade80;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
@@ -96,7 +97,7 @@ img {
 .brand-icon {
   width: 34px;
   height: 34px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   object-fit: cover;
   box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--line);
 }
@@ -110,10 +111,10 @@ img {
 
 .nav-item {
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   font-size: 14px;
   color: var(--muted);
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background var(--dur-fast) ease, color var(--dur-fast) ease;
 }
 
 .nav-item:hover,
@@ -140,7 +141,7 @@ img {
   align-items: center;
   justify-content: center;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--panel);
   color: var(--muted);
   font-size: 18px;
@@ -235,12 +236,12 @@ html[data-theme="dark"] .theme-glyph__moon {
   gap: 8px;
   min-height: 42px;
   padding: 0 18px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   font-size: 15px;
   font-weight: 700;
   border: 1px solid transparent;
   cursor: pointer;
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  transition: transform var(--dur-fast) ease, box-shadow var(--dur-fast) ease;
 }
 
 .btn:hover {
@@ -249,7 +250,7 @@ html[data-theme="dark"] .theme-glyph__moon {
 
 .btn-primary {
   background: var(--primary);
-  color: #ffffff;
+  color: var(--on-accent);
   box-shadow: 0 6px 16px color-mix(in srgb, var(--primary) 35%, transparent);
 }
 
@@ -270,7 +271,7 @@ html[data-theme="dark"] .theme-glyph__moon {
   padding: 12px;
   background: var(--panel);
   border: 2px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
 }
 
 .mascot {
@@ -278,7 +279,7 @@ html[data-theme="dark"] .theme-glyph__moon {
   width: 100%;
   aspect-ratio: 1 / 1;
   object-fit: cover;
-  border-radius: 8px;
+  border-radius: var(--radius);
   image-rendering: auto;
 }
 
@@ -341,9 +342,9 @@ html[data-theme="dark"] .theme-glyph__moon {
   padding: 16px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  transition: transform var(--dur-fast) ease, box-shadow var(--dur-fast) ease;
 }
 
 .module-card:hover {
@@ -357,7 +358,7 @@ html[data-theme="dark"] .theme-glyph__moon {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: var(--radius);
   font-size: 20px;
   font-weight: 800;
   background: color-mix(in srgb, var(--primary) 14%, transparent);
@@ -386,7 +387,7 @@ html[data-theme="dark"] .theme-glyph__moon {
   font-size: 11px;
   font-weight: 700;
   padding: 3px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   letter-spacing: 0.5px;
 }
 
@@ -416,7 +417,7 @@ html[data-theme="dark"] .theme-glyph__moon {
   text-align: center;
   background: var(--panel);
   border: 1px dashed color-mix(in srgb, var(--primary) 45%, var(--line));
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow);
 }
 
@@ -516,7 +517,7 @@ html[data-theme="dark"] .theme-glyph__moon {
   isolation: isolate;
   transition:
     padding 0.5s ease-out,
-    width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    width var(--dur-slow) cubic-bezier(0.4, 0, 0.2, 1),
     background-color 0.5s ease-out,
     border-color 0.5s ease-out,
     box-shadow 0.5s ease-out;
@@ -573,7 +574,7 @@ html[data-theme="dark"] .theme-glyph__moon {
   display: flex;
   align-items: center;
   gap: 0;
-  transition: gap 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: gap var(--dur-slow) cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .repo-thumb {
@@ -593,8 +594,8 @@ html[data-theme="dark"] .theme-glyph__moon {
   color: var(--text);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
   transition:
-    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-    margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transform var(--dur-slow) cubic-bezier(0.4, 0, 0.2, 1),
+    margin-left var(--dur-slow) cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .repo-thumb:first-child {
@@ -644,7 +645,7 @@ html[data-theme="dark"] .theme-glyph__moon {
 
 .repo-arrow {
   display: inline-block;
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform var(--dur-slow) cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .landing-module-actions {
@@ -665,7 +666,7 @@ html[data-theme="dark"] .theme-glyph__moon {
   height: 44px;
   padding: 0 14px;
   border: 1px solid color-mix(in srgb, var(--primary) 32%, var(--line));
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--primary) 8%, var(--panel));
   color: var(--text);
   font-size: 14px;
@@ -673,10 +674,10 @@ html[data-theme="dark"] .theme-glyph__moon {
   box-shadow: 0 6px 18px color-mix(in srgb, var(--primary) 10%, transparent);
   text-decoration: none;
   transition:
-    transform 0.2s ease,
-    border-color 0.2s ease,
-    background-color 0.2s ease,
-    box-shadow 0.2s ease;
+    transform var(--dur-base) ease,
+    border-color var(--dur-base) ease,
+    background-color var(--dur-base) ease,
+    box-shadow var(--dur-base) ease;
 }
 
 /* 2 个字撑满 3 个字的宽度，和「留言」两端对齐（不支持两端对齐的浏览器居中显示） */
@@ -721,9 +722,9 @@ html[data-theme="dark"] .theme-glyph__moon {
   min-width: 22px;
   height: 22px;
   padding: 0 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--primary);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 12px;
   font-style: normal;
   font-weight: 800;
@@ -757,7 +758,7 @@ html[data-theme="dark"] .theme-glyph__moon {
   font-size: 14px;
   font-weight: 700;
   text-decoration: none;
-  transition: color 0.2s ease;
+  transition: color var(--dur-base) ease;
 }
 
 .landing-links a.is-placeholder {
@@ -784,10 +785,10 @@ html[data-theme="dark"] .theme-glyph__moon {
    * 全站提示条统一成 8px 圆角矩形（这里原来是最早的胶囊形），
    * 暗色填充也统一成跟推荐页一样的 #20232a，不再用近黑的底色。
    */
-  border-radius: 8px;
-  border-color: transparent;
-  background: #20232a;
-  color: #ffffff;
+  border-radius: var(--radius);
+  border-color: var(--toast-border);
+  background: var(--toast-bg);
+  color: var(--toast-ink);
   font-size: 13px;
   box-shadow: var(--shadow);
   backdrop-filter: blur(10px);
@@ -797,22 +798,16 @@ html[data-theme="dark"] .theme-glyph__moon {
    */
   width: max-content;
   max-width: calc(100vw - 28px);
-  animation: site-toast-in var(--dur-fast, 160ms)
+  animation: site-toast-in var(--dur-fast)
     var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)) backwards;
 }
 
-:root:not([data-theme="dark"]) .landing-toast {
-  background: rgba(255, 255, 255, 0.97);
-  color: #1b1f27;
-  border-color: rgba(24, 31, 45, 0.14);
-}
-
-/* 消失：先在原处淡出往下 8px，120ms 后再 hidden（由 showLandingToast() 里的定时器收尾） */
+/* 消失：先在原处淡出往下 8px，等过渡播完（--dur-fast 160ms）再 hidden（由 showLandingToast() 里的定时器收尾） */
 .landing-toast.is-leaving {
   animation: none;
   opacity: 0;
   transform: translate(-50%, 8px);
-  transition: opacity 120ms ease-in, transform 120ms ease-in;
+  transition: opacity var(--dur-fast) ease-in, transform var(--dur-fast) ease-in;
 }
 
 /* 减少动效：toast 只淡入淡出、不做位移 */
@@ -823,7 +818,7 @@ html[data-theme="dark"] .theme-glyph__moon {
 
   .landing-toast.is-leaving {
     transform: translateX(-50%);
-    transition: opacity 120ms ease-in;
+    transition: opacity var(--dur-fast) ease-in;
   }
 }
 
@@ -970,7 +965,7 @@ html[data-theme="dark"] .theme-glyph__moon {
   height: 40px;
   padding: 0 14px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--panel) 92%, transparent);
   color: var(--text);
   font: inherit;
@@ -1014,7 +1009,7 @@ html[data-theme="dark"] .theme-glyph__moon {
   width: 190px;
   padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   background: var(--panel);
   box-shadow: var(--shadow);
 }
@@ -1033,7 +1028,7 @@ html[data-theme="dark"] .theme-glyph__moon {
   min-height: 34px;
   padding: 0 9px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--text);
   font: inherit;
@@ -1063,7 +1058,7 @@ html[data-theme="dark"] .theme-glyph__moon {
   width: min(380px, 100%);
   padding: 28px 26px 24px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   background: var(--panel);
   box-shadow: 0 22px 60px rgba(17, 24, 39, 0.26);
 }
@@ -1088,7 +1083,7 @@ html[data-theme="dark"] .theme-glyph__moon {
   width: 32px;
   height: 32px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--muted);
   font-size: 22px;
@@ -1117,7 +1112,7 @@ html[data-theme="dark"] .theme-glyph__moon {
   height: 42px;
   padding: 0 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   outline: 0;
   background: var(--bg-soft);
   color: var(--text);
@@ -1146,9 +1141,9 @@ html[data-theme="dark"] .theme-glyph__moon {
   width: 100%;
   height: 42px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--primary);
-  color: #fff;
+  color: var(--on-accent);
   font: inherit;
   font-weight: 800;
   cursor: pointer;
@@ -1166,7 +1161,7 @@ html[data-theme="dark"] .theme-glyph__moon {
 .auth-error {
   margin-top: 12px;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: color-mix(in srgb, #d64545 12%, transparent);
   color: #d64545;
   font-size: 13px;
@@ -1736,9 +1731,9 @@ body[data-page] .under-construction {
   min-width: 22px;
   height: 22px;
   padding: 0 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--primary);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 12px;
   font-weight: 800;
   line-height: 22px;

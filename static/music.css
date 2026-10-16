@@ -1,14 +1,14 @@
 /* 听Error酱的歌单：顶栏 + 歌单列表；点封面播放 / 暂停（内嵌到推荐页时顶栏隐藏） */
 
 :root {
-  --mu-bg: #f4f5f8;
+  --mu-bg: #f5f6f8;
   --mu-surface: #ffffff;
   --mu-surface-2: #f6f7f9;
-  --mu-text: #1b1f27;
-  --mu-muted: #666f7d;
-  --mu-faint: #98a1af;
-  --mu-line: #e4e7ec;
-  --mu-hover: #f1f3f7;
+  --mu-text: #1f2329;
+  --mu-muted: #7b8494;
+  --mu-faint: #a4acb9;
+  --mu-line: #e3e6eb;
+  --mu-hover: #eef0f4;
   --mu-accent: #7b68ee;
   --mu-accent-hover: #6956e5;
   --mu-accent-soft: #efedff;
@@ -18,17 +18,17 @@
 }
 
 :root[data-theme="dark"] {
-  --mu-bg: #121214;
-  --mu-surface: #1d1d21;
+  --mu-bg: #171717;
+  --mu-surface: #262626;
   --mu-surface-2: #26262b;
-  --mu-text: #f3f3f5;
+  --mu-text: #f4f4f5;
   --mu-muted: #a1a1aa;
-  --mu-faint: #77777f;
-  --mu-line: #33333a;
-  --mu-hover: #292930;
+  --mu-faint: #71717a;
+  --mu-line: #3f3f46;
+  --mu-hover: #323238;
   --mu-accent: #a78bfa;
   --mu-accent-hover: #b8a3ff;
-  --mu-accent-soft: #302a4a;
+  --mu-accent-soft: #322d4c;
   --mu-danger: #f87171;
   --mu-shadow: 0 14px 36px rgba(0, 0, 0, 0.5);
   color-scheme: dark;
@@ -91,7 +91,7 @@ body {
   align-items: center;
   gap: 8px;
   padding: 6px 10px 6px 8px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   color: var(--mu-text);
   text-decoration: none;
 }
@@ -166,7 +166,7 @@ body {
   align-items: center;
   gap: 12px;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   cursor: pointer;
 }
 
@@ -216,7 +216,7 @@ body {
 }
 
 .mu-eq i:nth-child(2) {
-  animation-delay: 0.18s;
+  animation-delay: var(--dur-fast);
 }
 
 .mu-eq i:nth-child(3) {
@@ -247,7 +247,7 @@ body {
   padding: 0;
   overflow: hidden;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: linear-gradient(
     145deg,
     color-mix(in srgb, var(--mu-accent) 24%, var(--mu-surface-2)),
@@ -394,7 +394,7 @@ button.mu-row-cover:focus-visible {
   height: 36px;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--mu-muted);
   cursor: pointer;
@@ -426,7 +426,7 @@ button.mu-row-cover:focus-visible {
   min-height: 36px;
   padding: 0 13px;
   border: 1px solid var(--mu-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mu-surface);
   color: var(--mu-text);
   font: inherit;
@@ -453,13 +453,13 @@ button.mu-row-cover:focus-visible {
 .mu-btn-primary {
   border-color: var(--mu-accent);
   background: var(--mu-accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .mu-btn-primary:hover {
   background: var(--mu-accent-hover);
   border-color: var(--mu-accent-hover);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .mu-btn-danger {
@@ -494,7 +494,7 @@ button.mu-row-cover:focus-visible {
   overflow-y: auto;
   padding: 22px;
   border: 1px solid var(--mu-line);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   background: var(--mu-surface);
   box-shadow: 0 24px 60px rgba(10, 14, 24, 0.34);
 }
@@ -540,7 +540,7 @@ button.mu-row-cover:focus-visible {
   height: 36px;
   padding: 0 10px;
   border: 1px solid var(--mu-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mu-surface-2);
   color: var(--mu-text);
   font: inherit;
@@ -584,7 +584,7 @@ button.mu-row-cover:focus-visible {
   min-height: 112px;
   padding: 18px;
   border: 1px dashed var(--mu-line);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: var(--mu-surface-2);
   color: var(--mu-muted);
 }
@@ -623,7 +623,7 @@ button.mu-row-cover:focus-visible {
 .mu-form-error {
   margin: 0 0 10px;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: color-mix(in srgb, var(--mu-danger) 12%, transparent);
   color: var(--mu-danger);
   font-size: 12.5px;
@@ -653,29 +653,22 @@ button.mu-row-cover:focus-visible {
   z-index: 120;
   max-width: min(480px, calc(100vw - 32px));
   padding: 10px 16px;
-  border-radius: 8px;
-  background: #20232a;
-  color: #fff;
+  border-radius: var(--radius);
+  background: var(--toast-bg);
+  color: var(--toast-ink);
   font-size: 13px;
   box-shadow: var(--mu-shadow);
   transform: translateX(-50%);
-  animation: site-toast-in var(--dur-fast, 160ms)
+  animation: site-toast-in var(--dur-fast)
     var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)) backwards;
 }
 
-/* 消失：先在原处淡出往下 8px，120ms 后再 hidden（由 toast() 里的定时器收尾） */
+/* 消失：先在原处淡出往下 8px，等过渡播完（--dur-fast 160ms）再 hidden（由 toast() 里的定时器收尾） */
 .mu-toast.is-leaving {
   animation: none;
   opacity: 0;
   transform: translate(-50%, 8px);
-  transition: opacity 120ms ease-in, transform 120ms ease-in;
-}
-
-/* 提示条跟着主题走：浅色主题浅底深字，深色主题维持原来的深底白字 */
-:root:not([data-theme="dark"]) .mu-toast {
-  background: rgba(255, 255, 255, 0.97);
-  color: #1b1f27;
-  border: 1px solid rgba(24, 31, 45, 0.14);
+  transition: opacity var(--dur-fast) ease-in, transform var(--dur-fast) ease-in;
 }
 
 /* ---------- 响应式 ---------- */
@@ -779,7 +772,7 @@ button.mu-row-cover:focus-visible {
 
   .mu-toast.is-leaving {
     transform: translateX(-50%);
-    transition: opacity 120ms ease-in;
+    transition: opacity var(--dur-fast) ease-in;
   }
 }
 

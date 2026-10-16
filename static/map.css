@@ -1,12 +1,12 @@
 :root {
-  --mp-bg: #eef0f3;
+  --mp-bg: #f5f6f8;
   --mp-surface: #ffffff;
-  --mp-surface-2: #f5f6f8;
+  --mp-surface-2: #f6f7f9;
   --mp-text: #1f2329;
-  --mp-muted: #70798a;
-  --mp-faint: #9aa3b2;
-  --mp-border: #dfe3e9;
-  --mp-hover: #f0f2f5;
+  --mp-muted: #7b8494;
+  --mp-faint: #a4acb9;
+  --mp-border: #e3e6eb;
+  --mp-hover: #eef0f4;
   --mp-accent: #7b68ee;
   --mp-accent-hover: #6956e5;
   --mp-accent-soft: #efedff;
@@ -14,9 +14,6 @@
   --mp-danger-soft: #fff0f0;
   --mp-shadow: 0 10px 30px rgba(24, 31, 45, 0.16);
   /* 提示条 / 悬停气泡：浅色主题用浅底深字，深色主题用深底浅字 */
-  --mp-toast-bg: rgba(255, 255, 255, 0.97);
-  --mp-toast-ink: #1b1f27;
-  --mp-toast-border: rgba(24, 31, 45, 0.14);
   --mp-tip-bg: rgba(255, 255, 255, 0.98);
   --mp-tip-ink: #1b1f27;
   --mp-tip-border: rgba(24, 31, 45, 0.16);
@@ -24,9 +21,9 @@
 }
 
 :root[data-theme="dark"] {
-  --mp-bg: #141414;
-  --mp-surface: #232326;
-  --mp-surface-2: #2c2c30;
+  --mp-bg: #171717;
+  --mp-surface: #262626;
+  --mp-surface-2: #26262b;
   --mp-text: #f4f4f5;
   --mp-muted: #a1a1aa;
   --mp-faint: #71717a;
@@ -38,9 +35,6 @@
   --mp-danger: #f87171;
   --mp-danger-soft: #3d2020;
   --mp-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
-  --mp-toast-bg: #20232a;
-  --mp-toast-ink: #ffffff;
-  --mp-toast-border: transparent;
   --mp-tip-bg: #2b2b31;
   --mp-tip-ink: #f4f4f5;
   --mp-tip-border: transparent;
@@ -104,12 +98,12 @@ body {
   flex-direction: column;
   width: min(340px, calc(100vw - 32px));
   border: 1px solid var(--mp-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: color-mix(in srgb, var(--mp-surface) 94%, transparent);
   box-shadow: var(--mp-shadow);
   backdrop-filter: blur(10px);
   overflow: hidden;
-  transition: transform 0.22s ease;
+  transition: transform var(--dur-base) ease;
 }
 
 @media (min-width: 861px) {
@@ -187,7 +181,7 @@ body {
   height: 36px;
   padding: 0 28px 0 32px;
   border: 1px solid var(--mp-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mp-surface-2);
   color: var(--mp-text);
   font: inherit;
@@ -219,7 +213,7 @@ body {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--mp-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mp-surface-2);
   color: var(--mp-text);
   font: inherit;
@@ -294,7 +288,7 @@ body {
   width: 100%;
   padding: 9px 10px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: transparent;
   color: inherit;
   font: inherit;
@@ -315,7 +309,7 @@ body {
   width: 24px;
   height: 24px;
   margin-top: 1px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--dot-color, var(--mp-accent));
   color: #fff;
   font-size: 12px;
@@ -370,7 +364,7 @@ body {
   width: min(340px, calc(100vw - 32px));
   padding: 10px 12px;
   border: 1px solid var(--mp-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: color-mix(in srgb, var(--mp-surface) 94%, transparent);
   box-shadow: var(--mp-shadow);
   backdrop-filter: blur(10px);
@@ -398,7 +392,7 @@ body {
   min-height: 34px;
   padding: 0 12px;
   border: 1px solid var(--mp-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mp-surface);
   color: var(--mp-text);
   font: inherit;
@@ -438,7 +432,7 @@ body {
   bottom: calc(100% + 8px);
   max-width: 240px;
   padding: 5px 9px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   /* 明暗主题各自一套底色 / 字色（浅色主题浅泡、深色主题深泡） */
   background: var(--mp-tip-bg);
   color: var(--mp-tip-ink);
@@ -450,7 +444,7 @@ body {
   visibility: hidden;
   pointer-events: none;
   transform: translateX(-50%) translateY(2px);
-  transition: opacity 0.14s ease-out, transform 0.14s ease-out, visibility 0s linear 0.14s;
+  transition: opacity var(--dur-fast) ease-out, transform var(--dur-fast) ease-out, visibility 0s linear var(--dur-fast);
 }
 
 .mp-tip:hover::after,
@@ -493,7 +487,7 @@ body {
 .mp-btn-primary {
   border-color: var(--mp-accent);
   background: var(--mp-accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .mp-btn-primary:hover {
@@ -517,7 +511,7 @@ body {
   width: 32px;
   height: 32px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--mp-muted);
   cursor: pointer;
@@ -557,7 +551,7 @@ body {
   width: var(--mp-tools-btn);
   height: var(--mp-tools-btn);
   border: 1px solid var(--mp-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: color-mix(in srgb, var(--mp-surface) 94%, transparent);
   color: var(--mp-text);
   box-shadow: var(--mp-shadow);
@@ -608,7 +602,7 @@ body {
   width: min(216px, calc(100vw - 96px));
   padding: 6px;
   border: 1px solid var(--mp-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: color-mix(in srgb, var(--mp-surface) 96%, transparent);
   box-shadow: var(--mp-shadow);
   backdrop-filter: blur(10px);
@@ -641,7 +635,7 @@ body {
   padding: 4px;
   box-sizing: border-box;
   border: 1px solid var(--mp-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: color-mix(in srgb, var(--mp-surface) 96%, transparent);
   box-shadow: var(--mp-shadow);
   backdrop-filter: blur(10px);
@@ -650,9 +644,9 @@ body {
   transform: translateX(28px);
   pointer-events: none;
   transition:
-    opacity 0.18s ease,
-    transform 0.22s cubic-bezier(0.32, 0.72, 0, 1),
-    visibility 0.22s;
+    opacity var(--dur-fast) ease,
+    transform var(--dur-base) cubic-bezier(0.32, 0.72, 0, 1),
+    visibility var(--dur-base);
 }
 
 .mp-search-flyout.is-open {
@@ -670,7 +664,7 @@ body {
   height: calc(var(--mp-tools-btn, 40px) - 10px);
   padding: 0 8px;
   border: 1px solid var(--mp-border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--mp-surface-2);
   box-sizing: border-box;
 }
@@ -708,10 +702,10 @@ body {
   border-color: transparent;
   opacity: 0;
   transition:
-    max-height 0.22s ease,
-    opacity 0.18s ease,
-    padding 0.22s ease,
-    margin-top 0.22s ease;
+    max-height var(--dur-base) ease,
+    opacity var(--dur-fast) ease,
+    padding var(--dur-base) ease,
+    margin-top var(--dur-base) ease;
 }
 
 .mp-search-flyout .mp-poi-list.is-open {
@@ -733,7 +727,7 @@ body {
   width: 100%;
   padding: 8px 9px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--mp-text);
   font: inherit;
@@ -772,7 +766,7 @@ body {
 .mp-base-tag {
   flex: 0 0 auto;
   padding: 0 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--mp-surface-2);
   color: var(--mp-muted);
   font-size: 10.5px;
@@ -796,10 +790,10 @@ body {
   transform: translateX(-50%);
   max-width: min(460px, calc(100vw - 32px));
   padding: 10px 16px;
-  border-radius: 8px;
-  background: var(--mp-toast-bg);
-  color: var(--mp-toast-ink);
-  border: 1px solid var(--mp-toast-border);
+  border-radius: var(--radius);
+  background: var(--toast-bg);
+  color: var(--toast-ink);
+  border: 1px solid var(--toast-border);
   font-size: 13px;
   box-shadow: var(--mp-shadow);
 }
@@ -826,7 +820,7 @@ body {
   overflow-y: auto;
   padding: 6px;
   border: 1px solid var(--mp-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mp-surface);
   box-shadow: var(--mp-shadow);
 }
@@ -838,7 +832,7 @@ body {
 
 /* 浮层进场动画：0.22s 同一个缓动，和右上角按钮让位、检索卡片滑出同步 */
 .mp-owner-pop:not([hidden]) {
-  animation: mp-pop-in 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+  animation: mp-pop-in var(--dur-base) cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 @keyframes mp-pop-in {
@@ -913,7 +907,7 @@ body {
   border-bottom: 1.6px solid var(--mp-muted);
   /* 收起时箭头朝下（点开），展开时朝上（点收） */
   transform: rotate(45deg);
-  transition: transform 0.18s ease;
+  transition: transform var(--dur-fast) ease;
 }
 
 .mp-cat-option.is-parent[aria-expanded="true"] .mp-cat-caret {
@@ -999,7 +993,7 @@ body {
 .mp-pin-ok {
   border-color: var(--mp-accent);
   background: var(--mp-accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .mp-pin-ok:hover {
@@ -1102,14 +1096,14 @@ body {
   border: 3px solid color-mix(in srgb, var(--mp-accent) 45%, #fff);
   border-radius: 50%;
   background: color-mix(in srgb, var(--mp-accent) 82%, #fff);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 13px;
   font-weight: 700;
   box-shadow: 0 4px 12px rgba(15, 20, 30, 0.3);
 }
 
 .leaflet-popup-content-wrapper {
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mp-surface);
   color: var(--mp-text);
   box-shadow: var(--mp-shadow);
@@ -1145,7 +1139,7 @@ body {
   flex: 0 0 auto;
   width: 26px;
   height: 26px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--popup-color, var(--mp-accent));
   color: #fff;
   font-size: 12px;
@@ -1177,7 +1171,7 @@ body {
   gap: 4px;
   height: 20px;
   padding: 0 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 11px;
   font-weight: 700;
 }
@@ -1215,7 +1209,7 @@ body {
   width: 54px;
   height: 54px;
   border: 1px solid var(--mp-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   overflow: hidden;
 }
 
@@ -1301,7 +1295,7 @@ body {
 
 .mp-popup-tags span {
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--mp-surface-2);
   color: var(--mp-muted);
   font-size: 11px;
@@ -1324,7 +1318,7 @@ body {
   height: 28px;
   padding: 0 10px;
   border: 1px solid var(--mp-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mp-surface);
   color: var(--mp-text);
   font-size: 12px;
@@ -1356,7 +1350,7 @@ body {
 
 .leaflet-bar {
   border: 1px solid var(--mp-border) !important;
-  border-radius: 8px !important;
+  border-radius: var(--radius) !important;
   overflow: hidden;
   box-shadow: var(--mp-shadow) !important;
 }
@@ -1373,7 +1367,7 @@ body {
 
 .leaflet-control-layers {
   border: 1px solid var(--mp-border) !important;
-  border-radius: 8px !important;
+  border-radius: var(--radius) !important;
   background: var(--mp-surface) !important;
   color: var(--mp-text);
   box-shadow: var(--mp-shadow) !important;
@@ -1421,7 +1415,7 @@ body {
   overflow-y: auto;
   padding: 18px 18px 16px;
   border: 1px solid var(--mp-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mp-surface);
   box-shadow: var(--mp-shadow);
 }
@@ -1491,7 +1485,7 @@ body {
   min-height: 36px;
   padding: 7px 10px;
   border: 1px solid var(--mp-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mp-surface-2);
   color: var(--mp-text);
   font: inherit;
@@ -1533,7 +1527,7 @@ body {
   margin: 8px 0 0;
   padding: 4px;
   border: 1px solid var(--mp-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mp-surface-2);
   list-style: none;
   overflow-y: auto;
@@ -1546,7 +1540,7 @@ body {
   width: 100%;
   padding: 7px 9px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--mp-text);
   font: inherit;
@@ -1572,7 +1566,7 @@ body {
   display: inline-flex;
   padding: 3px;
   border: 1px solid var(--mp-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mp-surface-2);
 }
 
@@ -1580,7 +1574,7 @@ body {
   min-height: 30px;
   padding: 0 14px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--mp-muted);
   font: inherit;
@@ -1605,7 +1599,7 @@ body {
   width: 32px;
   height: 32px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--mp-faint);
   font-size: 20px;
@@ -1642,7 +1636,7 @@ body {
   width: 72px;
   height: 72px;
   border: 1px solid var(--mp-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   overflow: hidden;
   background: var(--mp-surface-2);
 }
@@ -1688,7 +1682,7 @@ body {
 .mp-form-error {
   margin: 0 0 10px;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mp-danger-soft);
   color: var(--mp-danger);
   font-size: 12.5px;
@@ -1733,7 +1727,7 @@ body {
   align-items: center;
   padding: 8px;
   border: 1px solid var(--mp-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mp-surface-2);
 }
 
@@ -1760,7 +1754,7 @@ body {
   height: 30px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--mp-muted);
   cursor: pointer;
@@ -1778,7 +1772,7 @@ body {
 .mp-cat-toggle svg {
   width: 18px;
   height: 18px;
-  transition: transform 0.18s ease;
+  transition: transform var(--dur-fast) ease;
 }
 
 .mp-cat-group.is-collapsed .mp-cat-toggle svg {
@@ -1800,7 +1794,7 @@ body {
   margin-left: 26px;
   padding: 2px 8px;
   border: 1px dashed var(--mp-border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--mp-muted);
   font: inherit;
@@ -1818,7 +1812,7 @@ body {
   min-height: 34px;
   padding: 6px 8px;
   border: 1px solid var(--mp-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mp-surface);
   color: var(--mp-text);
   font: inherit;
@@ -1862,7 +1856,7 @@ body {
     width: auto;
     max-height: none;
     transform: translateY(calc(100% + var(--mp-actions-h, 70px) + 40px));
-    transition: transform 0.22s ease;
+    transition: transform var(--dur-base) ease;
   }
 
   .mp-sidebar.is-open {
@@ -1871,7 +1865,7 @@ body {
 
   /* 清单展开时把右上角三个按钮向右滑出，收起时滑回 */
   .mp-tools {
-    transition: transform 0.22s ease, opacity 0.18s ease;
+    transition: transform var(--dur-base) ease, opacity var(--dur-fast) ease;
   }
 
   .mp-app.is-panel-open .mp-tools,
@@ -1899,7 +1893,7 @@ body {
     gap: 6px;
     padding: 8px;
     grid-template-columns: repeat(6, minmax(0, 1fr));
-    transition: opacity 0.18s ease;
+    transition: opacity var(--dur-fast) ease;
   }
 
   /*
@@ -2052,7 +2046,7 @@ body {
     min-height: 44px;
     min-width: 0;
     padding: 0;
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
   }
 
   .mp-actions .mp-btn svg {
@@ -2109,7 +2103,7 @@ body {
     gap: 9px;
     min-height: 46px;
     padding: 4px 8px;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
   }
 
   /* 用 inset 阴影画发丝线：不参与布局，所以整列高度不会被撑高一像素 */
@@ -2120,7 +2114,7 @@ body {
   .mp-item-dot {
     width: 20px;
     height: 20px;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     font-size: 11px;
   }
 
@@ -2180,7 +2174,7 @@ body {
   /* ---------- 两张独立卡片：上面检索、下面操作，中间留间距 ---------- */
   .mp-sidebar {
     bottom: calc(16px + var(--mp-actions-h, 98px) + 10px);
-    transition: transform 0.26s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s ease-out;
+    transition: transform 0.26s cubic-bezier(0.32, 0.72, 0, 1), opacity var(--dur-base) ease-out;
   }
 
   /* 收起：整张卡片向下滑出（上下滑动，不再左右横移） */
@@ -2220,7 +2214,7 @@ body {
     gap: 8px;
     min-height: 40px;
     padding: 5px 8px;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
   }
 
   .mp-item + .mp-item {
@@ -2230,7 +2224,7 @@ body {
   .mp-item-dot {
     width: 20px;
     height: 20px;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     font-size: 11px;
   }
 
@@ -2274,7 +2268,7 @@ body {
     height: 34px;
     min-height: 34px;
     padding: 0;
-    border-radius: 8px;
+    border-radius: var(--radius);
   }
 
   .mp-actions .mp-btn svg {
@@ -2298,7 +2292,7 @@ body {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--mp-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--mp-surface-2);
   color: var(--mp-text);
   font: inherit;
@@ -2377,7 +2371,7 @@ body {
 }
 
 .mp-catpick-sheet.is-entering {
-  animation: mp-catpick-in 0.24s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  animation: mp-catpick-in var(--dur-base) cubic-bezier(0.32, 0.72, 0, 1) forwards;
 }
 
 @keyframes mp-catpick-in {

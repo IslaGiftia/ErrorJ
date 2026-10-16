@@ -33,8 +33,10 @@ const PAGES = [
   { name: "messages", path: "/messages" },
   { name: "moments", path: "/moments" },
   { name: "recommendations", path: "/recommendations" },
-  { name: "music", path: "/music" },
-  { name: "books", path: "/books" },
+  // /music、/books 现在只是推荐页 iframe 的落点（独立打开会 302 跳回推荐页），
+  // 所以按内嵌时的真实地址取页面本体，否则这里量到的是推荐页、漏掉这两个子页
+  { name: "music", path: "/music?embed=1" },
+  { name: "books", path: "/books?embed=1" },
   { name: "notes", path: "/notes" },
   { name: "notes-detail", path: "/notes", click: ".nt-card" },
   { name: "bookmarks", path: "/bookmarks" },

@@ -106,10 +106,11 @@
     clearTimeout(toastLeaveTimer);
     toastTimer = setTimeout(function () {
       box.classList.add("is-leaving");
+      // 和 .rec-toast.is-leaving 的过渡时长（--dur-fast 160ms）对齐，别让淡出被提前掐断
       toastLeaveTimer = setTimeout(function () {
         box.hidden = true;
         box.classList.remove("is-leaving");
-      }, 120);
+      }, 160);
     }, 2400);
   }
 

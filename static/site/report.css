@@ -19,7 +19,7 @@
   overflow: auto;
   padding: 20px;
   border: 1px solid var(--report-line, #d9dce7);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--report-panel, #fff);
   color: var(--report-text, #202337);
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
@@ -42,7 +42,7 @@
   width: 32px;
   height: 32px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: transparent;
   color: inherit;
   font-size: 24px;
@@ -68,7 +68,7 @@
   width: 100%;
   box-sizing: border-box;
   border: 1px solid var(--report-line, #d9dce7);
-  border-radius: 7px;
+  border-radius: var(--radius);
   background: var(--report-input, #f7f8fc);
   color: inherit;
   font: inherit;
@@ -104,7 +104,7 @@
 
 .er-report-btn {
   border: 1px solid var(--report-line, #d9dce7);
-  border-radius: 7px;
+  border-radius: var(--radius);
   padding: 8px 14px;
   background: transparent;
   color: inherit;
@@ -139,7 +139,7 @@
   margin: 0 auto;
   padding: 28px;
   border: 1px solid var(--report-line, #d9dce7);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--report-panel, #fff);
 }
 
@@ -180,11 +180,11 @@
 }
 
 :root:not([data-theme="dark"]) {
-  --report-page-bg: #f4f5fa;
+  --report-page-bg: #f5f6f8;
   --report-panel: #fff;
-  --report-text: #202337;
-  --report-muted: #5f667d;
-  --report-line: #d9dce7;
+  --report-text: #1f2329;
+  --report-muted: #7b8494;
+  --report-line: #e3e6eb;
   --report-input: #f7f8fc;
-  --report-accent: #6d5be8;
+  --report-accent: #7b68ee;
 }

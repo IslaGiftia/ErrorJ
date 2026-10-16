@@ -7486,6 +7486,28 @@ def safe_next_path(value):
     return text
 
 
+# 歌曲 / 书籍这两个地址只是推荐页 iframe 的落点，本身不再是一个能停留的页面
+# （顶栏、举报入口都已从它们身上退场）。手输地址或翻旧书签进来的，送回推荐页对应那一栏。
+LEGACY_SUBPAGE_TABS = {"/music": "music", "/books": "books"}
+
+
+def legacy_subpage_redirect(path, query):
+    """给独立子页地址算出该跳去哪儿；不该跳（iframe 内嵌、或不是子页）时返回空串。"""
+    tab = LEGACY_SUBPAGE_TABS.get(path)
+    if not tab:
+        return ""
+    if (query.get("embed") or [""])[0] == "1":
+        return ""
+    # 其余查询参数照搬，侧栏更新日志的 focus 定位还能用
+    carried = [
+        (key, value)
+        for key, values in query.items()
+        for value in values
+        if key != "embed"
+    ]
+    return "/downloads?" + urlencode([("tab", tab), *carried])
+
+
 class InventoryHandler(BaseHTTPRequestHandler):
     server_version = "ElectroStock/1.0"
     # 用 HTTP/1.1 才能复用连接：一个页面要拉十来个 css/js/图片，
@@ -9352,6 +9374,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
             self.send_header("Location", "/workbench?view=prompts")
             self.send_header("Content-Length", "0")
             self.end_headers()
+            return
+        legacy_redirect = legacy_subpage_redirect(path, query)
+        if legacy_redirect:
+            self.redirect(legacy_redirect)
             return
         if path == "/logout":
             claims = verify_session_token(self.cookies().get(AUTH_COOKIE, ""))

@@ -63,8 +63,8 @@
   left: 0;
   width: 1px;
   height: 3.5rem;
-  border-radius: 9999px;
-  background: linear-gradient(to top, #6366f1, #a855f7, transparent);
+  border-radius: var(--radius-pill);
+  background: linear-gradient(to top, #7b68ee, #a855f7, transparent);
   pointer-events: none;
   will-change: transform;
 }
@@ -97,8 +97,8 @@
   left: 50%;
   width: 2.5rem;
   height: 0.5rem;
-  border-radius: 9999px;
-  background: linear-gradient(to right, transparent, #6366f1, transparent);
+  border-radius: var(--radius-pill);
+  background: linear-gradient(to right, transparent, #7b68ee, transparent);
   filter: blur(4px);
   transform: translateX(-50%);
 }
@@ -108,7 +108,7 @@
   width: 0.25rem;
   height: 0.25rem;
   border-radius: 50%;
-  background: linear-gradient(to bottom, #6366f1, #a855f7);
+  background: linear-gradient(to bottom, #7b68ee, #a855f7);
   animation-name: rain-particle;
   animation-timing-function: ease-out;
   animation-fill-mode: both;

@@ -150,7 +150,7 @@
   overflow: hidden;
   background: var(--sb-surface);
   border: 1px solid var(--sb-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   box-shadow: var(--sb-shadow);
 }
 
@@ -271,7 +271,7 @@
   max-width: 13em;
   padding: 2px 7px;
   border: 1px solid var(--sb-border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--sb-hover);
   color: var(--sb-muted);
   font-family: inherit;
@@ -430,13 +430,13 @@ button.sb-presence:focus-visible {
   gap: 2px;
   padding: 6px;
   border: 1px solid var(--sb-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--sb-surface);
   box-shadow: var(--sb-shadow);
   font-size: 13px;
   /* 菜单是点在胶囊下方弹出来的：原点落在左上角，让它看起来是从胶囊里长出来的 */
   transform-origin: top left;
-  animation: sb-presence-menu-in var(--dur-fast, 160ms)
+  animation: sb-presence-menu-in var(--dur-fast)
     var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)) both;
 }
 
@@ -460,7 +460,7 @@ button.sb-presence:focus-visible {
   gap: 8px;
   padding: 6px 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--sb-text);
   font-family: inherit;
@@ -509,7 +509,7 @@ button.sb-presence:focus-visible {
   width: 8.5em;
   padding: 5px 8px;
   border: 1px solid var(--sb-border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--sb-hover);
   color: var(--sb-text);
   font-family: inherit;
@@ -525,9 +525,9 @@ button.sb-presence:focus-visible {
   flex: 0 0 auto;
   padding: 5px 12px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--sb-accent);
-  color: #fff;
+  color: var(--on-accent);
   font-family: inherit;
   font-size: 1em;
   font-weight: 600;
@@ -744,7 +744,7 @@ a.sb-log {
   justify-content: center;
   width: 22px;
   height: 22px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--sb-accent-soft);
   color: var(--sb-accent);
 }

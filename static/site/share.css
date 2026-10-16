@@ -1,7 +1,7 @@
 .share-overlay {
   --share-accent: var(
     --bk-accent,
-    var(--mu-accent, var(--nt-accent, var(--wb-accent, #4f46e5)))
+    var(--mu-accent, var(--nt-accent, var(--wb-accent, #7b68ee)))
   );
   --share-panel: var(
     --bk-surface,
@@ -54,7 +54,7 @@
   width: min(440px, 100%);
   padding: 20px;
   border: 1px solid var(--share-line);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   background: var(--share-panel);
   color: var(--share-text);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
@@ -77,7 +77,7 @@
   width: 32px;
   height: 32px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--share-muted);
   cursor: pointer;
@@ -106,7 +106,7 @@
   height: 40px;
   padding: 0 11px;
   border: 1px solid var(--share-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--share-bg);
   color: var(--share-text);
   font: inherit;
@@ -127,7 +127,7 @@
   margin-bottom: 14px;
   padding: 4px;
   border: 1px solid var(--share-line);
-  border-radius: 9px;
+  border-radius: var(--radius);
   background: var(--share-bg);
 }
 
@@ -139,7 +139,7 @@
   min-height: 34px;
   padding: 0 8px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--share-muted);
   font: inherit;
@@ -176,7 +176,7 @@
   margin-bottom: 12px;
   padding: 10px 11px;
   border: 1px solid var(--share-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--share-bg);
   color: var(--share-text);
   font: inherit;
@@ -227,7 +227,7 @@
   min-height: 38px;
   padding: 0 14px;
   border: 1px solid var(--share-line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--share-text);
   font: inherit;
@@ -238,7 +238,7 @@
 .share-btn.primary {
   border-color: var(--share-accent);
   background: var(--share-accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .share-btn:disabled {
@@ -250,7 +250,7 @@
   margin-top: 14px;
   padding: 12px;
   border: 1px solid var(--share-line);
-  border-radius: 9px;
+  border-radius: var(--radius);
   background: color-mix(in srgb, var(--share-accent) 6%, transparent);
 }
 

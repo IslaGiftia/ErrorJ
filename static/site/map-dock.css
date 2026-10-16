@@ -33,7 +33,7 @@
   font-size: clamp(11px, 0.55vw, 13px);
   text-decoration: none;
   color: #fff;
-  transition: transform 0.16s ease;
+  transition: transform var(--dur-fast) ease;
 }
 
 .map-dock:hover {
@@ -101,7 +101,7 @@
   min-width: 2.2em;
   padding: 0 0.65em;
   border: 1px solid var(--dock-count-border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--dock-count-bg);
   color: var(--dock-count-ink);
   font-size: 0.85em;
@@ -126,7 +126,7 @@
   height: 1.7em;
   padding: 0 0.45em;
   border: 2px solid rgba(255, 255, 255, 0.9);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--primary, #7b68ee);
   color: #fff;
   font-size: 0.85em;
@@ -165,12 +165,12 @@
 }
 
 .dock-hud-label {
-  color: var(--primary, #4f46e5);
+  color: var(--primary, #7b68ee);
   font-weight: 400;
 }
 
 .dock-hud-value {
-  color: var(--primary, #4f46e5);
+  color: var(--primary, #7b68ee);
   font-weight: 400;
 }
 
@@ -192,7 +192,7 @@
 
 [data-theme="dark"] .dock-hud-label,
 [data-theme="dark"] .dock-hud-value {
-  color: var(--accent, #818cf8);
+  color: var(--accent, #a78bfa);
 }
 
 [data-theme="dark"] .dock-hud-value[data-level="ok"] {
@@ -309,30 +309,23 @@
   z-index: 71;
   /* 文案气泡与留言 / 动态 / 推荐页的提示条同一套：8px 圆角、同样的内边距与投影 */
   padding: 10px 16px;
-  border: 1px solid transparent;
-  border-radius: 8px;
+  border: 1px solid var(--toast-border);
+  border-radius: var(--radius);
   /* 和推荐页提示条同色：暗色下不用近黑，保持 #20232a */
-  background: #20232a;
-  color: #fff;
+  background: var(--toast-bg);
+  color: var(--toast-ink);
   font-size: 13px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
   white-space: nowrap;
   opacity: 0;
   pointer-events: none;
   transform: translate(50%, 6px);
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  transition: opacity var(--dur-fast) ease, transform var(--dur-fast) ease;
 }
 
 .dock-map-toast.is-visible {
   opacity: 1;
   transform: translate(50%, 0);
-}
-
-/* 提示条跟着主题走：浅色主题浅底深字，深色主题维持原来的深底白字 */
-:root:not([data-theme="dark"]) .dock-map-toast {
-  background: rgba(255, 255, 255, 0.97);
-  color: #1b1f27;
-  border: 1px solid rgba(24, 31, 45, 0.14);
 }
 
 @media (max-width: 640px) {

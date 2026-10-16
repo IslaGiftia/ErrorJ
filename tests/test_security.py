@@ -330,6 +330,30 @@ class HomeActivityTests(unittest.TestCase):
             self.assertIn("/static/site/embed.css", text)
             self.assertIn("/static/site/embed.js", text)
 
+    def test_legacy_subpages_redirect_into_recommend_page(self):
+        """歌曲 / 书籍的独立地址只剩 iframe 落点这一个用途，直接打开就送回推荐页。"""
+        to_urls = app.legacy_subpage_redirect
+        self.assertEqual(to_urls("/books", {}), "/downloads?tab=books")
+        self.assertEqual(to_urls("/music", {}), "/downloads?tab=music")
+        # 侧栏更新日志带过来的 focus 定位参数要一起带走
+        self.assertEqual(
+            to_urls("/books", {"focus": ["3"]}), "/downloads?tab=books&focus=3"
+        )
+        # iframe 内嵌（?embed=1）照常出页面，不能跳走
+        for path in ("/books", "/music"):
+            self.assertEqual(to_urls(path, {"embed": ["1"]}), "")
+        # 其它地址一概不管
+        for path in ("/downloads", "/recommendations", "/", "/inventory"):
+            self.assertEqual(to_urls(path, {}), "")
+
+    def test_recommend_module_has_no_report_entry(self):
+        """举报入口从推荐模块整体退场，只保留单条内容卡片上的举报。"""
+        for name in ("books.html", "music.html", "recommendations.html"):
+            text = (app.STATIC_DIR / name).read_text(encoding="utf-8")
+            self.assertNotIn('href="/reporting"', text)
+        embed = (app.STATIC_DIR / "site" / "embed.css").read_text(encoding="utf-8")
+        self.assertNotIn('a[href="/reporting"]', embed)
+
     def test_messages_permission_label_is_renamed(self):
         labels = {item["key"]: item["label"] for item in app.GUEST_PAGE_PERMISSIONS}
         self.assertEqual(labels["guest:page:messages"], "留言")

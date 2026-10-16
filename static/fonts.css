@@ -13,17 +13,56 @@
 }
 
 /*
- * 全局动效 token：曲线和时长集中放这儿，别再各页手写。
+ * 全局 token：圆角档位和动效曲线 / 时长都集中放这儿，别再各页手写。
+ * 圆角只保留这四档 + 胶囊，不要再写 5 / 7 / 9px 这类相邻值；
+ * 相邻的 1px 差别肉眼看不出，却会让改一次圆角要翻十几个文件。
  * 入场（弹窗、面板出现）用强 ease-out，屏幕内的位移/收起用强 ease-in-out，
  * 内置的 ease / ease-in 对刻意的 UI 动效偏软：ease-in 起步慢，正好卡在用户盯着看的那一刻。
  */
 :root {
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-pill: 999px;
+  /*
+   * 实心主色块上的文字。浅色主题用白字（#7B68EE 上 4.15:1）；
+   * 深色主题的品牌紫是浅色的 #A78BFA，白字压上去只有 2.72:1，
+   * 所以换深紫字（6.32:1），和登录 / 注册页原有的做法一致。
+   */
+  --on-accent: #ffffff;
+  /*
+   * 站内提示条（toast）：全站统一成 8px 圆角矩形 + 深色填充 #20232a，
+   * 浅色主题也照用 —— 提示条是浮在页面之上的一次性反馈，
+   * 跟着主题变白反而会让它在浅色页面上看起来像多出来的一张卡片。
+   * 图标按钮的悬停气泡（tip）不走这套：那个仍是浅色主题浅底深字、深色主题深底浅字。
+   */
+  --toast-bg: #20232a;
+  --toast-ink: #ffffff;
+  --toast-border: transparent;
+  /* 深色提示条里的主题色文字：提示条永远是深底，所以固定用浅色主题那颗紫 */
+  --toast-accent: #a78bfa;
+  /*
+   * 右下角「顶部」悬浮按钮的底色。仓库 / 书签 / 笔记 / 工作台四个模块的卡片面、
+   * 描边和正文色本来就一致（见各页的 --xx-surface / --xx-line / --xx-text），
+   * 所以这里用一组中性值就够，不必再逐页覆盖。
+   */
+  --back-top-surface: #ffffff;
+  --back-top-border: #e3e6eb;
+  --back-top-ink: #1f2329;
   --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
   --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
   --dur-fast: 160ms;
   --dur-base: 220ms;
   --dur-slow: 320ms;
+}
+
+:root[data-theme="dark"] {
+  --on-accent: #1f1633;
+  --back-top-surface: #262626;
+  --back-top-border: #3f3f46;
+  --back-top-ink: #f4f4f5;
 }
 
 /*
@@ -246,5 +285,68 @@ html {
   .register-submit:active:not(:disabled),
   .mp-dialog-actions .mp-btn:active:not(:disabled) {
     transform: none;
+  }
+}
+
+/*
+ * 右下角「顶部」悬浮按钮的形态（留言 / 动态 / 推荐子页原本那套方形毛玻璃）。
+ *
+ * 定位、显隐和过渡由 static/site/back-to-top.js 注入的样式负责（它必须拿到
+ * [hidden] 的 display 权重和滚动位置），这里只负责长相：尺寸、圆角、毛玻璃底色、
+ * 「顶部」两个字和图标大小。两边刻意不写同一个属性，免得谁盖谁说不清 ——
+ * 页面只要引入那个脚本就能拿到这颗按钮，不必再抄一遍样式。
+ *
+ * 留言 / 动态 / 推荐子页仍有各自的覆盖（用页面自己的变量染色、按内容列定位），
+ * 选择器权重比这里高，长相不受影响。
+ */
+.site-back-top {
+  flex-direction: column;
+  gap: 2px;
+  width: 48px;
+  height: 58px;
+  border: 1px solid color-mix(in srgb, var(--back-top-border) 85%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--back-top-surface) 86%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  color: var(--back-top-ink);
+  box-shadow: 0 6px 20px rgba(24, 31, 45, 0.18);
+}
+
+.site-back-top::after {
+  content: "顶部";
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.site-back-top svg {
+  width: 18px;
+  height: 18px;
+}
+
+/*
+ * 有未读互动时把箭头翻向下、文案换成调用方传进来的 data-fresh-label
+ * （留言 / 动态 / 推荐子页会用，其余页面不调 setPending 就永远不出现这个状态）。
+ * 呼吸动画本身按页各自声明，因为节奏和光晕颜色跟着那一页的主题色走。
+ */
+.site-back-top.is-pending::after {
+  content: attr(data-fresh-label);
+}
+
+.site-back-top.is-pending svg {
+  transform: rotate(180deg);
+}
+
+@media (max-width: 640px) {
+  .site-back-top {
+    width: 44px;
+    height: 52px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-back-top.is-pending {
+    animation: none;
   }
 }

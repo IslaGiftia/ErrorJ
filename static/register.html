@@ -43,7 +43,7 @@
       width: min(390px, 100%);
       padding: 28px 26px 24px;
       border: 1px solid rgba(127, 127, 145, 0.28);
-      border-radius: 12px;
+      border-radius: var(--radius-xl);
       background: color-mix(in srgb, var(--rain-top, #ffffff) 86%, transparent);
       box-shadow: 0 16px 48px rgba(24, 31, 45, 0.18);
       backdrop-filter: blur(10px);
@@ -105,7 +105,7 @@
       width: 100%;
       padding: 10px 12px;
       border: 1px solid rgba(127, 127, 145, 0.36);
-      border-radius: 8px;
+      border-radius: var(--radius);
       outline: 0;
       background: rgba(127, 127, 145, 0.08);
       color: inherit;
@@ -153,9 +153,9 @@
       width: 100%;
       padding: 11px 16px;
       border: 0;
-      border-radius: 8px;
+      border-radius: var(--radius);
       background: #7b68ee;
-      color: #fff;
+      color: var(--on-accent);
       font: inherit;
       font-weight: 700;
       cursor: pointer;
@@ -163,7 +163,6 @@
 
     [data-theme="dark"] .register-submit {
       background: #a78bfa;
-      color: #1f1633;
     }
 
     .register-submit:hover {
@@ -182,7 +181,7 @@
     .register-message {
       margin-top: 12px;
       padding: 9px 12px;
-      border-radius: 8px;
+      border-radius: var(--radius);
       background: rgba(127, 104, 238, 0.1);
       color: #5d4fd1;
       font-size: 13px;

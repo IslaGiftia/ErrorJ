@@ -18,7 +18,6 @@
   --pin-note-border: color-mix(in srgb, var(--pin-accent) 45%, var(--pin-border));
   --pin-shadow: 0 1px 3px rgba(24, 31, 45, 0.06);
   --pin-modal-backdrop: rgba(24, 28, 38, 0.38);
-  --pin-toast-bg: #252a34;
   color-scheme: light;
 }
 
@@ -39,7 +38,6 @@
   --pin-danger-soft: #3d2020;
   --pin-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
   --pin-modal-backdrop: rgba(0, 0, 0, 0.62);
-  --pin-toast-bg: #20232a;
   color-scheme: dark;
 }
 
@@ -123,7 +121,7 @@ svg {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 7px;
+  border-radius: var(--radius);
   background: var(--pin-accent-soft);
   color: var(--pin-accent);
 }
@@ -165,7 +163,7 @@ svg {
   height: 36px;
   padding: 0 50px 0 33px;
   border: 1px solid var(--pin-border);
-  border-radius: 7px;
+  border-radius: var(--radius);
   outline: none;
   background: var(--pin-bg);
   color: var(--pin-text);
@@ -205,7 +203,7 @@ svg {
   gap: 6px;
   padding: 0 12px;
   border: 1px solid var(--pin-border);
-  border-radius: 7px;
+  border-radius: var(--radius);
   background: var(--pin-surface);
   color: var(--pin-text);
   font-size: 13px;
@@ -226,7 +224,7 @@ svg {
 .pin-primary-btn {
   border-color: var(--pin-accent);
   background: var(--pin-accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .pin-header-btn-primary:hover,
@@ -250,7 +248,7 @@ svg {
   align-items: center;
   justify-content: center;
   border: 1px solid var(--pin-border);
-  border-radius: 7px;
+  border-radius: var(--radius);
   background: var(--pin-surface);
   color: var(--pin-muted);
 }
@@ -268,7 +266,7 @@ svg {
 .pin-view-toggle {
   display: flex;
   border: 1px solid var(--pin-border);
-  border-radius: 7px;
+  border-radius: var(--radius);
   overflow: hidden;
 }
 
@@ -287,7 +285,7 @@ svg {
 
 .pin-view-toggle button.active {
   background: var(--pin-accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .pin-layout {
@@ -323,7 +321,7 @@ svg {
   padding: 0 8px;
   border: 0;
   border-left: 3px solid transparent;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--pin-text);
   text-align: left;
@@ -379,7 +377,7 @@ svg {
 .pin-folder-toggle svg {
   width: 12px;
   height: 12px;
-  transition: transform 0.16s ease;
+  transition: transform var(--dur-fast) ease;
 }
 
 .pin-folder-toggle.expanded svg {
@@ -418,7 +416,7 @@ svg {
 .pin-folder-count {
   min-width: 22px;
   padding: 1px 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--pin-bg);
   color: var(--pin-muted);
   text-align: center;
@@ -466,7 +464,7 @@ svg {
   justify-content: center;
   gap: 7px;
   border: 1px dashed var(--pin-border);
-  border-radius: 7px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--pin-muted);
   font-size: 12px;
@@ -517,7 +515,7 @@ svg {
   height: 30px;
   padding: 0 12px;
   border: 1px solid var(--pin-border);
-  border-radius: 7px;
+  border-radius: var(--radius);
   background: var(--pin-surface);
   color: var(--pin-muted);
   font-size: 12px;
@@ -531,7 +529,7 @@ svg {
 .pin-sort-bar button.active {
   border-color: var(--pin-accent);
   background: var(--pin-accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .pin-sort-bar .pin-broken-filter {
@@ -543,7 +541,7 @@ svg {
 .pin-sort-bar .pin-broken-filter span {
   min-width: 17px;
   padding: 0 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--pin-bg);
   color: var(--pin-muted);
   font-size: 10px;
@@ -606,7 +604,7 @@ svg {
   scroll-margin-top: 10px;
   background: var(--pin-surface);
   border: 1px solid var(--pin-border);
-  border-radius: 9px;
+  border-radius: var(--radius);
   box-shadow: var(--pin-shadow);
   overflow: visible;
 }
@@ -618,7 +616,7 @@ svg {
   gap: 7px;
   padding: 8px 11px;
   border-bottom: 1px solid var(--pin-border);
-  border-radius: 8px 8px 0 0;
+  border-radius: var(--radius) var(--radius) 0 0;
   user-select: none;
 }
 
@@ -654,7 +652,7 @@ svg {
 
 .pin-grid-section-count {
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--pin-bg);
   color: var(--pin-muted);
   font-size: 10px;
@@ -678,7 +676,7 @@ svg {
   gap: 7px;
   min-height: 38px;
   padding: 4px 7px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: grab;
 }
 
@@ -864,7 +862,7 @@ svg {
   min-height: 30px;
   padding: 0 10px;
   border: 1px solid var(--pin-border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--pin-surface);
   color: var(--pin-text);
   font-size: 12px;
@@ -995,7 +993,7 @@ svg {
   overflow-y: auto;
   background: var(--pin-surface);
   border: 1px solid var(--pin-border);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.25);
 }
 
@@ -1038,7 +1036,7 @@ svg {
   min-height: 38px;
   padding: 8px 10px;
   border: 1px solid var(--pin-border);
-  border-radius: 7px;
+  border-radius: var(--radius);
   outline: none;
   background: var(--pin-bg);
   color: var(--pin-text);
@@ -1079,9 +1077,9 @@ svg {
   transform: translateX(-50%);
   max-width: min(520px, calc(100vw - 24px));
   padding: 10px 16px;
-  border-radius: 8px;
-  background: var(--pin-toast-bg);
-  color: #fff;
+  border-radius: var(--radius);
+  background: var(--toast-bg);
+  color: var(--toast-ink);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
   font-size: 13px;
 }
@@ -1094,14 +1092,14 @@ svg {
   min-height: 26px;
   padding: 0 9px;
   border: 1px solid currentColor;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--pin-accent);
+  color: var(--toast-accent);
   font-size: 12px;
 }
 
 .pin-toast-action:hover {
-  background: color-mix(in srgb, var(--pin-accent) 16%, transparent);
+  background: color-mix(in srgb, var(--toast-accent) 16%, transparent);
 }
 
 .pin-folder-backdrop {
@@ -1117,7 +1115,7 @@ svg {
   min-width: 172px;
   padding: 5px;
   border: 1px solid var(--pin-border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--pin-surface);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.2);
 }
@@ -1130,7 +1128,7 @@ svg {
   gap: 8px;
   padding: 0 10px;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--pin-text);
   text-align: left;
@@ -1173,7 +1171,7 @@ svg {
   min-height: 38px;
   padding: 6px 8px;
   border: 1px solid var(--pin-border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .pin-cleanup-row + .pin-cleanup-row {
@@ -1202,7 +1200,7 @@ svg {
   min-height: 28px;
   padding: 0 9px;
   border: 1px solid var(--pin-border);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: var(--pin-surface);
   color: var(--pin-muted);
   font-size: 11px;
@@ -1283,7 +1281,7 @@ svg {
     z-index: 70;
     width: 250px;
     transform: translateX(-100%);
-    transition: transform 0.2s ease;
+    transition: transform var(--dur-base) ease;
     box-shadow: 8px 0 24px rgba(0, 0, 0, 0.16);
   }
 
