@@ -55,13 +55,24 @@ PY
 
 echo "[2/2] 打包上传文件（不含数据库和缓存）"
 if [ -d "$DATA_DIR" ]; then
+  # tar 遇到「读取途中文件仍在变化」只返回 1（警告级）——服务运行中上传附件/音乐
+  # 就是这种情况，归档本身仍然完整。这里把 0/1 都当作成功，2 及以上才是真失败；
+  # 否则 set -e 会在这里直接中止脚本，跳过后面的旧备份清理。
+  tar_rc=0
   tar -czf "$TARGET/files.tar.gz" -C "$DATA_DIR" \
     --exclude="inventory.db*" \
     --exclude="auth.json" \
     --exclude="*.log" \
     --exclude="__pycache__" \
-    .
-  echo "  -> $TARGET/files.tar.gz"
+    . || tar_rc=$?
+  if [ "$tar_rc" -eq 1 ]; then
+    echo "  -> $TARGET/files.tar.gz（打包期间有文件变动，按警告处理）"
+  elif [ "$tar_rc" -ne 0 ]; then
+    echo "tar 打包失败（退出码 $tar_rc），中止" >&2
+    exit 1
+  else
+    echo "  -> $TARGET/files.tar.gz"
+  fi
 fi
 
 echo "清理旧备份（保留最近 $KEEP 份）"
