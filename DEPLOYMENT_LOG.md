@@ -5736,3 +5736,74 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 一致
 ```
 
 备注：保留策略本身（KEEP=14、只按 8+6 位时间戳目录计数）没变；这次只修「被打断」的路径。
+
+## 131. 2026-10-17 06:37:08 全站主色统一、提示条改深色胶囊、四个模块补上「顶部」按钮
+
+这一轮是视觉体系收口：把散在十几个页面里各写一份的设计取值收成一套定义，并清掉两个点不动的入口。
+
+起因是盘点时发现同一套设计被抄了十几遍 —— 首页和仓库的主色还停在旧的靛蓝（`#4F46E5`），其余页面早就换成了
+`#7B68EE`；浅色底色有 5 个值、次级文字有 6 个值、深色卡片面有 4 个值，各页各写一份；提示条一部分页面是深色胶囊，
+留言 / 动态 / 地图在浅色主题下却是白底；仓库自己有一个圆形紫色「顶部」按钮，书签 / 笔记 / 工作台则完全没有；
+推荐模块还留着三个页面级「举报与投诉」入口，以及一个读服务器本机 Firefox 配置的「导入 Firefox」按钮。
+
+完成内容（提交 `22b856a feat:unify-design-tokens-and-trim-module-entry-points`，46 文件，+891/−894）：
+
+- 主色归位：首页 `site.css` 与仓库 `styles.css` 的 accent / primary 由 `#4F46E5` 改为 `#7B68EE`（深色 `#A78BFA`），
+  并清掉 `notes.css` 的 `--nt-h1`、`map-dock.css` 与 `share.css` 的兜底色、`rain.css` 雨丝渐变的旧靛蓝；全站已无 `#4F46E5`。
+- 圆角与动效时长收成 `fonts.css` 的共享档位（`--radius-sm/-lg/-xl/-pill`、`--dur-fast/base/slow`）：
+  334 处字面圆角、128 处字面时长改用变量，`7px→8px`、`9px→8px`、`5px→6px`、`12px→14px` 这类相差 1–2px 的相邻值一并收敛。
+- 新增 `--on-accent`（浅色白字 / 深色 `#1F1633`）：深色主题下实心主色按钮上的白字对比度只有 2.72:1，换深紫后 6.32:1，
+  覆盖 33 处按钮 / 徽标 / 圆形播放键，浅色主题不变；`login.html` 补上原本缺失的深色覆盖。
+- 灰阶统一：`books / music / map / prompts / recommendations / workbench / dialog / report` 共 71 个 token 值改到同一套中性值，
+  只改值、不动选择器，各页命名空间保留。深色卡片面统一到 `#262626`、浅色次级文字统一到 `#7B8494`。
+- 提示条全站统一成 8px 圆角矩形 + `#20232A` 底 + 白字，浅色主题也照用；`fonts.css` 新增
+  `--toast-bg / --toast-ink / --toast-border / --toast-accent`，删掉 4 组页面级 toast token 与 5 条「浅色改白底」的覆盖。
+  工作台那两个提示条上一轮漏改（仍是胶囊形 + `#20242C`）也一并归位；贴条与悬停气泡的出入场时长同时和 JS 定时器对齐（120→160ms）。
+- 仓库 / 书签 / 笔记 / 工作台补上「顶部」按钮：此前只有歌单 / 书架 / 推荐 / 留言 / 动态引入了 `back-to-top.js`。
+  脚本现在支持多个滚动容器（书签的导航 / 列表视图、笔记的列表栏 / 正文栏各滚各的，按「最近真正滚过的那个」判定），
+  并自动给有底部导航栏的页面抬高位置；按钮长相与「有新互动」形态收进公共 `.site-back-top`，
+  留言 / 动态 / 推荐子页只留各自的定位公式和呼吸动画，删掉三份重复样式与随之失效的三个 `--embed-btn-*` token。
+- 推荐模块收口：三个子页顶栏的「举报与投诉」链接删除，`embed.css` 里那条已失效的隐藏规则和过期注释删除；
+  `/music`、`/books` 在不带 `?embed=1` 时 302 跳到 `/downloads?tab=…`（其余查询参数照搬，`focus` 定位仍可用）；
+  `/recommendations` 保留路由 —— 电影 / 动漫两类目前只有那张独立页能看。
+- 书签页删除「导入 Firefox」按钮及其前端逻辑（后端 `/api/bookmarks/firefox/import` 保留，仍可在装了 Firefox 的机器上调用）。
+- 文档与测试：README 三处行为说明更新、`references.html` 的模块清单与 PinMark 说明同步；
+  新增 2 个测试（重定向映射、推荐模块内不得再出现 `/reporting`）；`scripts/mobile-audit.mjs` 改测 `?embed=1` 的真实地址。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；node --check 10 个改动 js；python -m unittest discover -s tests
+      -> 127 passed；python -m json.tool config/changelog-seed.json；git diff --check 干净
+提交：22b856a（fetch → pull --rebase → push；local == origin/main == 22b856a）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 一致（43ef05e4…）
+备份：/data/errorjiang-backup/20261017-0638/（inventory.db 5.09M + changelog-seed.json 106K）
+服务器：systemctl stop -> cp 备份 -> git fetch + pull --ff-only -> 22b856a
+      changelog-seed.json 经 install 覆盖；import_changelog_moments.py --date 2026-10-17 --force -> 新增 1 条
+      systemctl start；本轮无表结构变更，未跑 init_db
+```
+
+验证结果：
+```text
+服务      -> errorjiang / nginx active，/api/health = {"ok": true}
+版本      -> 本地 HEAD = origin/main = 服务器 HEAD = 22b856a；服务器工作区干净
+             （未跟踪的 data.before-upload-20260929-183359/ 原样保留，未触碰）
+静态文件  -> 取 https://zhexiyan.cc/static/ 下 11 个文件（index / bookmarks / notes / workbench.html、
+             fonts.css、styles.css、site/back-to-top.js、site/embed.css、app.js、bookmarks.js、references.html），
+             与 `git show HEAD:static/…` 逐一比对 SHA256，11/11 完全一致
+跳转      -> /books -> 302 /downloads?tab=books；/music -> 302 /downloads?tab=music；
+             /books?focus=3 -> 302 /downloads?tab=books&focus=3；/books?embed=1 -> 200（iframe 不受影响）
+举报入口  -> /downloads?tab=books 页面内可见的 a[href="/reporting"] 为 0；/books?embed=1、/music?embed=1、
+             /recommendations 返回的 HTML 里各 0 次；首页页脚保留 1 处（本次范围只到推荐模块）
+Firefox   -> 线上 /bookmarks 的 HTML 里已无 importFirefoxBtn
+配色      -> 线上首页 --accent 浅色 #7b68ee / 深色 #a78bfa，--on-accent 浅色 #ffffff / 深色 #1f1633，
+             --toast-bg #20232a，--radius 8px，--dur-fast 160ms
+子页 token-> /books?embed=1 浅色 accent #7b68ee / bg #f5f6f8 / surface #ffffff / muted #7b8494，
+             深色 accent #a78bfa / bg #171717 / surface #262626；/music、/recommendations 同样
+顶部按钮  -> 线上内嵌书架页量到的 .site-back-top 为 48×58、圆角 10px、毛玻璃底、文案「顶部」
+控制台    -> 线上页面 headless 访问无 console / page error
+更新日志  -> /api/moments 里 2026-10-17 06:37:08「全站主色统一、提示条改深色胶囊、四个模块补上「顶部」按钮」
+             （id 695，kind = log，6 条）公网可查
+```
+
+备注：审计脚本复跑五类问题数量与改动前逐项一致（7 / 112 / 36 / 1 / 58），控制台异常 0 条；
+`text-clipped` 由 35 变 36，是因为该脚本改为测量 `?embed=1` 的真实页面后多量到一条既有项，不是本轮引入的。
