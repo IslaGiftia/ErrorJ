@@ -5807,3 +5807,67 @@ Firefox   -> 线上 /bookmarks 的 HTML 里已无 importFirefoxBtn
 
 备注：审计脚本复跑五类问题数量与改动前逐项一致（7 / 112 / 36 / 1 / 58），控制台异常 0 条；
 `text-clipped` 由 35 变 36，是因为该脚本改为测量 `?embed=1` 的真实页面后多量到一条既有项，不是本轮引入的。
+
+## 132. 2026-10-17 09:53:35 书架封面加入微视差，往下滚时封面会慢半拍
+
+需求：给书架的封面加一点「同向但更慢」的视差（微视差），手机和 PC 一起做。
+
+这类效果的实现思路是：封面装在一个裁切框里、比框略大，卡片随页面往上走时让封面在框内朝反方向
+慢慢漂回来，看起来就是「封面走得比页面慢」。方向写反就成了反向视差，幅度给大了就变成抖动。
+
+完成内容（提交 `a076fa5 feat:add-books-cover-micro-parallax`，3 文件，+51/−3）：
+
+- `static/books.css` 新增书架封面的微视差：幅度 ±8px，`@supports (animation-timeline: view())`
+  + `@media (prefers-reduced-motion: no-preference)` 两层门控，触屏和鼠标端共用同一套参数。
+  图片比封面框高 16px（`calc(100% + 16px)` + `margin-top: -8px`），位移到两端也不会露出边缘。
+- 鼠标悬停时暂停漂移（`(hover: hover) and (pointer: fine)` 下 `animation-play-state: paused`）：
+  卡片本来就有 `translateY(-3px)` 的抬起，再叠一层漂移会显得忙。
+- 两个关键实现细节都写进了注释：
+  1. **`.bk-cover` 自带的 `overflow: hidden` 本身就是一个滚动容器**。直接把 `view()` 挂到图片上，
+     时间轴会认那个小盒子而不是页面，进度永远停在 0.5、滚动时一点不动（本地实测过）。
+     正确写法是给 `.bk-card` 起命名时间轴 `view-timeline-name: --bk-card`，图片用
+     `animation-timeline: --bk-card` 引用它。
+  2. 动画只动独立的 `translate` 属性而不是 `transform`，和 `.bk-cover` 的悬停抬起分开合成，互不覆盖。
+- 文档：README 书架一节补了这条效果说明（幅度、悬停定住、滚不动时无变化、减少动效关闭、不支持时降级），
+  并修掉两处因 `/books` 改成跳转而过期的说法（「独立页面仍可用」与「独立页顶栏也有上传按钮」）；
+  `references.html` 的近期改动清单追加本条。
+- 更新日志 seed 追加 1 条（09:53:35）。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 127 passed；
+      python -m json.tool config/changelog-seed.json；CSS 结构校验（注释闭合 / 括号配平）；
+      git diff --check 干净
+提交：a076fa5（fetch → pull --rebase → push；local == origin/main == a076fa5）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 一致（2f36e754…）
+备份：/data/errorjiang-backup/20261017-0954/（inventory.db 5.14M + changelog-seed.json 110K）
+服务器：systemctl stop -> cp 备份 -> git fetch + pull --ff-only -> a076fa5
+      changelog-seed.json 经 install 覆盖；import_changelog_moments.py --date 2026-10-17 --force
+      -> 新增 2 条（--force 按当天重建，把 06:37:08 与本条一起重新导入，id 695 -> 696）
+      systemctl start；本轮无表结构变更，未跑 init_db
+```
+
+验证结果：
+```text
+服务      -> errorjiang / nginx active，/api/health = {"ok": true}
+版本      -> 本地 HEAD = origin/main = 服务器 HEAD = a076fa5；服务器工作区干净
+             （未跟踪的 data.before-upload-20260929-183359/ 原样保留）
+静态文件  -> https://zhexiyan.cc/static/books.css 的 SHA256 与 `git show HEAD:static/books.css`
+             完全一致（81746d8f…）
+更新日志  -> /api/moments 里 2026-10-17 06:37:08（id 696）与 2026-10-17 09:53:35（id 697）
+             各 1 条，kind = log，公网可查
+线上效果  -> /downloads?tab=books 的 books iframe 内 13 本书、页面可滚；
+             封面 animationName = bk-cover-drift、timeline = ViewTimeline，
+             scrollY 0 -> 400 时 translate 0px 3.09px -> 0px 8px；无 console / page error
+本地实测  -> 1440: −5.57 → −1.12 → +1.26px（悬停时 playState = paused）
+             412: −5.49 → −1.10 → +2.64px
+             360: −6.82 → −1.82 → +2.45px
+             减少动效: animationName = none、translate = none
+布局      -> 封面盒子开/关视差前后同为 169×253（1440）/ 180×269（412），文档高度完全一致
+回归      -> 14 页 × 桌面/手机 × 浅色/深色 0 溢出 0 报错；mobile-audit 控制台异常 0 条
+```
+
+备注：审计里 `small-tap-target` 112→111、`text-clipped` 36→42 是**本地书架从 4 本变成 14 本**
+（当天新上传 10 本，长标题更多）造成的。已用同一张卡对比开/关视差前后的标题几何：
+`clientW 169 / scrollW 280` 完全一致，与本轮 CSS 无关。
+真机上「地址栏收起/展开」是否会跳需要设备实测，无头环境覆盖不到。
