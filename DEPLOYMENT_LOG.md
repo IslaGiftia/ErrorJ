@@ -5950,3 +5950,64 @@ auth 行为 -> 改坏 data/auth.json 后启动：退出码 1，打印「致命�
 
 备注：本轮是纯后端修复，前端没有任何改动；补丁器留下的 `app.py.bak` 已删除，工作区只提交了
 `app.py`、`tests/test_security.py`、`README.md`、`static/references.html`。
+
+## 134. 2026-10-17 15:14:24 全站按钮补上回弹、液态填充、磁吸光晕与成功反馈
+
+需求：给 Error酱 加上七类高级按钮动效，包括按下缩放回弹、加载变对勾、长按蓄力填充、
+图标形变、成功微粒、液态颜色填充和悬浮磁吸光晕，并且要落到真实操作上，不做单独演示页。
+
+完成内容（提交 `cdc6871 feat:add-shared-button-motion-feedback`，15 文件，+1051/−5）：
+
+- 新增共享层 `static/site/button-effects.js` / `button-effects.css`：
+  动作按钮按下收至 92%，松手用弹性曲线带一次轻微过冲；点击从指针坐标扩散圆形液态色波；
+  桌面主操作按钮向指针磁吸最多 4.5px / 3.5px，并浮起橙色光晕。
+- 自动接管和运行时插入的按钮：`MutationObserver` 会增强动态生成的列表 / 弹窗按钮；
+  触屏不启用磁吸，`prefers-reduced-motion` 下关闭磁吸、液态扩散和微粒。
+- 加载与成功状态：新增 `ErrorButtons.busy / success / fail` 公共 API。登录、注册、留言、
+  动态和笔记保存的提交按钮在请求期间显示加载环，成功后形变为对勾、闪一次高光，并从按钮边缘
+  发射 12 颗橙紫色微粒。
+- 长按确认：真正的删除按钮通过 `data-hold-confirm` 动态启用 900ms 阈值，进度从左向右填满后
+  才触发原点击，未满松手回退；笔记的「放弃修改」、地图的「保存位置」等普通确认不启用。
+  键盘触发保持即时点击，避免辅助技术用户必须长按。
+- 图标形变继续复用已有 `morphicons`：首页太阳 / 月亮、动态音乐卡播放 / 暂停、歌曲删除
+  垃圾桶 / 警告三角都沿用同一套描边形变。
+- 接入点：`site.js`、登录 / 注册页、留言 / 动态 / 笔记保存、书签 / 仓库 / 地图 / 笔记确认框；
+  `fonts.css` 引入共享样式，`theme.js` 统一加载脚本，`login.html` 单独引入。
+- 文档：README 的界面约定补全反馈层行为与降级规则，`references.html` 追加本轮交互总结；
+  更新日志 seed 增加 15:14:24 一条。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 136 passed；
+      node --check 9 个改动脚本；python -m json.tool config/changelog-seed.json；
+      Playwright 7 类动效 + 8 个页面 + 390px 手机 + 减少动效 -> 通过；git diff --check 干净
+提交：cdc6871（fetch 后确认无需 rebase；push origin main；local == origin/main == cdc6871）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 一致（541c0067…）
+备份：/data/errorjiang-backup/20261017-1516/
+      （inventory.db 5.0M + changelog-seed.json 110K + auth.json 223B；无 WAL / SHM）
+服务器：systemctl stop -> cp 备份 -> git fetch + pull --ff-only -> cdc6871
+      changelog-seed.json 经 install 覆盖；import_changelog_moments.py --date 2026-10-17 --force
+      -> 新增 4 条（按当天重建）；systemctl start；本轮无表结构变更，未跑 init_db
+```
+
+验证结果：
+```text
+服务      -> errorjiang / nginx active，/api/health = {"ok": true}
+版本      -> 本地 HEAD = origin/main = 服务器代码提交 = cdc6871；服务器工作区干净
+             （未跟踪的 data.before-upload-20260929-183359/ 原样保留）
+seed      -> 本地 / 服务器 SHA256 均为 541c006729a761a6421bfeab4c43e20c6e7262fbb97b756409ec672ed39d5130
+静态文件  -> https://zhexiyan.cc/static/site/button-effects.js
+             SHA256 = 418cbaa39a09831aed8f167cefc0a393c3fccd9686e433a5ffd4c02f2b28e39b，与本地一致
+             https://zhexiyan.cc/static/site/button-effects.css
+             SHA256 = 9eaa9ebc099e7994e96af4ccd0fb671315bfd6a2169d7502662932e38e430116，与本地一致
+更新日志  -> /api/moments 里 2026-10-17 15:14:24「全站按钮补上回弹、液态填充、磁吸光晕与成功反馈」
+             （id 704，kind = log）公网可查
+线上交互  -> 公网首页动作按钮自动获得 fx-press；留言 / 动态 / 推荐入口获得 fx-magnetic / fx-liquid-host；
+             指针移动时磁吸变量生效；加载环、对勾、12 颗粒子与主题图标形变均通过
+移动端    -> 390×844 首页无横向溢出，按钮布局与截图正常
+减少动效  -> 成功态不创建微粒层，磁吸 / 液态动画关闭
+控制台    -> 公网页面 console / page error 均为 0
+```
+
+备注：成功后微粒约 640ms 结束，加载对勾约 900ms 复位；高延迟截图可能只能看到完成态，
+因此线上检查同时断言了 DOM 中的 12 颗粒子，而不是只看截图。
