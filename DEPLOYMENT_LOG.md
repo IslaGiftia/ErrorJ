@@ -6011,3 +6011,54 @@ seed      -> 本地 / 服务器 SHA256 均为 541c006729a761a6421bfeab4c43e20c6e
 
 备注：成功后微粒约 640ms 结束，加载对勾约 900ms 复位；高延迟截图可能只能看到完成态，
 因此线上检查同时断言了 DOM 中的 12 颗粒子，而不是只看截图。
+
+## 135. 2026-10-17 15:29:31 修正按钮光晕配色并恢复足迹标记点击
+
+来源：站长复查 15:14:24 版本后提出两点：磁吸光晕不要橙色，改成 Error酱 主题色；
+足迹页点击标记时图标乱跳，而且没有放大并展开足迹卡片。
+
+根因与修复：
+
+- **光晕配色**：`--fx-glow-color` 由固定橙色改为
+  `var(--accent, var(--primary, #7b68ee))`，浅色主题自动取 `#7B68EE`、
+  深色主题取 `#A78BFA`；磁吸和焦点态的投影也改用同一个主题色变量。
+- **标记乱跳**：按钮反馈层为了覆盖动态按钮使用了 `[role="button"]` 选择器，
+  Leaflet 的 `.mp-marker` 正好也带这个角色，于是标记被加上了 `fx-press`。
+  按下缩到 92%、松手过冲回弹的动画会打断 Leaflet 对点击的判定，实测去掉该类后
+  卡片立即恢复弹出。现在 `.mp-marker`、`.mp-cluster` 和 Leaflet 控件统一从反馈层排除，
+  并兼容清理已经存在的 `fx-press / is-pressing` 类。
+- **点击放大并展开卡片**：单点标记新增 `focusMarker()`。点击后关闭默认弹窗，
+  平滑飞到至少 16 级，把目标标记移到地图中央，再展开足迹卡片；聚合点继续走原逻辑。
+  连续点击不同标记时用 token 取消上一次待执行的展开，避免旧卡片晚一步弹出来。
+- 文档：README、`references.html` 同步改成主题色光晕，并说明地图标记排除与点击放大行为。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 136 passed；
+      node --check button-effects.js / map.js；JSON 校验；git diff --check 干净
+      Playwright：标记无 fx-press，5 级点击后飞到 16 级并展开卡片；
+      390px 地图无按钮按压类；按钮反馈层全量回归通过
+提交：6543415（fetch 后无需 rebase；push origin main；local == origin/main == 6543415）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，SHA256 = 808b2b1b…
+备份：/data/errorjiang-backup/20261017-1529/
+      （inventory.db 5.0M + changelog-seed.json 111K + auth.json 223B；无 WAL / SHM）
+服务器：systemctl stop -> cp 备份 -> git fetch + pull --ff-only -> 6543415
+      seed 安装；import_changelog_moments.py --date 2026-10-17 --force -> 新增 5 条
+      systemctl start；本轮无表结构变更，未跑 init_db
+```
+
+验证结果：
+```text
+服务      -> errorjiang / nginx active，/api/health = {"ok": true}
+版本      -> 本地 HEAD = origin/main = 服务器代码提交 = 6543415
+静态文件  -> button-effects.js / button-effects.css / map.js 的线上 SHA256 均与本地一致
+更新日志  -> 2026-10-17 15:29:31「修正按钮光晕配色并恢复足迹标记点击」（id 709，kind = log）
+光晕      -> 公网浅色主题磁吸按钮 filter 使用 rgb(123,104,238) 对应的主题紫，不再出现橙色
+足迹交互  -> 本地同版文件：标记初始无 fx-press；点击后 zoom 5 -> 16，足迹卡片展开，
+             标记最终稳定停在地图中央，无缩放回弹
+移动端    -> 390×844 地图标记同样不带按钮按压类
+回归      -> 136 项单测通过；按钮反馈层 7 类动效与 8 个页面回归通过；公网 console / page error 0
+```
+
+备注：线上足迹页需要登录，自动化在本地运行同一份部署文件验证实际点击；
+公网侧同时核对了三个静态文件的完整 SHA256，确认服务器返回的内容与验证版本一致。
