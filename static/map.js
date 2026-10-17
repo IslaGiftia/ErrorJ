@@ -1178,6 +1178,9 @@
     $("mapConfirmText").textContent = text;
     var okButton = $("mapConfirmOk");
     okButton.textContent = okText || "确定";
+    okButton.toggleAttribute("data-hold-confirm", opts.danger !== false);
+    if (opts.danger !== false) okButton.title = "长按确认";
+    else okButton.removeAttribute("title");
     okButton.classList.toggle("mp-btn-danger", opts.danger !== false);
     okButton.classList.toggle("mp-btn-primary", opts.danger === false);
     openModal("mapConfirmModal");

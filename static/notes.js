@@ -143,7 +143,11 @@
   function askConfirm(title, text, okText, onOk) {
     $("confirmTitle").textContent = title;
     $("confirmText").textContent = text;
-    $("confirmOk").textContent = okText;
+    const okButton = $("confirmOk");
+    okButton.textContent = okText;
+    okButton.toggleAttribute("data-hold-confirm", okText === "删除");
+    if (okText === "删除") okButton.title = "长按确认";
+    else okButton.removeAttribute("title");
     confirmAction = onOk;
     $("confirmOverlay").hidden = false;
   }
@@ -1251,10 +1255,13 @@
     }
     const saveBtn = $("saveBtn");
     saveBtn.disabled = true;
+    if (window.ErrorButtons) window.ErrorButtons.busy(saveBtn, "正在保存");
     try {
       const path = state.activeId ? `/api/notes/${state.activeId}` : "/api/notes";
       const method = state.activeId ? "PATCH" : "POST";
       const result = await api(path, { method, body: JSON.stringify(values) });
+      if (window.ErrorButtons) window.ErrorButtons.success(saveBtn, { label: "已保存" });
+      await new Promise((resolve) => window.setTimeout(resolve, window.ErrorButtons ? 360 : 0));
       const noteId = result && result.id ? result.id : state.activeId;
       state.activeId = null;
       state.baseline = { title: "", content: "", tags: "" };
@@ -1264,6 +1271,7 @@
       }
       toast("已保存");
     } catch (err) {
+      if (window.ErrorButtons) window.ErrorButtons.fail(saveBtn);
       toast(err.message || "保存失败");
     } finally {
       saveBtn.disabled = false;

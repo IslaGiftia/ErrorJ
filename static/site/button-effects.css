@@ -1,0 +1,373 @@
+/*
+ * Error酱按钮反馈层。
+ *
+ * 全站通用的按压 / 液态填充 / 磁吸光晕由 button-effects.js 自动挂载；
+ * 加载对勾、成功微粒、长按确认由业务脚本按需调用。所有形变都走独立的
+ * scale / translate 属性，避免覆盖各页面已有的 transform 过渡。
+ */
+:root {
+  --fx-press-scale: 0.92;
+  --fx-press-duration: 430ms;
+  --fx-glow-color: #ff9f43;
+  --fx-liquid-soft: rgba(123, 104, 238, 0.24);
+  --fx-liquid-light: rgba(255, 255, 255, 0.3);
+}
+
+.fx-press {
+  transform-origin: center;
+}
+
+.fx-press:active,
+.fx-press.is-pressing {
+  scale: var(--fx-press-scale);
+}
+
+.fx-magnetic {
+  translate: var(--fx-mx, 0px) var(--fx-my, 0px);
+  transition:
+    translate 280ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    filter 220ms var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1));
+}
+
+.fx-magnetic.is-magnetic-hover {
+  transition:
+    translate 80ms linear,
+    filter 180ms var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1));
+  filter:
+    drop-shadow(0 10px 12px rgba(255, 147, 47, 0.28))
+    drop-shadow(0 3px 5px rgba(255, 179, 84, 0.16));
+}
+
+.fx-magnetic:focus-visible {
+  filter:
+    drop-shadow(0 8px 10px rgba(255, 147, 47, 0.24))
+    drop-shadow(0 2px 4px rgba(255, 179, 84, 0.14));
+}
+
+/*
+ * 液态填充单独放在裁切层里，按钮本身不用 overflow:hidden，
+ * 首页入口上的角标、焦点圈和弹出内容都不会被误裁。
+ */
+.fx-liquid-host {
+  position: relative;
+}
+
+.fx-liquid-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.fx-liquid-host > :not(.fx-liquid-layer) {
+  position: relative;
+  z-index: 1;
+}
+
+.fx-liquid-ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: var(--fx-liquid, var(--fx-liquid-soft));
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+/*
+ * 加载态沿用按钮自己的 currentColor：主色按钮是白圈，
+ * 浅底按钮是主题色圈，不需要逐页覆盖颜色。
+ */
+.fx-is-loading,
+.fx-is-done,
+.fx-is-error {
+  position: relative;
+  pointer-events: none;
+}
+
+.fx-is-loading,
+.fx-is-done {
+  color: transparent !important;
+  border-color: var(--fx-button-border, currentColor) !important;
+}
+
+.fx-state-mark {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: inherit;
+  color: var(--fx-button-ink, currentColor);
+  pointer-events: none;
+}
+
+.fx-state-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  opacity: 0;
+  scale: 0.5;
+  transition:
+    opacity 120ms ease,
+    scale 160ms var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1));
+}
+
+.fx-is-loading .fx-state-spinner {
+  opacity: 0.92;
+  scale: 1;
+  animation: fx-button-spin 760ms linear infinite;
+}
+
+.fx-state-check {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+}
+
+.fx-state-check::before {
+  content: "";
+  width: 12px;
+  height: 7px;
+  border-left: 2.4px solid currentColor;
+  border-bottom: 2.4px solid currentColor;
+  opacity: 0;
+  transform: rotate(-45deg) scale(0.15);
+  transform-origin: 34% 74%;
+  transition:
+    opacity 100ms ease,
+    transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.fx-is-done .fx-state-spinner {
+  opacity: 0;
+  scale: 0.15;
+  animation: none;
+}
+
+.fx-is-done .fx-state-check::before {
+  opacity: 1;
+  transform: rotate(-45deg) scale(1);
+}
+
+.fx-state-mark::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 28px;
+  height: 42px;
+  border-radius: 50%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.9) 48%,
+    transparent 100%
+  );
+  opacity: 0;
+  transform: translate(-50%, -50%) rotate(28deg) scaleX(0.15);
+  pointer-events: none;
+}
+
+.fx-is-done .fx-state-mark::after {
+  animation: fx-button-check-shine 460ms var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1));
+}
+
+.fx-is-loading > :not(.fx-state-mark):not(.fx-liquid-layer),
+.fx-is-done > :not(.fx-state-mark):not(.fx-liquid-layer) {
+  opacity: 0 !important;
+}
+
+.fx-is-done:not(.fx-is-loading) {
+  animation:
+    fx-button-success-pop 520ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    fx-button-success-glow 560ms ease-out;
+}
+
+.fx-is-error:not(.fx-is-loading):not(.fx-is-done) {
+  animation: fx-button-error-shake 300ms ease-out;
+}
+
+.fx-burst-layer {
+  position: fixed;
+  z-index: 9999;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.fx-burst-particle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--fx-size, 5px);
+  height: var(--fx-size, 5px);
+  border-radius: 2px;
+  background: var(--fx-color, var(--fx-glow-color));
+  opacity: 0;
+  transform: translate(var(--fx-sx), var(--fx-sy)) scale(0.4) rotate(0deg);
+  animation: fx-button-burst 640ms cubic-bezier(0.18, 0.72, 0.26, 1) var(--fx-delay, 0ms) forwards;
+  will-change: transform, opacity;
+}
+
+/*
+ * 长按确认：进度用 transform: scaleX，避免每一帧触发布局。
+ * 达到 100% 后由脚本触发原按钮 click；未满松手会平滑退回。
+ */
+.fx-hold {
+  position: relative;
+  overflow: hidden;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.fx-hold-fill {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--fx-glow-color, #ff9f43) 38%, transparent);
+  transform: scaleX(var(--fx-hold-progress, 0));
+  transform-origin: left center;
+  transition: transform 190ms var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1));
+  pointer-events: none;
+}
+
+.fx-hold.is-holding .fx-hold-fill {
+  transition: none;
+}
+
+.fx-hold > :not(.fx-hold-fill):not(.fx-state-mark):not(.fx-liquid-layer) {
+  position: relative;
+  z-index: 1;
+}
+
+.fx-hold.is-holding {
+  cursor: progress;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, currentColor 18%, transparent),
+    0 10px 24px color-mix(in srgb, var(--fx-glow-color, #ff9f43) 22%, transparent);
+}
+
+@keyframes fx-button-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+
+@keyframes fx-button-check-shine {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(28deg) scaleX(0.15);
+  }
+  35% {
+    opacity: 0.72;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-5%, -50%) rotate(28deg) scaleX(1);
+  }
+}
+
+@keyframes fx-button-success-pop {
+  0% {
+    scale: 1;
+  }
+  42% {
+    scale: 1.055;
+  }
+  68% {
+    scale: 0.986;
+  }
+  100% {
+    scale: 1;
+  }
+}
+
+@keyframes fx-button-success-glow {
+  0% {
+    filter: drop-shadow(0 0 0 rgba(255, 159, 67, 0));
+  }
+  42% {
+    filter: drop-shadow(0 0 12px rgba(255, 159, 67, 0.5));
+  }
+  100% {
+    filter: drop-shadow(0 0 0 rgba(255, 159, 67, 0));
+  }
+}
+
+@keyframes fx-button-error-shake {
+  0%,
+  100% {
+    translate: 0;
+  }
+  24% {
+    translate: -3px 0;
+  }
+  48% {
+    translate: 3px 0;
+  }
+  72% {
+    translate: -2px 0;
+  }
+}
+
+@keyframes fx-button-burst {
+  0% {
+    opacity: 0;
+    transform: translate(var(--fx-sx), var(--fx-sy)) scale(0.4) rotate(0deg);
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--fx-tx), var(--fx-ty)) scale(0.08) rotate(var(--fx-rotate, 120deg));
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .fx-magnetic {
+    translate: none;
+    filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fx-press:active,
+  .fx-press.is-pressing {
+    scale: 1;
+  }
+
+  .fx-magnetic,
+  .fx-magnetic.is-magnetic-hover,
+  .fx-magnetic:focus-visible {
+    translate: none;
+    filter: none;
+    transition: none;
+  }
+
+  .fx-liquid-ripple,
+  .fx-burst-layer {
+    display: none;
+  }
+
+  .fx-is-done:not(.fx-is-loading),
+  .fx-is-error:not(.fx-is-loading):not(.fx-is-done),
+  .fx-is-loading .fx-state-spinner,
+  .fx-is-done .fx-state-mark::after {
+    animation: none;
+  }
+
+  .fx-state-spinner,
+  .fx-state-check::before,
+  .fx-hold-fill {
+    transition: none;
+  }
+}

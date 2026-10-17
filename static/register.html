@@ -282,6 +282,7 @@
         if (submitting) return;
         submitting = true;
         submit.disabled = true;
+        if (window.ErrorButtons) window.ErrorButtons.busy(submit, "正在提交");
         fetch("/api/register", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -292,11 +293,13 @@
             return data;
           });
         }).then(function () {
+          if (window.ErrorButtons) window.ErrorButtons.success(submit, "申请已提交");
           form.querySelectorAll("input, button").forEach(function (node) {
             node.disabled = true;
           });
           showMessage("申请已提交，请等待管理员在服务器审核。", false);
         }).catch(function (err) {
+          if (window.ErrorButtons) window.ErrorButtons.fail(submit);
           showMessage(err.message || "注册失败", true);
           submitting = false;
           submit.disabled = false;

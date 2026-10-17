@@ -295,6 +295,7 @@
       button.title = "上传中，点击可取消";
     } else {
       button.disabled = true;
+      if (window.ErrorButtons) window.ErrorButtons.busy(button, "正在发布");
     }
     Promise.all(
       queued.map(function (file) {
@@ -333,6 +334,7 @@
       publishBusy.abort = task.abort;
       return task.promise;
     }).then(function () {
+      if (window.ErrorButtons) window.ErrorButtons.success(button, { label: "已发布" });
       $("momentContent").value = "";
       $("momentTags").value = "";
       resetDeviceInfoField();
@@ -343,6 +345,7 @@
       if (window.ErrorSidebar) window.ErrorSidebar.refresh();
       return loadMoments();
     }).catch(function (err) {
+      if (!withImages && window.ErrorButtons) window.ErrorButtons.fail(button);
       if (publishBusy.canceled || ErrorProgress.isAborted(err)) {
         toast("已取消发布，图片还在，可以直接重试");
         return;

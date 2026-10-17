@@ -8,6 +8,20 @@
 
   var KEY = "errorSiteTheme";
 
+  /*
+   * 按钮反馈层是全站外壳的一部分。theme.js 已在所有内容页加载，
+   * 这里统一补一次脚本，避免十几个 HTML 各抄一行、后续新增页面漏掉。
+   * login.html 没有引用 theme.js，单独引入该脚本。
+   */
+  (function loadButtonEffects() {
+    if (window.ErrorButtons || document.querySelector("script[data-button-effects]")) return;
+    var script = document.createElement("script");
+    script.src = "/static/site/button-effects.js";
+    script.defer = true;
+    script.setAttribute("data-button-effects", "");
+    document.head.appendChild(script);
+  })();
+
   function applyTheme() {
     try {
       var pref = localStorage.getItem(KEY) || "auto";

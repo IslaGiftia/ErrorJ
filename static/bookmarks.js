@@ -146,6 +146,8 @@
   function confirmDialog(text, action) {
     state.confirmAction = action;
     $("confirmText").textContent = text;
+    $("confirmOk").setAttribute("data-hold-confirm", "");
+    $("confirmOk").title = "长按确认";
     openModal("confirmModal");
   }
 

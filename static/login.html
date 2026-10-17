@@ -175,6 +175,7 @@
     })();
   </script>
   <link rel="stylesheet" href="/static/fonts.css">
+  <script src="/static/site/button-effects.js"></script>
 </head>
 <body>
   <div class="rain-scene rain-scene--fixed" id="rainScene" aria-hidden="true">
@@ -228,6 +229,7 @@
         event.preventDefault();
         errorBox.hidden = true;
         button.disabled = true;
+        if (window.ErrorButtons) window.ErrorButtons.busy(button, "正在登录");
         var account = document.getElementById("username").value.trim();
         fetch(account ? "/api/member/login" : "/api/login", {
           method: "POST",
@@ -261,9 +263,13 @@
             } catch (err) {
               target = "/";
             }
-            location.href = target;
+            if (window.ErrorButtons) window.ErrorButtons.success(button, { label: "登录成功" });
+            window.setTimeout(function () {
+              location.href = target;
+            }, window.ErrorButtons ? 420 : 0);
           });
         }).catch(function (err) {
+          if (window.ErrorButtons) window.ErrorButtons.fail(button);
           errorBox.textContent = err.message;
           errorBox.hidden = false;
           button.disabled = false;

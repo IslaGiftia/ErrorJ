@@ -370,6 +370,7 @@
       button.title = "上传中，点击可取消";
     } else {
       button.disabled = true;
+      if (window.ErrorButtons) window.ErrorButtons.busy(button, "正在发布");
     }
     Promise.all(
       queued.map(function (file) {
@@ -408,6 +409,7 @@
       sendBusy.abort = task.abort;
       return task.promise;
     }).then(function (result) {
+      if (window.ErrorButtons) window.ErrorButtons.success(button, { label: "已发布" });
       $("msgContent").value = "";
       resetDeviceInfoField();
       pendingFiles = [];
@@ -424,6 +426,7 @@
       if (window.ErrorSidebar) window.ErrorSidebar.refresh();
       return loadMessages();
     }).catch(function (err) {
+      if (!withFiles && window.ErrorButtons) window.ErrorButtons.fail(button);
       if (sendBusy.canceled || ErrorProgress.isAborted(err)) {
         toast("已取消发送，附件还在，可以直接重试");
         return;

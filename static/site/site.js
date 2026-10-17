@@ -114,6 +114,18 @@
     if (node) node.textContent = text;
   }
 
+  function fxBusy(button, label) {
+    if (window.ErrorButtons) window.ErrorButtons.busy(button, label);
+  }
+
+  function fxSuccess(button, label) {
+    if (window.ErrorButtons) window.ErrorButtons.success(button, { label: label });
+  }
+
+  function fxFail(button) {
+    if (window.ErrorButtons) window.ErrorButtons.fail(button);
+  }
+
   function canViewModule(moduleName) {
     if (!authState.authenticated) return false;
     if (authState.owner || authState.admin) return true;
@@ -566,6 +578,7 @@
       submit.disabled = true;
       error.hidden = true;
       var account = username ? username.value.trim() : "";
+      fxBusy(submit, "正在登录");
       fetch(account ? "/api/member/login" : "/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -588,7 +601,8 @@
         authState.role = data.role || "member";
         authState.username = data.username || "";
         authState.owner = authState.role === "owner";
-        closeAuthModal();
+        fxSuccess(submit, "登录成功");
+        window.setTimeout(closeAuthModal, window.ErrorButtons ? 380 : 0);
         fetch("/api/auth/status", { cache: "no-store" })
           .then(function (response) { return response.json(); })
           .then(applyAuthStatus)
@@ -597,6 +611,7 @@
             loadPrivateLandingData();
           });
       }).catch(function (err) {
+        fxFail(submit);
         error.textContent = err.message || "登录失败";
         error.hidden = false;
       }).then(function () {
@@ -665,6 +680,7 @@
         return;
       }
       if (submit) submit.disabled = true;
+      fxBusy(submit, "正在保存");
       fetch("/api/account/nickname", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -677,9 +693,11 @@
       }).then(function (data) {
         authState.nickname = data.nickname || value;
         setAuthUi();
-        closeNicknameModal();
+        fxSuccess(submit, "昵称已更新");
+        window.setTimeout(closeNicknameModal, window.ErrorButtons ? 380 : 0);
         showLandingToast("昵称已更新");
       }).catch(function (err) {
+        fxFail(submit);
         error.textContent = err.message || "修改失败";
         error.hidden = false;
       }).then(function () {
