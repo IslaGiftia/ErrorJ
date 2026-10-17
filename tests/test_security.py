@@ -3214,5 +3214,162 @@ class AdminPasswordChangeTests(unittest.TestCase):
         send_json.assert_called_once_with(200, {"ok": True})
 
 
+class FiniteNumberTests(unittest.TestCase):
+    """库存类数量必须先过 finite_number，NaN / 无穷大不能当成合法数字。"""
+
+    def test_rejects_nan_and_infinity(self):
+        for bad in ("nan", "NaN", "inf", "-inf", "Infinity", "-Infinity"):
+            with self.assertRaises(ValueError, msg=bad):
+                app.finite_number(bad)
+
+    def test_rejects_non_numeric_text(self):
+        with self.assertRaises(ValueError):
+            app.finite_number("abc")
+
+    def test_keeps_normal_values(self):
+        self.assertEqual(app.finite_number("3.5"), 3.5)
+        self.assertEqual(app.finite_number(7), 7.0)
+        self.assertEqual(app.finite_number(None), 0.0)
+        self.assertEqual(app.finite_number(""), 0.0)
+
+
+class AuthFailClosedTests(unittest.TestCase):
+    """密码文件存在但读不出来时，绝不能静默降级成整站免密。"""
+
+    def setUp(self):
+        self._auth_path = app.AUTH_PATH
+        self._state = dict(app.AUTH_STATE)
+
+    def tearDown(self):
+        app.AUTH_PATH = self._auth_path
+        app.AUTH_STATE.clear()
+        app.AUTH_STATE.update(self._state)
+
+    def test_broken_auth_file_is_flagged(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "auth.json"
+            path.write_text("{ this is not json", encoding="utf-8")
+            app.AUTH_PATH = path
+            with patch.dict(os.environ, {"INVENTORY_PASSWORD": ""}, clear=False):
+                state = app.load_auth_state()
+        self.assertFalse(state["enabled"])
+        self.assertTrue(state.get("config_broken"))
+
+    def test_missing_auth_file_stays_local_mode(self):
+        # 文件根本不存在 = 没设过访问密码，是正常的本地模式，不该被当成损坏
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app.AUTH_PATH = Path(temp_dir) / "auth.json"
+            with patch.dict(os.environ, {"INVENTORY_PASSWORD": ""}, clear=False):
+                state = app.load_auth_state()
+        self.assertFalse(state["enabled"])
+        self.assertFalse(state.get("config_broken"))
+
+
+class BookDeleteRouteTests(unittest.TestCase):
+    """do_DELETE 曾经漏了 /api/books/<id>，前端删书永远 404。"""
+
+    def test_delete_request_reaches_book_handler_and_removes_row(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.object(app, "DB_PATH", Path(temp_dir) / "inventory.db"):
+                app.init_db()
+                stamp = app.now_text()
+                book_id = app.execute(
+                    """INSERT INTO books
+                           (title, author, format, file_path, file_size, sort_order,
+                            created_at, updated_at)
+                       VALUES (?, ?, 'txt', ?, 1, 0, ?, ?)""",
+                    ("待删的书", "作者", "book_files/not-there.txt", stamp, stamp),
+                )
+                handler = object.__new__(app.InventoryHandler)
+                handler.path = f"/api/books/{book_id}"
+                handler.command = "DELETE"
+                handler.guard_request = lambda path, method: True
+                responses = []
+                handler.send_json = lambda status, payload: responses.append(
+                    (status, payload)
+                )
+                handler.log_activity = lambda *args, **kwargs: None
+
+                handler.do_DELETE()
+
+                self.assertEqual(responses[-1], (200, {"ok": True}))
+                self.assertIsNone(
+                    app.query_one("SELECT id FROM books WHERE id = ?", (book_id,))
+                )
+
+    def test_unknown_delete_path_still_404s(self):
+        handler = object.__new__(app.InventoryHandler)
+        handler.path = "/api/books/not-a-number"
+        handler.command = "DELETE"
+        handler.guard_request = lambda path, method: True
+        responses = []
+        handler.send_json = lambda status, payload: responses.append((status, payload))
+        handler.do_DELETE()
+        self.assertEqual(responses[-1][0], 404)
+
+
+class StockQuantityGuardTests(unittest.TestCase):
+    """出入库：非数字 / NaN 走 400，库存不足也走 400（不再是 500 + 内部信息）。"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._patcher = patch.object(
+            app, "DB_PATH", Path(self._tmp.name) / "inventory.db"
+        )
+        self._patcher.start()
+        app.init_db()
+        stamp = app.now_text()
+        self.part_id = app.execute(
+            "INSERT INTO parts (part_number, min_stock, created_at, updated_at)"
+            " VALUES (?, 0, ?, ?)",
+            ("TEST-PART", stamp, stamp),
+        )
+        self.location_id = app.execute(
+            "INSERT INTO locations (code, name, created_at) VALUES (?, ?, ?)",
+            ("A1", "A1", stamp),
+        )
+        app.execute(
+            """INSERT INTO batches
+                   (part_id, location_id, quantity, received_quantity, purchase_date, created_at)
+               VALUES (?, ?, 1, 1, ?, ?)""",
+            (self.part_id, self.location_id, stamp, stamp),
+        )
+
+    def tearDown(self):
+        self._patcher.stop()
+        self._tmp.cleanup()
+
+    def _handler(self):
+        handler = object.__new__(app.InventoryHandler)
+        handler.command = "POST"
+        responses = []
+        handler.send_json = lambda status, payload: responses.append((status, payload))
+        handler.log_activity = lambda *args, **kwargs: None
+        return handler, responses
+
+    def test_non_finite_quantity_is_rejected(self):
+        handler, responses = self._handler()
+        for bad in ("nan", "inf", "-inf"):
+            handler.api_stock_inbound(
+                {
+                    "part_id": self.part_id,
+                    "location_id": self.location_id,
+                    "quantity": bad,
+                }
+            )
+        self.assertEqual([status for status, _ in responses], [400, 400, 400])
+        # 库存没被动过：仍然是那 1 个
+        self.assertEqual(
+            app.query_one("SELECT SUM(quantity) AS n FROM batches")["n"], 1
+        )
+
+    def test_shortage_returns_400_with_readable_message(self):
+        handler, responses = self._handler()
+        handler.api_stock_outbound({"part_id": self.part_id, "quantity": 5})
+        status, payload = responses[-1]
+        self.assertEqual(status, 400)
+        self.assertIn("可用库存不足", payload["error"])
+
+
 if __name__ == "__main__":
     unittest.main()

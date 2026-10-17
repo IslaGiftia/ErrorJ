@@ -2820,6 +2820,22 @@ def parse_quantity(value):
     return number
 
 
+def finite_number(value, label="数量"):
+    """把用户提交的数量转成有限的浮点数。
+
+    float() 会接受 "nan" / "inf"，而 NaN 参与比较恒为 False，
+    `value <= 0` 这类校验会直接放行；NaN 还会被 SQLite 存成 NULL，
+    之后 sum()/min() 抛 TypeError，那个元件的库存就再也动不了了。
+    """
+    try:
+        number = float(value or 0)
+    except (TypeError, ValueError):
+        raise ValueError(f"{label}必须是数字。")
+    if number != number or number in (float("inf"), float("-inf")):
+        raise ValueError(f"{label}不合法。")
+    return number
+
+
 def col_index(ref):
     match = re.match(r"([A-Z]+)", ref or "")
     if not match:
@@ -6814,11 +6830,16 @@ def save_auth_password(password):
 def load_auth_state():
     """密码来自环境变量 INVENTORY_PASSWORD，或 data/auth.json（tools/set_password.py 生成）。"""
     config = {}
+    config_broken = ""
     if AUTH_PATH.is_file():
         try:
             config = json.loads(AUTH_PATH.read_text(encoding="utf-8")) or {}
-        except (OSError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError) as exc:
+            # 文件存在却读不出来时绝不能静默降级成免密开放模式
+            # （那等于全站敞开，连 /workbench 和 /api/admin 都不用密码），
+            # 这里只做记录，由 main() 决定拒绝启动。
             config = {}
+            config_broken = f"{AUTH_PATH} 无法读取或解析：{exc}"
     password_hash = str(config.get("password_hash") or "")
     env_password = os.environ.get("INVENTORY_PASSWORD") or ""
     # auth.json 里有密码哈希就优先用它：站内「修改管理员密码」写的就是这里，
@@ -6841,6 +6862,7 @@ def load_auth_state():
             "enabled": bool(password_hash),
             "password_hash": password_hash,
             "secret": secret,
+            "config_broken": config_broken,
         }
     )
     return AUTH_STATE
@@ -9772,8 +9794,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_workbench_repair_item(path)
             elif re.fullmatch(r"/api/bookmark-folders/\d+", path):
                 self.api_bookmark_folder_item(path)
-            elif re.fullmatch(r"/api/books/\d+", path):
-                self.api_book_item(path)
             elif re.fullmatch(r"/api/prompts/\d+", path):
                 self.api_prompt_item(path)
             elif re.fullmatch(r"/api/site/music/\d+", path):
@@ -9837,6 +9857,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_link_delete(path)
             elif re.fullmatch(r"/api/prompts/\d+", path):
                 self.api_prompt_item(path)
+            elif re.fullmatch(r"/api/books/\d+", path):
+                self.api_book_item(path)
             elif re.fullmatch(r"/api/notes/images/\d+", path):
                 self.api_note_image_delete(path)
             elif re.fullmatch(r"/api/notes/\d+", path):
@@ -10144,7 +10166,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         stock_quantity = None
         if payload.get("stock_quantity") not in (None, ""):
             try:
-                stock_quantity = float(payload["stock_quantity"])
+                stock_quantity = finite_number(payload["stock_quantity"], "库存数量")
             except (TypeError, ValueError):
                 api_error(self, 400, "库存数量格式不正确。")
                 return
@@ -10167,6 +10189,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 api_error(self, 400, "关联项目不存在。")
                 return
         try:
+            min_stock_value = finite_number(payload.get("min_stock") or 0, "最低库存")
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        try:
             new_id = execute(
                 """INSERT INTO parts
                    (part_number, lcsc_code, brand, category_id, package, temperature_range,
@@ -10183,7 +10210,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     payload.get("description") or None,
                     payload.get("datasheet_url") or None,
                     payload.get("notes") or None,
-                    float(payload.get("min_stock") or 0),
+                    min_stock_value,
                     now_text(),
                     now_text(),
                 ),
@@ -10283,13 +10310,18 @@ class InventoryHandler(BaseHTTPRequestHandler):
         new_stock = None
         if payload.get("stock_quantity") not in (None, ""):
             try:
-                new_stock = float(payload["stock_quantity"])
+                new_stock = finite_number(payload["stock_quantity"], "库存数量")
             except (TypeError, ValueError):
                 api_error(self, 400, "库存数量格式不正确。")
                 return
             if new_stock < 0:
                 api_error(self, 400, "库存数量不能小于 0。")
                 return
+        try:
+            min_stock_value = finite_number(payload.get("min_stock") or 0, "最低库存")
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
 
         def run(conn):
             conn.execute(
@@ -10309,7 +10341,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     payload.get("description") or None,
                     payload.get("datasheet_url") or None,
                     payload.get("notes") or None,
-                    float(payload.get("min_stock") or 0),
+                    min_stock_value,
                     now_text(),
                     item_id,
                 ),
@@ -15919,7 +15951,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
             values.append(value)
         if "cost" in payload:
             try:
-                cost = float(payload.get("cost")) if str(payload.get("cost") or "").strip() else None
+                cost = (
+                    finite_number(payload.get("cost"), "费用")
+                    if str(payload.get("cost") or "").strip()
+                    else None
+                )
             except (TypeError, ValueError):
                 api_error(self, 400, "费用必须是数字。")
                 return
@@ -16401,7 +16437,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_stock_inbound(self, payload):
         part_id = payload.get("part_id")
         location_id = payload.get("location_id")
-        quantity = float(payload.get("quantity") or 0)
+        try:
+            quantity = finite_number(payload.get("quantity"))
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
         if not part_id or not location_id:
             api_error(self, 400, "请选择元件和存放位置。")
             return
@@ -16476,7 +16516,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_stock_outbound(self, payload):
         batch_id = payload.get("batch_id")
         part_id = payload.get("part_id")
-        quantity = float(payload.get("quantity") or 0)
+        try:
+            quantity = finite_number(payload.get("quantity"))
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
         project_id = payload.get("project_id")
         note = payload.get("note") or ""
         if quantity <= 0:
@@ -16502,16 +16546,21 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 400, "请选择要出库的批次或元件。")
             return
 
-        result = transaction(
-            lambda conn: self.consume_batches(
-                conn,
-                part_id=part_id,
-                batch_id=batch_id,
-                quantity=quantity,
-                project_id=project_id,
-                note=note,
+        try:
+            result = transaction(
+                lambda conn: self.consume_batches(
+                    conn,
+                    part_id=part_id,
+                    batch_id=batch_id,
+                    quantity=quantity,
+                    project_id=project_id,
+                    note=note,
+                )
             )
-        )
+        except ValueError as exc:
+            # 库存不足是正常的用户输入问题，不该变成 500 再把内部信息回给客户端
+            api_error(self, 400, str(exc))
+            return
         part_row = query_one("SELECT part_number FROM parts WHERE id = ?", (part_id,))
         project_row = (
             query_one("SELECT name FROM projects WHERE id = ?", (project_id,))
@@ -16738,7 +16787,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def api_create_wishlist(self, payload):
         part_id = payload.get("part_id")
-        target_quantity = float(payload.get("target_quantity") or 1)
+        try:
+            target_quantity = finite_number(payload.get("target_quantity") or 1, "目标数量")
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
         if target_quantity <= 0:
             api_error(self, 400, "目标数量必须大于 0。")
             return
@@ -16772,7 +16825,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
         payload = get_payload(self)
         if payload is None:
             return
-        target_quantity = float(payload.get("target_quantity") or 1)
+        try:
+            target_quantity = finite_number(payload.get("target_quantity") or 1, "目标数量")
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
         if target_quantity <= 0:
             api_error(self, 400, "目标数量必须大于 0。")
             return
@@ -16807,7 +16864,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         location_id = payload.get("location_id")
         category_id = payload.get("category_id")
-        quantity = float(payload.get("quantity") or item["target_quantity"] or 1)
+        try:
+            quantity = finite_number(
+                payload.get("quantity") or item["target_quantity"] or 1
+            )
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
         part_id = payload.get("part_id") or item["part_id"]
         if quantity <= 0:
             api_error(self, 400, "数量必须大于 0。")
@@ -16946,6 +17009,24 @@ class InventoryHandler(BaseHTTPRequestHandler):
 def main():
     init_db()
     load_auth_state()
+    if AUTH_STATE.get("config_broken"):
+        broken = AUTH_STATE["config_broken"]
+        if os.environ.get("INVENTORY_ALLOW_OPEN") != "1":
+            print(f"致命错误：{broken}", file=sys.stderr)
+            print(
+                "已拒绝启动：密码文件存在但读不出来时，继续运行会让全站变成免密开放模式。",
+                file=sys.stderr,
+            )
+            print(
+                "请修好文件权限或内容；确实要临时开放，设 INVENTORY_ALLOW_OPEN=1 再启动。",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        print(f"警告：{broken}", file=sys.stderr)
+        print(
+            "已按 INVENTORY_ALLOW_OPEN=1 强制启动：全站处于免密开放模式，仅限临时排查。",
+            file=sys.stderr,
+        )
     start_access_log_worker()
     threading.Thread(
         target=logs_maintenance_loop, name="logs-cleanup", daemon=True

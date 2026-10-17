@@ -262,6 +262,7 @@ netsh advfirewall firewall add rule name="Errorjiang 8000" dir=in action=allow p
 | `INVENTORY_PORT` | `8000` | 监听端口 |
 | `INVENTORY_PASSWORD` | 空 | 设置后启用登录 |
 | `INVENTORY_SECRET` | 自动生成 | 会话签名密钥，保存在 `data/auth.json` |
+| `INVENTORY_ALLOW_OPEN` | 关闭 | 应急开关：`data/auth.json` 存在但读不出来时默认拒绝启动，设为 `1` 才允许强行启动（此时全站免密，仅限临时排查） |
 | `INVENTORY_TRUST_PROXY` | 关闭 | 走 Nginx 反代时读取 `X-Forwarded-For` / `X-Forwarded-Proto` |
 | `INVENTORY_SECURE_COOKIES` | 关闭 | 强制使用 Secure Cookie（HTTPS 环境） |
 | `INVENTORY_ACCESS_LOG` | 关闭 | 打开访问日志 |
