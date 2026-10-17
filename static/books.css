@@ -160,6 +160,53 @@ body {
   display: block;
 }
 
+/*
+ * 书架封面的微视差：卡片往视口上方走时，封面在裁切框里朝反方向慢慢漂回来，
+ * 看起来就像「封面走得比页面慢」——同向但更慢，产生一点纵深。
+ *
+ * 两个必须这么写的点：
+ * 1. .bk-cover 自己带 overflow:hidden，它本身就是一个滚动容器。直接给图片写
+ *    animation-timeline: view() 会认那个小盒子，进度永远停在 0.5（实测过，滚动时
+ *    一点也不动）。所以时间轴要命名挂在 .bk-card 上，让图片引用它。
+ * 2. 动的是独立的 translate 属性，不是 transform：外层 .bk-cover 的悬停抬起
+ *    用的是 transform，两者分开合成，互不覆盖。
+ *
+ * 图片比裁切框高 16px（上下各多 8px），位移 ±8px 时才不会露出边缘。
+ * 书少到一屏放得下时页面本来就不滚，这条动画自然不产生任何变化。
+ */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .bk-card {
+      view-timeline-name: --bk-card;
+      view-timeline-axis: block;
+    }
+
+    .bk-cover img {
+      height: calc(100% + 16px);
+      margin-top: -8px;
+      animation: bk-cover-drift linear both;
+      animation-timeline: --bk-card;
+    }
+
+    /* 鼠标停在一本上时让它定住：卡片本来就会抬起 3px，再叠一层漂移会显得忙 */
+    @media (hover: hover) and (pointer: fine) {
+      .bk-card:hover .bk-cover img {
+        animation-play-state: paused;
+      }
+    }
+  }
+}
+
+@keyframes bk-cover-drift {
+  from {
+    translate: 0 -8px;
+  }
+
+  to {
+    translate: 0 8px;
+  }
+}
+
 .bk-cover-fallback {
   position: absolute;
   inset: 0;
