@@ -5871,3 +5871,82 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 一致（2f36
 （当天新上传 10 本，长标题更多）造成的。已用同一张卡对比开/关视差前后的标题几何：
 `clientW 169 / scrollW 280` 完全一致，与本轮 CSS 无关。
 真机上「地址栏收起/展开」是否会跳需要设备实测，无头环境覆盖不到。
+
+## 133. 2026-10-17 14:49:45 修好书架删除、收紧密码文件与库存数量的异常处理
+
+来源：另一套 harness 在 `C:\dsh\ErrorJ` 交了一份「三处修复」报告和一个 `app.py` 补丁器。逐条核对后
+四条问题全部属实，但补丁只实现了三条 —— 它声明的第 4 条（库存不足应回 400）在补丁里没有任何 hunk。
+本轮以该补丁打底，补齐缺口后发布。
+
+四条问题（均已复核）：
+
+1. `do_DELETE` 没有 `/api/books/<id>` 分支，`books.js` 发的 DELETE 落到 404「接口不存在」，
+   `api_book_item` 里的 DELETE 实现是死代码。权限映射早已是 `books:write`，补路由不会漏权限。
+2. `data/auth.json` 存在但读不出来时，`load_auth_state` 静默吞掉异常 → `enabled=False` →
+   `session_identity()` 对所有人返回 owner、`guard_request_inner` 直接放行，**整站（含 /workbench、
+   /api/admin）变成免密管理员视角**。这是四条里最重的一条（fail-open）。
+3. 出入库、元件库存、最低库存、待购入数量、维修费用都用裸 `float()`：`nan` / `inf` 能穿过
+   `quantity <= 0`（NaN 参与比较恒为 False），NaN 又被 SQLite 存成 NULL，之后
+   `sum(row["quantity"] …)` 抛 TypeError，那个元件的库存再也算不清。
+4. `consume_batches` 抛的 `ValueError`（库存不足）没人接 → `do_POST` 统一 `except Exception` →
+   500，并把内部文案原样回给客户端。**补丁漏了这条，本轮补上。**
+
+完成内容（提交 `d35f892 fix:repair-book-delete-auth-fail-open-and-stock-inputs`，4 文件，+262/−23）：
+
+- `do_DELETE` 补上 `/api/books/\d+` 分支，删书连同文件一起清理（`api_book_item` 原有实现）。
+- 新增 `finite_number()`：拒绝 NaN / ±Inf / 非数字，统一抛 `ValueError`。
+  **补丁只接到出入库 2 处，本轮铺到 10 处**：出入库 ×2、元件新建/编辑库存 ×2、最低库存 ×2、
+  待购入目标数量 ×2、待购入转入库、维修费用。剩下的地图经纬度仍是裸 `float()`，但后面有
+  `-90 <= lat <= 90` 范围判断，NaN 会被拦下，无需改。
+- `consume_batches` 的 `ValueError` 在 `transaction` 外接住 → 400（补丁声明的第 4 条）。
+- `load_auth_state` 记录 `config_broken`；`main()` 在密码文件存在但读不出来时打印原因并 `sys.exit(1)`。
+  「已拒绝启动」只在真的拒绝时打印；设 `INVENTORY_ALLOW_OPEN=1` 强行启动时改打警告，日志不再自相矛盾。
+- 删掉 `do_PATCH` 里重复注册的 `/api/books/\d+`（第二条永远走不到）。
+- 新增 9 个测试（`FiniteNumberTests` / `AuthFailClosedTests` / `BookDeleteRouteTests` /
+  `StockQuantityGuardTests`），测试总数 127 → 136。
+- 文档：README 环境变量表补 `INVENTORY_ALLOW_OPEN`；`references.html` 近期改动追加删书与数值校验说明。
+
+部署前检查（本轮新增的安全门因为会改变启动行为，必须先验）：
+```text
+/opt/errorjiang/data/auth.json  -rw------- 223B，python3 -m json.tool 通过，含 password_hash
+（若此处报权限或 JSON 错误，新版本会拒绝启动 —— 本轮确认合法后才继续）
+```
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 136 passed；
+      python -m json.tool config/changelog-seed.json；git diff --check 干净
+提交：d35f892（fetch → pull --rebase → push；local == origin/main == d35f892）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 一致（ac19fd54…）
+备份：/data/errorjiang-backup/20261017-1451/
+      （inventory.db 5.21M + auth.json 223B + changelog-seed.json 111K）
+服务器：systemctl stop -> cp 备份 -> git fetch + pull --ff-only -> d35f892
+      changelog-seed.json 经 install 覆盖；import_changelog_moments.py --date 2026-10-17 --force
+      -> 新增 3 条（--force 按当天重建：06:37:08 / 09:53:35 / 14:49:45，id 698 / 699 / 700）
+      systemctl start；本轮无表结构变更，未跑 init_db；auth.json 只备份、未改动
+```
+
+验证结果：
+```text
+服务      -> errorjiang / nginx active，/api/health = {"ok": true}
+启动日志  -> 「已开启访问密码：未登录访问会跳转到 /login」—— 证明新的 auth 代码读到了合法文件，
+             没有落到「本地模式」（若 fail-open 仍是旧行为，这行不会出现）
+版本      -> 本地 HEAD = origin/main = 服务器 HEAD = d35f892；服务器工作区干净
+             （未跟踪的 data.before-upload-20260929-183359/ 原样保留）
+代码一致  -> 服务器 /opt/errorjiang/app.py 的 SHA256 与 `git show HEAD:app.py` 完全相同
+             （ddfa9460…），即线上跑的就是测过的那份
+公开接口  -> /api/health 200、/api/books 200
+更新日志  -> /api/moments 里 2026-10-17 三条（id 698 / 699 / 700，kind = log），本条 14:49:45 公网可查
+本地实测  -> 上传测试书 -> DELETE /api/books/16 -> 200 {"ok": true}，列表里已消失（原来 404）
+             出库 18+N（库存 18）-> 400「可用库存不足，当前只有 18。」（原来 500）
+             inbound quantity=nan / inf / -inf -> 400「数量不合法。」（原来会写进库）
+             outbound quantity=nan -> 400；min_stock=nan -> 400「最低库存不合法。」
+             target_quantity=nan -> 400「目标数量不合法。」；正常值均 201
+auth 行为 -> 改坏 data/auth.json 后启动：退出码 1，打印「致命错误：… / 已拒绝启动 …」；
+             设 INVENTORY_ALLOW_OPEN=1 再启动：打印「警告：… 已按 INVENTORY_ALLOW_OPEN=1 强制启动」并持续运行。
+             测试脚本用 try/finally 保证还原，还原后 auth.json 字节完全一致
+回归      -> 15 页 × 桌面/手机 × 浅色/深色 0 溢出 0 控制台报错
+```
+
+备注：本轮是纯后端修复，前端没有任何改动；补丁器留下的 `app.py.bak` 已删除，工作区只提交了
+`app.py`、`tests/test_security.py`、`README.md`、`static/references.html`。
