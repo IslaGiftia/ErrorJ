@@ -4,7 +4,7 @@
  * 自动接管：
  *   - 按压 92% + 松手弹性回弹
  *   - 从点击坐标扩散的液态颜色
- *   - 桌面端主操作按钮的磁吸位移和橙色光晕
+ *   - 桌面端主操作按钮的磁吸位移和品牌主题色光晕
  *   - 危险操作确认按钮的 100% 长按进度
  *
  * 业务动作按需调用：
@@ -86,6 +86,7 @@
   ].join(",");
 
   var HOLD_SELECTOR = "#confirmOk, #mapConfirmOk, [data-hold-confirm]";
+  var EXCLUDED_SELECTOR = ".mp-marker, .mp-cluster, .leaflet-control-container";
   var HOLD_DURATION = 900;
   var states = new WeakMap();
   var holdStates = new WeakMap();
@@ -96,6 +97,10 @@
   function closestMatch(target, selector) {
     if (!target || target.nodeType !== 1 || typeof target.closest !== "function") return null;
     return target.closest(selector);
+  }
+
+  function isMotionExcluded(el) {
+    return Boolean(el && typeof el.closest === "function" && el.closest(EXCLUDED_SELECTOR));
   }
 
   function canAnimate(el) {
@@ -347,7 +352,7 @@
   function pressStart(event) {
     if (event.button !== 0) return;
     var el = closestMatch(event.target, ACTION_SELECTOR);
-    if (!el || el.disabled || el.getAttribute("data-no-button-fx") !== null) return;
+    if (!el || isMotionExcluded(el) || el.disabled || el.getAttribute("data-no-button-fx") !== null) return;
     pressedEl = el;
     el.classList.add("is-pressing");
   }
@@ -519,6 +524,10 @@
 
   function enhanceElement(el) {
     if (!el || el.nodeType !== 1) return;
+    if (isMotionExcluded(el)) {
+      el.classList.remove("fx-press", "is-pressing", "fx-liquid-host", "fx-magnetic");
+      return;
+    }
     if (el.matches(ACTION_SELECTOR) && el.getAttribute("data-no-button-fx") === null) {
       el.classList.add("fx-press");
       if (el.matches(LIQUID_SELECTOR)) el.classList.add("fx-liquid-host");
@@ -580,7 +589,7 @@
       "click",
       function (event) {
         var el = closestMatch(event.target, LIQUID_SELECTOR);
-        if (!el || el.disabled || el.getAttribute("data-no-button-fx") !== null) return;
+        if (!el || isMotionExcluded(el) || el.disabled || el.getAttribute("data-no-button-fx") !== null) return;
         liquid(event, el);
       },
       true

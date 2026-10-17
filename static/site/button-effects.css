@@ -8,7 +8,7 @@
 :root {
   --fx-press-scale: 0.92;
   --fx-press-duration: 430ms;
-  --fx-glow-color: #ff9f43;
+  --fx-glow-color: var(--accent, var(--primary, #7b68ee));
   --fx-liquid-soft: rgba(123, 104, 238, 0.24);
   --fx-liquid-light: rgba(255, 255, 255, 0.3);
 }
@@ -34,14 +34,14 @@
     translate 80ms linear,
     filter 180ms var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1));
   filter:
-    drop-shadow(0 10px 12px rgba(255, 147, 47, 0.28))
-    drop-shadow(0 3px 5px rgba(255, 179, 84, 0.16));
+    drop-shadow(0 10px 12px color-mix(in srgb, var(--fx-glow-color) 34%, transparent))
+    drop-shadow(0 3px 5px color-mix(in srgb, var(--fx-glow-color) 18%, transparent));
 }
 
 .fx-magnetic:focus-visible {
   filter:
-    drop-shadow(0 8px 10px rgba(255, 147, 47, 0.24))
-    drop-shadow(0 2px 4px rgba(255, 179, 84, 0.14));
+    drop-shadow(0 8px 10px color-mix(in srgb, var(--fx-glow-color) 30%, transparent))
+    drop-shadow(0 2px 4px color-mix(in srgb, var(--fx-glow-color) 16%, transparent));
 }
 
 /*
@@ -232,7 +232,7 @@
   inset: 0;
   z-index: 0;
   border-radius: inherit;
-  background: color-mix(in srgb, var(--fx-glow-color, #ff9f43) 38%, transparent);
+  background: color-mix(in srgb, var(--fx-glow-color, #7b68ee) 38%, transparent);
   transform: scaleX(var(--fx-hold-progress, 0));
   transform-origin: left center;
   transition: transform 190ms var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1));
@@ -252,7 +252,7 @@
   cursor: progress;
   box-shadow:
     0 0 0 1px color-mix(in srgb, currentColor 18%, transparent),
-    0 10px 24px color-mix(in srgb, var(--fx-glow-color, #ff9f43) 22%, transparent);
+    0 10px 24px color-mix(in srgb, var(--fx-glow-color, #7b68ee) 22%, transparent);
 }
 
 @keyframes fx-button-spin {

@@ -1009,7 +1009,14 @@
       riseOnHover: true,
       title: place.name
     });
-    marker.bindPopup(popupHtml(place), { maxWidth: 320, minWidth: 230, autoPanPadding: [24, 24] });
+    marker.bindPopup(popupHtml(place), {
+      maxWidth: 320,
+      minWidth: 230,
+      autoPan: false
+    });
+    marker.on("click", function () {
+      focusMarker(place);
+    });
     marker.on("popupopen", function () {
       state.activeId = place.id;
       renderList();
@@ -1095,7 +1102,30 @@
     map.fitBounds(L.latLngBounds(points), { padding: [48, 48], maxZoom: 16 });
   }
 
+  var markerFocusToken = 0;
+
+  function focusMarker(place) {
+    var marker = state.markers[place.id];
+    if (!marker) return;
+    var target = displayLatLng(place.lat, place.lng);
+    var targetZoom = Math.max(map.getZoom(), 16);
+    var centered = map.getCenter().distanceTo(target) < 1;
+    var token = ++markerFocusToken;
+    state.activeId = place.id;
+    renderList();
+    marker.closePopup();
+    if (map.getZoom() >= targetZoom && centered) {
+      marker.openPopup();
+      return;
+    }
+    map.once("moveend", function () {
+      if (token === markerFocusToken) marker.openPopup();
+    });
+    map.flyTo(target, targetZoom, { duration: 0.38 });
+  }
+
   function focusPlace(place) {
+    markerFocusToken += 1;
     var marker = state.markers[place.id];
     var target = displayLatLng(place.lat, place.lng);
     state.activeId = place.id;
