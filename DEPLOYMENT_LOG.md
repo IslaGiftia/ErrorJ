@@ -6156,3 +6156,48 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 = 126c3b25…
 ```
 
 备注：足迹页需要登录，公网用同版本静态文件哈希与登录页长按引擎验证；实际足迹长按删除在本地同版文件上通过拦截 DELETE 请求验证，未改动线上真实标记。
+
+## 138. 2026-10-18 23:04:41 修复足迹长按误触地图选点与歌曲书籍弹窗填充动画
+
+来源：站长复查上一轮长按删除后反馈两处问题：足迹页长按删除卡片时会同时触发地图自己的长按选点，出现添加标记的水滴；推荐页歌曲 / 书籍子页的编辑弹窗里，删除按钮功能正常但没有长按蓄力动画。
+
+根因与修复：
+
+- Leaflet 只拦截弹窗里的 `click`，没有拦截 `pointer` / `mouse` / `touch`。长按删除时，`pointerdown` 和 `touchstart` 继续冒泡到地图，420ms 后触发地图长按选点。现在 `popupopen` 时给弹窗里的编辑 / 删除按钮加捕获阶段守卫，阻止 `pointerdown/up/cancel`、`mousedown/up`、`touchstart/end/cancel` 冒泡；地图空白处长按选点不受影响。
+- 歌曲 / 书籍页是在推荐页 iframe 中运行的。iframe 内弹窗样式把 `.fx-hold-fill` 重新计算成 `position: relative`，填充层变成 0 宽 0 高，所以长按逻辑存在但动画不可见。`button-effects.js` 创建填充层时改为直接设置内联 `position:absolute; inset:0; z-index:0; border-radius:inherit; pointer-events:none`，不再依赖 iframe 内的外部选择器优先级。
+- 其它长按删除入口的短按无效、满 900ms 执行、中途松手回退规则保持不变。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 136 passed；
+      node --check static/map.js / static/site/button-effects.js；JSON 校验；git diff --check 干净
+提交：a3233b3 fix:guard-map-popup-hold-and-iframe-fill
+      （fetch → pull --rebase → push；local == origin/main == a3233b3）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = ac158a8cb47519854dd76a79b090d28e42366fb76a9c5d3bb37ed9145ee1bcdb
+备份：/data/errorjiang-backup/20261018-230813/
+      （inventory.db 5.4M + changelog-seed.json 113K + auth.json 223B；无 WAL / SHM）
+服务器：systemctl stop -> cp 备份 -> git pull --ff-only -> a3233b3
+      seed 安装；import_changelog_moments.py --date 2026-10-18 --force
+      -> 新增 3 条、覆盖 0 条、跳过 0 条（21:16:14 / 22:32:50 / 23:04:41 按当天 seed 重建）
+      systemctl start；本轮无表结构变更，未跑 init_db
+```
+
+验证结果：
+```text
+服务      -> errorjiang / nginx active，/api/health = {"ok": true}
+版本      -> 本地代码提交 = origin/main = 服务器 HEAD = a3233b3；服务器工作区干净
+             （未跟踪的 data.before-upload-20260929-183359/ 原样保留）
+更新日志  -> /api/moments 里 2026-10-18 23:04:41
+             「修复足迹长按误触地图选点与歌曲书籍弹窗填充动画」（id 715，kind = log）
+静态文件  -> map.js 线上 / 本地 SHA256 = 122ECA78BE6DF54667CC10B57D58ED92651037F24DB79E32F69C88E301EA288B
+             button-effects.js 线上 / 本地 SHA256 = 199D1A07713FE2A59A3E3A2B7313E19A1DF1FCFD1952CB084937C7BAC65FE54D
+线上足迹  -> 公网同版 /static/map.html + map.js，mock 单条可编辑标记后用 CDP 真实触摸长按删除按钮 650ms：
+             进度 0.736，#mapPinMode 始终保持 hidden，未发出 DELETE 请求；松开后仍未进入选点模式
+推荐 iframe -> 公网 /downloads 的 music / books iframe 内打开编辑弹窗：
+             填充层 position = absolute、布局尺寸 73×34；长按 500ms 时进度分别为 0.454 / 0.518，
+             实际渲染宽高 31×31 / 35×31，不再是 0×0
+回归      -> 136 项单测通过；两段线上交互检查 console / page error 均为 0
+```
+
+备注：足迹页整页需要登录，本轮没有使用或改写线上账号密码；线上验证使用服务器实际返回的同版静态页面和脚本，仅 mock 地图数据接口，真实触摸事件与长按引擎均走线上代码。没有改动线上真实标记。
