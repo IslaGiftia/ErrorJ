@@ -159,11 +159,6 @@
 
   async function deletePrompt(item) {
     if (!state.canManage) return;
-    var confirmed = await window.ErrorDialog.confirm(
-      "删除提示词「" + item.title + "」？",
-      { title: "删除提示词", confirmText: "删除", danger: true }
-    );
-    if (!confirmed) return;
     api("/api/prompts/" + item.id, { method: "DELETE" }).then(function () {
       toast("已删除");
       return loadPrompts();
@@ -186,11 +181,15 @@
     });
   }
 
-  function actionButton(label, className, handler) {
+  function actionButton(label, className, handler, hold) {
     var button = document.createElement("button");
     button.type = "button";
     button.className = "pr-action" + (className ? " " + className : "");
     button.textContent = label;
+    if (hold) {
+      button.setAttribute("data-hold-confirm", "");
+      button.title = "长按删除";
+    }
     button.addEventListener("click", handler);
     return button;
   }
@@ -286,7 +285,7 @@
           }),
           actionButton("删除", "danger", function () {
             deletePrompt(item);
-          })
+          }, true)
         );
       }
 

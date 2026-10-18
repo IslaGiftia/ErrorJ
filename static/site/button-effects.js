@@ -86,6 +86,26 @@
   ].join(",");
 
   var HOLD_SELECTOR = "#confirmOk, #mapConfirmOk, [data-hold-confirm]";
+  var DELETE_SELECTOR = [
+    "[data-action$='-delete']",
+    "[data-action='delete-folder']",
+    "[data-context-action$='-delete']",
+    "[data-mp-action='delete']",
+    "[data-cat-delete]",
+    "[data-photo-remove]",
+    "[data-music-delete]",
+    "[data-reference-delete]",
+    "[data-delete-asset]",
+    "[data-delete-repair]",
+    "[data-word-delete]",
+    "[data-user-delete]",
+    "[data-cleanup-delete]",
+    "[data-cleanup-folder]",
+    "#mapPlaceDelete",
+    "#editDelete",
+    "#deleteBtn",
+    "#deleteSelectedBtn",
+  ].join(",");
   var EXCLUDED_SELECTOR = [
     ".mp-marker",
     ".mp-cluster",
@@ -97,6 +117,7 @@
   var states = new WeakMap();
   var holdStates = new WeakMap();
   var pressedEl = null;
+  var activeHold = null;
   var magneticEl = null;
   var enhanceQueued = false;
 
@@ -463,9 +484,13 @@
         state.suppressPointerClick = true;
         el.classList.remove("is-holding");
         el.removeAttribute("aria-busy");
+        el.setAttribute("data-hold-complete", "1");
         state.internalClick = true;
         el.click();
         state.internalClick = false;
+        window.setTimeout(function () {
+          el.removeAttribute("data-hold-complete");
+        }, 0);
         window.setTimeout(resetProgress, 180);
         return;
       }
@@ -499,6 +524,9 @@
       resetProgress();
     }
 
+    state.start = start;
+    state.cancel = cancel;
+
     function clickGuard(event) {
       if (!el.hasAttribute("data-hold-confirm")) return;
       if (state.internalClick) return;
@@ -521,11 +549,27 @@
       if (state.active) event.preventDefault();
     }
 
-    el.addEventListener("pointerdown", start, true);
-    el.addEventListener("pointerup", cancel, true);
-    el.addEventListener("pointercancel", cancel, true);
     el.addEventListener("click", clickGuard, true);
     el.addEventListener("contextmenu", contextGuard);
+  }
+
+  function holdPointerDown(event) {
+    if (activeHold) {
+      activeHold.cancel();
+      activeHold = null;
+    }
+    var el = closestMatch(event.target, HOLD_SELECTOR);
+    if (!el) return;
+    var state = holdStates.get(el);
+    if (!state || typeof state.start !== "function") return;
+    state.start(event);
+    if (state.active) activeHold = state;
+  }
+
+  function holdPointerEnd(event) {
+    if (!activeHold) return;
+    activeHold.cancel(event);
+    activeHold = null;
   }
 
   function enhanceElement(el) {
@@ -534,12 +578,16 @@
       el.classList.remove("fx-press", "is-pressing", "fx-liquid-host", "fx-magnetic");
       return;
     }
+    if (el.matches(DELETE_SELECTOR)) {
+      el.setAttribute("data-hold-confirm", "");
+      if (!el.title || el.title === "删除") el.title = "长按删除";
+    }
     if (el.matches(ACTION_SELECTOR) && el.getAttribute("data-no-button-fx") === null) {
       el.classList.add("fx-press");
       if (el.matches(LIQUID_SELECTOR)) el.classList.add("fx-liquid-host");
       if (el.matches(MAGNETIC_SELECTOR)) el.classList.add("fx-magnetic");
-      if (el.matches(HOLD_SELECTOR)) bindHold(el);
     }
+    if (el.matches(HOLD_SELECTOR)) bindHold(el);
   }
 
   function enhanceTree(root) {
@@ -583,6 +631,9 @@
     document.addEventListener("pointerdown", pressStart, true);
     document.addEventListener("pointerup", pressEnd, true);
     document.addEventListener("pointercancel", pressEnd, true);
+    document.addEventListener("pointerdown", holdPointerDown, true);
+    document.addEventListener("pointerup", holdPointerEnd, true);
+    document.addEventListener("pointercancel", holdPointerEnd, true);
     document.addEventListener("pointermove", magneticMove, { passive: true });
     document.addEventListener("pointerout", function (event) {
       if (!magneticEl) return;

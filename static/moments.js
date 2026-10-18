@@ -830,6 +830,10 @@
       );
       node.type = "button";
       node.setAttribute("role", "menuitem");
+      if (item.hold) {
+        node.setAttribute("data-hold-confirm", "");
+        node.title = "长按删除";
+      }
       if (item.report) {
         node.setAttribute("data-report-type", "moment");
         node.setAttribute("data-report-key", item.report.id);
@@ -969,12 +973,9 @@
       if (comment.mine) {
         var deleteBtn = el("button", "mo-link-btn is-danger", "删除");
         deleteBtn.type = "button";
-        deleteBtn.addEventListener("click", async function () {
-          var confirmed = await window.ErrorDialog.confirm(
-            "确定要删除这条评论吗？",
-            { title: "删除评论", confirmText: "删除", danger: true }
-          );
-          if (!confirmed) return;
+        deleteBtn.setAttribute("data-hold-confirm", "");
+        deleteBtn.title = "长按删除";
+        deleteBtn.addEventListener("click", function () {
           api("/api/site/moment-comments/" + comment.id, { method: "DELETE" })
             .then(function () {
               toast("评论已删除");
@@ -1180,27 +1181,20 @@
     }
 
     function removeMoment() {
-      window.ErrorDialog.confirm("确定要删除这条动态吗？", {
-        title: "删除动态",
-        confirmText: "删除",
-        danger: true,
-      }).then(function (confirmed) {
-        if (!confirmed) return;
-        return api("/api/moments/" + moment.id, { method: "DELETE" })
-          .then(function () {
-            toast("已删除");
-            return loadMoments();
-          })
-          .catch(function (err) {
-            toast(err.message);
-          });
-      });
+      api("/api/moments/" + moment.id, { method: "DELETE" })
+        .then(function () {
+          toast("已删除");
+          return loadMoments();
+        })
+        .catch(function (err) {
+          toast(err.message);
+        });
     }
 
     if (moment.can_manage) {
       menuItems.push({ label: moment.pinned ? "取消置顶" : "置顶", onPick: togglePin });
       menuItems.push({ label: "编辑", onPick: startEdit });
-      menuItems.push({ label: "删除", danger: true, onPick: removeMoment });
+      menuItems.push({ label: "删除", danger: true, hold: true, onPick: removeMoment });
     } else {
       // 别人发的动态（含游客看到的）都能举报：游客这一排就只剩这一个入口
       menuItems.push({ label: "举报", report: moment });

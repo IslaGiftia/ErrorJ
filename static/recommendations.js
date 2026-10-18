@@ -234,20 +234,14 @@
   }
 
   function removeItem(item) {
-    window.ErrorDialog.confirm(
-      "删除推荐「" + item.title + "」？封面文件也会一起清理。",
-      { title: "删除推荐", confirmText: "删除", danger: true }
-    ).then(function (confirmed) {
-      if (!confirmed) return;
-      return api("/api/recommendations/" + item.id, { method: "DELETE" })
-        .then(function () {
-          toast("已删除");
-          return loadRecommendations();
-        })
-        .catch(function (err) {
-          toast(err.message);
-        });
-    });
+    api("/api/recommendations/" + item.id, { method: "DELETE" })
+      .then(function () {
+        toast("已删除");
+        return loadRecommendations();
+      })
+      .catch(function (err) {
+        toast(err.message);
+      });
   }
 
   function adminActions(item) {
@@ -256,6 +250,8 @@
     var remove = el("button", "danger", "删除");
     pin.type = "button";
     remove.type = "button";
+    remove.setAttribute("data-hold-confirm", "");
+    remove.title = "长按删除";
     wrap.append(pin);
     if (item.kind !== "resource") {
       var edit = el("button", "", "编辑");
@@ -319,6 +315,10 @@
       );
       node.type = "button";
       node.setAttribute("role", "menuitem");
+      if (item.hold) {
+        node.setAttribute("data-hold-confirm", "");
+        node.title = "长按删除";
+      }
       if (item.report) {
         // report.js 的全局点击委托会接着弹举报框，这里只负责收起菜单
         node.setAttribute("data-report-type", "recommendation");
@@ -373,6 +373,7 @@
       items.push({
         label: "删除",
         danger: true,
+        hold: true,
         onPick: function () {
           removeItem(item);
         },

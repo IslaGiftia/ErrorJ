@@ -978,12 +978,19 @@
         place.id +
         '">编辑</button>';
       html +=
-        '<button type="button" class="mp-link-btn mp-edit-btn is-danger" data-mp-action="delete" data-mp-id="' +
+        '<button type="button" class="mp-link-btn mp-edit-btn is-danger" data-mp-action="delete" data-hold-confirm title="长按删除" data-mp-id="' +
         place.id +
         '">删除</button>';
     }
     html += "</div></div>";
     return html;
+  }
+
+  function handlePopupAction(actionEl) {
+    var place = placeById(Number(actionEl.getAttribute("data-mp-id")));
+    if (!place) return;
+    if (actionEl.getAttribute("data-mp-action") === "edit") openPlaceModal(place);
+    else deletePlace(place);
   }
 
   function makeMarker(place) {
@@ -1182,11 +1189,11 @@
     $("mapConfirmText").textContent = text;
     var okButton = $("mapConfirmOk");
     okButton.textContent = okText || "确定";
-    okButton.toggleAttribute("data-hold-confirm", opts.danger !== false);
-    if (opts.danger !== false) okButton.title = "长按确认";
+    okButton.toggleAttribute("data-hold-confirm", opts.danger === true);
+    if (opts.danger === true) okButton.title = "长按确认";
     else okButton.removeAttribute("title");
-    okButton.classList.toggle("mp-btn-danger", opts.danger !== false);
-    okButton.classList.toggle("mp-btn-primary", opts.danger === false);
+    okButton.classList.toggle("mp-btn-danger", opts.danger === true);
+    okButton.classList.toggle("mp-btn-primary", opts.danger !== true);
     openModal("mapConfirmModal");
   }
 
@@ -1609,7 +1616,7 @@
         esc(photo.url) +
         '" alt="" loading="lazy"><button type="button" class="mp-photo-remove" data-photo-remove="' +
         photo.id +
-        '" title="删除照片">×</button></span>';
+        '" title="长按删除照片">×</button></span>';
     });
     state.photoFiles.forEach(function (_file, index) {
       html +=
@@ -1713,17 +1720,15 @@
 
   function deletePlace(place) {
     if (!place) return;
-    askConfirm("删除标记？", "「" + place.name + "」会从地图上移除，这个操作不能撤销。", "删除", function () {
-      api("/api/map/places/" + place.id, { method: "DELETE" })
-        .then(function () {
-          notifyDockRefresh();
-          toast("已删除");
-          return loadData(false);
-        })
-        .catch(function (err) {
-          toast(err.message);
-        });
-    });
+    api("/api/map/places/" + place.id, { method: "DELETE" })
+      .then(function () {
+        notifyDockRefresh();
+        toast("已删除");
+        return loadData(false);
+      })
+      .catch(function (err) {
+        toast(err.message);
+      });
   }
 
   // ---------- category manager ----------
@@ -1778,7 +1783,7 @@
       '" title="保存分类"><i data-lucide="check"></i></button>' +
       '<button type="button" class="mp-icon-btn" data-cat-delete="' +
       cat.id +
-      '" title="删除分类"><i data-lucide="trash-2"></i></button>' +
+      '" title="长按删除分类"><i data-lucide="trash-2"></i></button>' +
       "</div></div>"
     );
   }
@@ -1898,27 +1903,15 @@
     var id = Number(row.getAttribute("data-cat-row"));
     var cat = categoryById(id);
     if (!cat) return;
-    var children = childCategories(id).length;
-    askConfirm(
-      "删除分类？",
-      "「" +
-        cat.name +
-        "」" +
-        (children ? "及其 " + children + " 个下级分类" : "") +
-        "会被删除，原有标记会变成未分类，标记本身不会删除。",
-      "删除",
-      function () {
-        api("/api/map/categories/" + id, { method: "DELETE" })
-          .then(function () {
-            if (state.categoryFilter === id) state.categoryFilter = null;
-            toast("分类已删除");
-            return loadData(false).then(renderCatRows);
-          })
-          .catch(function (err) {
-            toast(err.message);
-          });
-      }
-    );
+    api("/api/map/categories/" + id, { method: "DELETE" })
+      .then(function () {
+        if (state.categoryFilter === id) state.categoryFilter = null;
+        toast("分类已删除");
+        return loadData(false).then(renderCatRows);
+      })
+      .catch(function (err) {
+        toast(err.message);
+      });
   }
 
   // ---------- import ----------
@@ -2589,18 +2582,16 @@
       var removeExisting = event.target.closest("[data-photo-remove]");
       if (removeExisting) {
         var photoId = Number(removeExisting.getAttribute("data-photo-remove"));
-        askConfirm("删除照片？", "这张照片会从标记里移除。", "删除", function () {
-          api("/api/map/photos/" + photoId, { method: "DELETE" })
-            .then(function () {
-              toast("照片已删除");
-              return loadData(false).then(function () {
-                renderPhotoEditor(placeById(state.editingId));
-              });
-            })
-            .catch(function (err) {
-              toast(err.message);
+        api("/api/map/photos/" + photoId, { method: "DELETE" })
+          .then(function () {
+            toast("照片已删除");
+            return loadData(false).then(function () {
+              renderPhotoEditor(placeById(state.editingId));
             });
-        });
+          })
+          .catch(function (err) {
+            toast(err.message);
+          });
         return;
       }
       var removePending = event.target.closest("[data-pending-remove]");
@@ -2624,14 +2615,23 @@
     });
   }
 
-  mapEl.addEventListener("click", function (event) {
-    var actionEl = event.target.closest("[data-mp-action]");
-    if (!actionEl) return;
-    var place = placeById(Number(actionEl.getAttribute("data-mp-id")));
-    if (!place) return;
-    if (actionEl.getAttribute("data-mp-action") === "edit") openPlaceModal(place);
-    else deletePlace(place);
-  });
+  document.addEventListener(
+    "click",
+    function (event) {
+      if (!mapEl.contains(event.target)) return;
+      var actionEl = event.target.closest("[data-mp-action]");
+      if (!actionEl) return;
+      var action = actionEl.getAttribute("data-mp-action");
+      if (action === "delete" && actionEl.getAttribute("data-hold-complete") !== "1") {
+        return;
+      }
+      if (action === "delete") actionEl.removeAttribute("data-hold-complete");
+      event.preventDefault();
+      event.stopPropagation();
+      handlePopupAction(actionEl);
+    },
+    true
+  );
 
   var locateBtn = $("mapLocateBtn");
   var locateMarker = null;

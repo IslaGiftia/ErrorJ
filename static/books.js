@@ -35,7 +35,6 @@
     authenticated: false,
     canManage: false,
     editingId: null,
-    deleteArmed: false,
     uploading: false,
   };
 
@@ -391,10 +390,8 @@
 
   function openEdit(book) {
     state.editingId = book.id;
-    state.deleteArmed = false;
     $("editTitleInput").value = book.title || "";
     $("editAuthorInput").value = book.author || "";
-    $("editDelete").innerHTML = '<i data-lucide="trash-2"></i><span>删除</span>';
     $("editError").hidden = true;
     $("editModal").hidden = false;
     notifyDock(true);
@@ -444,12 +441,6 @@
   function deleteCurrent() {
     var id = state.editingId;
     if (!id) return;
-    if (!state.deleteArmed) {
-      state.deleteArmed = true;
-      $("editDelete").innerHTML = '<i data-lucide="alert-triangle"></i><span>再点一次确认删除</span>';
-      if (window.lucide) lucide.createIcons();
-      return;
-    }
     api("/api/books/" + id, { method: "DELETE" })
       .then(function () {
         closeEditModal();

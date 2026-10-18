@@ -232,7 +232,7 @@
   inset: 0;
   z-index: 0;
   border-radius: inherit;
-  background: color-mix(in srgb, var(--fx-glow-color, #7b68ee) 38%, transparent);
+  background: color-mix(in srgb, var(--fx-hold-color, var(--fx-glow-color, #7b68ee)) 52%, transparent);
   transform: scaleX(var(--fx-hold-progress, 0));
   transform-origin: left center;
   transition: transform 190ms var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1));
@@ -241,6 +241,15 @@
 
 .fx-hold.is-holding .fx-hold-fill {
   transition: none;
+  box-shadow: 2px 0 12px color-mix(in srgb, var(--fx-hold-color, var(--fx-glow-color, #7b68ee)) 58%, transparent);
+}
+
+.fx-hold:is(.btn-danger, .is-danger, .danger, .mp-btn-danger, .mu-btn-danger, .bk-btn-danger, .pin-danger-btn, .wb-btn-danger, .nt-btn-danger) {
+  --fx-hold-color: #e5484d;
+}
+
+.fx-hold:is([data-cat-delete], [data-photo-remove], [data-music-delete], [data-reference-delete], [data-delete-asset], [data-delete-repair], [data-word-delete], [data-user-delete]) {
+  --fx-hold-color: #e5484d;
 }
 
 .fx-hold > :not(.fx-hold-fill):not(.fx-state-mark):not(.fx-liquid-layer) {

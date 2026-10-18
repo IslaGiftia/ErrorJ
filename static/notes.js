@@ -1278,23 +1278,19 @@
     }
   }
 
-  function deleteNote() {
+  async function deleteNote() {
     const note = activeNote();
     if (!note) return;
-    const images = note.image_count ? `这篇笔记的 ${note.image_count} 张图片也会一起删除。` : "";
-    askConfirm("删除这篇笔记？", `「${note.title}」将被删除，${images}此操作无法撤销。`, "删除", async () => {
-      closeConfirm();
-      try {
-        await api(`/api/notes/${note.id}`, { method: "DELETE" });
-        state.activeId = null;
-        state.baseline = { title: "", content: "", tags: "" };
-        closeNote();
-        await loadNotes();
-        toast("已删除");
-      } catch (err) {
-        toast(err.message || "删除失败");
-      }
-    });
+    try {
+      await api(`/api/notes/${note.id}`, { method: "DELETE" });
+      state.activeId = null;
+      state.baseline = { title: "", content: "", tags: "" };
+      closeNote();
+      await loadNotes();
+      toast("已删除");
+    } catch (err) {
+      toast(err.message || "删除失败");
+    }
   }
 
   function exportNote() {

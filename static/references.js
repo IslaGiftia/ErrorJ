@@ -59,7 +59,7 @@
             '" title="编辑">编辑</button>' +
             '<button type="button" data-reference-delete="' +
             item.id +
-            '" title="删除">删除</button>' +
+            '" data-hold-confirm title="长按删除">删除</button>' +
             "</span>"
           : "";
         return (
@@ -138,11 +138,6 @@
       return String(entry.id) === del.dataset.referenceDelete;
     });
     if (!item) return;
-    var confirmed = await window.ErrorDialog.confirm(
-      "删除「" + item.title + "」？",
-      { title: "删除参考项目", confirmText: "删除", danger: true }
-    );
-    if (!confirmed) return;
     try {
       await api("/api/references/" + item.id, { method: "DELETE" });
       await loadReferences();

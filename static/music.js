@@ -42,7 +42,6 @@
     authenticated: false,
     currentId: null,
     editingId: null,
-    deleteArmed: false,
   };
 
   function $(id) {
@@ -192,7 +191,7 @@
             '" title="编辑歌曲"><i data-lucide="pencil"></i></button>' +
             '<button class="mu-icon-btn" type="button" data-music-delete="' +
             track.id +
-            '" title="删除歌曲"><i data-lucide="trash-2"></i></button>';
+            '" title="长按删除歌曲"><i data-lucide="trash-2"></i></button>';
         } else {
           if (state.authenticated && track.source_type === "file") {
             actionButtons +=
@@ -527,29 +526,11 @@
     });
   }
 
-  /*
-   * 「删除 → 再点一次确认」按钮是图标 + 文字：
-   * 图标交给 morphicons 形变（trash-2 → alert-triangle），文字照旧直接改；
-   * 没有 morphicons 时退回原来的整体重建。label 都是写死的字面量，不涉及用户输入。
-   */
-  function setDeleteButton(icon, label) {
-    var btn = $("editDelete");
-    if (window.ErrorMorph && window.ErrorMorph.morph(btn, icon)) {
-      var text = btn.querySelector("span");
-      if (text) text.textContent = label;
-      return;
-    }
-    btn.innerHTML = '<i data-lucide="' + icon + '"></i><span>' + label + "</span>";
-    if (window.lucide) lucide.createIcons();
-  }
-
   function openEdit(track) {
     state.editingId = track.id;
-    state.deleteArmed = false;
     $("editTitleInput").value = track.title || "";
     $("editArtistInput").value = track.artist || "";
     $("editAlbumInput").value = track.album || "";
-    setDeleteButton("trash-2", "删除");
     $("editError").hidden = true;
     $("editModal").hidden = false;
     notifyDock(true);
@@ -598,13 +579,11 @@
   }
 
   function deleteCurrent() {
-    var id = state.editingId;
+    deleteTrack(state.editingId);
+  }
+
+  function deleteTrack(id) {
     if (!id) return;
-    if (!state.deleteArmed) {
-      state.deleteArmed = true;
-      setDeleteButton("alert-triangle", "再点一次确认删除");
-      return;
-    }
     api("/api/site/music/" + id, { method: "DELETE" })
       .then(function () {
         if (state.currentId === id) {
@@ -711,7 +690,7 @@
     if (del) {
       event.stopPropagation();
       var delTrack = trackById(Number(del.getAttribute("data-music-delete")));
-      if (delTrack) openEdit(delTrack);
+      if (delTrack) deleteTrack(delTrack.id);
       return;
     }
     var share = event.target.closest("[data-music-share]");

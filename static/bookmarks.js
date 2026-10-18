@@ -749,44 +749,37 @@
     return state.bookmarks.find((item) => String(item.id) === String(id));
   }
 
-  function deleteBookmark(item) {
-    confirmDialog(`确认删除“${item.title || item.url}”？`, async () => {
-      await api(`/api/bookmarks/${item.id}`, { method: "DELETE" });
-      state.selectedIds.delete(String(item.id));
-      showToast("书签已删除", "success", {
-        label: "撤销",
-        run: () => undoDeleteBookmarks([item]),
-      });
-      await loadAll();
+  async function deleteBookmark(item) {
+    await api(`/api/bookmarks/${item.id}`, { method: "DELETE" });
+    state.selectedIds.delete(String(item.id));
+    showToast("书签已删除", "success", {
+      label: "撤销",
+      run: () => undoDeleteBookmarks([item]),
     });
+    await loadAll();
   }
 
-  function deleteFolder(folder) {
+  async function deleteFolder(folder) {
     const directBookmarks = folderDirectBookmarks(folder.id);
     const childFolders = state.folders.filter((item) =>
       String(item.parent_id) === String(folder.id)
     );
-    const detail = directBookmarks.length || childFolders.length
-      ? `其中 ${directBookmarks.length} 个书签会移到${IMPORT_PENDING_LABEL}，${childFolders.length} 个子文件夹会移到根目录。`
-      : "";
-    confirmDialog(`确认删除文件夹“${folder.name}”？${detail}`, async () => {
-      const restoreData = {
-        name: folder.name,
-        parent_id: folder.parent_id,
-        sort_order: folder.sort_order,
-        bookmarkIds: directBookmarks.map((item) => item.id),
-        childFolderIds: childFolders.map((item) => item.id),
-      };
-      await api(`/api/bookmark-folders/${folder.id}`, { method: "DELETE" });
-      if (String(state.selectedFolder) === String(folder.id)) {
-        state.selectedFolder = ALL_FOLDER;
-      }
-      showToast("文件夹已删除", "success", {
-        label: "撤销",
-        run: () => undoDeleteFolder(restoreData),
-      });
-      await loadAll();
+    const restoreData = {
+      name: folder.name,
+      parent_id: folder.parent_id,
+      sort_order: folder.sort_order,
+      bookmarkIds: directBookmarks.map((item) => item.id),
+      childFolderIds: childFolders.map((item) => item.id),
+    };
+    await api(`/api/bookmark-folders/${folder.id}`, { method: "DELETE" });
+    if (String(state.selectedFolder) === String(folder.id)) {
+      state.selectedFolder = ALL_FOLDER;
+    }
+    showToast("文件夹已删除", "success", {
+      label: "撤销",
+      run: () => undoDeleteFolder(restoreData),
     });
+    await loadAll();
   }
 
   async function undoDeleteFolder(data) {
@@ -815,17 +808,15 @@
       state.selectedIds.has(String(item.id))
     );
     if (!items.length) return;
-    confirmDialog(`确认删除选中的 ${items.length} 个书签？`, async () => {
-      await Promise.all(items.map((item) =>
-        api(`/api/bookmarks/${item.id}`, { method: "DELETE" })
-      ));
-      state.selectedIds.clear();
-      showToast("选中的书签已删除", "success", {
-        label: "撤销",
-        run: () => undoDeleteBookmarks(items),
-      });
-      await loadAll();
+    await Promise.all(items.map((item) =>
+      api(`/api/bookmarks/${item.id}`, { method: "DELETE" })
+    ));
+    state.selectedIds.clear();
+    showToast("选中的书签已删除", "success", {
+      label: "撤销",
+      run: () => undoDeleteBookmarks(items),
     });
+    await loadAll();
   }
 
   async function deleteBookmarkIds(ids) {
@@ -1000,7 +991,8 @@
   }
 
   function contextMenuButton(label, action, icon, danger = false) {
-    return `<button type="button" data-context-action="${action}" class="${danger ? "danger" : ""}"><i data-lucide="${icon}"></i><span>${label}</span></button>`;
+    const hold = action.endsWith("-delete") ? ' data-hold-confirm title="长按删除"' : "";
+    return `<button type="button" data-context-action="${action}" class="${danger ? "danger" : ""}"${hold}><i data-lucide="${icon}"></i><span>${label}</span></button>`;
   }
 
   function openContextMenu(x, y, kind, id) {

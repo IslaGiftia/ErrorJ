@@ -960,6 +960,8 @@
       var delBtn = el("button", "mg-more-item is-danger", "删除");
       delBtn.type = "button";
       delBtn.setAttribute("role", "menuitem");
+      delBtn.setAttribute("data-hold-confirm", "");
+      delBtn.title = "长按删除";
       delBtn.addEventListener("click", function () {
         closeAllMoreMenus();
         deleteMessage(message);
@@ -995,24 +997,14 @@
   }
 
   function deleteMessage(message) {
-    var hint = (message.replies || []).length
-      ? "这条留言下面的回复也会一起删除。"
-      : "删除后无法恢复。";
-    window.ErrorDialog.confirm("确定要删除这条留言吗？\n" + hint, {
-      title: "删除留言",
-      confirmText: "删除",
-      danger: true,
-    }).then(function (confirmed) {
-      if (!confirmed) return;
-      return api("/api/site/messages/" + message.id, { method: "DELETE" })
-        .then(function () {
-          toast("已删除");
-          return loadMessages();
-        })
-        .catch(function (err) {
-          toast(err.message);
-        });
-    });
+    api("/api/site/messages/" + message.id, { method: "DELETE" })
+      .then(function () {
+        toast("已删除");
+        return loadMessages();
+      })
+      .catch(function (err) {
+        toast(err.message);
+      });
   }
 
   function buildMessage(message) {

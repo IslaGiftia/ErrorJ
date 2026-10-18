@@ -532,13 +532,6 @@
   }
 
   async function deleteAsset(id) {
-    const asset = state.assets.find((item) => item.id === id);
-    if (!asset) return;
-    const confirmed = await window.ErrorDialog.confirm(
-      `删除「${asset.title}」及其文件？`,
-      { title: "删除资料", confirmText: "删除", danger: true }
-    );
-    if (!confirmed) return;
     try {
       await api(`/api/workbench/assets/${id}`, { method: "DELETE" });
       toast("文件已删除");
@@ -549,13 +542,6 @@
   }
 
   async function deleteRepair(id) {
-    const repair = state.repairs.find((item) => item.id === id);
-    if (!repair) return;
-    const confirmed = await window.ErrorDialog.confirm(
-      `删除「${repair.device_name}」的维修记录？`,
-      { title: "删除维修记录", confirmText: "删除", danger: true }
-    );
-    if (!confirmed) return;
     try {
       await api(`/api/workbench/repairs/${id}`, { method: "DELETE" });
       toast("维修记录已删除");
@@ -1396,18 +1382,6 @@
       }
       const deleteBtn = event.target.closest("[data-user-delete]");
       if (deleteBtn) {
-        const label = deleteBtn.querySelector("span");
-        if (deleteBtn.dataset.armed !== "1") {
-          deleteBtn.dataset.armed = "1";
-          if (label) label.textContent = "再点一次确认";
-          setTimeout(() => {
-            if (deleteBtn.isConnected) {
-              deleteBtn.dataset.armed = "0";
-              if (label) label.textContent = "删除";
-            }
-          }, 4000);
-          return;
-        }
         try {
           await api(`/api/admin/users/${deleteBtn.dataset.userDelete}`, { method: "DELETE" });
           toast("账号已删除");

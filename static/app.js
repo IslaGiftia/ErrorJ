@@ -2080,12 +2080,10 @@ function bindStaticEvents() {
       openPartModal(part);
     }
     if (action === "part-delete") {
-      confirmDialog("删除该元件会同时删除库存和出入库记录，确认继续吗？", async () => {
-        await api(`/api/parts/${id}`, { method: "DELETE" });
-        closeDrawer();
-        showToast("元件已删除");
-        await loadAll();
-      });
+      await api(`/api/parts/${id}`, { method: "DELETE" });
+      closeDrawer();
+      showToast("元件已删除");
+      await loadAll();
     }
     if (action === "part-in") openStockIn(id);
     if (action === "part-out") openStockOut(id);
@@ -2095,12 +2093,10 @@ function bindStaticEvents() {
       if (item) openMovementModal(item);
     }
     if (action === "movement-delete") {
-      confirmDialog("删除这条出入库记录会同步恢复或扣回库存，确认继续吗？", async () => {
-        await api(`/api/movements/${id}`, { method: "DELETE" });
-        closeDrawer();
-        showToast("出入库记录已删除");
-        await loadAll();
-      });
+      await api(`/api/movements/${id}`, { method: "DELETE" });
+      closeDrawer();
+      showToast("出入库记录已删除");
+      await loadAll();
     }
     if (action === "project-add") openProjectModal();
     if (action === "project-edit") {
@@ -2108,12 +2104,10 @@ function bindStaticEvents() {
       openProjectModal(project);
     }
     if (action === "project-delete") {
-      confirmDialog("删除项目后，相关出库记录会保留但不关联项目。确认继续吗？", async () => {
-        await api(`/api/projects/${id}`, { method: "DELETE" });
-        closeDrawer();
-        showToast("项目已删除");
-        await loadAll();
-      });
+      await api(`/api/projects/${id}`, { method: "DELETE" });
+      closeDrawer();
+      showToast("项目已删除");
+      await loadAll();
     }
     if (action === "project-detail") await openProjectDrawer(id);
     if (action === "wishlist-edit") {
@@ -2121,11 +2115,9 @@ function bindStaticEvents() {
       openWishlistModal(item);
     }
     if (action === "wishlist-delete") {
-      confirmDialog("确认删除这条待购记录吗？", async () => {
-        await api(`/api/wishlist/${id}`, { method: "DELETE" });
-        showToast("待购条目已删除");
-        await loadAll();
-      });
+      await api(`/api/wishlist/${id}`, { method: "DELETE" });
+      showToast("待购条目已删除");
+      await loadAll();
     }
     if (action === "wishlist-convert") {
       const item = state.wishlist.find((entry) => String(entry.id) === String(id));
@@ -2148,11 +2140,9 @@ function bindStaticEvents() {
       openCategoryModal(null, item);
     }
     if (action === "category-delete") {
-      confirmDialog("删除分类后，其子分类会提升为根分类，元件会变为未分类。确认继续吗？", async () => {
-        await api(`/api/categories/${id}`, { method: "DELETE" });
-        showToast("分类已删除");
-        await loadAll();
-      });
+      await api(`/api/categories/${id}`, { method: "DELETE" });
+      showToast("分类已删除");
+      await loadAll();
     }
     if (action === "location-add") openLocationModal(parentId || null);
     if (action === "location-edit") {
@@ -2160,11 +2150,9 @@ function bindStaticEvents() {
       openLocationModal(null, item);
     }
     if (action === "location-delete") {
-      confirmDialog("只有没有子位置和库存的位置才能删除。确认继续吗？", async () => {
-        await api(`/api/locations/${id}`, { method: "DELETE" });
-        showToast("位置已删除");
-        await loadAll();
-      });
+      await api(`/api/locations/${id}`, { method: "DELETE" });
+      showToast("位置已删除");
+      await loadAll();
     }
     lucide.createIcons();
   });
