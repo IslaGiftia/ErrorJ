@@ -6062,3 +6062,49 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，SHA256 = 808b2b1b…
 
 备注：线上足迹页需要登录，自动化在本地运行同一份部署文件验证实际点击；
 公网侧同时核对了三个静态文件的完整 SHA256，确认服务器返回的内容与验证版本一致。
+
+## 136. 2026-10-18 21:16:14 修正登录光晕、足迹交互与移动端滚动手感
+
+来源：站长复查 2026-10-17 15:29:31 版本后提出六项：登录按钮仍有橙色光晕；足迹页点击标记会自动放大并把标记移到屏幕中央；右下「顶部」和左上「发送留言 / 写动态」在页面惯性滑动时要先暂停再点一次才生效；留言、动态、推荐三页移动端滚动不够丝滑；图片墙点击有按下回弹；按钮动效速度问题先只分析不修改。
+
+完成内容（提交 `8fc35a8 fix:refine-map-popup-buttons-and-mobile-scroll`，17 文件，+397/−45）：
+
+- 登录成功光晕关键帧改用 `--fx-glow-color`，浅色 `#7B68EE`、深色 `#A78BFA`；成功微粒也换成主题紫。
+- 足迹删除 `focusMarker()` 的 `flyTo` / 居中逻辑，单点标记只打开 Leaflet 卡片且 `autoPan:false`；数字聚合点继续走 MarkerCluster 默认缩放。
+- `back-to-top.js` 新增 `bindFastActivate`：触摸在 `pointerdown` 直接执行，鼠标在 `pointerup` 判定拖动后执行；右下「顶部」和留言 / 动态的发送悬浮按钮复用；回顶改为 220-380ms 的 rAF 缓动。
+- 新增 `static/site/inertia-scroll.js`：先等 60ms 原生滚动落定，再补 0.94/帧衰减的惯性；排除图片查看器、弹窗和内部滚动区；三页小屏去掉吸顶毛玻璃的 `backdrop-filter`，并打开 `touch-action: manipulation` / `-webkit-overflow-scrolling: touch`。
+- `.mg-gallery-cell` / `.mo-gallery-cell` 从按钮反馈层排除，触摸亮度反馈也取消。
+- 文档：README 和 `references.html` 同步更新。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -v -> 136 passed；
+      node --check 6 个改动脚本；python -m json.tool config/changelog-seed.json；
+      git diff --check 干净
+提交：8fc35a8（fetch → pull --rebase → push；local == origin/main == 8fc35a8）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 = 715c2aff…
+备份：/data/errorjiang-backup/20261018-212141/
+      （inventory.db 5.4M + changelog-seed.json 112K + auth.json 223B）
+服务器：systemctl stop -> cp 备份 -> git pull --ff-only -> 8fc35a8
+      seed 安装；import_changelog_moments.py --date 2026-10-18 --force -> 新增 1 条
+      systemctl start；本轮无表结构变更，未跑 init_db
+```
+
+验证结果：
+```text
+服务      -> errorjiang / nginx active，/api/health = {"ok": true}
+版本      -> 本地 HEAD = origin/main = 服务器 HEAD = 8fc35a8；服务器工作区干净
+             （未跟踪的 data.before-upload-20260929-183359/ 原样保留）
+更新日志  -> /api/moments 里 2026-10-18 21:16:14「修正登录光晕、足迹交互与移动端滚动手感」
+             （id 710，kind = log）；公网接口当前对游客返回数组，按 created_at 精确匹配
+静态文件  -> inertia-scroll.js / back-to-top.js / map.js / button-effects.css 的线上 SHA256 与本机一致；
+             login.html 因本地 CRLF、服务器 LF，规范化换行后 SHA256 = 5daae2ee… 一致
+线上交互  -> /login 成功光晕 RGB(123,104,238) 紫色；/moments 里
+             ErrorInertiaScroll.enabled = true、ErrorFastActivate 存在、图片格无 fx-press，
+             顶部按钮只发 pointerdown 时 scrollY 500 -> 6；/recommendations 惯性已加载；
+             三个公开页面 console / page error 0 条
+本地回归  -> 标记点击地图不动、数字聚合点 3 -> 8 级；发送与顶部首次 pointerdown 生效；
+             图片格无 is-pressing；惯性测试松手后 288 -> 706
+```
+
+备注：按钮动效速度本轮只分析未改参数；足迹页需要登录，公网侧通过同版本静态文件哈希和本地同版交互验证；线上登录页只验证光晕颜色与反馈层加载。
