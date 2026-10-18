@@ -6108,3 +6108,51 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 = 715c2aff…
 ```
 
 备注：按钮动效速度本轮只分析未改参数；足迹页需要登录，公网侧通过同版本静态文件哈希和本地同版交互验证；线上登录页只验证光晕颜色与反馈层加载。
+
+## 137. 2026-10-18 22:32:50 删除操作改为按钮长按蓄力，取消二次确认弹窗
+
+来源：站长反馈删除按钮虽然需要长按，但没有对应的蓄力填充动画；足迹页删除标记时仍会先弹出是否确认的弹窗，再在弹窗里长按。要求所有删除入口直接在原按钮上长按蓄力，去掉删除的二次确认弹窗。
+
+根因与修复：
+
+- 按钮反馈层只在初始化时给 `#confirmOk` / `#mapConfirmOk` 绑定长按，删除按钮上的 `data-hold-confirm` 如果是运行时才加上的，长按填充层不会重新绑定。现在统一从选择器识别删除按钮并自动补 `data-hold-confirm`，长按状态与填充层立即生效。
+- 长按填充从 38% 主题色提高到 52%，危险删除使用红色填充并加右侧柔和高光；中途松手仍按原逻辑回退。
+- 长按入口改为 document capture 阶段统一接管，解决 Leaflet 弹窗拦截 pointerdown、导致标记弹窗删除无法蓄力的问题；长按完成时写入一次性 `data-hold-complete`，足迹弹窗在 document capture 的 click 中执行删除，绕过 Leaflet 的点击拦截。
+- 删除二次确认已移除：仓库（元件 / 出入库 / 项目 / 待购 / 分类 / 位置）、书签（单个 / 文件夹 / 批量）、笔记、书架、歌单、足迹（标记 / 分类 / 照片 / 标记弹窗）、留言、动态、评论、提示词、推荐、参考项目、工作台资料 / 维修记录 / 账号 / 敏感词。
+- 歌单卡片删除改为长按直接删除，不再先打开编辑弹窗；书架 / 歌单编辑弹窗里的删除同样直接长按执行。
+- 非删除确认保留：笔记「放弃未保存修改」、足迹「保存移动后的位置」仍是一次点击；短按删除无效，键盘触发的删除仍保持即时。
+- 文档：README、`references.html` 同步更新；更新日志 seed 增加 22:32:50 一条。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 136 passed；
+      node --check 13 个改动脚本；python -m json.tool config/changelog-seed.json；
+      git diff --check 干净
+提交：c14e226（fetch → pull --rebase → push；local == origin/main == c14e226）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，两侧 SHA256 = 126c3b25…
+备份：/data/errorjiang-backup/20261018-223619/
+      （inventory.db 5.4M + changelog-seed.json 112K + auth.json 223B；无 WAL / SHM）
+服务器：systemctl stop -> cp 备份 -> git pull --ff-only -> c14e226
+      seed 安装；import_changelog_moments.py --date 2026-10-18 --force -> 新增 2 条
+      （21:16:14 与 22:32:50 按当天 seed 重建）
+      systemctl start；本轮无表结构变更，未跑 init_db
+```
+
+验证结果：
+```text
+服务      -> errorjiang / nginx active，/api/health = {"ok": true}
+版本      -> 本地 HEAD = origin/main = 服务器 HEAD = c14e226；服务器工作区干净
+             （未跟踪的 data.before-upload-20260929-183359/ 原样保留）
+更新日志  -> /api/moments 里 2026-10-18 22:32:50「删除操作改为按钮长按蓄力，取消二次确认弹窗」
+             （id 712，kind = log）；同日的 21:16:14 也按 seed 重建（id 711）
+静态文件  -> button-effects.js / button-effects.css / map.js / messages.js / moments.js /
+             app.js / bookmarks.js / books.js / music.js / notes.js / prompts.js /
+             recommendations.js / references.js / workbench.js 的线上 SHA256 与本机完全一致
+线上长按  -> /login 注入同款按钮：长按约 500ms 时进度约 0.56，满 980ms 触发 1 次点击，
+             短按点击次数为 0；填充层存在且页面 console / page error 为 0
+线上脚本  -> /moments 的 ErrorButtons / ErrorInertiaScroll / ErrorFastActivate 均正常加载，无错误
+本地回归  -> 足迹编辑卡片与标记弹窗长按均实际发出 DELETE，未出现确认弹窗；
+             所有删除入口检查到 data-hold-confirm + .fx-hold-fill；短按不触发
+```
+
+备注：足迹页需要登录，公网用同版本静态文件哈希与登录页长按引擎验证；实际足迹长按删除在本地同版文件上通过拦截 DELETE 请求验证，未改动线上真实标记。
