@@ -3,6 +3,7 @@
  * - 没有搜索框、没有底部播放条；只剩歌单本身。
  * - 点某首歌的专辑封面开始播放，再点一次暂停；播放中封面外圈是主题色方框 + 呼吸闪光
  *   （和动态页分享卡上的歌曲封面同一套节奏）。
+ * - 播放结束后自动从当前歌单随机挑下一首；只有一首时从头重播。
  * - 上传 / 编辑 / 分享 / 下载 都在行尾的小按钮里；上传弹窗既可以从本页的「+歌曲」打开，
  *   也可以由外层推荐页的常驻按钮通过 window.ErrorRecommendTab.openAdd() 打开。
  */
@@ -316,6 +317,29 @@
         toast("播放失败，可能是浏览器拦截或文件无法解码");
       });
     }
+  }
+
+  function playRandomNext() {
+    if (!state.authenticated || !state.tracks.length) return;
+    var candidates = state.tracks.filter(function (track) {
+      return track.url && track.id !== state.currentId;
+    });
+    if (!candidates.length) {
+      var current = trackById(state.currentId);
+      if (!current || !current.url) return;
+      try {
+        audio.currentTime = 0;
+      } catch (err) {}
+      var replay = audio.play();
+      if (replay && replay.catch) {
+        replay.catch(function () {
+          toast("播放失败，可能是浏览器拦截或文件无法解码");
+        });
+      }
+      return;
+    }
+    var next = candidates[Math.floor(Math.random() * candidates.length)];
+    playTrack(next.id);
   }
 
   function toggleTrack(id) {
@@ -664,7 +688,10 @@
   audio.addEventListener("play", renderList);
   audio.addEventListener("pause", renderList);
   audio.addEventListener("playing", renderList);
-  audio.addEventListener("ended", renderList);
+  audio.addEventListener("ended", function () {
+    renderList();
+    playRandomNext();
+  });
   audio.addEventListener("error", function () {
     if (audio.src) toast("这首歌无法播放，可能是格式不受支持或文件缺失");
   });
