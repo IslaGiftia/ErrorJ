@@ -993,6 +993,10 @@
     else deletePlace(place);
   }
 
+  function stopPopupMapEvent(event) {
+    event.stopPropagation();
+  }
+
   function makeMarker(place) {
     var color = placeColor(place);
     var ink = lum(color) > 0.36 ? "#2b2d42" : "#ffffff";
@@ -1024,6 +1028,35 @@
     marker.on("popupopen", function () {
       state.activeId = place.id;
       renderList();
+      var popupEl = marker.getPopup() && marker.getPopup().getElement();
+      if (popupEl) {
+        Array.prototype.forEach.call(
+          popupEl.querySelectorAll("[data-mp-action]"),
+          function (btn) {
+            if (btn.getAttribute("data-popup-map-guard") === "1") return;
+            btn.setAttribute("data-popup-map-guard", "1");
+            // Leaflet 只挡 click，不挡 pointer / touch；长按删除必须止在地图之前。
+            [
+              "pointerdown",
+              "pointerup",
+              "pointercancel",
+              "mousedown",
+              "mouseup",
+              "touchstart",
+              "touchend",
+              "touchcancel",
+            ].forEach(function (type) {
+              btn.addEventListener(
+                type,
+                stopPopupMapEvent,
+                type.indexOf("touch") === 0
+                  ? { capture: true, passive: true }
+                  : true
+              );
+            });
+          }
+        );
+      }
       if (place.fresh) {
         place.fresh = false;
         var iconEl = marker.getElement();

@@ -441,6 +441,12 @@
     fill = document.createElement("span");
     fill.className = "fx-hold-fill";
     fill.setAttribute("aria-hidden", "true");
+    // iframe 内的弹窗样式会把普通 span 重新算成 relative，导致填充层变成 0×0。
+    fill.style.position = "absolute";
+    fill.style.inset = "0";
+    fill.style.zIndex = "0";
+    fill.style.borderRadius = "inherit";
+    fill.style.pointerEvents = "none";
     el.insertBefore(fill, el.firstChild);
     return fill;
   }
