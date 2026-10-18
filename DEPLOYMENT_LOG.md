@@ -6201,3 +6201,48 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 ```
 
 备注：足迹页整页需要登录，本轮没有使用或改写线上账号密码；线上验证使用服务器实际返回的同版静态页面和脚本，仅 mock 地图数据接口，真实触摸事件与长按引擎均走线上代码。没有改动线上真实标记。
+
+## 139. 2026-10-18 23:41:10 歌曲播放结束后自动随机续播
+
+来源：站长希望推荐页歌曲在播放完成后，默认从当前歌单随机选择下一首继续播放，不再停在播放结束状态。
+
+完成内容（提交 `c915a2b feat:auto-play-random-music-after-ended`，3 文件，+31/−4）：
+
+- `static/music.js` 新增 `playRandomNext()`：筛选当前歌单里带播放地址、且不是当前歌曲的候选，按 `Math.random()` 随机选择一首并调用现有 `playTrack()` 续播。
+- `ended` 事件先刷新列表状态，再触发随机续播；当前歌曲会从候选中排除，不会立即重复。歌单只有一首时把播放位置归零并从头重播，避免无声停住。
+- 点封面播放 / 暂停、当前行跳动音柱、封面主题色呼吸、Media Session 与上传 / 编辑 / 分享 / 下载逻辑均保持不变。
+- 文档：README 和 `references.html` 同步说明自动随机续播；同时移除了 README 里已经不存在的旧播放器功能描述。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 136 passed；
+      node --check static/music.js；python -m json.tool config/changelog-seed.json；
+      git diff --check 干净
+本地浏览器：三首歌依次播放结束，current src 从 one.mp3 -> two.mp3 -> three.mp3，
+           当前行 data-music-play 从 2 -> 3，play() 共调用 3 次，console / page error 0
+提交：c915a2b（fetch → pull --rebase → push；local == origin/main == c915a2b）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = b257e1a11f6d4ba3d52d634d08985e932ca507bc28442d9fa198cd409accc6bf
+备份：/data/errorjiang-backup/20261018-234226/
+      （inventory.db 5.5M + changelog-seed.json 114K + auth.json 223B；无 WAL / SHM）
+服务器：systemctl stop -> cp 备份 -> git pull --ff-only -> c915a2b
+      seed 安装；import_changelog_moments.py --date 2026-10-18 --force
+      -> 新增 4 条、覆盖 0 条、跳过 0 条（当天 4 条按 seed 重建）
+      systemctl start；本轮无表结构变更，未跑 init_db
+```
+
+验证结果：
+```text
+服务      -> errorjiang / nginx active，/api/health = {"ok": true}
+版本      -> 本地代码提交 = origin/main = 服务器 HEAD = c915a2b；服务器工作区干净
+             （未跟踪的 data.before-upload-20260929-183359/ 原样保留）
+更新日志  -> /api/moments 里 2026-10-18 23:41:10
+             「歌曲播放结束后自动随机续播」（id 719，kind = log）
+静态文件  -> music.js 线上 / 本地 SHA256 = 10AEDCCF7628F77069C23B5293FA2F38CB577396C138E5EC653D4567386C0F6E
+线上续播  -> 公网同版 /static/music.html + live music.js，mock 三首歌曲：
+             第一首播完 -> 第二首，第二首播完 -> 第三首；
+             当前行同步切到 2、3，play() 调用 3 次，console / page error 0
+回归      -> 136 项单测通过；点封面播放 / 暂停、列表渲染和 iframe 外壳未受影响
+```
+
+备注：完整歌单需要登录，线上验证使用服务器实际返回的同版静态页面和脚本，仅 mock 音乐接口与 `HTMLMediaElement.play`；随机选择结果通过固定 `Math.random()` 验证，没有改动线上真实歌曲。
