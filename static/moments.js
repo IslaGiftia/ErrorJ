@@ -1474,12 +1474,17 @@
     var composer = $("momentForm");
     if (!btn || !composer) return;
     setSendFloatVisible(false);
-    btn.addEventListener("click", function () {
+    function activate() {
+      if (window.ErrorInertiaScroll) window.ErrorInertiaScroll.cancel();
       setSendFloatVisible(false);
-      try {
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      } catch (err) {
-        window.scrollTo(0, 0);
+      if (window.ErrorInertiaScroll && window.ErrorInertiaScroll.toTop) {
+        window.ErrorInertiaScroll.toTop();
+      } else {
+        try {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        } catch (err) {
+          window.scrollTo(0, 0);
+        }
       }
       var area = $("momentContent");
       if (!area) return;
@@ -1490,7 +1495,9 @@
           area.focus();
         }
       }, 0);
-    });
+    }
+    if (window.ErrorFastActivate) window.ErrorFastActivate.bind(btn, activate);
+    else btn.addEventListener("click", activate);
     if (typeof window.IntersectionObserver === "function") {
       var observer = new IntersectionObserver(
         function (entries) {

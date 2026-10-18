@@ -86,7 +86,13 @@
   ].join(",");
 
   var HOLD_SELECTOR = "#confirmOk, #mapConfirmOk, [data-hold-confirm]";
-  var EXCLUDED_SELECTOR = ".mp-marker, .mp-cluster, .leaflet-control-container";
+  var EXCLUDED_SELECTOR = [
+    ".mp-marker",
+    ".mp-cluster",
+    ".leaflet-control-container",
+    ".mg-gallery-cell",
+    ".mo-gallery-cell",
+  ].join(",");
   var HOLD_DURATION = 900;
   var states = new WeakMap();
   var holdStates = new WeakMap();
@@ -243,7 +249,7 @@
     layer.style.left = rect.left + rect.width / 2 + "px";
     layer.style.top = rect.top + rect.height / 2 + "px";
 
-    var colors = ["#ff9f43", "#ffbd69", "#7b68ee", "#a78bfa"];
+    var colors = ["#7b68ee", "#a78bfa", "#c4b5fd", "#8b7cf6"];
     var count = 12;
     for (var i = 0; i < count; i += 1) {
       var particle = document.createElement("span");

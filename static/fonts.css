@@ -99,6 +99,7 @@ body {
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  -webkit-overflow-scrolling: touch;
 }
 
 /*
@@ -128,6 +129,12 @@ html {
   -webkit-tap-highlight-color: transparent;
 }
 
+:root a,
+:root button,
+:root [role="button"] {
+  touch-action: manipulation;
+}
+
 @media (hover: none), (pointer: coarse) {
   :root {
     --tap-press-brightness: 0.9;
@@ -148,6 +155,12 @@ html {
   :root input[type="button"]:active,
   :root .chip:active {
     filter: brightness(var(--tap-press-brightness));
+  }
+
+  /* 图片墙只负责打开原图，不需要按下变色或缩放反馈 */
+  :root .mg-gallery-cell:active,
+  :root .mo-gallery-cell:active {
+    filter: none;
   }
 
   /*
@@ -344,6 +357,9 @@ html {
   .site-back-top {
     width: 44px;
     height: 52px;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: color-mix(in srgb, var(--back-top-surface) 96%, transparent);
   }
 }
 

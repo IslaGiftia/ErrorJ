@@ -1391,6 +1391,12 @@ button.mg-file {
     top: 8px;
   }
 
+  .mg-filter-btn {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: var(--mg-surface);
+  }
+
   .mg-panel,
   .mg-item {
     padding: 14px;

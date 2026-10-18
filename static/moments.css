@@ -1540,6 +1540,12 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
     top: 8px;
   }
 
+  .mo-filter-btn {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: var(--mo-surface);
+  }
+
   /* 手机：设备信息整行铺开，输入框自己占满剩下的宽度 */
   .mo-device-field {
     flex: 1 1 100%;

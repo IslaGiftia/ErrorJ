@@ -955,6 +955,9 @@ body[data-notify-module="recommendations"] textarea {
 
   .rec-header {
     padding: 9px 12px;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: var(--rec-bg);
   }
 
   .rec-brand > span:last-child,

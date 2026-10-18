@@ -292,13 +292,13 @@
 
 @keyframes fx-button-success-glow {
   0% {
-    filter: drop-shadow(0 0 0 rgba(255, 159, 67, 0));
+    filter: drop-shadow(0 0 0 color-mix(in srgb, var(--fx-glow-color) 0%, transparent));
   }
   42% {
-    filter: drop-shadow(0 0 12px rgba(255, 159, 67, 0.5));
+    filter: drop-shadow(0 0 12px color-mix(in srgb, var(--fx-glow-color) 50%, transparent));
   }
   100% {
-    filter: drop-shadow(0 0 0 rgba(255, 159, 67, 0));
+    filter: drop-shadow(0 0 0 color-mix(in srgb, var(--fx-glow-color) 0%, transparent));
   }
 }
 

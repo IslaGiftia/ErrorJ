@@ -172,7 +172,83 @@
     button.dataset.touchY = String(touch.clientY);
   }
 
-  button.addEventListener("click", function () {
+  /*
+   * 触摸滚动时，浏览器经常把第一次点按用来停住惯性，click 不一定会派发。
+   * 触摸设备在 pointerdown 就执行（并阻止随后可能落到下层元素上的合成 click）；
+   * 鼠标在 pointerup 判断没有明显拖动后执行，键盘仍走 click。
+   */
+  var fastClickBlockUntil = 0;
+  var fastClickBlockInstalled = false;
+
+  function fastClickGuard(event) {
+    var now = window.performance ? window.performance.now() : Date.now();
+    if (now >= fastClickBlockUntil) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+
+  function armFastClickBlock() {
+    var now = window.performance ? window.performance.now() : Date.now();
+    fastClickBlockUntil = now + 700;
+    if (fastClickBlockInstalled) return;
+    fastClickBlockInstalled = true;
+    document.addEventListener("click", fastClickGuard, true);
+  }
+
+  function bindFastActivate(el, activate) {
+    if (!el || typeof activate !== "function") return;
+    var press = null;
+    var suppressClickUntil = 0;
+
+    function suppressClick() {
+      var now = window.performance ? window.performance.now() : Date.now();
+      suppressClickUntil = now + 700;
+      window.setTimeout(function () {
+        if (suppressClickUntil === now + 700) suppressClickUntil = 0;
+      }, 720);
+    }
+
+    function finish(event) {
+      if (!press || event.pointerId !== press.id) return;
+      var moved = Math.hypot(event.clientX - press.x, event.clientY - press.y);
+      press = null;
+      if (moved > 12) return;
+      suppressClick();
+      activate();
+    }
+
+    el.addEventListener(
+      "pointerdown",
+      function (event) {
+        if (event.pointerType === "mouse") {
+          if (event.button !== 0) return;
+          press = { id: event.pointerId, x: event.clientX, y: event.clientY };
+          return;
+        }
+        if (event.isPrimary === false) return;
+        event.preventDefault();
+        armFastClickBlock();
+        suppressClick();
+        activate();
+      },
+      { passive: false }
+    );
+    el.addEventListener("pointerup", finish, { passive: true });
+    el.addEventListener("pointercancel", finish, { passive: true });
+    el.addEventListener("click", function (event) {
+      var now = window.performance ? window.performance.now() : Date.now();
+      if (now < suppressClickUntil) {
+        suppressClickUntil = 0;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+      activate();
+    });
+  }
+
+  function activate() {
+    if (window.ErrorInertiaScroll) window.ErrorInertiaScroll.cancel();
     if (pending && typeof pending.onActivate === "function") {
       pending.onActivate();
       return;
@@ -180,11 +256,15 @@
     var box = currentContainer();
     if (box) {
       box.scrollTo({ top: 0, behavior: "smooth" });
+    } else if (window.ErrorInertiaScroll && window.ErrorInertiaScroll.toTop) {
+      window.ErrorInertiaScroll.toTop();
     } else {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
     button.hidden = true;
-  });
+  }
+
+  bindFastActivate(button, activate);
 
   (containers.length ? containers : [window]).forEach(function (target) {
     function remember() {
@@ -243,5 +323,6 @@
       refresh();
     },
   };
+  window.ErrorFastActivate = { bind: bindFastActivate };
   requestAnimationFrame(refresh);
 })();
