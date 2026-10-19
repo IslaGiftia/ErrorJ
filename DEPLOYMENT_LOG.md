@@ -6409,3 +6409,54 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 ```
 
 备注：线上完整财务数据需要登录，公网使用服务器实际返回的同版静态文件做哈希和页面结构检查；交互验证在隔离测试数据库上完成，没有改动线上真实账目。
+
+## 143. 2026-10-20 02:07:31 精简财务入口、收紧桌面布局并完善移动端折叠
+
+来源：站长继续测试财务模块后要求恢复删除按钮宽度、移除财务选项功能、减少 PC 留白、删除账目数量与账号搜索、调整移动端账目和费用明细折叠，并修正分摊人箭头旋转方式。
+
+完成内容（提交 `2b9fcc5 feat:simplify-finance-controls`，7 文件，+107/−479）：
+
+- “删除账目”恢复普通方形宽度；仅“新建账目”保持两倍宽度和主题色。
+- 完整移除财务选项功能：右上角选项按钮、设置弹窗、管理员新增 / 删除选项、`/api/aa/options*` 接口、初始化数据和相关测试全部下线；账目名称和费用备注只保留自由输入。
+- 收紧 PC 顶部与右侧留白：顶部从 76px 降到 64px，右侧从 82px 降到 24px，费用栏与结算栏更紧凑对齐。
+- 删除侧栏“账目 1 个”的数量统计，仅保留“账目”标题。
+- 新建 / 编辑账目的参与人区域删除账号搜索框，直接显示可加入参与者列表。
+- 移动端折叠按钮与“账目”标题连在一起，整个标题区域可点击展开 / 收起。
+- 分摊人箭头只让 SVG 图标自身原地旋转，外层文字和边框保持不动。
+- 移动端费用明细标题右侧、“记一笔”左侧新增折叠按钮；折叠后隐藏费用列表，可直接查看下方汇总、转账方案和成员结算，点击“记一笔”会自动展开。
+
+部署步骤：
+```text
+本地：Python 编译检查；python -m unittest discover -s tests -> 145 passed；
+      node --check static/finance.js；JSON 校验；git diff --check 干净
+浏览器：Playwright 验证顶部按钮顺序与 80/40 宽度、PC 64/24 留白、
+        无选项按钮 / 数量统计 / 账号搜索、箭头仅 SVG 旋转、
+        移动端账目标题点击折叠、费用明细折叠及“记一笔”自动展开
+提交：2b9fcc5 feat:simplify-finance-controls
+      （fetch → pull --rebase → push；local == origin/main == 2b9fcc5）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 4316ba29d1228b4e66275b26d78af6e7bec4c8eb3d8127b79b3ef918893864d3
+备份：/data/errorjiang-backup/20261020-020658/
+      （inventory.db 5.9M + changelog-seed.json 117K + auth.json 223B；无 WAL / SHM）
+服务器：systemctl stop -> cp 备份 -> git pull --ff-only -> 2b9fcc5
+      seed 安装；import_changelog_moments.py --date 2026-10-20 --force
+      -> 新增 2 条、覆盖 0 条、跳过 0 条（当天两条按 seed 重建）
+      systemctl start
+```
+
+验证结果：
+```text
+服务      -> errorjiang / nginx active，/api/health = {"ok": true}
+版本      -> 本地代码提交 = origin/main = 服务器 HEAD = 2b9fcc5
+             服务器工作区干净，未跟踪的 data.before-upload-20260929-183359/ 原样保留
+更新日志  -> /api/moments 里 2026-10-20 02:06:19
+             「精简财务入口、收紧桌面布局并完善移动端折叠」（id 725，kind = log）
+静态文件  -> finance.html 线上 / 本地 SHA256 = 5659D0D5DCFB5D89AD509E42203132117AE7D2014B32B93879EC936CD6DBA6B1
+             finance.css  线上 / 本地 SHA256 = 898B20C9998DBA01EC9CA62AA6DDE0E6337559364F69A7BA9490F79415A087C0
+             finance.js   线上 / 本地 SHA256 = C450D28FD5263887A9BB1F033CF9615B522A12E63D0FD65F3003A27ABFD07F22
+线上页面  -> 公网 /finance 对游客返回 302 /login?next=/finance；
+             线上 finance.html 已无 settingsBtn、participantSearch、eventCountLabel，并包含 expensesToggle
+本地回归  -> 145 项单测通过；按钮宽度、折叠、箭头原地旋转和布局均通过
+```
+
+备注：线上完整财务数据需要登录，公网使用服务器实际返回的同版静态文件做哈希和页面结构检查；交互验证在隔离测试数据库上完成，没有改动线上真实账目。
