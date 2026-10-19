@@ -6246,3 +6246,60 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 ```
 
 备注：完整歌单需要登录，线上验证使用服务器实际返回的同版静态页面和脚本，仅 mock 音乐接口与 `HTMLMediaElement.play`；随机选择结果通过固定 `Math.random()` 验证，没有改动线上真实歌曲。
+
+## 140. 2026-10-19 12:45:46 修复移动端回顶、登录状态居中、书签进度与未读内容时机
+
+来源：站长反馈四项：移动端右下「顶部」按钮失效，要求同时复查 PC；登录按钮加载转圈和成功对号没有居中；书签「检查链接」时 `0/82` 进度与原按钮文字重叠；留言、动态、推荐里的新内容在进入当前屏幕后应呼吸 3 次再自动已读，只有目标不在当前屏幕时才持续呼吸，右下角导航按钮同样保持呼吸。
+
+根因与修复：
+
+- 移动端回顶：回顶按钮在 `pointerdown` 启动平滑滚动，紧随其后的 `touchstart` 会进入惯性滚动模块并调用 `cancel()`，把刚启动的回顶动画取消。现在回顶时给惯性模块写入短暂忽略窗口，并明确排除 `.site-back-top` 的触摸起点；手机和桌面都恢复回顶。
+- 登录状态居中：`.fx-liquid-host > :not(.fx-liquid-layer)` 的高权重规则把状态层也算成 `position: relative`，导致转圈 / 对号下滑。选择器排除 `.fx-state-mark` 后恢复绝对居中；液态层和涟漪改用非 `span` 元素，避免被页面用于查找文字节点的 `querySelector("span")` 误选中。
+- 书签进度重叠：点击后按钮效果层会插入液态 `span`，`renderCheckControls()` 的 `button.querySelector("span")` 实际改到了液态层，原文字和进度各写一层。现在文字节点使用独立 `#checkLinksLabel`，进度只更新这个节点。
+- 新内容已读时机：新增 `fresh-visibility.js`，用 IntersectionObserver 和当前文档可见性判断目标是否真正进入屏幕；可见后按 3 个 3.6 秒呼吸周期（合计 10.88 秒）自动上报已读。目标在屏幕下方、被筛选隐藏、浏览器页面不可见或处于未激活的推荐子页时不计已读，右下角导航按钮持续呼吸。推荐页外壳不再在切换标签时直接把整栏清零，子页完成单条已读后通过 `postMessage` 通知外壳刷新角标。
+- 移除原来 `notify-seen.js` 的“离开页面就整模块已读”逻辑；留言、动态、推荐统一改为按目标可见性逐条已读。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 138 passed；
+      12 个改动脚本 node --check；python -m json.tool config/changelog-seed.json；
+      git diff --check 干净
+本地浏览器：390×844 / 1280×900 回顶后 scrollY 均为 0；
+            登录 busy / success 状态层中心偏差 0；书签进度与图标重叠 0、液态层无文字；
+            留言与动态可见内容自动已读、屏幕下方目标保持 pending，滚入后清除；
+            推荐页未激活子页保持未读，切换过去后才自动已读
+提交：4d54528 fix:repair-top-button-login-and-fresh-read
+      （fetch → pull --rebase → push；local == origin/main == 4d54528）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 17a0c04588913ff20623cdcf196eaee7f963285536b2115be483adfa3f280d5c
+备份：/data/errorjiang-backup/20261019-124703/
+      （inventory.db 5.7M + changelog-seed.json 114K + auth.json 223B；无 WAL / SHM）
+服务器：systemctl stop -> cp 备份 -> git pull --ff-only -> 4d54528
+      seed 安装；import_changelog_moments.py --date 2026-10-19 --force
+      -> 新增 1 条、覆盖 0 条、跳过 0 条
+      systemctl start；本轮无表结构变更，未跑 init_db
+```
+
+验证结果：
+```text
+服务      -> errorjiang / nginx active，/api/health = {"ok": true}
+版本      -> 本地代码提交 = origin/main = 服务器 HEAD = 4d54528；服务器工作区干净
+             （未跟踪的 data.before-upload-20260929-183359/ 原样保留）
+更新日志  -> /api/moments 里 2026-10-19 12:45:46
+             「修复移动端回顶、登录状态居中、书签进度与未读内容时机」（id 720，kind = log）
+静态文件  -> button-effects.css = BAE6953C4C567861E00B158CD78B952F8D6F3AD505B677EAC00F244EE2B35F81
+             button-effects.js = 5449116F64A2C410E4642C0D5C97924AC0AC67EBE1CE185F2FAB4DE016305152
+             inertia-scroll.js = 80608A50D7ED4AEEEC63F5C41B73F81408438C626870DC973CFD5B9D5F678109
+             fresh-visibility.js = 546CD8D775530A917C333E44248FE826C59C85F0EC76813922A4A77AEF95AAE8
+             messages.js / moments.js / downloads.js / bookmarks.js 线上 SHA256 均与本机一致
+             bookmarks.html 本地 CRLF、服务器 LF，换行规范化后 SHA256 = 5AE90D840889C3641FC122002532A0A4D07871D404948DED3E80D1C29F8C0379 一致
+线上交互  -> 公网同版 login.html：busy 状态层 absolute，转圈 / 对号中心偏差 0；
+             公网同版 bookmarks.html：点击后显示「检查中 0/82」，液态层无文字，图标与文字重叠 0；
+             公网同版 messages.html（390×844）：首条可见目标自动已读，第 20 条保持 pending；
+             滚到第 20 条后两条 target 都上报已读，mobile 回顶 scrollY = 0；
+             同一套版本 1280×900 桌面回顶 scrollY = 0；
+             fresh-visibility 记录到的单条自动已读延时为 10880ms（3 × 3600ms + 80ms）
+回归      -> 138 项单测通过；推荐子页未激活时不提前清除、切过去后自动已读
+```
+
+备注：线上留言 / 推荐完整数据需要登录，交互验证使用公网返回的同版静态页面与脚本，只 mock 列表接口；没有修改线上真实留言、动态或推荐数据。
