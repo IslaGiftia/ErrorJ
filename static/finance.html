@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <title>财务</title>
+  <meta name="tab-name" content="ej-finance">
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=4">
+  <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=4">
+  <link rel="stylesheet" href="/static/finance.css">
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
+  <script src="/static/site/tabname.js"></script>
+  <link rel="stylesheet" href="/static/fonts.css">
+</head>
+<body>
+  <nav class="fin-fab-stack" id="financeActions" aria-label="财务操作">
+    <button class="fin-fab fin-fab-primary" id="newEventBtn" type="button" title="新建账目" aria-label="新建账目">
+      <i data-lucide="plus"></i>
+    </button>
+    <button class="fin-fab fin-fab-primary" id="addExpenseBtn" type="button" title="记一笔" aria-label="记一笔" hidden>
+      <i data-lucide="receipt"></i>
+    </button>
+    <button class="fin-fab" id="editEventBtn" type="button" title="参与人" aria-label="参与人" hidden>
+      <i data-lucide="users"></i>
+    </button>
+    <button class="fin-fab" id="receiptsBtn" type="button" title="收款码" aria-label="收款码" hidden>
+      <i data-lucide="qr-code"></i>
+    </button>
+    <button class="fin-fab" id="settingsBtn" type="button" title="选项设置" aria-label="选项设置" hidden>
+      <i data-lucide="sliders-horizontal"></i>
+    </button>
+    <button class="fin-fab fin-fab-danger" id="deleteEventBtn" type="button" title="长按删除账目" aria-label="长按删除账目" data-hold-confirm hidden>
+      <i data-lucide="trash-2"></i>
+    </button>
+  </nav>
+
+  <div class="fin-layout">
+    <aside class="fin-sidebar">
+      <div class="fin-sidebar-head">
+        <h2>账目</h2>
+        <span>最近更新</span>
+      </div>
+      <div class="fin-event-list" id="eventList"></div>
+    </aside>
+
+    <main class="fin-main">
+      <section class="fin-empty" id="emptyState">
+        <span class="fin-empty-icon"><i data-lucide="wallet-cards"></i></span>
+        <h1>还没有财务账目</h1>
+        <p>用右下角的加号新建一个账目。</p>
+      </section>
+
+      <section class="fin-event" id="eventView" hidden>
+        <header class="fin-event-head">
+          <p class="fin-kicker">财务账目</p>
+          <h1 id="eventTitle"></h1>
+          <p id="eventMeta"></p>
+        </header>
+
+        <section class="fin-overview" aria-label="账目概览">
+          <div class="fin-metric">
+            <span>总支出</span>
+            <strong id="metricTotal">¥0.00</strong>
+          </div>
+          <div class="fin-metric">
+            <span>人均</span>
+            <strong id="metricAverage">¥0.00</strong>
+          </div>
+          <div class="fin-metric" id="metricBalanceBox">
+            <span>我的结算</span>
+            <strong id="metricBalance">¥0.00</strong>
+          </div>
+        </section>
+
+        <div class="fin-content-grid">
+          <section class="fin-panel fin-expenses-panel">
+            <header class="fin-panel-head">
+              <div>
+                <h2>费用明细</h2>
+                <p id="expenseMeta">0 笔</p>
+              </div>
+            </header>
+            <div class="fin-expense-list" id="expenseList"></div>
+          </section>
+
+          <aside class="fin-side-column">
+            <section class="fin-panel">
+              <header class="fin-panel-head">
+                <div>
+                  <h2>转账方案</h2>
+                  <p id="transferMeta">0 笔</p>
+                </div>
+              </header>
+              <div class="fin-transfer-list" id="transferList"></div>
+            </section>
+
+            <section class="fin-panel">
+              <header class="fin-panel-head">
+                <div>
+                  <h2>成员结算</h2>
+                  <p>按每笔费用的分摊人计算</p>
+                </div>
+              </header>
+              <div class="fin-balance-list" id="balanceList"></div>
+            </section>
+
+            <section class="fin-panel">
+              <div class="fin-receipt-entry">
+                <div>
+                  <h2>收款码</h2>
+                  <p id="receiptMeta">0 人已添加</p>
+                </div>
+                <button class="fin-btn" id="openReceiptsBtn" type="button">
+                  <i data-lucide="qr-code"></i><span>查看</span>
+                </button>
+              </div>
+            </section>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog class="fin-dialog" id="eventDialog">
+    <form id="eventForm" method="dialog" novalidate>
+      <header class="fin-dialog-head">
+        <div>
+          <h2 id="eventDialogTitle">新建账目</h2>
+          <p>发起人会默认加入账目。</p>
+        </div>
+        <button class="fin-icon-btn" id="eventDialogClose" type="button" aria-label="关闭">
+          <i data-lucide="x"></i>
+        </button>
+      </header>
+      <div class="fin-dialog-body">
+        <label class="fin-field">
+          <span>账目名称</span>
+          <input id="eventTitleInput" type="text" maxlength="80" list="eventTitleOptions" placeholder="选择或输入账目名称" required>
+        </label>
+        <div class="fin-participant-head">
+          <div>
+            <strong>参与人</strong>
+            <span id="participantCount">已选 1 人</span>
+          </div>
+          <label class="fin-search">
+            <i data-lucide="search"></i>
+            <input id="participantSearch" type="search" placeholder="搜索账号">
+          </label>
+        </div>
+        <div class="fin-check-list" id="participantList"></div>
+        <p class="fin-form-hint" id="participantHint"></p>
+      </div>
+      <footer class="fin-dialog-actions">
+        <button class="fin-btn" id="eventDialogCancel" type="button">取消</button>
+        <button class="fin-btn fin-btn-primary" id="eventDialogSubmit" type="submit">
+          <i data-lucide="check"></i><span>保存</span>
+        </button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog class="fin-dialog fin-dialog-small" id="expenseDialog">
+    <form id="expenseForm" method="dialog" novalidate>
+      <header class="fin-dialog-head">
+        <div>
+          <h2>记一笔</h2>
+          <p id="expenseDialogMeta"></p>
+        </div>
+        <button class="fin-icon-btn" id="expenseDialogClose" type="button" aria-label="关闭">
+          <i data-lucide="x"></i>
+        </button>
+      </header>
+      <div class="fin-dialog-body">
+        <label class="fin-field">
+          <span>金额</span>
+          <div class="fin-money-input">
+            <span>¥</span>
+            <input id="expenseAmountInput" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" required>
+          </div>
+        </label>
+        <label class="fin-field">
+          <span>备注</span>
+          <input id="expenseNoteInput" type="text" maxlength="120" list="expenseNoteOptions" placeholder="选择或输入备注">
+        </label>
+        <div class="fin-participant-head">
+          <div>
+            <strong>分摊人</strong>
+            <span id="expenseSplitCount"></span>
+          </div>
+        </div>
+        <div class="fin-check-list fin-check-list-compact" id="expenseSplitList"></div>
+      </div>
+      <footer class="fin-dialog-actions">
+        <button class="fin-btn" id="expenseDialogCancel" type="button">取消</button>
+        <button class="fin-btn fin-btn-primary" id="expenseDialogSubmit" type="submit">
+          <i data-lucide="check"></i><span>保存</span>
+        </button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog class="fin-dialog" id="settingsDialog">
+    <div class="fin-dialog-head">
+      <div>
+        <h2>财务选项</h2>
+        <p>管理员维护账目名称和费用备注快捷选项。</p>
+      </div>
+      <button class="fin-icon-btn" id="settingsDialogClose" type="button" aria-label="关闭">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+    <div class="fin-dialog-body fin-settings-body">
+      <section class="fin-settings-section" data-option-kind="event">
+        <h3>账目名称</h3>
+        <form class="fin-option-add" data-option-add="event">
+          <input type="text" maxlength="40" placeholder="新增账目名称">
+          <button class="fin-btn fin-btn-primary" type="submit"><i data-lucide="plus"></i><span>添加</span></button>
+        </form>
+        <div class="fin-option-list" id="eventOptionList"></div>
+      </section>
+      <section class="fin-settings-section" data-option-kind="expense">
+        <h3>费用备注</h3>
+        <form class="fin-option-add" data-option-add="expense">
+          <input type="text" maxlength="40" placeholder="新增费用备注">
+          <button class="fin-btn fin-btn-primary" type="submit"><i data-lucide="plus"></i><span>添加</span></button>
+        </form>
+        <div class="fin-option-list" id="expenseOptionList"></div>
+      </section>
+    </div>
+  </dialog>
+
+  <dialog class="fin-dialog fin-dialog-wide" id="receiptsDialog">
+    <div class="fin-dialog-head">
+      <div>
+        <h2>收款码</h2>
+        <p>每位成员管理自己的收款码，管理员可以代管。</p>
+      </div>
+      <button class="fin-icon-btn" id="receiptsDialogClose" type="button" aria-label="关闭">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+    <div class="fin-dialog-body">
+      <div class="fin-receipt-grid" id="receiptGrid"></div>
+    </div>
+  </dialog>
+
+  <datalist id="eventTitleOptions"></datalist>
+  <datalist id="expenseNoteOptions"></datalist>
+
+  <div class="fin-qr-viewer" id="qrViewer" hidden>
+    <button class="fin-qr-viewer-close" id="qrViewerClose" type="button" aria-label="关闭">
+      <i data-lucide="x"></i>
+    </button>
+    <img id="qrViewerImage" alt="收款码">
+  </div>
+
+  <input type="file" id="receiptInput" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp" hidden>
+  <div class="fin-toast" id="toast" hidden></div>
+
+  <script src="/static/vendor/lucide.min.js"></script>
+  <script src="/static/finance.js"></script>
+</body>
+</html>

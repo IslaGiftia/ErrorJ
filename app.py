@@ -216,11 +216,11 @@ PERMISSION_GROUPS = (
     },
     {
         "key": "aa",
-        "label": "AA 分账",
+        "label": "财务",
         "items": (
             {
                 "key": "aa:view",
-                "label": "使用 AA 分账（查看、创建活动、录入费用）",
+                "label": "使用财务（查看、创建账目、录入费用）",
             },
         ),
     },
@@ -320,6 +320,7 @@ PAGE_PERMISSIONS = {
     "/inventory": ("inventory:view", "inventory:write"),
     "/bookmarks": ("bookmarks:view", "bookmarks:write"),
     "/notes": ("notes:view", "notes:write"),
+    "/finance": ("aa:view",),
     "/aa": ("aa:view",),
 }
 if MAP_PUBLIC:
@@ -418,6 +419,7 @@ PAGE_VIEW_PATHS = {
     "/inventory",
     "/bookmarks",
     "/notes",
+    "/finance",
     "/aa",
     "/messages",
     "/workbench",
@@ -1206,6 +1208,38 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_aa_expenses_event
                 ON aa_expenses(event_id, id);
 
+            CREATE TABLE IF NOT EXISTS aa_expense_splits (
+                expense_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                PRIMARY KEY (expense_id, user_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_aa_expense_splits_user
+                ON aa_expense_splits(user_id, expense_id);
+
+            CREATE TABLE IF NOT EXISTS aa_receipts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                qr_path TEXT NOT NULL,
+                qr_name TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(event_id, user_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_aa_receipts_event
+                ON aa_receipts(event_id, user_id);
+
+            CREATE TABLE IF NOT EXISTS aa_options (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind TEXT NOT NULL,
+                value TEXT NOT NULL,
+                created_by TEXT,
+                created_at TEXT NOT NULL,
+                UNIQUE(kind, value)
+            );
+
             CREATE TABLE IF NOT EXISTS sessions (
                 sid TEXT PRIMARY KEY,
                 kind TEXT NOT NULL,
@@ -1919,6 +1953,56 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             conn.execute(
                 "INSERT INTO app_meta (key, value) VALUES ('role_permissions_v1', ?)",
                 (stamp,),
+            )
+        finance_options_seed = conn.execute(
+            "SELECT value FROM app_meta WHERE key = 'finance_options_seeded_v1'"
+        ).fetchone()
+        if not finance_options_seed:
+            stamp = now_text()
+            default_options = {
+                "event": ("聚餐", "旅行", "宝鸡行", "杨凌行", "西安行", "咸阳行"),
+                "expense": ("住宿", "打车", "火锅", "饮料", "烤肉"),
+            }
+            for kind, values in default_options.items():
+                for value in values:
+                    conn.execute(
+                        """INSERT OR IGNORE INTO aa_options
+                               (kind, value, created_by, created_at)
+                           VALUES (?, ?, ?, ?)""",
+                        (kind, value, "系统初始化", stamp),
+                    )
+            conn.execute(
+                "INSERT INTO app_meta (key, value) VALUES ('finance_options_seeded_v1', ?)",
+                (stamp,),
+            )
+        # 旧费用没有分摊明细时，按当时活动成员全员平均分摊回填。
+        conn.execute(
+            """INSERT OR IGNORE INTO aa_expense_splits (expense_id, user_id)
+               SELECT e.id, m.user_id
+               FROM aa_expenses e
+               JOIN aa_members m ON m.event_id = e.event_id
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM aa_expense_splits s WHERE s.expense_id = e.id
+               )"""
+        )
+        # 旧版活动只有一张发起人收款码，迁移为每位成员各自一张的收款码表。
+        receipt_migration = conn.execute(
+            "SELECT value FROM app_meta WHERE key = 'finance_receipts_migrated_v1'"
+        ).fetchone()
+        if not receipt_migration:
+            conn.execute(
+                """INSERT OR IGNORE INTO aa_receipts
+                       (event_id, user_id, qr_path, qr_name, created_at, updated_at)
+                   SELECT id, owner_user_id, qr_path, qr_name, created_at, updated_at
+                   FROM aa_events
+                   WHERE qr_path IS NOT NULL AND qr_path <> ''"""
+            )
+            conn.execute(
+                "UPDATE aa_events SET qr_path = NULL, qr_name = NULL"
+            )
+            conn.execute(
+                "INSERT INTO app_meta (key, value) VALUES ('finance_receipts_migrated_v1', ?)",
+                (now_text(),),
             )
         guest_books = conn.execute(
             "SELECT value FROM app_meta WHERE key = 'books_guest_page_v1'"
@@ -6074,9 +6158,9 @@ def required_permission(path, method):
         return None
     if path.startswith("/api/workbench") or path.startswith("/api/prompts"):
         return None
-    # AA 分账是独立的授权模块：一个权限点同时控制页面和全部业务接口，
+    # 财务是独立的授权模块：一个权限点同时控制页面和全部业务接口，
     # 默认不进入普通账号角色，只能在「工作台 → 账号权限」里按账号授予。
-    if path == "/aa" or path == "/api/aa" or path.startswith("/api/aa/"):
+    if path in ("/aa", "/finance") or path == "/api/aa" or path.startswith("/api/aa/"):
         return AA_PERMISSION
     if path == "/api/account/nickname":
         return ""
@@ -6242,13 +6326,18 @@ def aa_amount_cents(value):
 
 def aa_settlement(members, expenses):
     """
-    按人数平均分摊，并把除不尽的 1 分依次分给前面的成员。
+    每笔费用只在它选择的分摊成员之间平均分，并把除不尽的 1 分依次分给
+    活动成员顺序靠前的分摊人。
     返回每个成员的应付 / 已付 / 净额，以及尽量少的转账组合。
     """
     member_rows = [dict(item) for item in members]
     if not member_rows:
         return {"total_cents": 0, "members": [], "transfers": []}
+    member_order = {
+        int(item["user_id"]): index for index, item in enumerate(member_rows)
+    }
     paid_by_user = {int(item["user_id"]): 0 for item in member_rows}
+    share_by_user = {int(item["user_id"]): 0 for item in member_rows}
     total_cents = 0
     for expense in expenses:
         user_id = int(expense.get("user_id") or 0)
@@ -6256,11 +6345,28 @@ def aa_settlement(members, expenses):
         if user_id in paid_by_user and amount > 0:
             paid_by_user[user_id] += amount
             total_cents += amount
-    base_share, remainder = divmod(total_cents, len(member_rows))
+            split_ids = expense.get("split_user_ids")
+            if not split_ids:
+                split_ids = list(member_order)
+            split_ids = sorted(
+                {
+                    int(split_id)
+                    for split_id in split_ids
+                    if int(split_id) in member_order
+                },
+                key=lambda split_id: member_order[split_id],
+            )
+            if not split_ids:
+                split_ids = list(member_order)
+            base_share, remainder = divmod(amount, len(split_ids))
+            for index, split_id in enumerate(split_ids):
+                share_by_user[split_id] += base_share + (
+                    1 if index < remainder else 0
+                )
     balances = []
-    for index, member in enumerate(member_rows):
+    for member in member_rows:
         user_id = int(member["user_id"])
-        share_cents = base_share + (1 if index < remainder else 0)
+        share_cents = share_by_user[user_id]
         paid_cents = paid_by_user[user_id]
         item = dict(member)
         item.update(
@@ -9573,8 +9679,14 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.send_file("notes.html")
             elif path == "/notes/read":
                 self.send_file("note-read.html")
+            elif path == "/finance":
+                self.send_file("finance.html")
             elif path == "/aa":
-                self.send_file("aa.html")
+                target = "/finance"
+                if parsed.query:
+                    target += "?" + parsed.query
+                self.redirect(target)
+                return
             elif path == "/messages":
                 self.send_file("messages.html")
             elif path == "/workbench":
@@ -9699,6 +9811,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_aa_events()
             elif path == "/api/aa/candidates":
                 self.api_aa_candidates()
+            elif path == "/api/aa/options":
+                self.api_aa_options()
             elif re.fullmatch(r"/api/aa/events/\d+", path):
                 self.api_aa_event_detail(int(path.rsplit("/", 1)[1]))
             elif re.fullmatch(r"/api/notes/\d+/export\.html", path):
@@ -9878,12 +9992,20 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_note_image_upload(payload)
             elif path == "/api/aa/events":
                 self.api_aa_event_create(payload)
+            elif path == "/api/aa/options":
+                self.api_aa_option_create(payload)
             elif re.fullmatch(r"/api/aa/events/\d+/expenses", path):
                 self.api_aa_expense_create(
                     int(path.split("/")[4]), payload
                 )
+            elif re.fullmatch(r"/api/aa/events/\d+/receipts", path):
+                self.api_aa_receipt_upload(
+                    int(path.split("/")[4]), payload
+                )
             elif re.fullmatch(r"/api/aa/events/\d+/qr", path):
-                self.api_aa_qr_upload(int(path.split("/")[4]), payload)
+                self.api_aa_receipt_upload(
+                    int(path.split("/")[4]), payload
+                )
             elif path == "/api/workbench/assets":
                 self.api_workbench_asset_upload(payload)
             elif path == "/api/workbench/repairs":
@@ -10030,8 +10152,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_note_image_delete(path)
             elif re.fullmatch(r"/api/notes/\d+", path):
                 self.api_note_item(path)
+            elif re.fullmatch(r"/api/aa/options/\d+", path):
+                self.api_aa_option_delete(int(path.rsplit("/", 1)[1]))
+            elif re.fullmatch(r"/api/aa/events/\d+/receipts/\d+", path):
+                parts = path.split("/")
+                self.api_aa_receipt_delete(int(parts[4]), int(parts[6]))
             elif re.fullmatch(r"/api/aa/events/\d+/qr", path):
-                self.api_aa_qr_delete(int(path.split("/")[4]))
+                self.api_aa_receipt_delete(int(path.split("/")[4]), None)
             elif re.fullmatch(r"/api/aa/events/\d+", path):
                 self.api_aa_event_delete(int(path.rsplit("/", 1)[1]))
             elif re.fullmatch(r"/api/aa/expenses/\d+", path):
@@ -10116,10 +10243,43 @@ class InventoryHandler(BaseHTTPRequestHandler):
                FROM aa_expenses WHERE event_id = ? ORDER BY id DESC""",
             (event_id,),
         )
+        split_rows = query(
+            """SELECT s.expense_id, s.user_id
+               FROM aa_expense_splits s
+               JOIN aa_expenses e ON e.id = s.expense_id
+               WHERE e.event_id = ?
+               ORDER BY s.expense_id, s.user_id""",
+            (event_id,),
+        )
+        splits_by_expense = {}
+        for split in split_rows:
+            splits_by_expense.setdefault(int(split["expense_id"]), []).append(
+                int(split["user_id"])
+            )
+        names = {int(item["user_id"]): item["name"] for item in members}
+        for expense in expense_rows:
+            expense_id = int(expense["id"])
+            split_user_ids = splits_by_expense.get(expense_id) or list(member_ids)
+            expense["split_user_ids"] = sorted(
+                split_user_ids,
+                key=lambda user_id: (
+                    next(
+                        (
+                            index
+                            for index, member in enumerate(members)
+                            if int(member["user_id"]) == int(user_id)
+                        ),
+                        len(members),
+                    )
+                ),
+            )
+            expense["split_names"] = [
+                names.get(int(user_id), f"用户 {user_id}")
+                for user_id in expense["split_user_ids"]
+            ]
         expenses = []
         if include_expenses:
             expenses = expense_rows
-            names = {int(item["user_id"]): item["name"] for item in members}
             can_manage = is_admin or int(event["owner_user_id"]) == current_user_id
             for expense in expenses:
                 user_id = int(expense["user_id"])
@@ -10127,6 +10287,33 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 expense["can_edit"] = bool(
                     can_manage or user_id == current_user_id
                 )
+        receipts_by_user = {
+            int(row["user_id"]): row
+            for row in query(
+                """SELECT user_id, qr_path, qr_name, updated_at
+                   FROM aa_receipts WHERE event_id = ?""",
+                (event_id,),
+            )
+        }
+        receipts = []
+        for member in members:
+            user_id = int(member["user_id"])
+            receipt = receipts_by_user.get(user_id) or {}
+            receipts.append(
+                {
+                    "user_id": user_id,
+                    "name": member["name"],
+                    "url": (
+                        "/site-files/" + str(receipt["qr_path"])
+                        if receipt.get("qr_path")
+                        else ""
+                    ),
+                    "file_name": receipt.get("qr_name") or "",
+                    "updated_at": receipt.get("updated_at") or "",
+                    "can_edit": bool(is_admin or user_id == current_user_id),
+                    "is_self": user_id == current_user_id,
+                }
+            )
         settlement = aa_settlement(members, expense_rows)
         owner_user_id = int(event["owner_user_id"])
         owner_name = next(
@@ -10162,12 +10349,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             "is_admin": is_admin,
             "can_manage": bool(is_admin or owner_user_id == current_user_id),
             "can_add_expense": current_user_id in member_ids,
-            "qr_url": (
-                "/site-files/" + str(event["qr_path"])
-                if event.get("qr_path")
-                else ""
-            ),
-            "qr_name": event.get("qr_name") or "",
+            "receipts": receipts,
         }
 
     def api_aa_events(self):
@@ -10243,16 +10425,85 @@ class InventoryHandler(BaseHTTPRequestHandler):
             },
         )
 
+    def aa_option_payload(self):
+        options = {"event": [], "expense": []}
+        for row in query(
+            """SELECT id, kind, value FROM aa_options
+               WHERE kind IN ('event', 'expense')
+               ORDER BY kind, created_at, id"""
+        ):
+            options[row["kind"]].append(
+                {"id": int(row["id"]), "value": row["value"]}
+            )
+        return options
+
+    def api_aa_options(self):
+        self.send_json(200, {"options": self.aa_option_payload()})
+
+    def api_aa_option_create(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以维护财务选项。")
+            return
+        kind = str((payload or {}).get("kind") or "").strip().lower()
+        value = str((payload or {}).get("value") or "").strip()
+        if kind not in ("event", "expense"):
+            api_error(self, 400, "选项类型不正确。")
+            return
+        if not value:
+            api_error(self, 400, "请填写选项名称。")
+            return
+        if len(value) > 40:
+            api_error(self, 400, "选项名称不能超过 40 字。")
+            return
+        try:
+            option_id = execute(
+                """INSERT INTO aa_options
+                       (kind, value, created_by, created_at)
+                   VALUES (?, ?, ?, ?)""",
+                (
+                    kind,
+                    value,
+                    (self.session_identity() or {}).get("nickname")
+                    or "管理员",
+                    now_text(),
+                ),
+            )
+        except sqlite3.IntegrityError:
+            api_error(self, 409, "这个选项已经存在。")
+            return
+        self.send_json(
+            200,
+            {
+                "ok": True,
+                "option": {"id": option_id, "value": value},
+                "options": self.aa_option_payload(),
+            },
+        )
+
+    def api_aa_option_delete(self, option_id):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以维护财务选项。")
+            return
+        row = query_one("SELECT id, kind, value FROM aa_options WHERE id = ?", (option_id,))
+        if not row:
+            api_error(self, 404, "选项不存在。")
+            return
+        execute("DELETE FROM aa_options WHERE id = ?", (option_id,))
+        self.send_json(
+            200,
+            {"ok": True, "options": self.aa_option_payload()},
+        )
+
     def aa_validated_title(self, payload):
         title = str((payload or {}).get("title") or "").strip()
         if not title:
-            api_error(self, 400, "请填写分账名称。")
+            api_error(self, 400, "请填写账目名称。")
             return ""
         if len(title) > AA_EVENT_TITLE_MAX_CHARS:
             api_error(
                 self,
                 400,
-                f"分账名称不能超过 {AA_EVENT_TITLE_MAX_CHARS} 字。",
+                f"账目名称不能超过 {AA_EVENT_TITLE_MAX_CHARS} 字。",
             )
             return ""
         return title
@@ -10279,7 +10530,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     api_error(self, 400, "有参与人账号不存在或未通过审核。")
                     return None
                 if not self.aa_user_has_access(user_id):
-                    api_error(self, 400, "有参与人还没有被授予 AA 分账权限。")
+                    api_error(self, 400, "有参与人还没有被授予财务权限。")
                     return None
             ids.add(user_id)
         if event_id is None:
@@ -10329,7 +10580,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         event_id = transaction(create)
         self.log_activity(
             "aa_event_create",
-            f"创建 AA 分账：{title}",
+            f"创建财务账目：{title}",
             target_type="aa_event",
             target_id=event_id,
         )
@@ -10341,7 +10592,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         identity = self.session_identity()
         payload = self.aa_event_payload(event_id, identity)
         if not payload:
-            api_error(self, 404, "分账不存在或你没有访问权限。")
+            api_error(self, 404, "账目不存在或你没有访问权限。")
             return
         self.send_json(200, payload)
 
@@ -10349,7 +10600,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         identity = self.session_identity()
         event = query_one("SELECT * FROM aa_events WHERE id = ?", (event_id,))
         if not event:
-            api_error(self, 404, "分账不存在。")
+            api_error(self, 404, "账目不存在。")
             return
         current_user_id = self.aa_identity_user_id(identity)
         if not (
@@ -10374,9 +10625,17 @@ class InventoryHandler(BaseHTTPRequestHandler):
         removed_ids = existing_ids - set(member_ids)
         for user_id in removed_ids:
             count = query_one(
-                """SELECT COUNT(*) AS n FROM aa_expenses
-                   WHERE event_id = ? AND user_id = ?""",
-                (event_id, user_id),
+                """SELECT COUNT(*) AS n
+                   FROM aa_expenses e
+                   WHERE e.event_id = ?
+                     AND (
+                         e.user_id = ?
+                         OR EXISTS (
+                             SELECT 1 FROM aa_expense_splits s
+                             WHERE s.expense_id = e.id AND s.user_id = ?
+                         )
+                     )""",
+                (event_id, user_id, user_id),
             )["n"]
             if count:
                 api_error(self, 400, "已有费用记录的参与人不能移除。")
@@ -10398,7 +10657,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         transaction(update)
         self.log_activity(
             "aa_event_update",
-            f"修改 AA 分账：{title}",
+            f"修改财务账目：{title}",
             target_type="aa_event",
             target_id=event_id,
         )
@@ -10410,28 +10669,45 @@ class InventoryHandler(BaseHTTPRequestHandler):
         identity = self.session_identity()
         event = query_one("SELECT * FROM aa_events WHERE id = ?", (event_id,))
         if not event:
-            api_error(self, 404, "分账不存在。")
+            api_error(self, 404, "账目不存在。")
             return
         current_user_id = self.aa_identity_user_id(identity)
         if not (
             self.aa_identity_is_admin(identity)
             or int(event["owner_user_id"]) == current_user_id
         ):
-            api_error(self, 403, "只有发起人可以删除这个分账。")
+            api_error(self, 403, "只有发起人可以删除这个账目。")
             return
-        qr_path = event.get("qr_path")
+        receipt_paths = [
+            row["qr_path"]
+            for row in query(
+                "SELECT qr_path FROM aa_receipts WHERE event_id = ?",
+                (event_id,),
+            )
+            if row.get("qr_path")
+        ]
+        if event.get("qr_path"):
+            receipt_paths.append(event["qr_path"])
 
         def remove(conn):
+            conn.execute(
+                """DELETE FROM aa_expense_splits
+                   WHERE expense_id IN (
+                       SELECT id FROM aa_expenses WHERE event_id = ?
+                   )""",
+                (event_id,),
+            )
+            conn.execute("DELETE FROM aa_receipts WHERE event_id = ?", (event_id,))
             conn.execute("DELETE FROM aa_expenses WHERE event_id = ?", (event_id,))
             conn.execute("DELETE FROM aa_members WHERE event_id = ?", (event_id,))
             conn.execute("DELETE FROM aa_events WHERE id = ?", (event_id,))
 
         transaction(remove)
-        if qr_path:
-            remove_data_file(qr_path)
+        for receipt_path in set(receipt_paths):
+            remove_data_file(receipt_path)
         self.log_activity(
             "aa_event_delete",
-            f"删除 AA 分账：{event['title']}",
+            f"删除财务账目：{event['title']}",
             target_type="aa_event",
             target_id=event_id,
         )
@@ -10441,14 +10717,40 @@ class InventoryHandler(BaseHTTPRequestHandler):
         identity = self.session_identity()
         event = query_one("SELECT * FROM aa_events WHERE id = ?", (event_id,))
         if not event:
-            api_error(self, 404, "分账不存在。")
+            api_error(self, 404, "账目不存在。")
             return None, None
         member_ids = self.aa_event_member_ids(event_id)
         current_user_id = self.aa_identity_user_id(identity)
         if current_user_id not in member_ids:
-            api_error(self, 403, "只有活动成员可以录入费用。")
+            api_error(self, 403, "只有账目成员可以录入费用。")
             return None, None
         return event, identity
+
+    def aa_validated_split_ids(self, event_id, raw_split_ids):
+        member_ids = self.aa_event_member_ids(event_id)
+        if raw_split_ids is None:
+            return sorted(member_ids)
+        if not isinstance(raw_split_ids, list):
+            api_error(self, 400, "分摊人格式不正确。")
+            return None
+        split_ids = set()
+        for raw in raw_split_ids:
+            if isinstance(raw, bool):
+                api_error(self, 400, "分摊人格式不正确。")
+                return None
+            try:
+                user_id = int(raw)
+            except (TypeError, ValueError):
+                api_error(self, 400, "分摊人格式不正确。")
+                return None
+            if user_id not in member_ids:
+                api_error(self, 400, "分摊人必须是当前账目成员。")
+                return None
+            split_ids.add(user_id)
+        if not split_ids:
+            api_error(self, 400, "请至少选择一位分摊人。")
+            return None
+        return sorted(split_ids)
 
     def api_aa_expense_create(self, event_id, payload):
         event, identity = self.aa_member_event(event_id)
@@ -10466,26 +10768,42 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 f"备注不能超过 {AA_EXPENSE_NOTE_MAX_CHARS} 字。",
             )
             return
-        stamp = now_text()
-        expense_id = execute(
-            """INSERT INTO aa_expenses
-                   (event_id, user_id, amount_cents, note, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (
-                event_id,
-                self.aa_identity_user_id(identity),
-                amount_cents,
-                note,
-                stamp,
-                stamp,
-            ),
+        split_user_ids = self.aa_validated_split_ids(
+            event_id, (payload or {}).get("split_user_ids")
         )
+        if split_user_ids is None:
+            return
+        stamp = now_text()
+
+        def create(conn):
+            cursor = conn.execute(
+                """INSERT INTO aa_expenses
+                       (event_id, user_id, amount_cents, note, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    event_id,
+                    self.aa_identity_user_id(identity),
+                    amount_cents,
+                    note,
+                    stamp,
+                    stamp,
+                ),
+            )
+            expense_id = int(cursor.lastrowid)
+            conn.executemany(
+                """INSERT INTO aa_expense_splits (expense_id, user_id)
+                   VALUES (?, ?)""",
+                [(expense_id, user_id) for user_id in split_user_ids],
+            )
+            return expense_id
+
+        expense_id = transaction(create)
         execute(
             "UPDATE aa_events SET updated_at = ? WHERE id = ?", (stamp, event_id)
         )
         self.log_activity(
             "aa_expense_create",
-            f"在 AA 分账「{event['title']}」录入费用",
+            f"在财务账目「{event['title']}」录入费用",
             target_type="aa_event",
             target_id=event_id,
         )
@@ -10528,13 +10846,31 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 f"备注不能超过 {AA_EXPENSE_NOTE_MAX_CHARS} 字。",
             )
             return
-        stamp = now_text()
-        execute(
-            """UPDATE aa_expenses
-               SET amount_cents = ?, note = ?, updated_at = ?
-               WHERE id = ?""",
-            (amount_cents, note, stamp, expense_id),
+        split_user_ids = self.aa_validated_split_ids(
+            expense["event_id"], payload.get("split_user_ids")
         )
+        if split_user_ids is None:
+            return
+        stamp = now_text()
+
+        def update(conn):
+            conn.execute(
+                """UPDATE aa_expenses
+                   SET amount_cents = ?, note = ?, updated_at = ?
+                   WHERE id = ?""",
+                (amount_cents, note, stamp, expense_id),
+            )
+            conn.execute(
+                "DELETE FROM aa_expense_splits WHERE expense_id = ?",
+                (expense_id,),
+            )
+            conn.executemany(
+                """INSERT INTO aa_expense_splits (expense_id, user_id)
+                   VALUES (?, ?)""",
+                [(expense_id, user_id) for user_id in split_user_ids],
+            )
+
+        transaction(update)
         execute(
             "UPDATE aa_events SET updated_at = ? WHERE id = ?",
             (stamp, expense["event_id"]),
@@ -10563,7 +10899,15 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 403, "只能删除自己的费用记录。")
             return
         stamp = now_text()
-        execute("DELETE FROM aa_expenses WHERE id = ?", (expense_id,))
+
+        def remove(conn):
+            conn.execute(
+                "DELETE FROM aa_expense_splits WHERE expense_id = ?",
+                (expense_id,),
+            )
+            conn.execute("DELETE FROM aa_expenses WHERE id = ?", (expense_id,))
+
+        transaction(remove)
         execute(
             "UPDATE aa_events SET updated_at = ? WHERE id = ?",
             (stamp, expense["event_id"]),
@@ -10576,18 +10920,35 @@ class InventoryHandler(BaseHTTPRequestHandler):
             },
         )
 
-    def api_aa_qr_upload(self, event_id, payload):
+    def aa_receipt_target_user_id(self, event_id, identity, raw_user_id):
+        current_user_id = self.aa_identity_user_id(identity)
+        member_ids = self.aa_event_member_ids(event_id)
+        if raw_user_id in (None, ""):
+            target_user_id = current_user_id
+        else:
+            try:
+                target_user_id = int(raw_user_id)
+            except (TypeError, ValueError):
+                api_error(self, 400, "收款码所属账号不正确。")
+                return None
+        if target_user_id not in member_ids:
+            api_error(self, 400, "收款码只能添加到当前账目成员。")
+            return None
+        if target_user_id != current_user_id and not self.aa_identity_is_admin(identity):
+            api_error(self, 403, "只能管理自己的收款码。")
+            return None
+        return target_user_id
+
+    def api_aa_receipt_upload(self, event_id, payload):
         identity = self.session_identity()
         event = query_one("SELECT * FROM aa_events WHERE id = ?", (event_id,))
         if not event:
-            api_error(self, 404, "分账不存在。")
+            api_error(self, 404, "账目不存在。")
             return
-        current_user_id = self.aa_identity_user_id(identity)
-        if not (
-            self.aa_identity_is_admin(identity)
-            or int(event["owner_user_id"]) == current_user_id
-        ):
-            api_error(self, 403, "只有发起人可以设置收款码。")
+        target_user_id = self.aa_receipt_target_user_id(
+            event_id, identity, (payload or {}).get("user_id")
+        )
+        if target_user_id is None:
             return
         name = os.path.basename(str((payload or {}).get("name") or "receipt.png"))
         extension = os.path.splitext(name)[1].lower()
@@ -10614,39 +10975,72 @@ class InventoryHandler(BaseHTTPRequestHandler):
         except ValueError as exc:
             api_error(self, 400, str(exc))
             return
-        old_path = event.get("qr_path")
-        execute(
-            """UPDATE aa_events
-               SET qr_path = ?, qr_name = ?, updated_at = ?
-               WHERE id = ?""",
-            (relative, name, now_text(), event_id),
+        existing = query_one(
+            """SELECT qr_path FROM aa_receipts
+               WHERE event_id = ? AND user_id = ?""",
+            (event_id, target_user_id),
         )
-        if old_path:
-            remove_data_file(old_path)
-        self.send_json(200, {"ok": True, "url": "/site-files/" + relative})
+        stamp = now_text()
+        execute(
+            """INSERT INTO aa_receipts
+                   (event_id, user_id, qr_path, qr_name, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(event_id, user_id) DO UPDATE SET
+                   qr_path = excluded.qr_path,
+                   qr_name = excluded.qr_name,
+                   updated_at = excluded.updated_at""",
+            (event_id, target_user_id, relative, name, stamp, stamp),
+        )
+        execute(
+            "UPDATE aa_events SET updated_at = ? WHERE id = ?",
+            (stamp, event_id),
+        )
+        if existing and existing.get("qr_path"):
+            remove_data_file(existing["qr_path"])
+        self.send_json(
+            200,
+            {
+                "ok": True,
+                "url": "/site-files/" + relative,
+                "event": self.aa_event_payload(event_id, identity),
+            },
+        )
 
-    def api_aa_qr_delete(self, event_id):
+    def api_aa_receipt_delete(self, event_id, target_user_id):
         identity = self.session_identity()
         event = query_one("SELECT * FROM aa_events WHERE id = ?", (event_id,))
         if not event:
-            api_error(self, 404, "分账不存在。")
+            api_error(self, 404, "账目不存在。")
             return
-        current_user_id = self.aa_identity_user_id(identity)
-        if not (
-            self.aa_identity_is_admin(identity)
-            or int(event["owner_user_id"]) == current_user_id
-        ):
-            api_error(self, 403, "只有发起人可以删除收款码。")
+        target_user_id = self.aa_receipt_target_user_id(
+            event_id, identity, target_user_id
+        )
+        if target_user_id is None:
             return
-        if event.get("qr_path"):
-            remove_data_file(event["qr_path"])
+        receipt = query_one(
+            """SELECT qr_path FROM aa_receipts
+               WHERE event_id = ? AND user_id = ?""",
+            (event_id, target_user_id),
+        )
+        if not receipt:
+            api_error(self, 404, "还没有设置收款码。")
+            return
         execute(
-            """UPDATE aa_events
-               SET qr_path = NULL, qr_name = NULL, updated_at = ?
-               WHERE id = ?""",
+            "DELETE FROM aa_receipts WHERE event_id = ? AND user_id = ?",
+            (event_id, target_user_id),
+        )
+        execute(
+            "UPDATE aa_events SET updated_at = ? WHERE id = ?",
             (now_text(), event_id),
         )
-        self.send_json(200, {"ok": True})
+        remove_data_file(receipt.get("qr_path"))
+        self.send_json(
+            200,
+            {
+                "ok": True,
+                "event": self.aa_event_payload(event_id, identity),
+            },
+        )
 
     def api_dashboard(self):
         stats = {

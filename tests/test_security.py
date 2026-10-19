@@ -128,6 +128,7 @@ class AAExpensePermissionTests(unittest.TestCase):
 
     def test_aa_page_and_api_require_the_same_permission(self):
         self.assertEqual(app.required_permission("/aa", "GET"), app.AA_PERMISSION)
+        self.assertEqual(app.required_permission("/finance", "GET"), app.AA_PERMISSION)
         self.assertEqual(
             app.required_permission("/api/aa/events", "GET"), app.AA_PERMISSION
         )
@@ -193,6 +194,41 @@ class AAExpensePermissionTests(unittest.TestCase):
             ],
         )
 
+    def test_custom_split_only_assigns_cost_to_selected_members(self):
+        members = [
+            {"user_id": 1, "name": "A"},
+            {"user_id": 2, "name": "B"},
+            {"user_id": 3, "name": "C"},
+        ]
+        expenses = [
+            {
+                "user_id": 1,
+                "amount_cents": 9000,
+                "split_user_ids": [1, 2],
+            },
+            {
+                "user_id": 3,
+                "amount_cents": 3000,
+                "split_user_ids": [2, 3],
+            },
+        ]
+        result = app.aa_settlement(members, expenses)
+        shares = {item["user_id"]: item["share_cents"] for item in result["members"]}
+        self.assertEqual(shares, {1: 4500, 2: 6000, 3: 1500})
+        self.assertEqual(
+            [(item["from_user_id"], item["to_user_id"], item["amount_cents"]) for item in result["transfers"]],
+            [(2, 1, 4500), (2, 3, 1500)],
+        )
+
+    def test_only_admin_can_change_finance_options(self):
+        handler = object.__new__(app.InventoryHandler)
+        handler.is_admin = lambda: False
+        with patch.object(app, "api_error") as api_error:
+            handler.api_aa_option_create({"kind": "event", "value": "公司团建"})
+        api_error.assert_called_once_with(
+            handler, 403, "只有管理员可以维护财务选项。"
+        )
+
     def test_aa_tables_are_created_with_explicit_permission(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             with patch.object(app, "DB_PATH", Path(temp_dir) / "inventory.db"):
@@ -204,7 +240,29 @@ class AAExpensePermissionTests(unittest.TestCase):
                         "SELECT name FROM sqlite_master WHERE type = 'table'"
                     )
                 }
-                self.assertTrue({"aa_events", "aa_members", "aa_expenses"} <= tables)
+                self.assertTrue(
+                    {
+                        "aa_events",
+                        "aa_members",
+                        "aa_expenses",
+                        "aa_expense_splits",
+                        "aa_receipts",
+                        "aa_options",
+                    }
+                    <= tables
+                )
+                self.assertGreater(
+                    app.query_one(
+                        "SELECT COUNT(*) AS n FROM aa_options WHERE kind = 'event'"
+                    )["n"],
+                    0,
+                )
+                self.assertGreater(
+                    app.query_one(
+                        "SELECT COUNT(*) AS n FROM aa_options WHERE kind = 'expense'"
+                    )["n"],
+                    0,
+                )
                 self.assertFalse(app.guest_has_permission(app.AA_PERMISSION))
 
 

@@ -62,6 +62,11 @@
     ".landing-module-btn",
     ".mo-send-float",
     ".mg-send-float",
+    ".fin-btn",
+    ".fin-fab",
+    ".fin-icon-btn",
+    ".fin-row-btn",
+    ".fin-option-delete",
   ].join(",");
 
   var MAGNETIC_SELECTOR = [
@@ -83,6 +88,8 @@
     ".mp-dialog-actions .mp-btn-primary",
     ".pr-action.primary",
     ".landing-module-btn",
+    ".fin-btn-primary",
+    ".fin-fab-primary",
   ].join(",");
 
   var HOLD_SELECTOR = "#confirmOk, #mapConfirmOk, [data-hold-confirm]";
@@ -309,7 +316,7 @@
         ".rec-btn-primary, .wb-btn-primary, .nt-btn-primary, .pin-primary-btn, " +
         ".pin-header-btn-primary, .auth-submit, .login-submit, .register-submit, " +
         ".site-dialog-btn.primary, .mp-btn-primary, .mp-dialog-actions .mp-btn-primary, " +
-        ".pr-action.primary"
+        ".pr-action.primary, .fin-btn-primary, .fin-fab-primary"
     );
   }
 
