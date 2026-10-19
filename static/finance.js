@@ -10,6 +10,8 @@
     options: { event: [], expense: [] },
     editingEventId: null,
     inlineEditId: null,
+    draftExpense: null,
+    eventsCollapsed: false,
     selectedParticipants: new Set(),
     receiptTargetId: null,
     receiptButton: null,
@@ -134,6 +136,26 @@
     } catch (err) {}
   }
 
+  function isMobileEvents() {
+    return window.matchMedia && window.matchMedia("(max-width: 820px)").matches;
+  }
+
+  function setEventsCollapsed(collapsed) {
+    state.eventsCollapsed = Boolean(collapsed) && isMobileEvents();
+    var sidebar = document.querySelector(".fin-sidebar");
+    var toggle = $("eventsToggle");
+    if (sidebar) sidebar.classList.toggle("is-collapsed", state.eventsCollapsed);
+    if (toggle) {
+      toggle.classList.toggle("is-collapsed", state.eventsCollapsed);
+      toggle.setAttribute("aria-expanded", state.eventsCollapsed ? "false" : "true");
+      toggle.title = state.eventsCollapsed ? "展开账目" : "折叠账目";
+      toggle.setAttribute(
+        "aria-label",
+        state.eventsCollapsed ? "展开账目" : "折叠账目"
+      );
+    }
+  }
+
   function balanceClass(value) {
     var number = Number(value) || 0;
     if (number > 0) return "is-positive";
@@ -196,6 +218,7 @@
 
   function renderEventList() {
     var list = $("eventList");
+    $("eventCountLabel").textContent = state.events.length + " 个";
     if (!state.events.length) {
       list.innerHTML = '<div class="fin-empty-row">没有账目</div>';
       return;
@@ -256,9 +279,6 @@
     var note = item.note || "未填写备注";
     var actions = item.can_edit
       ? '<span class="fin-row-actions">' +
-        '<button class="fin-row-btn" type="button" data-expense-edit="' +
-        Number(item.id) +
-        '" title="编辑" aria-label="编辑费用"><i data-lucide="pencil"></i></button>' +
         '<button class="fin-row-btn is-danger" type="button" data-expense-delete="' +
         Number(item.id) +
         '" data-hold-confirm title="长按删除" aria-label="长按删除费用"><i data-lucide="trash-2"></i></button>' +
@@ -266,10 +286,14 @@
       : "";
     return (
       '<div class="fin-expense-row">' +
-      '<strong class="fin-expense-amount">' +
+      '<strong class="fin-expense-amount fin-expense-trigger" data-expense-start-edit="' +
+      Number(item.id) +
+      '" tabindex="0" role="button" title="点击编辑金额">' +
       escapeHtml(money(item.amount_cents)) +
       "</strong>" +
-      '<div class="fin-expense-info"><p class="fin-expense-note' +
+      '<div class="fin-expense-info fin-expense-trigger" data-expense-start-edit="' +
+      Number(item.id) +
+      '" tabindex="0" role="button" title="点击编辑备注"><p class="fin-expense-note' +
       (item.note ? "" : " is-empty") +
       '">' +
       escapeHtml(note) +
@@ -278,7 +302,9 @@
       " 垫付 · " +
       escapeHtml(formatTime(item.created_at)) +
       "</span></div>" +
-      '<div class="fin-expense-split"><strong>' +
+      '<div class="fin-expense-split fin-expense-trigger" data-expense-start-edit="' +
+      Number(item.id) +
+      '" tabindex="0" role="button" title="点击编辑分摊人"><strong>' +
       Number((item.split_user_ids || []).length) +
       " 人分摊</strong><small>" +
       escapeHtml(splitNames) +
@@ -310,10 +336,35 @@
       ) +
       "</div></details>" +
       '<span class="fin-inline-actions">' +
-      '<button class="fin-btn fin-btn-primary" type="submit" title="保存" aria-label="保存费用"><i data-lucide="check"></i></button>' +
+      '<button class="fin-check-btn" type="submit" title="保存" aria-label="保存费用"><i data-lucide="check"></i></button>' +
       '<button class="fin-row-btn is-danger" type="button" data-expense-delete="' +
       Number(item.id) +
       '" data-hold-confirm title="长按删除" aria-label="长按删除费用"><i data-lucide="trash-2"></i></button>' +
+      "</span></form>"
+    );
+  }
+
+  function renderDraftEditor() {
+    var draft = state.draftExpense;
+    var memberIds = (state.detail.members || []).map(function (member) {
+      return Number(member.user_id);
+    });
+    return (
+      '<form class="fin-inline-editor" data-draft-expense-form>' +
+      '<label class="fin-inline-amount"><span>¥</span><input name="amount" inputmode="decimal" value="' +
+      escapeHtml(draft.amount || "") +
+      '" placeholder="0.00" autofocus></label>' +
+      '<label class="fin-inline-note"><input name="note" maxlength="120" list="expenseNoteOptions" value="' +
+      escapeHtml(draft.note || "") +
+      '" placeholder="备注"></label>' +
+      '<details class="fin-split-picker"><summary><span data-inline-split-summary>' +
+      memberIds.length +
+      ' 人分摊</span></summary><div class="fin-split-picker-panel">' +
+      splitCheckboxes(state.detail.members, memberIds, "draft-split-id") +
+      "</div></details>" +
+      '<span class="fin-inline-actions">' +
+      '<button class="fin-check-btn" type="submit" title="保存" aria-label="保存费用"><i data-lucide="check"></i></button>' +
+      '<button class="fin-cancel-btn" type="button" data-draft-cancel title="取消" aria-label="取消这笔费用"><i data-lucide="x"></i></button>' +
       "</span></form>"
     );
   }
@@ -322,12 +373,24 @@
     var detail = state.detail;
     var list = $("expenseList");
     var expenses = detail.expenses || [];
-    $("expenseMeta").textContent = expenses.length + " 笔";
-    if (!expenses.length) {
+    $("expenseMeta").textContent =
+      expenses.length + " 笔" + (state.draftExpense ? " · 1 笔未保存" : "");
+    $("addExpenseBtn").hidden =
+      !detail.can_add_expense ||
+      Boolean(state.draftExpense) ||
+      Boolean(state.inlineEditId);
+    if (!expenses.length && !state.draftExpense) {
       list.innerHTML = '<div class="fin-empty-row">还没有费用记录</div>';
       return;
     }
-    list.innerHTML = expenses
+    var draftHtml = state.draftExpense
+      ? '<article class="fin-expense-item is-draft" data-draft-expense>' +
+        renderDraftEditor() +
+        "</article>"
+      : "";
+    list.innerHTML =
+      draftHtml +
+      expenses
       .map(function (item) {
         return (
           '<article class="fin-expense-item" data-expense-item="' +
@@ -396,14 +459,6 @@
       .join("");
   }
 
-  function renderReceiptSummary() {
-    var receipts = state.detail.receipts || [];
-    var count = receipts.filter(function (item) {
-      return Boolean(item.url);
-    }).length;
-    $("receiptMeta").textContent = count + " 人已添加";
-  }
-
   function renderReceiptsDialog() {
     var receipts = (state.detail && state.detail.receipts) || [];
     $("receiptGrid").innerHTML = receipts
@@ -452,7 +507,10 @@
   function setFloatingActions() {
     var detail = state.detail;
     $("settingsBtn").hidden = !state.isAdmin;
-    $("addExpenseBtn").hidden = !(detail && detail.can_add_expense);
+    $("addExpenseBtn").hidden =
+      !(detail && detail.can_add_expense) ||
+      Boolean(state.draftExpense) ||
+      Boolean(state.inlineEditId);
     $("editEventBtn").hidden = !(detail && detail.can_manage);
     $("receiptsBtn").hidden = !detail;
     $("deleteEventBtn").hidden = !(detail && detail.can_manage);
@@ -491,7 +549,6 @@
     renderExpenses();
     renderBalances();
     renderTransfers();
-    renderReceiptSummary();
     if ($("receiptsDialog").open) renderReceiptsDialog();
     refreshIcons();
     refreshButtons();
@@ -532,6 +589,7 @@
       if (!target && state.events.length) target = state.events[0];
       if (target) {
         await loadDetail(target.id, true);
+        if (isMobileEvents()) setEventsCollapsed(true);
       } else {
         state.detail = null;
         setEventUrl(null);
@@ -666,31 +724,24 @@
     }
   }
 
-  function openExpenseDialog() {
-    if (!state.detail) return;
-    $("expenseDialogMeta").textContent = "记在 " + currentParticipantName() + " 名下";
-    $("expenseAmountInput").value = "";
-    $("expenseNoteInput").value = "";
-    var memberIds = (state.detail.members || []).map(function (item) {
-      return Number(item.user_id);
-    });
-    $("expenseSplitList").innerHTML = splitCheckboxes(
-      state.detail.members,
-      memberIds,
-      "expense-split-id"
-    );
-    updateExpenseSplitCount();
-    $("expenseDialog").showModal();
-    window.setTimeout(function () {
-      $("expenseAmountInput").focus();
-    }, 0);
+  function addDraftExpense() {
+    if (!state.detail || state.draftExpense) return;
+    state.inlineEditId = null;
+    state.draftExpense = { amount: "", note: "" };
+    renderExpenses();
+    setFloatingActions();
+    var input = document.querySelector('[data-draft-expense-form] [name="amount"]');
+    if (input) {
+      window.setTimeout(function () {
+        input.focus();
+      }, 0);
+    }
   }
 
-  function updateExpenseSplitCount() {
-    var count = $("expenseSplitList").querySelectorAll(
-      "[data-expense-split-id]:checked"
-    ).length;
-    $("expenseSplitCount").textContent = "已选 " + count + " 人";
+  function cancelDraftExpense() {
+    state.draftExpense = null;
+    renderExpenses();
+    setFloatingActions();
   }
 
   function parseMoneyCents(value) {
@@ -704,38 +755,37 @@
     return cents;
   }
 
-  async function submitExpense(event) {
-    event.preventDefault();
-    if (!state.detail) return;
-    var cents = parseMoneyCents($("expenseAmountInput").value);
+  async function saveDraftExpense(form) {
+    if (!state.detail || !form) return;
+    var cents = parseMoneyCents(form.querySelector('[name="amount"]').value);
     if (!cents) {
       toast("请输入有效金额。");
-      $("expenseAmountInput").focus();
+      form.querySelector('[name="amount"]').focus();
       return;
     }
     var splitIds = Array.from(
-      $("expenseSplitList").querySelectorAll("[data-expense-split-id]:checked")
+      form.querySelectorAll("[data-draft-split-id]:checked")
     ).map(function (input) {
-      return Number(input.getAttribute("data-expense-split-id"));
+      return Number(input.getAttribute("data-draft-split-id"));
     });
     if (!splitIds.length) {
       toast("请至少选择一位分摊人。");
       return;
     }
-    var button = $("expenseDialogSubmit");
+    var button = form.querySelector('button[type="submit"]');
     buttonBusy(button, "正在保存");
     try {
       var data = await api("/api/aa/events/" + state.detail.id + "/expenses", {
         method: "POST",
         body: {
           amount_cents: cents,
-          note: $("expenseNoteInput").value.trim(),
+          note: form.querySelector('[name="note"]').value.trim(),
           split_user_ids: splitIds,
         },
       });
       buttonSuccess(button, "已保存");
       await sleep(430);
-      $("expenseDialog").close();
+      state.draftExpense = null;
       if (data.event) state.detail = data.event;
       renderDetail();
       await loadEvents(state.detail && state.detail.id);
@@ -953,26 +1003,36 @@
     $("newEventBtn").addEventListener("click", function () {
       openEventDialog(null);
     });
-    $("addExpenseBtn").addEventListener("click", openExpenseDialog);
+    $("addExpenseBtn").addEventListener("click", addDraftExpense);
     $("editEventBtn").addEventListener("click", function () {
       if (state.detail) openEventDialog(state.detail.id);
     });
     $("deleteEventBtn").addEventListener("click", deleteCurrentEvent);
     $("settingsBtn").addEventListener("click", openSettings);
     $("receiptsBtn").addEventListener("click", openReceipts);
-    $("openReceiptsBtn").addEventListener("click", openReceipts);
 
     $("eventList").addEventListener("click", function (event) {
       var button = event.target.closest("[data-event-id]");
       if (!button) return;
+      setEventsCollapsed(true);
       loadDetail(Number(button.getAttribute("data-event-id")), true);
     });
 
     $("expenseList").addEventListener("click", function (event) {
-      var edit = event.target.closest("[data-expense-edit]");
+      var edit = event.target.closest("[data-expense-start-edit]");
       if (edit) {
-        state.inlineEditId = Number(edit.getAttribute("data-expense-edit"));
+        if (state.draftExpense) {
+          toast("请先保存或取消这笔空白费用。");
+          return;
+        }
+        state.inlineEditId = Number(edit.getAttribute("data-expense-start-edit"));
         renderExpenses();
+        setFloatingActions();
+        return;
+      }
+      var cancelDraft = event.target.closest("[data-draft-cancel]");
+      if (cancelDraft) {
+        cancelDraftExpense();
         return;
       }
       var remove = event.target.closest("[data-expense-delete]");
@@ -982,21 +1042,45 @@
     });
 
     $("expenseList").addEventListener("change", function (event) {
-      var input = event.target.closest("[data-inline-split-id]");
+      var input = event.target.closest(
+        "[data-inline-split-id], [data-draft-split-id]"
+      );
       if (!input) return;
-      var form = input.closest("[data-inline-expense-form]");
+      var form = input.closest("[data-inline-expense-form], [data-draft-expense-form]");
       var summary = form && form.querySelector("[data-inline-split-summary]");
       if (summary) {
         summary.textContent =
-          form.querySelectorAll("[data-inline-split-id]:checked").length + " 人分摊";
+          form.querySelectorAll(
+            "[data-inline-split-id]:checked, [data-draft-split-id]:checked"
+          ).length + " 人分摊";
       }
     });
 
     $("expenseList").addEventListener("submit", function (event) {
+      var draftForm = event.target.closest("[data-draft-expense-form]");
+      if (draftForm) {
+        event.preventDefault();
+        saveDraftExpense(draftForm);
+        return;
+      }
       var form = event.target.closest("[data-inline-expense-form]");
       if (!form) return;
       event.preventDefault();
       saveInlineExpense(form);
+    });
+
+    $("expenseList").addEventListener("keydown", function (event) {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      var edit = event.target.closest("[data-expense-start-edit]");
+      if (!edit) return;
+      event.preventDefault();
+      if (state.draftExpense) {
+        toast("请先保存或取消这笔空白费用。");
+        return;
+      }
+      state.inlineEditId = Number(edit.getAttribute("data-expense-start-edit"));
+      renderExpenses();
+      setFloatingActions();
     });
 
     $("participantList").addEventListener("change", function (event) {
@@ -1012,21 +1096,16 @@
       renderParticipants($("participantSearch").value);
     });
 
-    $("expenseSplitList").addEventListener("change", updateExpenseSplitCount);
     $("eventForm").addEventListener("submit", submitEvent);
-    $("expenseForm").addEventListener("submit", submitExpense);
+    $("eventsToggle").addEventListener("click", function () {
+      setEventsCollapsed(!state.eventsCollapsed);
+    });
 
     $("eventDialogClose").addEventListener("click", function () {
       $("eventDialog").close();
     });
     $("eventDialogCancel").addEventListener("click", function () {
       $("eventDialog").close();
-    });
-    $("expenseDialogClose").addEventListener("click", function () {
-      $("expenseDialog").close();
-    });
-    $("expenseDialogCancel").addEventListener("click", function () {
-      $("expenseDialog").close();
     });
     $("settingsDialogClose").addEventListener("click", function () {
       $("settingsDialog").close();
@@ -1075,6 +1154,9 @@
     });
     document.addEventListener("keydown", function (event) {
       if (event.key === "Escape" && !$("qrViewer").hidden) closeQrViewer();
+    });
+    window.addEventListener("resize", function () {
+      if (!isMobileEvents()) setEventsCollapsed(false);
     });
   }
 

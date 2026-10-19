@@ -86,21 +86,21 @@ button {
 }
 
 .fin-fab-stack {
+  top: 16px;
   right: 18px;
-  bottom: 24px;
   display: flex;
   align-items: center;
-  flex-direction: column;
-  gap: 9px;
+  flex-direction: row;
+  gap: 8px;
 }
 
 .fin-fab {
   display: grid;
-  width: 46px;
-  height: 46px;
+  width: 40px;
+  height: 40px;
   place-items: center;
   border: 1px solid var(--fin-border);
-  border-radius: 50%;
+  border-radius: var(--radius);
   background: color-mix(in srgb, var(--fin-surface) 94%, transparent);
   color: var(--fin-text);
   box-shadow: 0 8px 24px rgba(25, 29, 38, 0.13);
@@ -122,6 +122,9 @@ button {
 .fin-fab-danger,
 .fin-delete {
   --fx-hold-color: #e5484d;
+}
+
+.fin-fab-danger:hover {
   color: var(--fin-danger);
 }
 
@@ -132,7 +135,7 @@ button {
   min-height: 100vh;
   min-height: 100dvh;
   margin: 0 auto;
-  padding: 24px 82px 28px 18px;
+  padding: 76px 82px 28px 18px;
 }
 
 .fin-sidebar {
@@ -143,29 +146,55 @@ button {
 
 .fin-sidebar-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
   padding: 0 7px 10px;
 }
 
+.fin-sidebar-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
 .fin-sidebar-head h2,
 .fin-panel-head h2,
 .fin-dialog-head h2,
-.fin-receipt-entry h2,
 .fin-settings-section h3 {
   margin: 0;
   font-size: 15px;
   line-height: 1.35;
 }
 
-.fin-sidebar-head span,
+.fin-sidebar-title span,
 .fin-panel-head p,
-.fin-dialog-head p,
-.fin-receipt-entry p {
+.fin-dialog-head p {
   margin: 3px 0 0;
   color: var(--fin-muted);
   font-size: 12px;
+}
+
+.fin-event-toggle {
+  display: none;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid var(--fin-border);
+  border-radius: var(--radius-sm);
+  background: var(--fin-surface);
+  color: var(--fin-muted);
+  cursor: pointer;
+}
+
+.fin-event-toggle svg {
+  width: 16px;
+  height: 16px;
+  transition: rotate var(--dur-base) var(--ease-out-strong);
+}
+
+.fin-event-toggle.is-collapsed svg {
+  rotate: 180deg;
 }
 
 .fin-event-list {
@@ -415,6 +444,15 @@ button {
   gap: 12px;
 }
 
+.fin-expense-trigger {
+  min-width: 0;
+  cursor: text;
+}
+
+.fin-expense-trigger:hover {
+  color: var(--fin-accent);
+}
+
 .fin-expense-amount {
   overflow: hidden;
   font-size: 15px;
@@ -467,6 +505,34 @@ button {
   align-items: center;
   justify-content: flex-end;
   gap: 5px;
+}
+
+.fin-check-btn,
+.fin-cancel-btn {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid var(--fin-border);
+  border-radius: var(--radius-sm);
+  background: var(--fin-surface);
+  color: var(--fin-text);
+  cursor: pointer;
+}
+
+.fin-check-btn:hover {
+  border-color: color-mix(in srgb, var(--fin-text) 28%, var(--fin-border));
+  background: var(--fin-surface-soft);
+}
+
+.fin-cancel-btn {
+  color: var(--fin-muted);
+}
+
+.fin-check-btn svg,
+.fin-cancel-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 .fin-row-btn,
@@ -705,13 +771,10 @@ button {
   color: var(--fin-negative);
 }
 
-.fin-receipt-entry {
-  display: flex;
-  min-height: 76px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 13px 14px;
+.fin-add-expense {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 12px;
 }
 
 .fin-btn {
@@ -1149,7 +1212,7 @@ button {
 @media (max-width: 820px) {
   .fin-layout {
     display: block;
-    padding: 18px 12px 100px;
+    padding: 68px 12px 42px;
   }
 
   .fin-sidebar {
@@ -1160,6 +1223,14 @@ button {
 
   .fin-sidebar-head {
     padding-bottom: 8px;
+  }
+
+  .fin-event-toggle {
+    display: grid;
+  }
+
+  .fin-sidebar.is-collapsed .fin-event-list {
+    display: none;
   }
 
   .fin-event-list {
@@ -1195,23 +1266,14 @@ button {
 
 @media (max-width: 560px) {
   .fin-fab-stack {
-    bottom: 14px;
-    left: 50%;
-    flex-direction: row;
-    justify-content: center;
+    top: 10px;
+    right: 10px;
     gap: 6px;
-    padding: 6px;
-    border: 1px solid color-mix(in srgb, var(--fin-border) 82%, transparent);
-    border-radius: var(--radius-pill);
-    background: color-mix(in srgb, var(--fin-surface) 88%, transparent);
-    box-shadow: 0 14px 38px rgba(20, 24, 34, 0.18);
-    transform: translateX(-50%);
-    backdrop-filter: blur(14px);
   }
 
   .fin-fab {
-    width: 42px;
-    height: 42px;
+    width: 38px;
+    height: 38px;
   }
 
   .fin-side-column {

@@ -27,9 +27,6 @@
     <button class="fin-fab fin-fab-primary" id="newEventBtn" type="button" title="新建账目" aria-label="新建账目">
       <i data-lucide="plus"></i>
     </button>
-    <button class="fin-fab fin-fab-primary" id="addExpenseBtn" type="button" title="记一笔" aria-label="记一笔" hidden>
-      <i data-lucide="receipt"></i>
-    </button>
     <button class="fin-fab" id="editEventBtn" type="button" title="参与人" aria-label="参与人" hidden>
       <i data-lucide="users"></i>
     </button>
@@ -47,8 +44,13 @@
   <div class="fin-layout">
     <aside class="fin-sidebar">
       <div class="fin-sidebar-head">
-        <h2>账目</h2>
-        <span>最近更新</span>
+        <div class="fin-sidebar-title">
+          <h2>账目</h2>
+          <span id="eventCountLabel">0 个</span>
+        </div>
+        <button class="fin-event-toggle" id="eventsToggle" type="button" title="折叠账目" aria-label="折叠账目" aria-expanded="true">
+          <i data-lucide="chevron-up"></i>
+        </button>
       </div>
       <div class="fin-event-list" id="eventList"></div>
     </aside>
@@ -57,7 +59,7 @@
       <section class="fin-empty" id="emptyState">
         <span class="fin-empty-icon"><i data-lucide="wallet-cards"></i></span>
         <h1>还没有财务账目</h1>
-        <p>用右下角的加号新建一个账目。</p>
+        <p>用右上角的加号新建一个账目。</p>
       </section>
 
       <section class="fin-event" id="eventView" hidden>
@@ -89,6 +91,9 @@
                 <h2>费用明细</h2>
                 <p id="expenseMeta">0 笔</p>
               </div>
+              <button class="fin-btn fin-add-expense" id="addExpenseBtn" type="button" hidden>
+                <i data-lucide="plus"></i><span>记一笔</span>
+              </button>
             </header>
             <div class="fin-expense-list" id="expenseList"></div>
           </section>
@@ -114,17 +119,6 @@
               <div class="fin-balance-list" id="balanceList"></div>
             </section>
 
-            <section class="fin-panel">
-              <div class="fin-receipt-entry">
-                <div>
-                  <h2>收款码</h2>
-                  <p id="receiptMeta">0 人已添加</p>
-                </div>
-                <button class="fin-btn" id="openReceiptsBtn" type="button">
-                  <i data-lucide="qr-code"></i><span>查看</span>
-                </button>
-              </div>
-            </section>
           </aside>
         </div>
       </section>
@@ -163,46 +157,6 @@
       <footer class="fin-dialog-actions">
         <button class="fin-btn" id="eventDialogCancel" type="button">取消</button>
         <button class="fin-btn fin-btn-primary" id="eventDialogSubmit" type="submit">
-          <i data-lucide="check"></i><span>保存</span>
-        </button>
-      </footer>
-    </form>
-  </dialog>
-
-  <dialog class="fin-dialog fin-dialog-small" id="expenseDialog">
-    <form id="expenseForm" method="dialog" novalidate>
-      <header class="fin-dialog-head">
-        <div>
-          <h2>记一笔</h2>
-          <p id="expenseDialogMeta"></p>
-        </div>
-        <button class="fin-icon-btn" id="expenseDialogClose" type="button" aria-label="关闭">
-          <i data-lucide="x"></i>
-        </button>
-      </header>
-      <div class="fin-dialog-body">
-        <label class="fin-field">
-          <span>金额</span>
-          <div class="fin-money-input">
-            <span>¥</span>
-            <input id="expenseAmountInput" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" required>
-          </div>
-        </label>
-        <label class="fin-field">
-          <span>备注</span>
-          <input id="expenseNoteInput" type="text" maxlength="120" list="expenseNoteOptions" placeholder="选择或输入备注">
-        </label>
-        <div class="fin-participant-head">
-          <div>
-            <strong>分摊人</strong>
-            <span id="expenseSplitCount"></span>
-          </div>
-        </div>
-        <div class="fin-check-list fin-check-list-compact" id="expenseSplitList"></div>
-      </div>
-      <footer class="fin-dialog-actions">
-        <button class="fin-btn" id="expenseDialogCancel" type="button">取消</button>
-        <button class="fin-btn fin-btn-primary" id="expenseDialogSubmit" type="submit">
           <i data-lucide="check"></i><span>保存</span>
         </button>
       </footer>
