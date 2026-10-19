@@ -253,8 +253,28 @@
     });
   }
 
+  function applyPermissionEntries(status) {
+    var permissions = Array.isArray(status && status.permissions)
+      ? status.permissions
+      : [];
+    var isAdmin = Boolean(
+      status && (status.owner || status.admin || status.role === "owner")
+    );
+    document.querySelectorAll("[data-permission-any]").forEach(function (el) {
+      var keys = String(el.getAttribute("data-permission-any") || "")
+        .split(",")
+        .map(function (key) { return key.trim(); })
+        .filter(Boolean);
+      var allowed = isAdmin || keys.some(function (key) {
+        return permissions.indexOf(key) >= 0;
+      });
+      el.hidden = !allowed;
+    });
+  }
+
   function applyAuthStatus(status) {
     applyGuestPageVisibility(status);
+    applyPermissionEntries(status);
     authState.enabled = Boolean(status.enabled);
     authState.authenticated = Boolean(status.authenticated);
     authState.role = status.role || (authState.authenticated ? "owner" : "guest");

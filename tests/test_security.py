@@ -120,6 +120,94 @@ class ReferenceProjectTests(unittest.TestCase):
         self.assertTrue(any(row[1] == "https://github.com/IslaGiftia/ErrorJ" for row in rows))
 
 
+class AAExpensePermissionTests(unittest.TestCase):
+    def test_aa_permission_is_grantable_but_not_a_member_default(self):
+        self.assertIn(app.AA_PERMISSION, app.GRANTABLE_PERMISSIONS)
+        self.assertNotIn(app.AA_PERMISSION, app.MEMBER_ROLE_PERMISSIONS)
+        self.assertNotIn(app.AA_PERMISSION, app.GUEST_PAGE_PERMISSION_KEYS)
+
+    def test_aa_page_and_api_require_the_same_permission(self):
+        self.assertEqual(app.required_permission("/aa", "GET"), app.AA_PERMISSION)
+        self.assertEqual(
+            app.required_permission("/api/aa/events", "GET"), app.AA_PERMISSION
+        )
+        self.assertEqual(
+            app.required_permission("/api/aa/events/9/expenses", "POST"),
+            app.AA_PERMISSION,
+        )
+
+    def test_guest_cannot_read_aa_qr_files(self):
+        handler = object.__new__(app.InventoryHandler)
+        self.assertFalse(handler.data_file_allowed("aa_qr/receipt.png", None))
+        with patch.object(app, "user_has_permission", return_value=False):
+            self.assertFalse(
+                handler.data_file_allowed(
+                    "aa_qr/receipt.png", {"kind": "member", "user_id": 7}
+                )
+            )
+        with patch.object(app, "user_has_permission", return_value=True):
+            self.assertTrue(
+                handler.data_file_allowed(
+                    "aa_qr/receipt.png", {"kind": "member", "user_id": 7}
+                )
+            )
+        self.assertTrue(
+            handler.data_file_allowed(
+                "aa_qr/receipt.png", {"kind": "admin", "user_id": 8}
+            )
+        )
+
+    def test_equal_split_uses_integer_cents_and_balances_to_zero(self):
+        members = [
+            {"user_id": 1, "name": "A"},
+            {"user_id": 2, "name": "B"},
+            {"user_id": 3, "name": "C"},
+        ]
+        expenses = [
+            {"user_id": 1, "amount_cents": 10001},
+        ]
+        result = app.aa_settlement(members, expenses)
+        self.assertEqual(result["total_cents"], 10001)
+        self.assertEqual(
+            [item["share_cents"] for item in result["members"]],
+            [3334, 3334, 3333],
+        )
+        self.assertEqual(sum(item["balance_cents"] for item in result["members"]), 0)
+        self.assertEqual(
+            result["transfers"],
+            [
+                {
+                    "from_user_id": 2,
+                    "from_name": "B",
+                    "to_user_id": 1,
+                    "to_name": "A",
+                    "amount_cents": 3334,
+                },
+                {
+                    "from_user_id": 3,
+                    "from_name": "C",
+                    "to_user_id": 1,
+                    "to_name": "A",
+                    "amount_cents": 3333,
+                },
+            ],
+        )
+
+    def test_aa_tables_are_created_with_explicit_permission(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.object(app, "DB_PATH", Path(temp_dir) / "inventory.db"):
+                app.init_db()
+                app.invalidate_guest_permission_cache()
+                tables = {
+                    row["name"]
+                    for row in app.query(
+                        "SELECT name FROM sqlite_master WHERE type = 'table'"
+                    )
+                }
+                self.assertTrue({"aa_events", "aa_members", "aa_expenses"} <= tables)
+                self.assertFalse(app.guest_has_permission(app.AA_PERMISSION))
+
+
 class UsernameMaskTests(unittest.TestCase):
     def test_guest_username_mask_keeps_only_last_character(self):
         self.assertEqual(app.mask_username("牛大能"), "**能")

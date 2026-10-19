@@ -187,6 +187,7 @@ RESERVED_NICKNAMES = {
 }
 NICKNAME_CHANGE_DAYS = 30
 ADMIN_PERMISSION = "system:admin"
+AA_PERMISSION = "aa:view"
 
 PERMISSION_GROUPS = (
     {
@@ -211,6 +212,16 @@ PERMISSION_GROUPS = (
         "items": (
             {"key": "notes:view", "label": "查看笔记"},
             {"key": "notes:write", "label": "新增、编辑、导入导出笔记"},
+        ),
+    },
+    {
+        "key": "aa",
+        "label": "AA 分账",
+        "items": (
+            {
+                "key": "aa:view",
+                "label": "使用 AA 分账（查看、创建活动、录入费用）",
+            },
         ),
     },
     {
@@ -309,6 +320,7 @@ PAGE_PERMISSIONS = {
     "/inventory": ("inventory:view", "inventory:write"),
     "/bookmarks": ("bookmarks:view", "bookmarks:write"),
     "/notes": ("notes:view", "notes:write"),
+    "/aa": ("aa:view",),
 }
 if MAP_PUBLIC:
     # 地图不再对游客开放；登录账号需要至少一个地图权限才能查看
@@ -406,6 +418,7 @@ PAGE_VIEW_PATHS = {
     "/inventory",
     "/bookmarks",
     "/notes",
+    "/aa",
     "/messages",
     "/workbench",
     "/references",
@@ -1159,6 +1172,39 @@ def init_db():
                 granted_at TEXT NOT NULL,
                 PRIMARY KEY (role, permission)
             );
+
+            CREATE TABLE IF NOT EXISTS aa_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                owner_user_id INTEGER NOT NULL DEFAULT 0,
+                qr_path TEXT,
+                qr_name TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS aa_members (
+                event_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                joined_at TEXT NOT NULL,
+                PRIMARY KEY (event_id, user_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS aa_expenses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+                note TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_aa_members_user
+                ON aa_members(user_id, event_id);
+
+            CREATE INDEX IF NOT EXISTS idx_aa_expenses_event
+                ON aa_expenses(event_id, id);
 
             CREATE TABLE IF NOT EXISTS sessions (
                 sid TEXT PRIMARY KEY,
@@ -6028,6 +6074,10 @@ def required_permission(path, method):
         return None
     if path.startswith("/api/workbench") or path.startswith("/api/prompts"):
         return None
+    # AA 分账是独立的授权模块：一个权限点同时控制页面和全部业务接口，
+    # 默认不进入普通账号角色，只能在「工作台 → 账号权限」里按账号授予。
+    if path == "/aa" or path == "/api/aa" or path.startswith("/api/aa/"):
+        return AA_PERMISSION
     if path == "/api/account/nickname":
         return ""
     if path == "/api/site/messages/quota" and method == "GET":
@@ -6143,6 +6193,7 @@ DATA_PERMISSION_RULES = (
     ("note_images/", ("notes:view", "notes:write")),
     ("part_images/", ("inventory:view", "inventory:write")),
     ("bom_reports/", ("inventory:view", "inventory:write")),
+    ("aa_qr/", (AA_PERMISSION,)),
 )
 # 游客可见模块的接口 / 子路径前缀
 GUEST_RULE_PREFIXES = (
@@ -6165,6 +6216,102 @@ def guest_page_permission_for_path(path):
         if path.startswith(prefix):
             return rule
     return None
+
+
+AA_EVENT_TITLE_MAX_CHARS = 80
+AA_EVENT_MEMBER_MAX = 30
+AA_EXPENSE_NOTE_MAX_CHARS = 120
+AA_EXPENSE_MAX_CENTS = 100_000_000
+AA_QR_MAX_BYTES = 5 * 1024 * 1024
+
+
+def aa_amount_cents(value):
+    """把前端提交的整分金额校验成整数；不接收带小数的浮点值。"""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, float) and not value.is_integer():
+        return None
+    try:
+        cents = int(value)
+    except (TypeError, ValueError):
+        return None
+    if cents <= 0 or cents > AA_EXPENSE_MAX_CENTS:
+        return None
+    return cents
+
+
+def aa_settlement(members, expenses):
+    """
+    按人数平均分摊，并把除不尽的 1 分依次分给前面的成员。
+    返回每个成员的应付 / 已付 / 净额，以及尽量少的转账组合。
+    """
+    member_rows = [dict(item) for item in members]
+    if not member_rows:
+        return {"total_cents": 0, "members": [], "transfers": []}
+    paid_by_user = {int(item["user_id"]): 0 for item in member_rows}
+    total_cents = 0
+    for expense in expenses:
+        user_id = int(expense.get("user_id") or 0)
+        amount = int(expense.get("amount_cents") or 0)
+        if user_id in paid_by_user and amount > 0:
+            paid_by_user[user_id] += amount
+            total_cents += amount
+    base_share, remainder = divmod(total_cents, len(member_rows))
+    balances = []
+    for index, member in enumerate(member_rows):
+        user_id = int(member["user_id"])
+        share_cents = base_share + (1 if index < remainder else 0)
+        paid_cents = paid_by_user[user_id]
+        item = dict(member)
+        item.update(
+            {
+                "paid_cents": paid_cents,
+                "share_cents": share_cents,
+                "balance_cents": paid_cents - share_cents,
+            }
+        )
+        balances.append(item)
+
+    debtors = [
+        {"user_id": item["user_id"], "name": item["name"], "cents": -item["balance_cents"]}
+        for item in balances
+        if item["balance_cents"] < 0
+    ]
+    creditors = [
+        {"user_id": item["user_id"], "name": item["name"], "cents": item["balance_cents"]}
+        for item in balances
+        if item["balance_cents"] > 0
+    ]
+    debtors.sort(key=lambda item: (-item["cents"], int(item["user_id"])))
+    creditors.sort(key=lambda item: (-item["cents"], int(item["user_id"])))
+    transfers = []
+    debtor_index = 0
+    creditor_index = 0
+    while debtor_index < len(debtors) and creditor_index < len(creditors):
+        debtor = debtors[debtor_index]
+        creditor = creditors[creditor_index]
+        amount = min(debtor["cents"], creditor["cents"])
+        if amount > 0:
+            transfers.append(
+                {
+                    "from_user_id": debtor["user_id"],
+                    "from_name": debtor["name"],
+                    "to_user_id": creditor["user_id"],
+                    "to_name": creditor["name"],
+                    "amount_cents": amount,
+                }
+            )
+        debtor["cents"] -= amount
+        creditor["cents"] -= amount
+        if debtor["cents"] <= 0:
+            debtor_index += 1
+        if creditor["cents"] <= 0:
+            creditor_index += 1
+    return {
+        "total_cents": total_cents,
+        "members": balances,
+        "transfers": transfers,
+    }
 
 
 def write_audit(actor, action, detail="", target=None):
@@ -9426,6 +9573,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.send_file("notes.html")
             elif path == "/notes/read":
                 self.send_file("note-read.html")
+            elif path == "/aa":
+                self.send_file("aa.html")
             elif path == "/messages":
                 self.send_file("messages.html")
             elif path == "/workbench":
@@ -9546,6 +9695,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_prompts(query)
             elif path == "/api/notes":
                 self.api_notes(query)
+            elif path == "/api/aa/events":
+                self.api_aa_events()
+            elif path == "/api/aa/candidates":
+                self.api_aa_candidates()
+            elif re.fullmatch(r"/api/aa/events/\d+", path):
+                self.api_aa_event_detail(int(path.rsplit("/", 1)[1]))
             elif re.fullmatch(r"/api/notes/\d+/export\.html", path):
                 self.api_note_export(path)
             elif re.fullmatch(r"/api/shared/notes/\d+", path):
@@ -9721,6 +9876,14 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_note_import(payload)
             elif path == "/api/notes/images":
                 self.api_note_image_upload(payload)
+            elif path == "/api/aa/events":
+                self.api_aa_event_create(payload)
+            elif re.fullmatch(r"/api/aa/events/\d+/expenses", path):
+                self.api_aa_expense_create(
+                    int(path.split("/")[4]), payload
+                )
+            elif re.fullmatch(r"/api/aa/events/\d+/qr", path):
+                self.api_aa_qr_upload(int(path.split("/")[4]), payload)
             elif path == "/api/workbench/assets":
                 self.api_workbench_asset_upload(payload)
             elif path == "/api/workbench/repairs":
@@ -9778,6 +9941,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_bookmark_item(path)
             elif re.fullmatch(r"/api/notes/\d+", path):
                 self.api_note_item(path)
+            elif re.fullmatch(r"/api/aa/events/\d+", path):
+                self.api_aa_event_update(int(path.rsplit("/", 1)[1]))
+            elif re.fullmatch(r"/api/aa/expenses/\d+", path):
+                self.api_aa_expense_update(int(path.rsplit("/", 1)[1]))
             elif re.fullmatch(r"/api/books/\d+", path):
                 self.api_book_item(path)
             elif re.fullmatch(r"/api/moments/\d+", path):
@@ -9863,6 +10030,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_note_image_delete(path)
             elif re.fullmatch(r"/api/notes/\d+", path):
                 self.api_note_item(path)
+            elif re.fullmatch(r"/api/aa/events/\d+/qr", path):
+                self.api_aa_qr_delete(int(path.split("/")[4]))
+            elif re.fullmatch(r"/api/aa/events/\d+", path):
+                self.api_aa_event_delete(int(path.rsplit("/", 1)[1]))
+            elif re.fullmatch(r"/api/aa/expenses/\d+", path):
+                self.api_aa_expense_delete(int(path.rsplit("/", 1)[1]))
             elif re.fullmatch(r"/api/workbench/assets/\d+", path):
                 self.api_workbench_asset_item(path)
             elif re.fullmatch(r"/api/workbench/repairs/\d+", path):
@@ -9871,6 +10044,609 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 api_error(self, 404, "接口不存在。")
         except Exception as exc:
             api_error(self, 500, f"服务器错误：{exc}")
+
+    def aa_identity_user_id(self, identity):
+        return int((identity or {}).get("user_id") or 0)
+
+    def aa_identity_is_admin(self, identity):
+        return bool(identity and identity.get("kind") in ("owner", "admin"))
+
+    def aa_user_has_access(self, user_id):
+        return user_has_permission(user_id, ADMIN_PERMISSION) or user_has_permission(
+            user_id, AA_PERMISSION
+        )
+
+    def aa_event_member_ids(self, event_id):
+        return {
+            int(row["user_id"])
+            for row in query(
+                "SELECT user_id FROM aa_members WHERE event_id = ?", (event_id,)
+            )
+        }
+
+    def aa_event_members(self, event_id):
+        rows = query(
+            """SELECT user_id, joined_at FROM aa_members
+               WHERE event_id = ? ORDER BY joined_at, user_id""",
+            (event_id,),
+        )
+        user_ids = [int(row["user_id"]) for row in rows if int(row["user_id"]) != 0]
+        users = {}
+        if user_ids:
+            placeholders = ",".join("?" for _ in user_ids)
+            users = {
+                int(row["id"]): row
+                for row in query(
+                    f"""SELECT id, username, nickname FROM users
+                        WHERE id IN ({placeholders})""",
+                    tuple(user_ids),
+                )
+            }
+        result = []
+        for row in rows:
+            user_id = int(row["user_id"])
+            user = users.get(user_id) or {}
+            name = (
+                "管理员"
+                if user_id == 0
+                else str(user.get("nickname") or user.get("username") or f"用户 {user_id}")
+            )
+            result.append(
+                {
+                    "user_id": user_id,
+                    "username": str(user.get("username") or ""),
+                    "name": name,
+                    "joined_at": row["joined_at"],
+                }
+            )
+        return result
+
+    def aa_event_payload(self, event_id, identity, include_expenses=True):
+        event = query_one("SELECT * FROM aa_events WHERE id = ?", (event_id,))
+        if not event:
+            return None
+        current_user_id = self.aa_identity_user_id(identity)
+        is_admin = self.aa_identity_is_admin(identity)
+        member_ids = self.aa_event_member_ids(event_id)
+        if not is_admin and current_user_id not in member_ids:
+            return None
+        members = self.aa_event_members(event_id)
+        expense_rows = query(
+            """SELECT id, user_id, amount_cents, note, created_at, updated_at
+               FROM aa_expenses WHERE event_id = ? ORDER BY id DESC""",
+            (event_id,),
+        )
+        expenses = []
+        if include_expenses:
+            expenses = expense_rows
+            names = {int(item["user_id"]): item["name"] for item in members}
+            can_manage = is_admin or int(event["owner_user_id"]) == current_user_id
+            for expense in expenses:
+                user_id = int(expense["user_id"])
+                expense["user_name"] = names.get(user_id, f"用户 {user_id}")
+                expense["can_edit"] = bool(
+                    can_manage or user_id == current_user_id
+                )
+        settlement = aa_settlement(members, expense_rows)
+        owner_user_id = int(event["owner_user_id"])
+        owner_name = next(
+            (
+                item["name"]
+                for item in members
+                if int(item["user_id"]) == owner_user_id
+            ),
+            "管理员" if owner_user_id == 0 else f"用户 {owner_user_id}",
+        )
+        my_balance = next(
+            (
+                int(item["balance_cents"])
+                for item in settlement["members"]
+                if int(item["user_id"]) == current_user_id
+            ),
+            0,
+        )
+        return {
+            "id": int(event["id"]),
+            "title": event["title"],
+            "owner_user_id": owner_user_id,
+            "owner_name": owner_name,
+            "created_at": event["created_at"],
+            "updated_at": event["updated_at"],
+            "member_count": len(members),
+            "members": settlement["members"],
+            "expenses": expenses,
+            "transfers": settlement["transfers"],
+            "total_cents": settlement["total_cents"],
+            "my_balance_cents": my_balance,
+            "current_user_id": current_user_id,
+            "is_admin": is_admin,
+            "can_manage": bool(is_admin or owner_user_id == current_user_id),
+            "can_add_expense": current_user_id in member_ids,
+            "qr_url": (
+                "/site-files/" + str(event["qr_path"])
+                if event.get("qr_path")
+                else ""
+            ),
+            "qr_name": event.get("qr_name") or "",
+        }
+
+    def api_aa_events(self):
+        identity = self.session_identity()
+        if not identity:
+            api_error(self, 401, "请登录后操作")
+            return
+        current_user_id = self.aa_identity_user_id(identity)
+        if self.aa_identity_is_admin(identity):
+            rows = query(
+                """SELECT id FROM aa_events
+                   ORDER BY updated_at DESC, id DESC"""
+            )
+        else:
+            rows = query(
+                """SELECT e.id FROM aa_events e
+                   JOIN aa_members m ON m.event_id = e.id
+                   WHERE m.user_id = ?
+                   ORDER BY e.updated_at DESC, e.id DESC""",
+                (current_user_id,),
+            )
+        events = []
+        for row in rows:
+            payload = self.aa_event_payload(int(row["id"]), identity, False)
+            if not payload:
+                continue
+            events.append(
+                {
+                    "id": payload["id"],
+                    "title": payload["title"],
+                    "owner_name": payload["owner_name"],
+                    "updated_at": payload["updated_at"],
+                    "member_count": payload["member_count"],
+                    "total_cents": payload["total_cents"],
+                    "my_balance_cents": payload["my_balance_cents"],
+                    "can_manage": payload["can_manage"],
+                }
+            )
+        self.send_json(
+            200,
+            {
+                "events": events,
+                "current_user_id": current_user_id,
+                "is_admin": self.aa_identity_is_admin(identity),
+            },
+        )
+
+    def api_aa_candidates(self):
+        identity = self.session_identity()
+        if not identity:
+            api_error(self, 401, "请登录后操作")
+            return
+        candidates = []
+        for row in query(
+            """SELECT id, username, nickname FROM users
+               WHERE status = 'approved'
+               ORDER BY COALESCE(NULLIF(nickname, ''), username) COLLATE NOCASE"""
+        ):
+            if not self.aa_user_has_access(int(row["id"])):
+                continue
+            candidates.append(
+                {
+                    "id": int(row["id"]),
+                    "username": row["username"],
+                    "name": row.get("nickname") or row["username"],
+                }
+            )
+        self.send_json(
+            200,
+            {
+                "users": candidates,
+                "current_user_id": self.aa_identity_user_id(identity),
+            },
+        )
+
+    def aa_validated_title(self, payload):
+        title = str((payload or {}).get("title") or "").strip()
+        if not title:
+            api_error(self, 400, "请填写分账名称。")
+            return ""
+        if len(title) > AA_EVENT_TITLE_MAX_CHARS:
+            api_error(
+                self,
+                400,
+                f"分账名称不能超过 {AA_EVENT_TITLE_MAX_CHARS} 字。",
+            )
+            return ""
+        return title
+
+    def aa_validated_member_ids(self, identity, raw_member_ids, event_id=None):
+        if not isinstance(raw_member_ids, list):
+            api_error(self, 400, "参与人格式不正确。")
+            return None
+        ids = set()
+        for raw in raw_member_ids:
+            if isinstance(raw, bool):
+                api_error(self, 400, "参与人格式不正确。")
+                return None
+            try:
+                user_id = int(raw)
+            except (TypeError, ValueError):
+                api_error(self, 400, "参与人格式不正确。")
+                return None
+            if user_id != 0:
+                user = query_one(
+                    "SELECT id, status FROM users WHERE id = ?", (user_id,)
+                )
+                if not user or user.get("status") != "approved":
+                    api_error(self, 400, "有参与人账号不存在或未通过审核。")
+                    return None
+                if not self.aa_user_has_access(user_id):
+                    api_error(self, 400, "有参与人还没有被授予 AA 分账权限。")
+                    return None
+            ids.add(user_id)
+        if event_id is None:
+            ids.add(self.aa_identity_user_id(identity))
+        else:
+            event = query_one("SELECT owner_user_id FROM aa_events WHERE id = ?", (event_id,))
+            if event:
+                ids.add(int(event["owner_user_id"]))
+        if len(ids) < 2:
+            api_error(self, 400, "至少需要两位参与人。")
+            return None
+        if len(ids) > AA_EVENT_MEMBER_MAX:
+            api_error(self, 400, f"一次最多 {AA_EVENT_MEMBER_MAX} 位参与人。")
+            return None
+        return sorted(ids)
+
+    def api_aa_event_create(self, payload):
+        identity = self.session_identity()
+        if not identity:
+            api_error(self, 401, "请登录后操作")
+            return
+        title = self.aa_validated_title(payload)
+        if not title:
+            return
+        member_ids = self.aa_validated_member_ids(
+            identity, (payload or {}).get("member_ids")
+        )
+        if member_ids is None:
+            return
+        stamp = now_text()
+
+        def create(conn):
+            cursor = conn.execute(
+                """INSERT INTO aa_events
+                       (title, owner_user_id, created_at, updated_at)
+                   VALUES (?, ?, ?, ?)""",
+                (title, self.aa_identity_user_id(identity), stamp, stamp),
+            )
+            event_id = int(cursor.lastrowid)
+            conn.executemany(
+                """INSERT INTO aa_members (event_id, user_id, joined_at)
+                   VALUES (?, ?, ?)""",
+                [(event_id, user_id, stamp) for user_id in member_ids],
+            )
+            return event_id
+
+        event_id = transaction(create)
+        self.log_activity(
+            "aa_event_create",
+            f"创建 AA 分账：{title}",
+            target_type="aa_event",
+            target_id=event_id,
+        )
+        self.send_json(
+            200, {"ok": True, "event": self.aa_event_payload(event_id, identity)}
+        )
+
+    def api_aa_event_detail(self, event_id):
+        identity = self.session_identity()
+        payload = self.aa_event_payload(event_id, identity)
+        if not payload:
+            api_error(self, 404, "分账不存在或你没有访问权限。")
+            return
+        self.send_json(200, payload)
+
+    def api_aa_event_update(self, event_id):
+        identity = self.session_identity()
+        event = query_one("SELECT * FROM aa_events WHERE id = ?", (event_id,))
+        if not event:
+            api_error(self, 404, "分账不存在。")
+            return
+        current_user_id = self.aa_identity_user_id(identity)
+        if not (
+            self.aa_identity_is_admin(identity)
+            or int(event["owner_user_id"]) == current_user_id
+        ):
+            api_error(self, 403, "只有发起人可以修改参与人。")
+            return
+        payload = get_payload(self)
+        if payload is None:
+            return
+        title = self.aa_validated_title(payload)
+        if not title:
+            return
+        raw_member_ids = payload.get("member_ids")
+        member_ids = self.aa_validated_member_ids(
+            identity, raw_member_ids, event_id=event_id
+        )
+        if member_ids is None:
+            return
+        existing_ids = self.aa_event_member_ids(event_id)
+        removed_ids = existing_ids - set(member_ids)
+        for user_id in removed_ids:
+            count = query_one(
+                """SELECT COUNT(*) AS n FROM aa_expenses
+                   WHERE event_id = ? AND user_id = ?""",
+                (event_id, user_id),
+            )["n"]
+            if count:
+                api_error(self, 400, "已有费用记录的参与人不能移除。")
+                return
+        stamp = now_text()
+
+        def update(conn):
+            conn.execute(
+                "UPDATE aa_events SET title = ?, updated_at = ? WHERE id = ?",
+                (title, stamp, event_id),
+            )
+            conn.execute("DELETE FROM aa_members WHERE event_id = ?", (event_id,))
+            conn.executemany(
+                """INSERT INTO aa_members (event_id, user_id, joined_at)
+                   VALUES (?, ?, ?)""",
+                [(event_id, user_id, stamp) for user_id in member_ids],
+            )
+
+        transaction(update)
+        self.log_activity(
+            "aa_event_update",
+            f"修改 AA 分账：{title}",
+            target_type="aa_event",
+            target_id=event_id,
+        )
+        self.send_json(
+            200, {"ok": True, "event": self.aa_event_payload(event_id, identity)}
+        )
+
+    def api_aa_event_delete(self, event_id):
+        identity = self.session_identity()
+        event = query_one("SELECT * FROM aa_events WHERE id = ?", (event_id,))
+        if not event:
+            api_error(self, 404, "分账不存在。")
+            return
+        current_user_id = self.aa_identity_user_id(identity)
+        if not (
+            self.aa_identity_is_admin(identity)
+            or int(event["owner_user_id"]) == current_user_id
+        ):
+            api_error(self, 403, "只有发起人可以删除这个分账。")
+            return
+        qr_path = event.get("qr_path")
+
+        def remove(conn):
+            conn.execute("DELETE FROM aa_expenses WHERE event_id = ?", (event_id,))
+            conn.execute("DELETE FROM aa_members WHERE event_id = ?", (event_id,))
+            conn.execute("DELETE FROM aa_events WHERE id = ?", (event_id,))
+
+        transaction(remove)
+        if qr_path:
+            remove_data_file(qr_path)
+        self.log_activity(
+            "aa_event_delete",
+            f"删除 AA 分账：{event['title']}",
+            target_type="aa_event",
+            target_id=event_id,
+        )
+        self.send_json(200, {"ok": True})
+
+    def aa_member_event(self, event_id):
+        identity = self.session_identity()
+        event = query_one("SELECT * FROM aa_events WHERE id = ?", (event_id,))
+        if not event:
+            api_error(self, 404, "分账不存在。")
+            return None, None
+        member_ids = self.aa_event_member_ids(event_id)
+        current_user_id = self.aa_identity_user_id(identity)
+        if current_user_id not in member_ids:
+            api_error(self, 403, "只有活动成员可以录入费用。")
+            return None, None
+        return event, identity
+
+    def api_aa_expense_create(self, event_id, payload):
+        event, identity = self.aa_member_event(event_id)
+        if not event:
+            return
+        amount_cents = aa_amount_cents((payload or {}).get("amount_cents"))
+        if amount_cents is None:
+            api_error(self, 400, "金额需大于 0，且不超过 1,000,000 元。")
+            return
+        note = str((payload or {}).get("note") or "").strip()
+        if len(note) > AA_EXPENSE_NOTE_MAX_CHARS:
+            api_error(
+                self,
+                400,
+                f"备注不能超过 {AA_EXPENSE_NOTE_MAX_CHARS} 字。",
+            )
+            return
+        stamp = now_text()
+        expense_id = execute(
+            """INSERT INTO aa_expenses
+                   (event_id, user_id, amount_cents, note, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                event_id,
+                self.aa_identity_user_id(identity),
+                amount_cents,
+                note,
+                stamp,
+                stamp,
+            ),
+        )
+        execute(
+            "UPDATE aa_events SET updated_at = ? WHERE id = ?", (stamp, event_id)
+        )
+        self.log_activity(
+            "aa_expense_create",
+            f"在 AA 分账「{event['title']}」录入费用",
+            target_type="aa_event",
+            target_id=event_id,
+        )
+        self.send_json(
+            200,
+            {
+                "ok": True,
+                "expense_id": expense_id,
+                "event": self.aa_event_payload(event_id, identity),
+            },
+        )
+
+    def api_aa_expense_update(self, expense_id):
+        identity = self.session_identity()
+        expense = query_one("SELECT * FROM aa_expenses WHERE id = ?", (expense_id,))
+        if not expense:
+            api_error(self, 404, "费用记录不存在。")
+            return
+        event = query_one("SELECT * FROM aa_events WHERE id = ?", (expense["event_id"],))
+        current_user_id = self.aa_identity_user_id(identity)
+        if not (
+            self.aa_identity_is_admin(identity)
+            or int(event["owner_user_id"]) == current_user_id
+            or int(expense["user_id"]) == current_user_id
+        ):
+            api_error(self, 403, "只能修改自己的费用记录。")
+            return
+        payload = get_payload(self)
+        if payload is None:
+            return
+        amount_cents = aa_amount_cents(payload.get("amount_cents"))
+        if amount_cents is None:
+            api_error(self, 400, "金额需大于 0，且不超过 1,000,000 元。")
+            return
+        note = str(payload.get("note") or "").strip()
+        if len(note) > AA_EXPENSE_NOTE_MAX_CHARS:
+            api_error(
+                self,
+                400,
+                f"备注不能超过 {AA_EXPENSE_NOTE_MAX_CHARS} 字。",
+            )
+            return
+        stamp = now_text()
+        execute(
+            """UPDATE aa_expenses
+               SET amount_cents = ?, note = ?, updated_at = ?
+               WHERE id = ?""",
+            (amount_cents, note, stamp, expense_id),
+        )
+        execute(
+            "UPDATE aa_events SET updated_at = ? WHERE id = ?",
+            (stamp, expense["event_id"]),
+        )
+        self.send_json(
+            200,
+            {
+                "ok": True,
+                "event": self.aa_event_payload(expense["event_id"], identity),
+            },
+        )
+
+    def api_aa_expense_delete(self, expense_id):
+        identity = self.session_identity()
+        expense = query_one("SELECT * FROM aa_expenses WHERE id = ?", (expense_id,))
+        if not expense:
+            api_error(self, 404, "费用记录不存在。")
+            return
+        event = query_one("SELECT * FROM aa_events WHERE id = ?", (expense["event_id"],))
+        current_user_id = self.aa_identity_user_id(identity)
+        if not (
+            self.aa_identity_is_admin(identity)
+            or int(event["owner_user_id"]) == current_user_id
+            or int(expense["user_id"]) == current_user_id
+        ):
+            api_error(self, 403, "只能删除自己的费用记录。")
+            return
+        stamp = now_text()
+        execute("DELETE FROM aa_expenses WHERE id = ?", (expense_id,))
+        execute(
+            "UPDATE aa_events SET updated_at = ? WHERE id = ?",
+            (stamp, expense["event_id"]),
+        )
+        self.send_json(
+            200,
+            {
+                "ok": True,
+                "event": self.aa_event_payload(expense["event_id"], identity),
+            },
+        )
+
+    def api_aa_qr_upload(self, event_id, payload):
+        identity = self.session_identity()
+        event = query_one("SELECT * FROM aa_events WHERE id = ?", (event_id,))
+        if not event:
+            api_error(self, 404, "分账不存在。")
+            return
+        current_user_id = self.aa_identity_user_id(identity)
+        if not (
+            self.aa_identity_is_admin(identity)
+            or int(event["owner_user_id"]) == current_user_id
+        ):
+            api_error(self, 403, "只有发起人可以设置收款码。")
+            return
+        name = os.path.basename(str((payload or {}).get("name") or "receipt.png"))
+        extension = os.path.splitext(name)[1].lower()
+        if extension not in MESSAGE_IMAGE_EXTENSIONS:
+            api_error(self, 400, "只支持 png、jpg、jpeg、gif、webp、bmp 图片。")
+            return
+        try:
+            raw = base64.b64decode(
+                str((payload or {}).get("data_base64") or ""), validate=True
+            )
+        except Exception:
+            api_error(self, 400, "图片数据无效。")
+            return
+        if not raw:
+            api_error(self, 400, "图片内容为空。")
+            return
+        if len(raw) > AA_QR_MAX_BYTES:
+            api_error(self, 400, "收款码图片不能超过 5MB。")
+            return
+        try:
+            relative = self.save_data_file(
+                raw, name, "aa_qr", max_bytes=AA_QR_MAX_BYTES
+            )
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        old_path = event.get("qr_path")
+        execute(
+            """UPDATE aa_events
+               SET qr_path = ?, qr_name = ?, updated_at = ?
+               WHERE id = ?""",
+            (relative, name, now_text(), event_id),
+        )
+        if old_path:
+            remove_data_file(old_path)
+        self.send_json(200, {"ok": True, "url": "/site-files/" + relative})
+
+    def api_aa_qr_delete(self, event_id):
+        identity = self.session_identity()
+        event = query_one("SELECT * FROM aa_events WHERE id = ?", (event_id,))
+        if not event:
+            api_error(self, 404, "分账不存在。")
+            return
+        current_user_id = self.aa_identity_user_id(identity)
+        if not (
+            self.aa_identity_is_admin(identity)
+            or int(event["owner_user_id"]) == current_user_id
+        ):
+            api_error(self, 403, "只有发起人可以删除收款码。")
+            return
+        if event.get("qr_path"):
+            remove_data_file(event["qr_path"])
+        execute(
+            """UPDATE aa_events
+               SET qr_path = NULL, qr_name = NULL, updated_at = ?
+               WHERE id = ?""",
+            (now_text(), event_id),
+        )
+        self.send_json(200, {"ok": True})
 
     def api_dashboard(self):
         stats = {
