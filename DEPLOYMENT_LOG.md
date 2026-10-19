@@ -6357,3 +6357,55 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 ```
 
 备注：线上完整 AA 页面需要管理员或获授权账号登录，公网核验使用服务端实际返回的同版静态页面，并验证游客重定向与接口 401；活动创建、费用结算、收款码和授权前后行为在隔离测试数据库上完成，没有改动线上真实账号或 AA 数据。
+
+## 142. 2026-10-20 01:27:49 优化财务账目交互、行内编辑与移动端体验
+
+来源：站长测试财务模块后反馈顶栏按钮宽度、金额输入框焦点边框、分摊人面板箭头与动画、行内编辑取消入口、财务选项输入框、移动端收款码弹窗滚动，以及汇总卡片位置和混合分摊结算逻辑等问题。
+
+完成内容（提交 `6430a8c feat:polish-finance-layout-and-editing`，6 文件，+193/−70）：
+
+- 右上角“新建账目”和“删除账目”宽度改为两倍：桌面 80px、手机 76px；其它功能按钮仍为 40px / 38px，只有新建账目保留主题色。
+- 修复费用金额输入框的双层紫色焦点框错位：金额输入本身不再画第二道 outline，由外层容器统一绘制焦点环。
+- 分摊人选择改成自定义 chevron，展开时箭头旋转、面板淡入位移；多选时保持展开，点击外部或按 ESC 收起。
+- 已有费用进入行内编辑后，对号旁增加取消叉号，可直接放弃本次修改；空白费用行继续保留叉号取消。
+- 财务选项的新增输入框恢复 40px 正常高度，添加按钮与输入框同一行右侧排列，不再使用整块全宽按钮。
+- 移动端收款码弹窗改为自身滚动，`overscroll-behavior: contain` 并锁住背景页面滚动，避免滑动时带动底层账目。
+- 总支出、人均、我的结算合并进右栏同一张卡片，放在转账方案上方；手机同样保持三列单卡片。
+- 新增混合分摊单元测试：同一账目中存在 2 人、3 人和单人分摊时，逐笔验证每位成员的垫付、应分和净额。
+
+部署步骤：
+```text
+本地：Python 编译检查；python -m unittest discover -s tests -> 146 passed；
+      node --check static/finance.js / static/site/button-effects.js；
+      python -m json.tool config/changelog-seed.json；git diff --check 干净
+浏览器：Playwright 验证按钮宽度 80/40 与手机 76/38、单卡片三列汇总、
+        金额焦点单边框、分摊人动画、编辑取消叉号、选项输入框与按钮同行、
+        移动端收款码弹窗内部滚动且背景 scrollY 不变
+提交：6430a8c feat:polish-finance-layout-and-editing
+      （fetch → pull --rebase → push；local == origin/main == 6430a8c）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = dfa2f6946d5ed18fc6f933523c0be1ce24e71cdb65182b13204fffdb23bc5203
+备份：/data/errorjiang-backup/20261020-012711/
+      （inventory.db 5.9M + changelog-seed.json 116K + auth.json 223B；无 WAL / SHM）
+服务器：systemctl stop -> cp 备份 -> git pull --ff-only -> 6430a8c
+      seed 安装；import_changelog_moments.py --date 2026-10-20 --force
+      -> 新增 1 条、覆盖 0 条、跳过 0 条
+      systemctl start
+```
+
+验证结果：
+```text
+服务      -> errorjiang / nginx active，/api/health = {"ok": true}
+版本      -> 本地代码提交 = origin/main = 服务器 HEAD = 6430a8c
+             服务器工作区干净，未跟踪的 data.before-upload-20260929-183359/ 原样保留
+更新日志  -> /api/moments 里 2026-10-20 01:26:10
+             「优化财务账目交互、行内编辑与移动端体验」（id 723，kind = log）
+静态文件  -> finance.html 线上 / 本地 SHA256 = 443C4A3FB484A08CDE7D0FD18C9727BDDEC9A493EE970EC2E9BC44FF7D4C3D43
+             finance.css  线上 / 本地 SHA256 = BEABC1A1401724C8EA32B044EADF414B328A87F29E2D9D07D1A25C963FBA2D52
+             finance.js   线上 / 本地 SHA256 = B3ED91E7B20F7810DB0C33B8B7BE8A0080F5664857FF6E00D6E8FE377B8739CC
+线上页面  -> 公网 /finance 对游客返回 302 /login?next=/finance；
+             线上 finance.html 已包含宽按钮、单卡片汇总与移动端折叠入口
+本地回归  -> 146 项单测通过；混合分摊、行内取消、分摊面板动画、选项表单和移动端弹窗滚动均通过
+```
+
+备注：线上完整财务数据需要登录，公网使用服务器实际返回的同版静态文件做哈希和页面结构检查；交互验证在隔离测试数据库上完成，没有改动线上真实账目。
