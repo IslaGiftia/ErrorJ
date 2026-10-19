@@ -151,20 +151,6 @@
     }, 140);
   }
 
-  function markSeen(key) {
-    if (authed !== true) return;
-    var spec = specOf(key);
-    if (!spec || !spec.badge) return;
-    counts[spec.module] = 0;
-    paintBadges();
-    fetch("/api/site/notifications/seen", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(spec.seen || { module: spec.module }),
-      cache: "no-store"
-    }).catch(function () {});
-  }
-
   function updateUrl(key) {
     try {
       var url = new URL(location.href);
@@ -210,8 +196,21 @@
     paintAction(key);
     requestRelayout(key);
     syncFrameMetrics();
-    markSeen(key);
+    syncFrameActive();
     if (!options || !options.keepUrl) updateUrl(key);
+  }
+
+  function syncFrameActive() {
+    TABS.forEach(function (tab) {
+      var win = frameWindow(tab.key);
+      if (!win) return;
+      try {
+        win.postMessage(
+          { type: "errorj-recommend-visibility", active: tab.key === activeKey },
+          window.location.origin
+        );
+      } catch (err) {}
+    });
   }
 
   function loadCounts() {
@@ -229,9 +228,6 @@
           recommendation_web: Number(data.recommendation_web) || 0,
           recommendation_resource: Number(data.recommendation_resource) || 0
         };
-        // 正在看的这一栏已经算读过
-        var spec = specOf(activeKey);
-        if (spec && spec.badge) counts[spec.module] = 0;
         paintBadges();
       })
       .catch(function () {})
@@ -260,7 +256,12 @@
     window.addEventListener("message", function (event) {
       if (event.origin !== window.location.origin) return;
       var data = event.data;
-      if (!data || data.type !== "errorj-recommend-dialog") return;
+      if (!data) return;
+      if (data.type === "errorj-notification-seen") {
+        loadCounts();
+        return;
+      }
+      if (data.type !== "errorj-recommend-dialog") return;
       setDialogOpen(data.open);
     });
   }
@@ -344,7 +345,10 @@
       keys: TAB_KEYS.slice(),
     };
     Array.prototype.forEach.call(document.querySelectorAll(".dl-frame"), function (frame) {
-      frame.addEventListener("load", syncFrameMetrics);
+      frame.addEventListener("load", function () {
+        syncFrameMetrics();
+        syncFrameActive();
+      });
     });
     window.addEventListener("resize", syncFrameMetrics);
     // 侧栏浮在 iframe 上面，滚轮落在这里时手动转发给当前子页，滚动体感一致
@@ -369,6 +373,8 @@
     // 先无条件点亮一次，保证首屏按钮 / 面板状态正确，再按 URL 参数切换
     activate(wanted || TAB_KEYS[0], { keepUrl: !wanted, force: true });
     syncFrameMetrics();
+    window.setTimeout(syncFrameActive, 0);
+    window.setTimeout(syncFrameActive, 600);
     // 整页打开时 （/downloads?tab=web&focus=6）把要定位的那条转发进对应子页
     var focusId = 0;
     try {

@@ -248,7 +248,12 @@
   }
 
   function activate() {
-    if (window.ErrorInertiaScroll) window.ErrorInertiaScroll.cancel();
+    if (window.ErrorInertiaScroll) {
+      if (window.ErrorInertiaScroll.ignoreNextTouch) {
+        window.ErrorInertiaScroll.ignoreNextTouch();
+      }
+      window.ErrorInertiaScroll.cancel();
+    }
     if (pending && typeof pending.onActivate === "function") {
       pending.onActivate();
       return;

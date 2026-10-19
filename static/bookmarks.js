@@ -532,7 +532,7 @@
     const button = $("checkLinksBtn");
     const status = state.checkStatus;
     button.disabled = Boolean(status?.running);
-    const label = button.querySelector("span");
+    const label = $("checkLinksLabel");
     if (label) {
       label.textContent = status?.running
         ? `检查中 ${status.completed}/${status.total}`

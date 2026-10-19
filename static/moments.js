@@ -509,6 +509,7 @@
 
   function clearFreshCard(card, ids) {
     card.classList.remove("is-fresh");
+    if (window.ErrorFreshVisibility) window.ErrorFreshVisibility.unwatch(card);
     Array.prototype.forEach.call(
       card.querySelectorAll(".mo-comment-text.is-new-comment"),
       function (node) {
@@ -538,6 +539,11 @@
     };
     card.addEventListener("mouseenter", clear);
     card.addEventListener("touchstart", clear, { passive: true });
+    if (window.ErrorFreshVisibility) {
+      window.ErrorFreshVisibility.watch(card, function () {
+        clearFreshCard(card, ids);
+      });
+    }
   }
 
   // 移动端没有 hover：滚到新评论后把正文的闪烁重放一次（CSS 在触摸设备上只闪 3 次）
@@ -1689,6 +1695,7 @@
     if (currentMomentKind !== "log" && currentMomentFilter !== "all") {
       rows = rows.filter(momentMatchesFilter);
     }
+    if (window.ErrorFreshVisibility) window.ErrorFreshVisibility.reset();
     list.innerHTML = "";
     if (!rows.length) {
       list.appendChild(el("div", "mo-empty", momentEmptyText()));

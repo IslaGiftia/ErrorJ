@@ -23,6 +23,7 @@
   var frame = 0;
   var topFrame = 0;
   var topToken = 0;
+  var ignoreStartUntil = 0;
   var velocity = 0;
   var expectedY = null;
   var lastFrameTime = 0;
@@ -188,7 +189,23 @@
     });
   }
 
+  function ignoreNextTouch() {
+    ignoreStartUntil = now() + 700;
+  }
+
   function onStart(event) {
+    if (now() < ignoreStartUntil) {
+      tracking = false;
+      return;
+    }
+    /*
+     * 顶部按钮在 pointerdown 就启动回顶动画；touchstart 紧随其后。
+     * 这里不能再 cancel，否则手机上回顶动画刚启动就被同一根手指取消。
+     */
+    if (event.target && event.target.closest && event.target.closest(".site-back-top")) {
+      tracking = false;
+      return;
+    }
     cancel();
     samples = [];
     tracking = event.touches.length === 1 && !inNestedScroller(event.target);
@@ -223,6 +240,7 @@
   ) {
     window.ErrorInertiaScroll = {
       cancel: function () {},
+      ignoreNextTouch: function () {},
       enabled: false,
       toTop: toTop,
     };
@@ -239,5 +257,10 @@
     if (document.hidden) cancel();
   });
 
-  window.ErrorInertiaScroll = { cancel: cancel, enabled: true, toTop: toTop };
+  window.ErrorInertiaScroll = {
+    cancel: cancel,
+    ignoreNextTouch: ignoreNextTouch,
+    enabled: true,
+    toTop: toTop,
+  };
 })();

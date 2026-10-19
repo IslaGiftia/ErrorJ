@@ -61,7 +61,7 @@
   pointer-events: none;
 }
 
-.fx-liquid-host > :not(.fx-liquid-layer) {
+.fx-liquid-host > :not(.fx-liquid-layer):not(.fx-state-mark) {
   position: relative;
   z-index: 1;
 }

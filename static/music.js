@@ -147,6 +147,7 @@
     var box = $("musicList");
     var tracks = state.tracks;
     var count = $("musicCount");
+    if (window.ErrorFreshCards) window.ErrorFreshCards.reset();
     if (count) count.textContent = tracks.length ? tracks.length + " 首" : "";
     box.classList.toggle("is-manager", state.canManage);
     // 管理员有分享 / 下载 / 编辑 / 删除，其它人（含游客）至少有「举报」

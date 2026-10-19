@@ -316,7 +316,8 @@
   function ensureLiquidLayer(el) {
     var layer = el.querySelector(":scope > .fx-liquid-layer");
     if (layer) return layer;
-    layer = document.createElement("span");
+    // 不用 span：页面常用 button.querySelector("span") 找文字标签。
+    layer = document.createElement("i");
     layer.className = "fx-liquid-layer";
     layer.setAttribute("aria-hidden", "true");
     el.insertBefore(layer, el.firstChild);
@@ -340,7 +341,7 @@
     );
     var size = radius * 2;
     var layer = ensureLiquidLayer(el);
-    var ripple = document.createElement("span");
+    var ripple = document.createElement("i");
     ripple.className = "fx-liquid-ripple";
     ripple.style.width = size + "px";
     ripple.style.height = size + "px";

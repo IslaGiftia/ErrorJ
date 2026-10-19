@@ -831,6 +831,7 @@
 
   function clearFreshCard(card, ids) {
     card.classList.remove("is-fresh");
+    if (window.ErrorFreshVisibility) window.ErrorFreshVisibility.unwatch(card);
     Array.prototype.forEach.call(
       card.querySelectorAll(".mg-reply-text.is-new-reply"),
       function (node) {
@@ -860,6 +861,11 @@
     };
     card.addEventListener("mouseenter", clear);
     card.addEventListener("touchstart", clear, { passive: true });
+    if (window.ErrorFreshVisibility) {
+      window.ErrorFreshVisibility.watch(card, function () {
+        clearFreshCard(card, ids);
+      });
+    }
   }
 
   // 移动端没有 hover：滚到新回复后把正文的闪烁重放一次（CSS 在触摸设备上只闪 3 次）
@@ -1397,6 +1403,7 @@
     var list = $("messageList");
     if (!list) return;
     var rows = filterRows(latestMessageRows);
+    if (window.ErrorFreshVisibility) window.ErrorFreshVisibility.reset();
     list.innerHTML = "";
     var total = 0;
     rows.forEach(function (row) {

@@ -92,6 +92,7 @@
     var grid = $("bookGrid");
     var books = visibleBooks();
     var count = $("bookCount");
+    if (window.ErrorFreshCards) window.ErrorFreshCards.reset();
     count.textContent = state.books.length ? state.books.length + " 本" : "";
     if (!books.length) {
       grid.innerHTML =

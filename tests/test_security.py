@@ -2784,6 +2784,41 @@ class ComplianceWorkflowTests(unittest.TestCase):
         # display:none，Chrome 对 display:none 的元素不跑过渡，淡入淡出就没了
         self.assertIn("display:inline-flex!important", script)
 
+    def test_fresh_notifications_use_visible_three_pulse_read_timing(self):
+        pages = (
+            "messages.html",
+            "moments.html",
+            "music.html",
+            "books.html",
+            "recommendations.html",
+        )
+        for page in pages:
+            text = (app.STATIC_DIR / page).read_text(encoding="utf-8")
+            self.assertIn("/static/site/fresh-visibility.js", text)
+            self.assertNotIn("/static/site/notify-seen.js", text)
+        script = (app.STATIC_DIR / "site" / "fresh-visibility.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("READ_PULSES = 3", script)
+        self.assertIn("PULSE_MS = 3600", script)
+        self.assertIn("errorj-recommend-visibility", script)
+
+    def test_button_effect_layers_do_not_capture_label_text(self):
+        script = (app.STATIC_DIR / "site" / "button-effects.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('layer = document.createElement("i")', script)
+        self.assertIn('ripple = document.createElement("i")', script)
+        css = (app.STATIC_DIR / "site" / "button-effects.css").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            ".fx-liquid-host > :not(.fx-liquid-layer):not(.fx-state-mark)",
+            css,
+        )
+        page = (app.STATIC_DIR / "bookmarks.html").read_text(encoding="utf-8")
+        self.assertIn('id="checkLinksLabel"', page)
+
     def test_report_modal_has_explicit_hidden_rule(self):
         css = (app.STATIC_DIR / "site" / "report.css").read_text(encoding="utf-8")
         self.assertIn(".er-report-overlay[hidden]", css)

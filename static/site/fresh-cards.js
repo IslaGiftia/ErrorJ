@@ -20,12 +20,24 @@
     }).catch(function () {});
   }
 
+  function notifyParent() {
+    if (!window.ERRORJ_EMBED) return;
+    try {
+      window.parent.postMessage(
+        { type: "errorj-notification-seen", module: moduleName },
+        window.location.origin
+      );
+    } catch (err) {}
+  }
+
   function clear(node, targetId) {
     var targetKey = key(targetId);
     if (!targets[targetKey]) return;
     delete targets[targetKey];
     node.classList.remove("is-fresh");
+    if (window.ErrorFreshVisibility) window.ErrorFreshVisibility.unwatch(node);
     requestSeen(targetId);
+    notifyParent();
   }
 
   function isFresh(targetId) {
@@ -35,6 +47,11 @@
   function mark(node, targetId) {
     if (!node || !isFresh(targetId)) return;
     node.classList.add("is-fresh");
+    if (window.ErrorFreshVisibility) {
+      window.ErrorFreshVisibility.watch(node, function () {
+        clear(node, targetId);
+      });
+    }
     node.addEventListener(
       "mouseenter",
       function () {
@@ -79,5 +96,8 @@
     load: load,
     isFresh: isFresh,
     mark: mark,
+    reset: function () {
+      if (window.ErrorFreshVisibility) window.ErrorFreshVisibility.reset();
+    },
   };
 })();

@@ -593,6 +593,7 @@
   }
 
   function renderCards() {
+    if (window.ErrorFreshCards) window.ErrorFreshCards.reset();
     var rows = visibleItems();
     var cards = rows.map(buildCard);
     renderColumns(cards);
