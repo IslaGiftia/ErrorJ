@@ -6303,3 +6303,57 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 ```
 
 备注：线上留言 / 推荐完整数据需要登录，交互验证使用公网返回的同版静态页面与脚本，只 mock 列表接口；没有修改线上真实留言、动态或推荐数据。
+
+## 141. 2026-10-19 23:28:42 新增 AA 分账、多人垫付与独立授权
+
+来源：站长希望增加一个类似 AA 计算器的小工具：几个人分别录入自己垫付的钱，自动按人数均摊，并展示发起人的收款码。随后明确权限要求：游客不能访问，普通账号默认不能访问，只有管理员和被管理员单独授予权限的账号可以使用。
+
+完成内容（提交 `e6c64b1 feat:add-aa-expense-splitter`，9 文件，+3077/−2）：
+
+- 新增独立页面 `/aa`，首页增加只在有权限时显示的 `AA` 入口。页面包含活动列表、创建 / 编辑参与人、费用录入与编辑、总额 / 人均 / 我的结算、成员应收应付和最少转账方案。
+- 新增 `aa:view` 权限点，默认不进入游客或普通账号角色，只能在「工作台 → 账号权限 → 全部账户」里按账号授予。`/aa` 页面、`/api/aa/*` 接口和 `aa_qr/` 收款码文件都走服务端权限校验。
+- 游客访问 `/aa` 会跳转登录；没有权限的普通账号会返回首页，接口返回 403；管理员和获授权普通账号可以正常进入。
+- 活动只对参与人可见。成员可以录入和修改自己的费用，发起人可以管理参与人、删除活动、上传 / 更换 / 移除收款码，也可以修正活动内费用。
+- 金额按整数分保存并平均分摊，除不尽的 1 分依次分给前面的成员；结算净额严格相加为 0，再生成尽量少的转账组合。
+- 新增 `aa_events`、`aa_members`、`aa_expenses` 三张表及索引；收款码存放在 `data/aa_qr/`。README、参考项目页和站内更新日志同步补充。
+- 测试新增权限默认值、页面与接口权限映射、收款码文件访问、整数分摊与平账、数据库建表覆盖；本地 Playwright 覆盖创建活动、录入费用、上传收款码、桌面 / 手机布局，以及授权前 403、管理员授权后可进入、收回权限后再次拦截。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -> 143 passed；
+      node --check static/aa.js / static/site/site.js；
+      python -m json.tool config/changelog-seed.json；git diff --check 干净
+提交：e6c64b1 feat:add-aa-expense-splitter
+      （fetch -> pull --rebase -> push；local == origin/main == e6c64b1）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 2fed976d5d268ae4912859115331a193e0933a28913f4915d564db832aba2f56
+备份：/data/errorjiang-backup/20261019-232532/
+      （inventory.db 5.8M + changelog-seed.json 115K + auth.json 223B；无 WAL / SHM）
+服务器：systemctl stop -> cp 备份 -> git pull --ff-only -> e6c64b1
+      有表结构变更，先运行 runuser -u errorjiang -- python3 -c 'import app; app.init_db()'
+      seed 安装；import_changelog_moments.py --date 2026-10-19 --force
+      -> 新增 2 条、覆盖 0 条、跳过 0 条
+      systemctl start
+```
+
+验证结果：
+```text
+服务      -> errorjiang / nginx active，/api/health = {"ok": true}
+版本      -> 本地代码提交 = origin/main = 服务器 HEAD = e6c64b1
+             服务器工作区干净，未跟踪的 data.before-upload-20260929-183359/ 原样保留
+数据库    -> aa_events / aa_members / aa_expenses 三张表存在
+更新日志  -> /api/moments 里 2026-10-19 23:24:02
+             「新增 AA 分账：多人垫付、自动均摊与收款码」（id 722，kind = log）
+静态文件  -> aa.html 线上 / 本地 SHA256 = 864D72201A0B3055F73C20A2A4D6A95BE8D2FDB17A4C53D61C7D7D5AB1C402B5
+             aa.css  线上 / 本地 SHA256 = E7264A283B03C04414DB9037495723C8267B231230F8824FD83D2E556879B782
+             aa.js   线上 / 本地 SHA256 = F5F6A9C2E95534814A67F52E1A19E0339ED0E928DF0B534770D8B72779B9B7D4
+权限边界  -> 公网 GET /aa = 302 Location: /login?next=/aa；
+             公网 GET /api/aa/events = 401 Unauthorized
+线上页面  -> 公网同版 /static/aa.html 在 1440×1000 与 390×844 下正常渲染，
+             aa.css / aa.js 均加载，两个尺寸都没有横向溢出，page error 为 0
+本地回归  -> 管理员创建活动、添加费用、上传收款码正常；
+             未授权普通账号页面被挡回首页且接口 403；
+             管理员授予 aa:view 后可进入，收回后再次被拦截
+```
+
+备注：线上完整 AA 页面需要管理员或获授权账号登录，公网核验使用服务端实际返回的同版静态页面，并验证游客重定向与接口 401；活动创建、费用结算、收款码和授权前后行为在隔离测试数据库上完成，没有改动线上真实账号或 AA 数据。
