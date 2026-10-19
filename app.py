@@ -216,11 +216,11 @@ PERMISSION_GROUPS = (
     },
     {
         "key": "aa",
-        "label": "财务",
+        "label": "计算器",
         "items": (
             {
                 "key": "aa:view",
-                "label": "使用财务（查看、创建账目、录入费用）",
+                "label": "使用计算器（查看、创建账目、录入费用）",
             },
         ),
     },
@@ -6128,7 +6128,7 @@ def required_permission(path, method):
         return None
     if path.startswith("/api/workbench") or path.startswith("/api/prompts"):
         return None
-    # 财务是独立的授权模块：一个权限点同时控制页面和全部业务接口，
+    # 计算器是独立的授权模块：一个权限点同时控制页面和全部业务接口，
     # 默认不进入普通账号角色，只能在「工作台 → 账号权限」里按账号授予。
     if path in ("/aa", "/finance") or path == "/api/aa" or path.startswith("/api/aa/"):
         return AA_PERMISSION
@@ -10425,7 +10425,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     api_error(self, 400, "有参与人账号不存在或未通过审核。")
                     return None
                 if not self.aa_user_has_access(user_id):
-                    api_error(self, 400, "有参与人还没有被授予财务权限。")
+                    api_error(self, 400, "有参与人还没有被授予计算器权限。")
                     return None
             ids.add(user_id)
         if event_id is None:
@@ -10475,7 +10475,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         event_id = transaction(create)
         self.log_activity(
             "aa_event_create",
-            f"创建财务账目：{title}",
+            f"创建计算器账目：{title}",
             target_type="aa_event",
             target_id=event_id,
         )
@@ -10552,7 +10552,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         transaction(update)
         self.log_activity(
             "aa_event_update",
-            f"修改财务账目：{title}",
+            f"修改计算器账目：{title}",
             target_type="aa_event",
             target_id=event_id,
         )
@@ -10602,7 +10602,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             remove_data_file(receipt_path)
         self.log_activity(
             "aa_event_delete",
-            f"删除财务账目：{event['title']}",
+            f"删除计算器账目：{event['title']}",
             target_type="aa_event",
             target_id=event_id,
         )
@@ -10698,7 +10698,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )
         self.log_activity(
             "aa_expense_create",
-            f"在财务账目「{event['title']}」录入费用",
+            f"在计算器账目「{event['title']}」录入费用",
             target_type="aa_event",
             target_id=event_id,
         )

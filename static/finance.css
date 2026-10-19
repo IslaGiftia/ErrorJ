@@ -114,7 +114,16 @@ button {
 }
 
 .fin-fab-wide {
+  display: flex;
   width: 80px;
+  gap: 6px;
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.fin-fab-wide span {
+  white-space: nowrap;
 }
 
 .fin-fab-primary {
@@ -171,30 +180,27 @@ button {
   font-size: 12px;
 }
 
-.fin-event-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--fin-text);
-  font-size: 15px;
-  font-weight: 750;
-  pointer-events: none;
-}
-
-.fin-event-toggle svg {
+.fin-mobile-events {
   display: none;
-  width: 15px;
-  height: 15px;
-  color: var(--fin-muted);
-  transform-origin: center;
-  transition: transform var(--dur-base) var(--ease-out-strong);
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 41;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid var(--fin-border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--fin-surface) 94%, transparent);
+  color: var(--fin-text);
+  box-shadow: 0 8px 24px rgba(25, 29, 38, 0.13);
+  backdrop-filter: blur(12px);
+  cursor: pointer;
 }
 
-.fin-event-toggle.is-collapsed svg {
-  transform: rotate(180deg);
+.fin-mobile-events svg {
+  width: 18px;
+  height: 18px;
 }
 
 .fin-event-list {
@@ -270,8 +276,12 @@ button {
 }
 
 .fin-event-item-bottom {
+  display: flex;
   align-self: end;
+  align-items: flex-start;
+  flex-direction: column;
   margin-top: 9px;
+  gap: 2px;
   color: var(--fin-muted);
   font-size: 11px;
 }
@@ -422,6 +432,18 @@ button {
   border-bottom: 1px solid var(--fin-border);
 }
 
+.fin-panel-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fin-panel-title-row span {
+  color: var(--fin-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .fin-expense-list,
 .fin-balance-list,
 .fin-transfer-list {
@@ -442,6 +464,7 @@ button {
   grid-template-columns: minmax(92px, 112px) minmax(150px, 1fr) minmax(170px, 1.15fr) auto;
   align-items: center;
   gap: 12px;
+  min-height: 52px;
 }
 
 .fin-expense-trigger {
@@ -679,9 +702,10 @@ button {
 .fin-split-picker-panel {
   position: absolute;
   top: calc(100% + 6px);
-  right: 0;
+  right: auto;
+  left: 0;
   z-index: 25;
-  width: min(260px, 72vw);
+  width: 100%;
   max-height: 230px;
   padding: 6px;
   overflow: auto;
@@ -805,6 +829,19 @@ button {
   min-height: 34px;
   padding: 0 10px;
   font-size: 12px;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity var(--dur-fast) ease,
+    transform var(--dur-fast) ease,
+    background-color var(--dur-fast) ease,
+    border-color var(--dur-fast) ease;
+}
+
+.fin-add-expense.is-fading {
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
 }
 
 .fin-expense-actions {
@@ -1157,32 +1194,37 @@ body.fin-dialog-open {
     padding: 60px 12px 42px;
   }
 
+  .fin-mobile-events {
+    display: grid;
+  }
+
   .fin-sidebar {
-    padding: 0 0 10px;
-    border-right: 0;
-    border-bottom: 1px solid var(--fin-border);
+    position: fixed;
+    top: 56px;
+    left: 12px;
+    z-index: 40;
+    display: none;
+    width: min(280px, calc(100vw - 24px));
+    max-height: min(62vh, 430px);
+    padding: 10px;
+    overflow: auto;
+    border: 1px solid var(--fin-border);
+    border-radius: var(--radius);
+    background: var(--fin-surface);
+    box-shadow: var(--fin-shadow-raised);
   }
 
-  .fin-sidebar-head {
-    padding-bottom: 8px;
-  }
-
-  .fin-event-toggle {
-    pointer-events: auto;
-    cursor: pointer;
-  }
-
-  .fin-event-toggle svg {
+  .fin-sidebar.is-mobile-open {
     display: block;
   }
 
-  .fin-sidebar.is-collapsed .fin-event-list {
+  .fin-sidebar-head {
     display: none;
   }
 
   .fin-event-list {
-    max-height: 188px;
-    overflow: auto;
+    max-height: none;
+    overflow: visible;
   }
 
   .fin-main {

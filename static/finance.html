@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#7b68ee">
-  <title>财务</title>
+  <title>计算器</title>
   <meta name="tab-name" content="ej-finance">
   <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=4">
   <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=4">
@@ -23,9 +23,12 @@
   <link rel="stylesheet" href="/static/fonts.css">
 </head>
 <body>
-  <nav class="fin-fab-stack" id="financeActions" aria-label="财务操作">
+  <button class="fin-mobile-events" id="mobileEventsBtn" type="button" title="展开账目" aria-label="展开账目" aria-expanded="false">
+    <i data-lucide="menu"></i>
+  </button>
+  <nav class="fin-fab-stack" id="financeActions" aria-label="计算器操作">
     <button class="fin-fab fin-fab-primary fin-fab-wide" id="newEventBtn" type="button" title="新建账目" aria-label="新建账目">
-      <i data-lucide="plus"></i>
+      <i data-lucide="plus"></i><span>新建</span>
     </button>
     <button class="fin-fab" id="editEventBtn" type="button" title="参与人" aria-label="参与人" hidden>
       <i data-lucide="users"></i>
@@ -41,10 +44,7 @@
   <div class="fin-layout">
     <aside class="fin-sidebar">
       <div class="fin-sidebar-head">
-        <button class="fin-event-toggle" id="eventsToggle" type="button" title="折叠账目" aria-label="折叠账目" aria-expanded="true">
-          <span>账目</span>
-          <i data-lucide="chevron-up"></i>
-        </button>
+        <h2>账目</h2>
       </div>
       <div class="fin-event-list" id="eventList"></div>
     </aside>
@@ -52,13 +52,13 @@
     <main class="fin-main">
       <section class="fin-empty" id="emptyState">
         <span class="fin-empty-icon"><i data-lucide="wallet-cards"></i></span>
-        <h1>还没有财务账目</h1>
+        <h1>还没有账目</h1>
         <p>用右上角的加号新建一个账目。</p>
       </section>
 
       <section class="fin-event" id="eventView" hidden>
         <header class="fin-event-head">
-          <p class="fin-kicker">财务账目</p>
+          <p class="fin-kicker">计算器</p>
           <h1 id="eventTitle"></h1>
           <p id="eventMeta"></p>
         </header>
@@ -66,9 +66,9 @@
         <div class="fin-content-grid">
           <section class="fin-panel fin-expenses-panel">
             <header class="fin-panel-head">
-              <div>
+              <div class="fin-panel-title-row">
                 <h2>费用明细</h2>
-                <p id="expenseMeta">0 笔</p>
+                <span id="expenseMeta">0 笔</span>
               </div>
               <div class="fin-expense-actions">
                 <button class="fin-icon-btn fin-expense-toggle" id="expensesToggle" type="button" title="折叠费用明细" aria-label="折叠费用明细" aria-expanded="true">
@@ -100,9 +100,9 @@
 
             <section class="fin-panel">
               <header class="fin-panel-head">
-                <div>
+                <div class="fin-panel-title-row">
                   <h2>转账方案</h2>
-                  <p id="transferMeta">0 笔</p>
+                  <span id="transferMeta">0 笔</span>
                 </div>
               </header>
               <div class="fin-transfer-list" id="transferList"></div>

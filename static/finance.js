@@ -10,8 +10,9 @@
     editingEventId: null,
     inlineEditId: null,
     draftExpense: null,
-    eventsCollapsed: false,
+    mobileEventsOpen: false,
     expensesCollapsed: false,
+    addExpenseHideTimer: 0,
     selectedParticipants: new Set(),
     receiptTargetId: null,
     receiptButton: null,
@@ -176,18 +177,17 @@
     return window.matchMedia && window.matchMedia("(max-width: 820px)").matches;
   }
 
-  function setEventsCollapsed(collapsed) {
-    state.eventsCollapsed = Boolean(collapsed) && isMobileEvents();
+  function setMobileEventsOpen(open) {
+    state.mobileEventsOpen = Boolean(open) && isMobileEvents();
     var sidebar = document.querySelector(".fin-sidebar");
-    var toggle = $("eventsToggle");
-    if (sidebar) sidebar.classList.toggle("is-collapsed", state.eventsCollapsed);
-    if (toggle) {
-      toggle.classList.toggle("is-collapsed", state.eventsCollapsed);
-      toggle.setAttribute("aria-expanded", state.eventsCollapsed ? "false" : "true");
-      toggle.title = state.eventsCollapsed ? "展开账目" : "折叠账目";
-      toggle.setAttribute(
+    var button = $("mobileEventsBtn");
+    if (sidebar) sidebar.classList.toggle("is-mobile-open", state.mobileEventsOpen);
+    if (button) {
+      button.setAttribute("aria-expanded", state.mobileEventsOpen ? "true" : "false");
+      button.title = state.mobileEventsOpen ? "收起账目" : "展开账目";
+      button.setAttribute(
         "aria-label",
-        state.eventsCollapsed ? "展开账目" : "折叠账目"
+        state.mobileEventsOpen ? "收起账目" : "展开账目"
       );
     }
   }
@@ -376,10 +376,9 @@
     var expenses = detail.expenses || [];
     $("expenseMeta").textContent =
       expenses.length + " 笔" + (state.draftExpense ? " · 1 笔未保存" : "");
-    $("addExpenseBtn").hidden =
-      !detail.can_add_expense ||
-      Boolean(state.draftExpense) ||
-      Boolean(state.inlineEditId);
+    setAddExpenseVisibility(
+      detail.can_add_expense && !state.draftExpense && !state.inlineEditId
+    );
     if (!expenses.length && !state.draftExpense) {
       list.innerHTML = '<div class="fin-empty-row">还没有费用记录</div>';
       return;
@@ -394,7 +393,9 @@
       expenses
       .map(function (item) {
         return (
-          '<article class="fin-expense-item" data-expense-item="' +
+          '<article class="fin-expense-item' +
+          (Number(state.inlineEditId) === Number(item.id) ? " is-editing" : "") +
+          '" data-expense-item="' +
           Number(item.id) +
           '">' +
           (Number(state.inlineEditId) === Number(item.id)
@@ -507,13 +508,32 @@
 
   function setFloatingActions() {
     var detail = state.detail;
-    $("addExpenseBtn").hidden =
-      !(detail && detail.can_add_expense) ||
-      Boolean(state.draftExpense) ||
-      Boolean(state.inlineEditId);
+    setAddExpenseVisibility(
+      Boolean(detail && detail.can_add_expense) &&
+        !state.draftExpense &&
+        !state.inlineEditId
+    );
     $("editEventBtn").hidden = !(detail && detail.can_manage);
     $("receiptsBtn").hidden = !detail;
     $("deleteEventBtn").hidden = !(detail && detail.can_manage);
+  }
+
+  function setAddExpenseVisibility(visible) {
+    var button = $("addExpenseBtn");
+    if (!button) return;
+    window.clearTimeout(state.addExpenseHideTimer);
+    if (visible) {
+      button.hidden = false;
+      window.requestAnimationFrame(function () {
+        button.classList.remove("is-fading");
+      });
+      return;
+    }
+    button.classList.add("is-fading");
+    state.addExpenseHideTimer = window.setTimeout(function () {
+      button.hidden = true;
+      button.classList.remove("is-fading");
+    }, 160);
   }
 
   function renderDetail() {
@@ -525,12 +545,12 @@
     if (!detail) {
       empty.hidden = false;
       view.hidden = true;
-      document.title = "财务";
+      document.title = "计算器";
       return;
     }
     empty.hidden = true;
     view.hidden = false;
-    document.title = detail.title + " - 财务";
+    document.title = "计算器";
     $("eventTitle").textContent = detail.title;
     $("eventMeta").textContent =
       detail.member_count +
@@ -591,7 +611,6 @@
       if (!target && state.events.length) target = state.events[0];
       if (target) {
         await loadDetail(target.id, true);
-        if (isMobileEvents()) setEventsCollapsed(true);
       } else {
         state.detail = null;
         setEventUrl(null);
@@ -736,6 +755,22 @@
     state.draftExpense = null;
     renderExpenses();
     setFloatingActions();
+  }
+
+  function activeExpenseItem() {
+    return document.querySelector(
+      ".fin-expense-item.is-editing, .fin-expense-item.is-draft"
+    );
+  }
+
+  function cancelActiveExpenseEdit() {
+    if (!state.inlineEditId && !state.draftExpense) return false;
+    state.inlineEditId = null;
+    state.draftExpense = null;
+    closeSplitPickers(null);
+    renderExpenses();
+    setFloatingActions();
+    return true;
   }
 
   function parseMoneyCents(value) {
@@ -956,7 +991,10 @@
     $("newEventBtn").addEventListener("click", function () {
       openEventDialog(null);
     });
-    $("addExpenseBtn").addEventListener("click", addDraftExpense);
+    $("addExpenseBtn").addEventListener("click", function (event) {
+      event.stopPropagation();
+      addDraftExpense();
+    });
     $("editEventBtn").addEventListener("click", function () {
       if (state.detail) openEventDialog(state.detail.id);
     });
@@ -966,11 +1004,16 @@
     $("eventList").addEventListener("click", function (event) {
       var button = event.target.closest("[data-event-id]");
       if (!button) return;
-      setEventsCollapsed(true);
+      setMobileEventsOpen(false);
       loadDetail(Number(button.getAttribute("data-event-id")), true);
     });
 
     $("expenseList").addEventListener("click", function (event) {
+      var active = activeExpenseItem();
+      if (active && !active.contains(event.target)) {
+        cancelActiveExpenseEdit();
+        return;
+      }
       var splitToggle = event.target.closest("[data-split-toggle]");
       if (splitToggle) {
         event.preventDefault();
@@ -993,6 +1036,7 @@
         state.inlineEditId = Number(edit.getAttribute("data-expense-start-edit"));
         renderExpenses();
         setFloatingActions();
+        event.stopPropagation();
         return;
       }
       var cancelDraft = event.target.closest("[data-draft-cancel]");
@@ -1058,8 +1102,9 @@
     });
 
     $("eventForm").addEventListener("submit", submitEvent);
-    $("eventsToggle").addEventListener("click", function () {
-      setEventsCollapsed(!state.eventsCollapsed);
+    $("mobileEventsBtn").addEventListener("click", function (event) {
+      event.stopPropagation();
+      setMobileEventsOpen(!state.mobileEventsOpen);
     });
     $("expensesToggle").addEventListener("click", function () {
       setExpensesCollapsed(!state.expensesCollapsed);
@@ -1107,6 +1152,17 @@
       if (event.key === "Escape") closeSplitPickers(null);
     });
     document.addEventListener("click", function (event) {
+      if (
+        state.mobileEventsOpen &&
+        !event.target.closest(".fin-sidebar") &&
+        !event.target.closest("#mobileEventsBtn")
+      ) {
+        setMobileEventsOpen(false);
+      }
+      var active = activeExpenseItem();
+      if (active && !active.contains(event.target)) {
+        cancelActiveExpenseEdit();
+      }
       if (event.target.closest(".fin-split-picker")) return;
       closeSplitPickers(null);
     });
@@ -1115,7 +1171,7 @@
       dialog.addEventListener("close", syncDialogScrollLock);
     });
     window.addEventListener("resize", function () {
-      if (!isMobileEvents()) setEventsCollapsed(false);
+      if (!isMobileEvents()) setMobileEventsOpen(false);
     });
     syncDialogScrollLock();
   }
