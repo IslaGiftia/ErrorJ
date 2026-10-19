@@ -6410,6 +6410,58 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 
 备注：线上完整财务数据需要登录，公网使用服务器实际返回的同版静态文件做哈希和页面结构检查；交互验证在隔离测试数据库上完成，没有改动线上真实账目。
 
+## 144. 2026-10-20 02:53:51 计算器更名、分摊人面板对齐与移动端账目弹出选择
+
+来源：站长继续优化计算器页面，要求统一分摊人面板宽度、固定行内编辑高度、补全取消编辑交互、把统计移到标题右侧、将模块改名为“计算器”，并重做移动端账目选择和费用明细折叠。
+
+完成内容（提交 `a2a3d0e feat:polish-calculator-interactions`，7 文件，+197/−98）：
+
+- 对外名称统一改为“计算器”：首页按钮、标签页标题、权限名称和页面标题均更新；标签页只显示“计算器”，不再拼接账目名称。右上角新建按钮改为“+ 新建”。
+- 分摊人选项面板宽度与触发区域严格一致，桌面与手机相同；箭头只让 SVG 图标自身原地旋转，文字与边框保持固定。
+- 行内编辑增加固定最小高度，进入金额、备注、分摊人编辑时不再导致整条费用高度变矮。
+- “记一笔”的显示 / 隐藏沿用推荐页上传按钮的淡出 + 位移 + 淡入逻辑。
+- 点击新增或编辑区域以外的地方会取消当前空白费用或编辑；点击其它费用行也会先取消当前编辑。
+- 费用明细和转账方案的笔数移到标题右侧，与右侧“记一笔”按钮垂直中心对齐。
+- PC 左侧账目卡片把人数 / 应收与更新时间拆成两行，修复文字覆盖。
+- 移动端删除左上角固定“账目”标题和旧折叠按钮，改为左上角悬浮按钮；点击展开小型账目选择面板，再点或点外部关闭。
+- 移动端“记一笔”左侧增加费用明细折叠按钮，折叠后可查看汇总、转账方案和成员结算。
+
+部署步骤：
+```text
+本地：Python 编译检查；python -m unittest discover -s tests -> 145 passed；
+      node --check static/finance.js；JSON 校验；git diff --check 干净
+浏览器：Playwright 验证计算器标题、80/40 按钮宽度、固定行高、分摊面板等宽、
+        箭头仅 SVG 原地旋转、点击外部取消、按钮淡出 / 淡入、
+        标题旁统计对齐、PC 账目元数据分行、移动端账目弹层与费用折叠
+提交：a2a3d0e feat:polish-calculator-interactions
+      （fetch → pull --rebase → push；local == origin/main == a2a3d0e）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = d6d529460d191636bb57749dfa410a13795f6d98b9f52973b766deaecbff7088
+备份：/data/errorjiang-backup/20261020-025309/
+      （inventory.db 5.9M + changelog-seed.json 118K + auth.json 223B；无 WAL / SHM）
+服务器：systemctl stop -> cp 备份 -> git pull --ff-only -> a2a3d0e
+      seed 安装；import_changelog_moments.py --date 2026-10-20 --force
+      -> 新增 3 条、覆盖 0 条、跳过 0 条（当天三条按 seed 重建）
+      systemctl start
+```
+
+验证结果：
+```text
+服务      -> errorjiang / nginx active，/api/health = {"ok": true}
+版本      -> 本地代码提交 = origin/main = 服务器 HEAD = a2a3d0e
+             服务器工作区干净，未跟踪的 data.before-upload-20260929-183359/ 原样保留
+更新日志  -> /api/moments 里 2026-10-20 02:52:01
+             「计算器更名、分摊人面板对齐与移动端账目弹出选择」（id 728，kind = log）
+静态文件  -> finance.html 线上 / 本地 SHA256 = 8F672AA1199621061174E7F9809055B587ACCF8C1C27A6645D4B2CEE7F32D717
+             finance.css  线上 / 本地 SHA256 = 664667F0A8C309B5C7A254092C7945B68954251F8AAEE194E8DAF02C75EAD851
+             finance.js   线上 / 本地 SHA256 = 0C8CA4024A65638C159B7CAEB9E2EE0E43B4B375B739D2C3CD98C8C5C1AF52F8
+线上页面  -> 公网 /finance 对游客返回 302 /login?next=/finance；
+             线上 finance.html 标题为「计算器」，包含 mobileEventsBtn / expensesToggle，无 settingsBtn
+本地回归  -> 145 项单测通过；计算器页面交互和移动端布局全部通过
+```
+
+备注：线上完整计算器数据需要登录，公网使用服务器实际返回的同版静态文件做哈希和页面结构检查；交互验证在隔离测试数据库上完成，没有改动线上真实账目。
+
 ## 143. 2026-10-20 02:07:31 精简财务入口、收紧桌面布局并完善移动端折叠
 
 来源：站长继续测试财务模块后要求恢复删除按钮宽度、移除财务选项功能、减少 PC 留白、删除账目数量与账号搜索、调整移动端账目和费用明细折叠，并修正分摊人箭头旋转方式。
