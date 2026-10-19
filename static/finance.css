@@ -139,7 +139,7 @@ button {
   min-height: 100vh;
   min-height: 100dvh;
   margin: 0 auto;
-  padding: 76px 82px 28px 18px;
+  padding: 64px 24px 28px 18px;
 }
 
 .fin-sidebar {
@@ -156,22 +156,14 @@ button {
   padding: 0 7px 10px;
 }
 
-.fin-sidebar-title {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
 .fin-sidebar-head h2,
 .fin-panel-head h2,
-.fin-dialog-head h2,
-.fin-settings-section h3 {
+.fin-dialog-head h2 {
   margin: 0;
   font-size: 15px;
   line-height: 1.35;
 }
 
-.fin-sidebar-title span,
 .fin-panel-head p,
 .fin-dialog-head p {
   margin: 3px 0 0;
@@ -180,25 +172,29 @@ button {
 }
 
 .fin-event-toggle {
-  display: none;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  border: 1px solid var(--fin-border);
-  border-radius: var(--radius-sm);
-  background: var(--fin-surface);
-  color: var(--fin-muted);
-  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fin-text);
+  font-size: 15px;
+  font-weight: 750;
+  pointer-events: none;
 }
 
 .fin-event-toggle svg {
-  width: 16px;
-  height: 16px;
-  transition: rotate var(--dur-base) var(--ease-out-strong);
+  display: none;
+  width: 15px;
+  height: 15px;
+  color: var(--fin-muted);
+  transform-origin: center;
+  transition: transform var(--dur-base) var(--ease-out-strong);
 }
 
 .fin-event-toggle.is-collapsed svg {
-  rotate: 180deg;
+  transform: rotate(180deg);
 }
 
 .fin-event-list {
@@ -326,7 +322,7 @@ button {
 }
 
 .fin-event {
-  max-width: 1240px;
+  max-width: 1320px;
 }
 
 .fin-event-head {
@@ -656,22 +652,28 @@ button {
 }
 
 .fin-split-chevron {
+  display: grid;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
   margin-left: auto;
+  place-items: center;
   color: var(--fin-muted);
-  transition: rotate var(--dur-base) var(--ease-out-strong);
 }
 
 .fin-split-chevron svg {
   width: 15px;
   height: 15px;
+  transform-origin: center;
+  transition: transform var(--dur-base) var(--ease-out-strong);
 }
 
 .fin-split-picker.is-open .fin-split-trigger {
   border-color: var(--fin-accent);
 }
 
-.fin-split-picker.is-open .fin-split-chevron {
-  rotate: 180deg;
+.fin-split-picker.is-open .fin-split-chevron svg {
+  transform: rotate(180deg);
 }
 
 .fin-split-picker-panel {
@@ -805,6 +807,25 @@ button {
   font-size: 12px;
 }
 
+.fin-expense-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fin-expense-toggle {
+  display: none;
+}
+
+.fin-expense-toggle svg {
+  transform-origin: center;
+  transition: transform var(--dur-base) var(--ease-out-strong);
+}
+
+.fin-expenses-panel.is-collapsed .fin-expense-toggle svg {
+  transform: rotate(180deg);
+}
+
 .fin-btn {
   display: inline-flex;
   min-height: 38px;
@@ -926,9 +947,7 @@ body.fin-dialog-open {
   font-weight: 650;
 }
 
-.fin-field input,
-.fin-search input,
-.fin-option-add input {
+.fin-field input {
   width: 100%;
   min-width: 0;
   height: 40px;
@@ -940,45 +959,9 @@ body.fin-dialog-open {
   color: var(--fin-text);
 }
 
-.fin-field input:focus,
-.fin-search input:focus,
-.fin-option-add input:focus {
+.fin-field input:focus {
   border-color: var(--fin-accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--fin-accent) 14%, transparent);
-}
-
-.fin-money-input {
-  display: flex;
-  height: 48px;
-  align-items: center;
-  border: 1px solid var(--fin-border);
-  border-radius: var(--radius);
-  background: var(--fin-surface-soft);
-}
-
-.fin-money-input:focus-within {
-  border-color: var(--fin-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fin-accent) 14%, transparent);
-}
-
-.fin-money-input span {
-  padding-left: 13px;
-  color: var(--fin-muted);
-  font-size: 20px;
-}
-
-.fin-money-input input {
-  flex: 1;
-  width: 100%;
-  min-width: 0;
-  height: 100%;
-  padding: 0 12px 0 7px;
-  border: 0;
-  outline: none;
-  background: transparent;
-  color: var(--fin-text);
-  font-size: 22px;
-  font-variant-numeric: tabular-nums;
 }
 
 .fin-participant-head {
@@ -1004,27 +987,6 @@ body.fin-dialog-open {
   font-size: 12px;
 }
 
-.fin-search {
-  position: relative;
-  display: block;
-  width: min(190px, 48%);
-}
-
-.fin-search svg {
-  position: absolute;
-  top: 11px;
-  left: 9px;
-  width: 18px;
-  height: 18px;
-  color: var(--fin-muted);
-}
-
-.fin-search input {
-  height: 36px;
-  padding-left: 31px;
-  font-size: 12px;
-}
-
 .fin-check-list {
   max-height: 260px;
   overflow: auto;
@@ -1032,82 +994,11 @@ body.fin-dialog-open {
   border-radius: var(--radius);
 }
 
-.fin-check-list-compact {
-  max-height: 210px;
-}
-
 .fin-form-hint {
   min-height: 18px;
   margin: 8px 0 0;
   color: var(--fin-muted);
   font-size: 12px;
-}
-
-.fin-settings-body {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 18px;
-}
-
-.fin-settings-section {
-  min-width: 0;
-}
-
-.fin-settings-section h3 {
-  margin-bottom: 9px;
-}
-
-.fin-option-add {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 7px;
-  margin-bottom: 10px;
-}
-
-.fin-option-add input {
-  width: 100%;
-  height: 40px;
-}
-
-.fin-option-add .fin-btn {
-  min-height: 40px;
-  padding: 0 14px;
-}
-
-.fin-option-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-}
-
-.fin-option-item {
-  display: inline-flex;
-  min-height: 32px;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 4px 3px 10px;
-  border: 1px solid var(--fin-border);
-  border-radius: var(--radius-pill);
-  background: var(--fin-surface-soft);
-  font-size: 12px;
-}
-
-.fin-option-delete {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--fin-danger);
-  cursor: pointer;
-}
-
-.fin-option-delete svg {
-  width: 13px;
-  height: 13px;
 }
 
 .fin-receipt-grid {
@@ -1263,7 +1154,7 @@ body.fin-dialog-open {
 @media (max-width: 820px) {
   .fin-layout {
     display: block;
-    padding: 68px 12px 42px;
+    padding: 60px 12px 42px;
   }
 
   .fin-sidebar {
@@ -1277,7 +1168,12 @@ body.fin-dialog-open {
   }
 
   .fin-event-toggle {
-    display: grid;
+    pointer-events: auto;
+    cursor: pointer;
+  }
+
+  .fin-event-toggle svg {
+    display: block;
   }
 
   .fin-sidebar.is-collapsed .fin-event-list {
@@ -1310,8 +1206,12 @@ body.fin-dialog-open {
     grid-column: 1 / -1;
   }
 
-  .fin-settings-body {
-    grid-template-columns: 1fr;
+  .fin-expense-toggle {
+    display: grid;
+  }
+
+  .fin-expenses-panel.is-collapsed .fin-expense-list {
+    display: none;
   }
 }
 

@@ -7,11 +7,11 @@
     currentUserId: 0,
     isAdmin: false,
     candidates: null,
-    options: { event: [], expense: [] },
     editingEventId: null,
     inlineEditId: null,
     draftExpense: null,
     eventsCollapsed: false,
+    expensesCollapsed: false,
     selectedParticipants: new Set(),
     receiptTargetId: null,
     receiptButton: null,
@@ -192,6 +192,24 @@
     }
   }
 
+  function setExpensesCollapsed(collapsed) {
+    state.expensesCollapsed = Boolean(collapsed);
+    var panel = document.querySelector(".fin-expenses-panel");
+    var toggle = $("expensesToggle");
+    if (panel) panel.classList.toggle("is-collapsed", state.expensesCollapsed);
+    if (toggle) {
+      toggle.setAttribute(
+        "aria-expanded",
+        state.expensesCollapsed ? "false" : "true"
+      );
+      toggle.title = state.expensesCollapsed ? "展开费用明细" : "折叠费用明细";
+      toggle.setAttribute(
+        "aria-label",
+        state.expensesCollapsed ? "展开费用明细" : "折叠费用明细"
+      );
+    }
+  }
+
   function balanceClass(value) {
     var number = Number(value) || 0;
     if (number > 0) return "is-positive";
@@ -199,62 +217,8 @@
     return "";
   }
 
-  function optionValues(kind) {
-    return (state.options[kind] || []).map(function (item) {
-      return item.value;
-    });
-  }
-
-  function renderDatalists() {
-    ["event", "expense"].forEach(function (kind) {
-      var datalist = $(kind === "event" ? "eventTitleOptions" : "expenseNoteOptions");
-      if (!datalist) return;
-      datalist.innerHTML = optionValues(kind)
-        .map(function (value) {
-          return '<option value="' + escapeHtml(value) + '"></option>';
-        })
-        .join("");
-    });
-  }
-
-  function renderOptionSettings() {
-    ["event", "expense"].forEach(function (kind) {
-      var list = $(kind + "OptionList");
-      if (!list) return;
-      var options = state.options[kind] || [];
-      list.innerHTML = options.length
-        ? options
-            .map(function (item) {
-              return (
-                '<span class="fin-option-item">' +
-                escapeHtml(item.value) +
-                '<button class="fin-option-delete" type="button" data-option-delete="' +
-                Number(item.id) +
-                '" data-hold-confirm title="长按删除" aria-label="长按删除选项">' +
-                '<i data-lucide="x"></i></button></span>'
-              );
-            })
-            .join("")
-        : '<span class="fin-empty-row">还没有选项</span>';
-    });
-    refreshIcons();
-    refreshButtons();
-  }
-
-  async function loadOptions() {
-    try {
-      var data = await api("/api/aa/options");
-      state.options = data.options || { event: [], expense: [] };
-      renderDatalists();
-      renderOptionSettings();
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-
   function renderEventList() {
     var list = $("eventList");
-    $("eventCountLabel").textContent = state.events.length + " 个";
     if (!state.events.length) {
       list.innerHTML = '<div class="fin-empty-row">没有账目</div>';
       return;
@@ -359,7 +323,7 @@
       '<label class="fin-inline-amount"><span>¥</span><input name="amount" inputmode="decimal" value="' +
       escapeHtml((Number(item.amount_cents) / 100).toFixed(2)) +
       '"></label>' +
-      '<label class="fin-inline-note"><input name="note" maxlength="120" list="expenseNoteOptions" value="' +
+      '<label class="fin-inline-note"><input name="note" maxlength="120" value="' +
       escapeHtml(item.note || "") +
       '" placeholder="备注"></label>' +
       '<div class="fin-split-picker"><button class="fin-split-trigger" type="button" data-split-toggle aria-expanded="false"><span data-inline-split-summary>' +
@@ -391,7 +355,7 @@
       '<label class="fin-inline-amount"><span>¥</span><input name="amount" inputmode="decimal" value="' +
       escapeHtml(draft.amount || "") +
       '" placeholder="0.00" autofocus></label>' +
-      '<label class="fin-inline-note"><input name="note" maxlength="120" list="expenseNoteOptions" value="' +
+      '<label class="fin-inline-note"><input name="note" maxlength="120" value="' +
       escapeHtml(draft.note || "") +
       '" placeholder="备注"></label>' +
       '<div class="fin-split-picker"><button class="fin-split-trigger" type="button" data-split-toggle aria-expanded="false"><span data-inline-split-summary>' +
@@ -543,7 +507,6 @@
 
   function setFloatingActions() {
     var detail = state.detail;
-    $("settingsBtn").hidden = !state.isAdmin;
     $("addExpenseBtn").hidden =
       !(detail && detail.can_add_expense) ||
       Boolean(state.draftExpense) ||
@@ -558,6 +521,7 @@
     var empty = $("emptyState");
     var view = $("eventView");
     setFloatingActions();
+    setExpensesCollapsed(state.expensesCollapsed);
     if (!detail) {
       empty.hidden = false;
       view.hidden = true;
@@ -598,6 +562,7 @@
       if (requestId !== state.requestId) return;
       state.detail = detail;
       state.inlineEditId = null;
+      state.expensesCollapsed = false;
       if (updateUrl !== false) setEventUrl(detail.id);
       renderEventList();
       renderDetail();
@@ -658,17 +623,9 @@
     $("participantCount").textContent = "已选 " + count + " 人";
   }
 
-  function renderParticipants(filter) {
-    var keyword = String(filter || "").trim().toLowerCase();
+  function renderParticipants() {
     var users = state.candidates || [];
     var html = users
-      .filter(function (user) {
-        if (!keyword) return true;
-        return (
-          String(user.name || "").toLowerCase().indexOf(keyword) >= 0 ||
-          String(user.username || "").toLowerCase().indexOf(keyword) >= 0
-        );
-      })
       .map(function (user) {
         var id = Number(user.id);
         var checked = state.selectedParticipants.has(id);
@@ -711,10 +668,9 @@
           })
         : [Number(state.currentUserId)]
     );
-    $("participantSearch").value = "";
     $("participantHint").textContent =
       "当前账号：" + (detail ? currentParticipantName() : "我");
-    renderParticipants("");
+    renderParticipants();
     $("eventDialog").showModal();
     window.setTimeout(function () {
       $("eventTitleInput").focus();
@@ -763,6 +719,7 @@
 
   function addDraftExpense() {
     if (!state.detail || state.draftExpense) return;
+    setExpensesCollapsed(false);
     state.inlineEditId = null;
     state.draftExpense = { amount: "", note: "" };
     renderExpenses();
@@ -903,54 +860,6 @@
     }
   }
 
-  function openSettings() {
-    if (!state.isAdmin) return;
-    renderOptionSettings();
-    $("settingsDialog").showModal();
-  }
-
-  async function addOption(form) {
-    var kind = form.getAttribute("data-option-add");
-    var input = form.querySelector("input");
-    var value = input.value.trim();
-    if (!value) {
-      toast("请填写选项名称。");
-      return;
-    }
-    var button = form.querySelector('button[type="submit"]');
-    buttonBusy(button, "正在添加");
-    try {
-      var data = await api("/api/aa/options", {
-        method: "POST",
-        body: { kind: kind, value: value },
-      });
-      state.options = data.options || state.options;
-      input.value = "";
-      buttonSuccess(button, "已添加");
-      await sleep(360);
-      renderDatalists();
-      renderOptionSettings();
-    } catch (err) {
-      buttonFail(button);
-      toast(err.message);
-    }
-  }
-
-  async function deleteOption(optionId) {
-    if (!state.isAdmin) return;
-    try {
-      var data = await api("/api/aa/options/" + Number(optionId), {
-        method: "DELETE",
-      });
-      state.options = data.options || state.options;
-      renderDatalists();
-      renderOptionSettings();
-      toast("选项已删除");
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-
   function openReceipts() {
     if (!state.detail) return;
     renderReceiptsDialog();
@@ -1052,7 +961,6 @@
       if (state.detail) openEventDialog(state.detail.id);
     });
     $("deleteEventBtn").addEventListener("click", deleteCurrentEvent);
-    $("settingsBtn").addEventListener("click", openSettings);
     $("receiptsBtn").addEventListener("click", openReceipts);
 
     $("eventList").addEventListener("click", function (event) {
@@ -1149,13 +1057,12 @@
       updateParticipantCount();
     });
 
-    $("participantSearch").addEventListener("input", function () {
-      renderParticipants($("participantSearch").value);
-    });
-
     $("eventForm").addEventListener("submit", submitEvent);
     $("eventsToggle").addEventListener("click", function () {
       setEventsCollapsed(!state.eventsCollapsed);
+    });
+    $("expensesToggle").addEventListener("click", function () {
+      setExpensesCollapsed(!state.expensesCollapsed);
     });
 
     $("eventDialogClose").addEventListener("click", function () {
@@ -1164,22 +1071,8 @@
     $("eventDialogCancel").addEventListener("click", function () {
       $("eventDialog").close();
     });
-    $("settingsDialogClose").addEventListener("click", function () {
-      $("settingsDialog").close();
-    });
     $("receiptsDialogClose").addEventListener("click", function () {
       $("receiptsDialog").close();
-    });
-
-    $("settingsDialog").addEventListener("submit", function (event) {
-      var form = event.target.closest("[data-option-add]");
-      if (!form) return;
-      event.preventDefault();
-      addOption(form);
-    });
-    $("settingsDialog").addEventListener("click", function (event) {
-      var remove = event.target.closest("[data-option-delete]");
-      if (remove) deleteOption(Number(remove.getAttribute("data-option-delete")));
     });
 
     $("receiptGrid").addEventListener("click", function (event) {
@@ -1229,6 +1122,5 @@
 
   bindEvents();
   refreshIcons();
-  loadOptions();
   loadEvents();
 })();

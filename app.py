@@ -1231,15 +1231,6 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_aa_receipts_event
                 ON aa_receipts(event_id, user_id);
 
-            CREATE TABLE IF NOT EXISTS aa_options (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                kind TEXT NOT NULL,
-                value TEXT NOT NULL,
-                created_by TEXT,
-                created_at TEXT NOT NULL,
-                UNIQUE(kind, value)
-            );
-
             CREATE TABLE IF NOT EXISTS sessions (
                 sid TEXT PRIMARY KEY,
                 kind TEXT NOT NULL,
@@ -1952,27 +1943,6 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             )
             conn.execute(
                 "INSERT INTO app_meta (key, value) VALUES ('role_permissions_v1', ?)",
-                (stamp,),
-            )
-        finance_options_seed = conn.execute(
-            "SELECT value FROM app_meta WHERE key = 'finance_options_seeded_v1'"
-        ).fetchone()
-        if not finance_options_seed:
-            stamp = now_text()
-            default_options = {
-                "event": ("聚餐", "旅行", "宝鸡行", "杨凌行", "西安行", "咸阳行"),
-                "expense": ("住宿", "打车", "火锅", "饮料", "烤肉"),
-            }
-            for kind, values in default_options.items():
-                for value in values:
-                    conn.execute(
-                        """INSERT OR IGNORE INTO aa_options
-                               (kind, value, created_by, created_at)
-                           VALUES (?, ?, ?, ?)""",
-                        (kind, value, "系统初始化", stamp),
-                    )
-            conn.execute(
-                "INSERT INTO app_meta (key, value) VALUES ('finance_options_seeded_v1', ?)",
                 (stamp,),
             )
         # 旧费用没有分摊明细时，按当时活动成员全员平均分摊回填。
@@ -9811,8 +9781,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_aa_events()
             elif path == "/api/aa/candidates":
                 self.api_aa_candidates()
-            elif path == "/api/aa/options":
-                self.api_aa_options()
             elif re.fullmatch(r"/api/aa/events/\d+", path):
                 self.api_aa_event_detail(int(path.rsplit("/", 1)[1]))
             elif re.fullmatch(r"/api/notes/\d+/export\.html", path):
@@ -9992,8 +9960,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_note_image_upload(payload)
             elif path == "/api/aa/events":
                 self.api_aa_event_create(payload)
-            elif path == "/api/aa/options":
-                self.api_aa_option_create(payload)
             elif re.fullmatch(r"/api/aa/events/\d+/expenses", path):
                 self.api_aa_expense_create(
                     int(path.split("/")[4]), payload
@@ -10152,8 +10118,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_note_image_delete(path)
             elif re.fullmatch(r"/api/notes/\d+", path):
                 self.api_note_item(path)
-            elif re.fullmatch(r"/api/aa/options/\d+", path):
-                self.api_aa_option_delete(int(path.rsplit("/", 1)[1]))
             elif re.fullmatch(r"/api/aa/events/\d+/receipts/\d+", path):
                 parts = path.split("/")
                 self.api_aa_receipt_delete(int(parts[4]), int(parts[6]))
@@ -10423,75 +10387,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "users": candidates,
                 "current_user_id": self.aa_identity_user_id(identity),
             },
-        )
-
-    def aa_option_payload(self):
-        options = {"event": [], "expense": []}
-        for row in query(
-            """SELECT id, kind, value FROM aa_options
-               WHERE kind IN ('event', 'expense')
-               ORDER BY kind, created_at, id"""
-        ):
-            options[row["kind"]].append(
-                {"id": int(row["id"]), "value": row["value"]}
-            )
-        return options
-
-    def api_aa_options(self):
-        self.send_json(200, {"options": self.aa_option_payload()})
-
-    def api_aa_option_create(self, payload):
-        if not self.is_admin():
-            api_error(self, 403, "只有管理员可以维护财务选项。")
-            return
-        kind = str((payload or {}).get("kind") or "").strip().lower()
-        value = str((payload or {}).get("value") or "").strip()
-        if kind not in ("event", "expense"):
-            api_error(self, 400, "选项类型不正确。")
-            return
-        if not value:
-            api_error(self, 400, "请填写选项名称。")
-            return
-        if len(value) > 40:
-            api_error(self, 400, "选项名称不能超过 40 字。")
-            return
-        try:
-            option_id = execute(
-                """INSERT INTO aa_options
-                       (kind, value, created_by, created_at)
-                   VALUES (?, ?, ?, ?)""",
-                (
-                    kind,
-                    value,
-                    (self.session_identity() or {}).get("nickname")
-                    or "管理员",
-                    now_text(),
-                ),
-            )
-        except sqlite3.IntegrityError:
-            api_error(self, 409, "这个选项已经存在。")
-            return
-        self.send_json(
-            200,
-            {
-                "ok": True,
-                "option": {"id": option_id, "value": value},
-                "options": self.aa_option_payload(),
-            },
-        )
-
-    def api_aa_option_delete(self, option_id):
-        if not self.is_admin():
-            api_error(self, 403, "只有管理员可以维护财务选项。")
-            return
-        row = query_one("SELECT id, kind, value FROM aa_options WHERE id = ?", (option_id,))
-        if not row:
-            api_error(self, 404, "选项不存在。")
-            return
-        execute("DELETE FROM aa_options WHERE id = ?", (option_id,))
-        self.send_json(
-            200,
-            {"ok": True, "options": self.aa_option_payload()},
         )
 
     def aa_validated_title(self, payload):
