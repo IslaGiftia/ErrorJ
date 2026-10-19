@@ -220,6 +220,31 @@ class AAExpensePermissionTests(unittest.TestCase):
             [(2, 1, 4500), (2, 3, 1500)],
         )
 
+    def test_mixed_split_sizes_produce_correct_member_balance(self):
+        members = [
+            {"user_id": 1, "name": "A"},
+            {"user_id": 2, "name": "B"},
+            {"user_id": 3, "name": "C"},
+        ]
+        expenses = [
+            {"user_id": 1, "amount_cents": 6000, "split_user_ids": [1, 2]},
+            {"user_id": 2, "amount_cents": 3000, "split_user_ids": [1, 2, 3]},
+            {"user_id": 3, "amount_cents": 1000, "split_user_ids": [3]},
+        ]
+        result = app.aa_settlement(members, expenses)
+        balances = {
+            item["user_id"]: (item["paid_cents"], item["share_cents"], item["balance_cents"])
+            for item in result["members"]
+        }
+        self.assertEqual(
+            balances,
+            {
+                1: (6000, 4000, 2000),
+                2: (3000, 4000, -1000),
+                3: (1000, 2000, -1000),
+            },
+        )
+
     def test_only_admin_can_change_finance_options(self):
         handler = object.__new__(app.InventoryHandler)
         handler.is_admin = lambda: False

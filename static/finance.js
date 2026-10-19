@@ -44,6 +44,42 @@
     }
   }
 
+  function closeSplitPicker(picker) {
+    if (!picker) return;
+    var panel = picker.querySelector(".fin-split-picker-panel");
+    var trigger = picker.querySelector("[data-split-toggle]");
+    picker.classList.remove("is-open");
+    if (trigger) trigger.setAttribute("aria-expanded", "false");
+    if (panel) {
+      window.setTimeout(function () {
+        if (!picker.classList.contains("is-open")) panel.hidden = true;
+      }, 180);
+    }
+  }
+
+  function closeSplitPickers(except) {
+    document.querySelectorAll(".fin-split-picker.is-open").forEach(function (picker) {
+      if (picker !== except) closeSplitPicker(picker);
+    });
+  }
+
+  function toggleSplitPicker(picker) {
+    if (!picker) return;
+    var panel = picker.querySelector(".fin-split-picker-panel");
+    var trigger = picker.querySelector("[data-split-toggle]");
+    if (!panel) return;
+    if (picker.classList.contains("is-open")) {
+      closeSplitPicker(picker);
+      return;
+    }
+    closeSplitPickers(picker);
+    panel.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+    window.requestAnimationFrame(function () {
+      picker.classList.add("is-open");
+    });
+  }
+
   function buttonBusy(button, label) {
     if (window.ErrorButtons) window.ErrorButtons.busy(button, label);
     else if (button) button.disabled = true;
@@ -326,17 +362,18 @@
       '<label class="fin-inline-note"><input name="note" maxlength="120" list="expenseNoteOptions" value="' +
       escapeHtml(item.note || "") +
       '" placeholder="备注"></label>' +
-      '<details class="fin-split-picker"><summary><span data-inline-split-summary>' +
+      '<div class="fin-split-picker"><button class="fin-split-trigger" type="button" data-split-toggle aria-expanded="false"><span data-inline-split-summary>' +
       splitIds.length +
-      ' 人分摊</span></summary><div class="fin-split-picker-panel">' +
+      ' 人分摊</span><span class="fin-split-chevron"><i data-lucide="chevron-down"></i></span></button><div class="fin-split-picker-panel" hidden>' +
       splitCheckboxes(
         state.detail.members,
         splitIds,
         "inline-split-id"
       ) +
-      "</div></details>" +
+      "</div></div>" +
       '<span class="fin-inline-actions">' +
       '<button class="fin-check-btn" type="submit" title="保存" aria-label="保存费用"><i data-lucide="check"></i></button>' +
+      '<button class="fin-cancel-btn" type="button" data-inline-cancel title="取消编辑" aria-label="取消编辑"><i data-lucide="x"></i></button>' +
       '<button class="fin-row-btn is-danger" type="button" data-expense-delete="' +
       Number(item.id) +
       '" data-hold-confirm title="长按删除" aria-label="长按删除费用"><i data-lucide="trash-2"></i></button>' +
@@ -357,11 +394,11 @@
       '<label class="fin-inline-note"><input name="note" maxlength="120" list="expenseNoteOptions" value="' +
       escapeHtml(draft.note || "") +
       '" placeholder="备注"></label>' +
-      '<details class="fin-split-picker"><summary><span data-inline-split-summary>' +
+      '<div class="fin-split-picker"><button class="fin-split-trigger" type="button" data-split-toggle aria-expanded="false"><span data-inline-split-summary>' +
       memberIds.length +
-      ' 人分摊</span></summary><div class="fin-split-picker-panel">' +
+      ' 人分摊</span><span class="fin-split-chevron"><i data-lucide="chevron-down"></i></span></button><div class="fin-split-picker-panel" hidden>' +
       splitCheckboxes(state.detail.members, memberIds, "draft-split-id") +
-      "</div></details>" +
+      "</div></div>" +
       '<span class="fin-inline-actions">' +
       '<button class="fin-check-btn" type="submit" title="保存" aria-label="保存费用"><i data-lucide="check"></i></button>' +
       '<button class="fin-cancel-btn" type="button" data-draft-cancel title="取消" aria-label="取消这笔费用"><i data-lucide="x"></i></button>' +
@@ -999,6 +1036,13 @@
     $("qrViewerImage").removeAttribute("src");
   }
 
+  function syncDialogScrollLock() {
+    document.body.classList.toggle(
+      "fin-dialog-open",
+      Boolean(document.querySelector("dialog[open]"))
+    );
+  }
+
   function bindEvents() {
     $("newEventBtn").addEventListener("click", function () {
       openEventDialog(null);
@@ -1019,6 +1063,19 @@
     });
 
     $("expenseList").addEventListener("click", function (event) {
+      var splitToggle = event.target.closest("[data-split-toggle]");
+      if (splitToggle) {
+        event.preventDefault();
+        toggleSplitPicker(splitToggle.closest(".fin-split-picker"));
+        return;
+      }
+      var cancelEdit = event.target.closest("[data-inline-cancel]");
+      if (cancelEdit) {
+        state.inlineEditId = null;
+        renderExpenses();
+        setFloatingActions();
+        return;
+      }
       var edit = event.target.closest("[data-expense-start-edit]");
       if (edit) {
         if (state.draftExpense) {
@@ -1154,10 +1211,20 @@
     });
     document.addEventListener("keydown", function (event) {
       if (event.key === "Escape" && !$("qrViewer").hidden) closeQrViewer();
+      if (event.key === "Escape") closeSplitPickers(null);
+    });
+    document.addEventListener("click", function (event) {
+      if (event.target.closest(".fin-split-picker")) return;
+      closeSplitPickers(null);
+    });
+    document.querySelectorAll("dialog").forEach(function (dialog) {
+      dialog.addEventListener("toggle", syncDialogScrollLock);
+      dialog.addEventListener("close", syncDialogScrollLock);
     });
     window.addEventListener("resize", function () {
       if (!isMobileEvents()) setEventsCollapsed(false);
     });
+    syncDialogScrollLock();
   }
 
   bindEvents();

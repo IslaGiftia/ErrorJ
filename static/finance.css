@@ -113,6 +113,10 @@ button {
   height: 20px;
 }
 
+.fin-fab-wide {
+  width: 80px;
+}
+
 .fin-fab-primary {
   border-color: var(--fin-accent);
   background: var(--fin-accent);
@@ -352,7 +356,7 @@ button {
 .fin-overview {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-bottom: 18px;
+  margin-bottom: 0;
   border: 1px solid var(--fin-border);
   border-radius: var(--radius);
   background: var(--fin-surface);
@@ -361,7 +365,7 @@ button {
 
 .fin-metric {
   min-width: 0;
-  padding: 15px 17px;
+  padding: 12px 10px;
 }
 
 .fin-metric + .fin-metric {
@@ -378,7 +382,7 @@ button {
 .fin-metric strong {
   display: block;
   overflow: hidden;
-  font-size: 20px;
+  font-size: 16px;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -591,6 +595,7 @@ button {
 
 .fin-inline-amount:focus-within {
   border-color: var(--fin-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fin-accent) 13%, transparent);
 }
 
 .fin-inline-amount span {
@@ -619,10 +624,15 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
-.fin-inline-note input:focus,
-.fin-inline-amount input:focus {
+.fin-inline-note input:focus {
   border-color: var(--fin-accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--fin-accent) 13%, transparent);
+}
+
+.fin-inline-amount input:focus {
+  border-color: transparent;
+  outline: none;
+  box-shadow: none;
 }
 
 .fin-split-picker {
@@ -630,8 +640,9 @@ button {
   min-width: 0;
 }
 
-.fin-split-picker summary {
+.fin-split-trigger {
   display: flex;
+  width: 100%;
   height: 36px;
   align-items: center;
   gap: 7px;
@@ -642,21 +653,25 @@ button {
   color: var(--fin-text);
   font-size: 12px;
   cursor: pointer;
-  list-style: none;
 }
 
-.fin-split-picker summary::-webkit-details-marker {
-  display: none;
-}
-
-.fin-split-picker summary::after {
+.fin-split-chevron {
   margin-left: auto;
   color: var(--fin-muted);
-  content: "⌄";
+  transition: rotate var(--dur-base) var(--ease-out-strong);
 }
 
-.fin-split-picker[open] summary {
+.fin-split-chevron svg {
+  width: 15px;
+  height: 15px;
+}
+
+.fin-split-picker.is-open .fin-split-trigger {
   border-color: var(--fin-accent);
+}
+
+.fin-split-picker.is-open .fin-split-chevron {
+  rotate: 180deg;
 }
 
 .fin-split-picker-panel {
@@ -672,6 +687,19 @@ button {
   border-radius: var(--radius);
   background: var(--fin-surface);
   box-shadow: var(--fin-shadow-raised);
+  opacity: 0;
+  transform: translateY(-4px) scale(0.985);
+  transform-origin: top right;
+  transition:
+    opacity var(--dur-fast) ease,
+    transform var(--dur-base) var(--ease-out-strong);
+  pointer-events: none;
+}
+
+.fin-split-picker.is-open .fin-split-picker-panel {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
 }
 
 .fin-check-item {
@@ -842,10 +870,18 @@ button {
   backdrop-filter: blur(3px);
 }
 
-.fin-dialog form {
+.fin-dialog[open] {
   display: flex;
-  max-height: inherit;
   flex-direction: column;
+}
+
+.fin-dialog > form {
+  display: flex;
+  min-height: 0;
+  max-height: inherit;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .fin-dialog-head {
@@ -858,9 +894,16 @@ button {
 }
 
 .fin-dialog-body {
+  flex: 1;
   min-height: 0;
   padding: 17px 18px;
   overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+body.fin-dialog-open {
+  overflow: hidden;
 }
 
 .fin-dialog-actions {
@@ -1015,14 +1058,21 @@ button {
 }
 
 .fin-option-add {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
   gap: 7px;
   margin-bottom: 10px;
 }
 
 .fin-option-add input {
-  flex: 1;
-  height: 36px;
+  width: 100%;
+  height: 40px;
+}
+
+.fin-option-add .fin-btn {
+  min-height: 40px;
+  padding: 0 14px;
 }
 
 .fin-option-list {
@@ -1204,6 +1254,7 @@ button {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .fin-side-column > .fin-overview,
   .fin-side-column > .fin-panel:last-child {
     grid-column: 1 / -1;
   }
@@ -1276,33 +1327,12 @@ button {
     height: 38px;
   }
 
+  .fin-fab-wide {
+    width: 76px;
+  }
+
   .fin-side-column {
     grid-template-columns: 1fr;
-  }
-
-  .fin-overview {
-    grid-template-columns: 1fr;
-  }
-
-  .fin-metric {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 11px 13px;
-  }
-
-  .fin-metric + .fin-metric {
-    border-top: 1px solid var(--fin-border);
-    border-left: 0;
-  }
-
-  .fin-metric span {
-    margin: 0;
-  }
-
-  .fin-metric strong {
-    font-size: 18px;
   }
 
   .fin-expense-row,
