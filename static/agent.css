@@ -844,6 +844,200 @@
   height: 13px;
 }
 
+.agent-timeline-form {
+  display: grid;
+  gap: 8px;
+}
+
+.agent-timeline-form > input,
+.agent-timeline-form > textarea,
+.agent-timeline-form-grid input,
+.agent-timeline-form-grid select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+}
+
+.agent-timeline-form > input,
+.agent-timeline-form-grid input,
+.agent-timeline-form-grid select {
+  height: 34px;
+  padding: 0 9px;
+}
+
+.agent-timeline-form > textarea {
+  min-height: 58px;
+  padding: 8px 9px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.agent-timeline-form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) 112px;
+  gap: 8px;
+  align-items: end;
+}
+
+.agent-timeline-form-grid label {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.agent-timeline-form-grid > button {
+  display: inline-flex;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--agent-accent);
+  border-radius: 9px;
+  background: var(--agent-accent);
+  color: #fff;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    transform var(--dur-fast) var(--ease-out-strong),
+    box-shadow var(--dur-fast) ease;
+}
+
+.agent-timeline-form-grid > button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--agent-accent) 24%, transparent);
+}
+
+.agent-timeline-form-grid > button:disabled {
+  opacity: 0.48;
+  cursor: wait;
+  transform: none;
+}
+
+.agent-timeline-form-grid > button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.agent-timeline-list {
+  display: grid;
+  max-height: 270px;
+  margin-top: 12px;
+  padding-left: 4px;
+  overflow-y: auto;
+}
+
+.agent-timeline-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 9px 7px 10px 20px;
+  border-top: 1px solid var(--line);
+}
+
+.agent-timeline-item:first-child {
+  border-top: 0;
+}
+
+.agent-timeline-item::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 5px;
+  width: 1px;
+  background: var(--line);
+  content: "";
+}
+
+.agent-timeline-dot {
+  position: absolute;
+  top: 14px;
+  left: 2px;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--agent-accent);
+  border-radius: 50%;
+  background: var(--panel);
+}
+
+.agent-timeline-item.is-due .agent-timeline-dot {
+  background: var(--agent-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--agent-accent) 14%, transparent);
+}
+
+.agent-timeline-item.is-done {
+  opacity: 0.62;
+}
+
+.agent-timeline-item.is-done .agent-timeline-dot {
+  border-color: var(--muted);
+  background: var(--muted);
+}
+
+.agent-timeline-copy {
+  min-width: 0;
+}
+
+.agent-timeline-copy h4 {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.agent-timeline-copy p {
+  margin: 3px 0;
+  color: var(--text);
+  font-size: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.agent-timeline-copy small {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.agent-timeline-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.agent-timeline-actions button {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.agent-timeline-actions svg {
+  width: 13px;
+  height: 13px;
+}
+
+.agent-timeline-empty {
+  padding: 14px 8px 4px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.55;
+  text-align: center;
+}
+
 .agent-sticker-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(86px, 1fr));
@@ -1013,6 +1207,14 @@
 
   .agent-setting-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .agent-timeline-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .agent-timeline-form-grid > button {
+    grid-column: 1 / -1;
   }
 }
 

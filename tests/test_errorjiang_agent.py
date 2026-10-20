@@ -94,6 +94,87 @@ class AgentStoreTests(unittest.TestCase):
         self.assertEqual(self.store.list_stickers("10001")[0]["id"], sticker_id)
         self.assertIsNotNone(self.store.delete_sticker("10001", sticker_id))
 
+    def test_timeline_events_are_deduplicated_and_used_once(self):
+        event_id = self.store.add_timeline_event(
+            "qq",
+            "10001",
+            "promise",
+            "周末整理房间",
+            "周六一起整理书架",
+            100,
+            200,
+        )
+        self.assertGreater(event_id, 0)
+        self.assertEqual(
+            self.store.add_timeline_event(
+                "qq",
+                "10001",
+                "plan",
+                "周末整理书架",
+                "周六一起整理书架",
+                100,
+                200,
+            ),
+            event_id,
+        )
+        self.assertEqual(len(self.store.list_timeline_events("qq", "10001")), 1)
+        self.assertEqual(self.store.due_timeline_events(199), [])
+        due = self.store.due_timeline_events(
+            200, platform="qq", owner_id="10001"
+        )
+        self.assertEqual([item["id"] for item in due], [event_id])
+
+        self.store.mark_timeline_used(event_id)
+        self.assertEqual(self.store.due_timeline_events(200), [])
+        self.assertTrue(
+            self.store.set_timeline_status("qq", "10001", event_id, "open")
+        )
+        self.assertEqual(len(self.store.due_timeline_events(200)), 1)
+        self.assertTrue(
+            self.store.set_timeline_status("qq", "10001", event_id, "done")
+        )
+        self.assertEqual(self.store.due_timeline_events(200), [])
+        self.assertTrue(
+            self.store.delete_timeline_event("qq", "10001", event_id)
+        )
+        self.assertEqual(self.store.list_timeline_events("qq", "10001"), [])
+
+    def test_remember_exchange_extracts_timeline_events(self):
+        class Extractor:
+            def chat(self, messages, tools):
+                return {
+                    "content": json.dumps(
+                        {
+                            "memories": [],
+                            "events": [
+                                {
+                                    "title": "周末整理房间",
+                                    "content": "星星约好周六一起整理书架",
+                                    "event_type": "promise",
+                                    "event_at": "2026-10-24 10:00:00",
+                                    "follow_up_at": "2026-10-23 20:00:00",
+                                }
+                            ],
+                        },
+                        ensure_ascii=False,
+                    )
+                }
+
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.deepseek = Extractor()
+        service.remember_exchange(
+            "qq",
+            "10001",
+            "周六一起整理书架吧",
+            "嗯，折兮颜记下了。",
+        )
+        events = self.store.list_timeline_events("qq", "10001")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["event_type"], "promise")
+        self.assertEqual(events[0]["title"], "周末整理房间")
+        self.assertIsNotNone(events[0]["follow_up_at"])
+
     def test_relationship_state_is_persistent_and_bounded(self):
         state = self.store.update_relationship_state(
             "qq",
@@ -146,6 +227,75 @@ class AgentStoreTests(unittest.TestCase):
             AgentService.humanize_text(text),
             "嗯，就一个句号。 我收好了，你还想说什么？",
         )
+
+    def test_due_timeline_event_is_the_first_proactive_topic(self):
+        now = datetime(2026, 10, 20, 9, 10)
+        candidates = AgentService.proactive_candidates(
+            now,
+            {
+                "morning_time": "09:00",
+                "night_time": "21:30",
+            },
+            {"idle_hours": 8, "last_topic": "昨天说到的那本书"},
+            [
+                {
+                    "id": 7,
+                    "title": "周末整理房间",
+                    "content": "星星说周六一起整理书架",
+                }
+            ],
+            [
+                {
+                    "id": 9,
+                    "kind": "promise",
+                    "content": "晚上提醒星星早点睡",
+                    "last_used_at": None,
+                }
+            ],
+        )
+        chosen = AgentService.choose_proactive_candidate(candidates)
+        self.assertEqual(chosen["kind"], "timeline")
+        self.assertEqual(chosen["event_id"], 7)
+        self.assertIn("整理书架", chosen["topic"])
+
+    def test_proactive_time_uses_a_window_and_skips_recent_memories(self):
+        self.assertTrue(
+            AgentService.proactive_time_near(
+                datetime(2026, 10, 20, 9, 24), "09:00"
+            )
+        )
+        self.assertFalse(
+            AgentService.proactive_time_near(
+                datetime(2026, 10, 20, 9, 26), "09:00"
+            )
+        )
+        now = datetime(2026, 10, 20, 20, 0)
+        recent = int(now.timestamp()) - 60
+        old = int(now.timestamp()) - 4 * 86400
+        candidates = AgentService.proactive_candidates(
+            now,
+            {"morning_time": "09:00", "night_time": "21:30"},
+            {"idle_hours": 0, "last_topic": ""},
+            [],
+            [
+                {
+                    "id": 1,
+                    "kind": "promise",
+                    "content": "刚聊过的约定",
+                    "last_used_at": recent,
+                },
+                {
+                    "id": 2,
+                    "kind": "event",
+                    "content": "几天前提到的约定",
+                    "last_used_at": old,
+                },
+            ],
+        )
+        memory_topics = [
+            item["topic"] for item in candidates if item["kind"] == "memory"
+        ]
+        self.assertEqual(memory_topics, ["几天前提到的约定"])
 
 
 class OneBotParserTests(unittest.TestCase):
@@ -496,6 +646,76 @@ class AgentWebhookTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
         self.assertEqual(limiter.keys, ["web:0"])
+
+
+class AgentTimelineApiTests(unittest.TestCase):
+    def test_internal_timeline_can_be_created_listed_and_completed(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        store = AgentStore(Path(temp.name) / "agent.db")
+        fake_service = SimpleNamespace(
+            config=SimpleNamespace(errorjiang_token="internal-token"),
+            store=store,
+        )
+        server = AgentHttpServer(("127.0.0.1", 0), fake_service)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+
+        def request(method, path, payload=None):
+            connection = http.client.HTTPConnection(
+                "127.0.0.1", server.server_address[1], timeout=5
+            )
+            body = (
+                json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                if payload is not None
+                else None
+            )
+            headers = {
+                "X-ErrorJ-Agent-Token": "internal-token",
+                "Content-Type": "application/json",
+            }
+            try:
+                connection.request(method, path, body=body, headers=headers)
+                response = connection.getresponse()
+                data = json.loads(response.read().decode("utf-8"))
+                return response.status, data
+            finally:
+                connection.close()
+
+        status, created = request(
+            "POST",
+            "/internal/timeline/create",
+            {
+                "platform": "web",
+                "owner_id": "0",
+                "event_type": "plan",
+                "title": "周末整理房间",
+                "content": "周六一起整理书架",
+                "event_at": 100,
+                "follow_up_at": 200,
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertGreater(created["id"], 0)
+        status, listed = request(
+            "GET", "/internal/timeline?platform=web&owner_id=0&status=open"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(listed["events"][0]["title"], "周末整理房间")
+        status, completed = request(
+            "POST",
+            "/internal/timeline/status",
+            {
+                "platform": "web",
+                "owner_id": "0",
+                "id": created["id"],
+                "status": "done",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(completed["ok"])
 
 
 class AgentNotificationTests(unittest.TestCase):

@@ -9897,6 +9897,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_agent_web_settings()
             elif path == "/api/agent/web/memories":
                 self.api_agent_web_memories(query)
+            elif path == "/api/agent/web/timeline":
+                self.api_agent_web_timeline(query)
             elif path == "/api/agent/web/stickers":
                 self.api_agent_web_stickers(query)
             elif path == "/api/admin/reports":
@@ -10004,6 +10006,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_agent_web_settings_save(payload)
             elif path == "/api/agent/web/memory-delete":
                 self.api_agent_web_memory_delete(payload)
+            elif path == "/api/agent/web/timeline-create":
+                self.api_agent_web_timeline_create(payload)
+            elif path == "/api/agent/web/timeline-status":
+                self.api_agent_web_timeline_status(payload)
+            elif path == "/api/agent/web/timeline-delete":
+                self.api_agent_web_timeline_delete(payload)
             elif path == "/api/agent/web/sticker-delete":
                 self.api_agent_web_sticker_delete(payload)
             elif path == "/api/login":
@@ -16812,6 +16820,139 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "platform": str((payload or {}).get("platform") or "web"),
                     "owner_id": "0",
                     "id": memory_id,
+                },
+                timeout=10,
+            )
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_timeline(self, query):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以管理事件时间线。")
+            return
+        status = str((query.get("status") or ["all"])[0])
+        if status not in ("open", "done", "all"):
+            status = "all"
+        try:
+            data = agent_internal_request(
+                "/internal/timeline?platform=web&owner_id=0&status="
+                + quote(status),
+                timeout=10,
+            )
+            qq_data = agent_internal_request(
+                "/internal/timeline?platform=qq&owner_id=0&status="
+                + quote(status),
+                timeout=10,
+            )
+            events = []
+            for item in data.get("events") or []:
+                item = dict(item)
+                item["platform"] = "web"
+                events.append(item)
+            for item in qq_data.get("events") or []:
+                item = dict(item)
+                item["platform"] = "qq"
+                events.append(item)
+            events.sort(
+                key=lambda item: (
+                    item.get("status") != "open",
+                    -int(item.get("follow_up_at") or item.get("event_at") or 0),
+                    -int(item.get("id") or 0),
+                )
+            )
+            data["events"] = events
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_timeline_create(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以管理事件时间线。")
+            return
+        title = str((payload or {}).get("title") or "").strip()
+        content = str((payload or {}).get("content") or "").strip()
+        if not title and not content:
+            api_error(self, 400, "请填写事件标题或内容。")
+            return
+        event_at = None
+        follow_up_at = None
+        try:
+            if (payload or {}).get("event_at") not in (None, ""):
+                event_at = int((payload or {}).get("event_at"))
+            if (payload or {}).get("follow_up_at") not in (None, ""):
+                follow_up_at = int((payload or {}).get("follow_up_at"))
+        except (TypeError, ValueError):
+            api_error(self, 400, "事件时间格式不正确。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/timeline/create",
+                {
+                    "platform": "web",
+                    "owner_id": "0",
+                    "event_type": str(
+                        (payload or {}).get("event_type") or "event"
+                    ),
+                    "title": title,
+                    "content": content,
+                    "event_at": event_at,
+                    "follow_up_at": follow_up_at,
+                },
+                timeout=10,
+            )
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_timeline_status(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以管理事件时间线。")
+            return
+        try:
+            event_id = int((payload or {}).get("id"))
+        except (TypeError, ValueError):
+            api_error(self, 400, "事件编号不正确。")
+            return
+        status = str((payload or {}).get("status") or "")
+        if status not in ("open", "done"):
+            api_error(self, 400, "事件状态不正确。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/timeline/status",
+                {
+                    "platform": str((payload or {}).get("platform") or "web"),
+                    "owner_id": "0",
+                    "id": event_id,
+                    "status": status,
+                },
+                timeout=10,
+            )
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_timeline_delete(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以管理事件时间线。")
+            return
+        try:
+            event_id = int((payload or {}).get("id"))
+        except (TypeError, ValueError):
+            api_error(self, 400, "事件编号不正确。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/timeline/delete",
+                {
+                    "platform": str((payload or {}).get("platform") or "web"),
+                    "owner_id": "0",
+                    "id": event_id,
                 },
                 timeout=10,
             )

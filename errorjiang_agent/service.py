@@ -32,6 +32,9 @@ BIND_RE = re.compile(r"^(?:绑定|/bind)\s+(\S+)$", re.IGNORECASE)
 BIND_USER_RE = re.compile(r"^绑定用户\s+(\d{5,12})\s+(.+)$")
 UNBIND_USER_RE = re.compile(r"^解绑用户\s+(\d{5,12})$")
 MAX_WEBHOOK_BYTES = 8 * 1024 * 1024
+PROACTIVE_GREETING_WINDOW_MINUTES = 25
+PROACTIVE_MIN_GAP_SECONDS = 90 * 60
+PROACTIVE_MEMORY_COOLDOWN_SECONDS = 3 * 86400
 
 
 class RateLimiter:
@@ -304,7 +307,12 @@ class AgentService:
                             "不要保存临时查询、寒暄或无意义内容。"
                             "输出严格 JSON："
                             '{"memories":[{"content":"...","kind":"fact|preference|event|promise",'
-                            '"importance":1}]}'
+                            '"importance":1}],'
+                            '"events":[{"title":"...","content":"...",'
+                            '"event_type":"plan|promise|milestone|relationship|event",'
+                            '"event_at":"YYYY-MM-DD HH:MM:SS or null",'
+                            '"follow_up_at":"YYYY-MM-DD HH:MM:SS or null"}]}'
+                            f"\n当前时间：{datetime.now():%Y-%m-%d %H:%M:%S}"
                         ),
                     },
                     {
@@ -327,6 +335,43 @@ class AgentService:
                     str(item.get("content") or ""),
                     str(item.get("kind") or "fact"),
                     int(item.get("importance") or 5),
+                )
+            for item in (data.get("events") or [])[:6]:
+                if not isinstance(item, dict):
+                    continue
+                event_at = None
+                follow_up_at = None
+                try:
+                    if item.get("event_at"):
+                        event_at = int(
+                            datetime.strptime(
+                                str(item["event_at"]), "%Y-%m-%d %H:%M:%S"
+                            ).timestamp()
+                        )
+                    if item.get("follow_up_at"):
+                        follow_up_at = int(
+                            datetime.strptime(
+                                str(item["follow_up_at"]), "%Y-%m-%d %H:%M:%S"
+                            ).timestamp()
+                        )
+                except ValueError:
+                    pass
+                title = " ".join(
+                    str(item.get("title") or item.get("content") or "").split()
+                ).strip()
+                content = " ".join(
+                    str(item.get("content") or title).split()
+                ).strip()
+                if not content:
+                    continue
+                self.store.add_timeline_event(
+                    platform,
+                    owner_id,
+                    str(item.get("event_type") or "event"),
+                    title or content,
+                    content,
+                    event_at,
+                    follow_up_at,
                 )
         except Exception:
             traceback.print_exc()
@@ -381,6 +426,20 @@ class AgentService:
             },
         )
 
+    def timeline_context(self, platform: str, owner_id: str) -> list[str]:
+        rows = self.store.list_timeline_events(platform, owner_id, 20)
+        lines = []
+        for row in rows:
+            if row.get("status") != "open":
+                continue
+            when = ""
+            if row.get("follow_up_at"):
+                when = f"（跟进时间 {datetime.fromtimestamp(row['follow_up_at']):%m-%d %H:%M}）"
+            lines.append(f"{row.get('title')}{when}：{row.get('content')}")
+            if len(lines) >= 8:
+                break
+        return lines
+
     @staticmethod
     def relationship_prompt(state: dict) -> str:
         mood = state.get("mood") or "平静"
@@ -393,16 +452,159 @@ class AgentService:
             "可以自然表达一点点想念或在意，但不要冷暴力、指责、索要关注或用情绪操纵星星。"
         )
 
-    def proactive_message(self, owner_id: str, reason: str, state: dict) -> str:
-        memories = self.store.memory_context("qq", owner_id, "", 8)
+    @staticmethod
+    def proactive_time_near(now: datetime, target: str) -> bool:
+        try:
+            target_time = datetime.strptime(str(target), "%H:%M").time()
+        except (TypeError, ValueError):
+            return False
+        current_minutes = now.hour * 60 + now.minute
+        target_minutes = target_time.hour * 60 + target_time.minute
+        distance = abs(current_minutes - target_minutes)
+        distance = min(distance, 24 * 60 - distance)
+        return distance <= PROACTIVE_GREETING_WINDOW_MINUTES
+
+    @classmethod
+    def proactive_candidates(
+        cls,
+        now: datetime,
+        settings: dict,
+        state: dict,
+        due_events: list[dict],
+        memories: list[dict],
+    ) -> list[dict]:
+        candidates = []
+        for event in due_events[:5]:
+            title = str(event.get("title") or "那件事").strip()
+            content = str(event.get("content") or "").strip()
+            topic = title if not content or content == title else f"{title}：{content}"
+            candidates.append(
+                {
+                    "priority": 100,
+                    "slot": f"timeline:{int(event['id'])}",
+                    "kind": "timeline",
+                    "reason": "时间线里有一件已经到期的约定或事件，先自然问问进展",
+                    "topic": topic[:500],
+                    "event_id": int(event["id"]),
+                    "event_platform": str(event.get("platform") or "qq"),
+                }
+            )
+        if cls.proactive_time_near(
+            now, str(settings.get("morning_time") or "09:00")
+        ):
+            candidates.append(
+                {
+                    "priority": 80,
+                    "slot": "morning",
+                    "kind": "morning",
+                    "reason": "早上这个时间很自然，可以随口问候星星",
+                }
+            )
+        if cls.proactive_time_near(
+            now, str(settings.get("night_time") or "21:30")
+        ):
+            candidates.append(
+                {
+                    "priority": 82,
+                    "slot": "night",
+                    "kind": "night",
+                    "reason": "晚上这个时间很自然，可以问问星星今天怎么样",
+                }
+            )
+
+        idle_hours = float(state.get("idle_hours") or 0)
+        last_topic = " ".join(str(state.get("last_topic") or "").split()).strip()
+        reusable_topic = bool(
+            len(last_topic) >= 2
+            and not re.match(r"^(?:/|绑定|解绑|确认|帮助|重置)", last_topic)
+        )
+        if reusable_topic and idle_hours >= 6:
+            candidates.append(
+                {
+                    "priority": 72,
+                    "slot": "missing",
+                    "kind": "missing",
+                    "reason": "已经有一段时间没联系，可以自然地提一下最近聊过的事",
+                    "topic": last_topic[:300],
+                }
+            )
+        elif reusable_topic and idle_hours >= 3:
+            candidates.append(
+                {
+                    "priority": 48,
+                    "slot": "reopen",
+                    "kind": "reopen",
+                    "reason": "隔了几个小时，可以顺着最近的话题自然接着聊",
+                    "topic": last_topic[:300],
+                }
+            )
+
+        if now.hour >= 17:
+            cutoff = int(now.timestamp()) - PROACTIVE_MEMORY_COOLDOWN_SECONDS
+            for memory in memories[:12]:
+                if str(memory.get("kind") or "") not in ("promise", "event"):
+                    continue
+                last_used_at = int(memory.get("last_used_at") or 0)
+                if last_used_at and last_used_at > cutoff:
+                    continue
+                content = str(memory.get("content") or "").strip()
+                if not content:
+                    continue
+                candidates.append(
+                    {
+                        "priority": 60,
+                        "slot": f"memory:{int(memory['id'])}",
+                        "kind": "memory",
+                        "reason": "晚上适合跟进以前记住的约定或事件",
+                        "topic": content[:300],
+                        "memory_id": int(memory["id"]),
+                        "memory_platform": str(
+                            memory.get("platform") or "qq"
+                        ),
+                    }
+                )
+        return candidates
+
+    @staticmethod
+    def choose_proactive_candidate(candidates: list[dict]) -> dict | None:
+        if not candidates:
+            return None
+        highest = max(int(item.get("priority") or 0) for item in candidates)
+        shortlist = [
+            item
+            for item in candidates
+            if int(item.get("priority") or 0) == highest
+        ]
+        return random.choice(shortlist)
+
+    def proactive_message(
+        self,
+        owner_id: str,
+        reason: str,
+        state: dict,
+        topic: str = "",
+        memories: list[str] | None = None,
+    ) -> str:
+        memory_lines = (
+            list(memories or [])
+            if memories is not None
+            else self.store.memory_context("qq", owner_id, "", 8)
+        )
         prompt = (
             "你是折兮颜，称呼用户为星星。请主动发一条简短自然的消息。"
-            "冷脸萌、轻微傲娇，关心但不过度黏人。不要提这是系统定时任务。"
+            "冷脸萌、轻微傲娇，关心但不过度黏人。只发一到两句，"
+            "不要分点、不要空行、不要提这是系统定时任务。"
+            "不要假装刚看到消息，也不要用质问或冷暴力的语气。"
             f"\n主动原因：{reason}。"
             f"\n{self.relationship_prompt(state)}"
         )
-        if memories:
-            prompt += "\n你记得：" + "；".join(memories)
+        if topic:
+            prompt += f"\n可以自然带到的话题：{topic}。"
+        last_topic = str(state.get("last_topic") or "").strip()
+        if last_topic and last_topic != topic:
+            prompt += f"\n最近一次聊到：{last_topic[:200]}。"
+        if memory_lines:
+            prompt += "\n你记得：" + "；".join(memory_lines[:8])
         message = self.deepseek.chat(
             [
                 {"role": "system", "content": prompt},
@@ -410,7 +612,7 @@ class AgentService:
             ],
             [],
         )
-        return str(message.get("content") or "").strip()[:500]
+        return self.humanize_text(str(message.get("content") or ""))[:500]
 
     @staticmethod
     def in_quiet_hours(now: datetime, start: str, end: str) -> bool:
@@ -428,7 +630,7 @@ class AgentService:
         while not self._proactive_stop.wait(30):
             now = datetime.now()
             day = now.strftime("%Y-%m-%d")
-            slot_time = now.strftime("%H:%M")
+            now_timestamp = int(now.timestamp())
             owners = self.store.admin_ids("qq")
             for owner_id in owners:
                 settings = self.store.get_settings("qq", owner_id)
@@ -444,33 +646,86 @@ class AgentService:
                     settings.get("proactive_max_per_day", 2)
                 ):
                     continue
+                last_sent_at = self.store.last_proactive_at(owner_id)
+                if (
+                    last_sent_at
+                    and now_timestamp - last_sent_at < PROACTIVE_MIN_GAP_SECONDS
+                ):
+                    continue
                 state = self.relationship_context("qq", owner_id)
-                idle_hours = float(state.get("idle_hours") or 0)
-                slot = None
-                reason = "按日常时间问候"
-                if slot_time == settings.get("morning_time"):
-                    slot = "morning"
-                    reason = "早上了，想自然问候星星"
-                elif slot_time == settings.get("night_time"):
-                    slot = "night"
-                    reason = "晚上到了，想提醒星星休息"
-                elif idle_hours >= 6:
-                    slot = "missing"
-                    reason = "已经一段时间没联系，有点想念星星"
-                elif now.hour >= 18:
-                    memories = self.store.list_memories("qq", owner_id, limit=20)
-                    if any(
-                        item.get("kind") in ("promise", "event")
-                        for item in memories
-                    ):
-                        slot = "followup"
-                        reason = "跟进以前记住的约定或事件"
-                if not slot or not self.store.claim_proactive_slot(day, slot, owner_id):
+                qq_due_events = self.store.due_timeline_events(
+                    now_timestamp,
+                    limit=5,
+                    platform="qq",
+                    owner_id=owner_id,
+                )
+                web_due_events = self.store.due_timeline_events(
+                    now_timestamp,
+                    limit=5,
+                    platform="web",
+                    owner_id="0",
+                )
+                due_events = []
+                seen_events = set()
+                for item in qq_due_events + web_due_events:
+                    key = (
+                        str(item.get("title") or ""),
+                        str(item.get("content") or ""),
+                    )
+                    if key in seen_events:
+                        continue
+                    seen_events.add(key)
+                    due_events.append(item)
+                memory_rows = []
+                seen_memories = set()
+                for item in (
+                    self.store.list_memories("qq", owner_id, limit=20)
+                    + self.store.list_memories("web", "0", limit=20)
+                ):
+                    content = str(item.get("content") or "")
+                    if not content or content in seen_memories:
+                        continue
+                    seen_memories.add(content)
+                    memory_rows.append(item)
+                candidates = self.proactive_candidates(
+                    now,
+                    settings,
+                    state,
+                    due_events,
+                    memory_rows,
+                )
+                candidate = self.choose_proactive_candidate(candidates)
+                if not candidate or not self.store.claim_proactive_slot(
+                    day, str(candidate["slot"]), owner_id
+                ):
                     continue
                 try:
-                    text = self.proactive_message(owner_id, reason, state)
+                    text = self.proactive_message(
+                        owner_id,
+                        str(candidate["reason"]),
+                        state,
+                        topic=str(candidate.get("topic") or ""),
+                        memories=[
+                            str(item.get("content") or "")
+                            for item in memory_rows[:8]
+                            if item.get("content")
+                        ],
+                    )
                     if text:
                         self.onebot.send_private(int(owner_id), text)
+                        self.store.add_message("qq", owner_id, "assistant", text)
+                        if candidate.get("event_id"):
+                            self.store.mark_timeline_used(
+                                int(candidate["event_id"])
+                            )
+                        if candidate.get("memory_id"):
+                            self.store.mark_memory_used(
+                                str(candidate.get("memory_platform") or "qq"),
+                                owner_id
+                                if candidate.get("memory_platform") != "web"
+                                else "0",
+                                int(candidate["memory_id"]),
+                            )
                 except Exception:
                     traceback.print_exc()
 
@@ -766,7 +1021,11 @@ class AgentService:
             else []
         )
         relationship = self.relationship_context("qq", str(event.user_id))
-        memories = list(memories) + [self.relationship_prompt(relationship)]
+        memories = (
+            list(memories)
+            + self.timeline_context("qq", str(event.user_id))
+            + [self.relationship_prompt(relationship)]
+        )
         self.store.add_message("qq", str(event.user_id), "user", text)
         context = {
             "platform": "qq",
@@ -862,7 +1121,11 @@ class AgentService:
             else []
         )
         relationship = self.relationship_context("web", str(user_id))
-        memories = list(memories) + [self.relationship_prompt(relationship)]
+        memories = (
+            list(memories)
+            + self.timeline_context("web", str(user_id))
+            + [self.relationship_prompt(relationship)]
+        )
         self.store.add_message("web", owner, "user", text)
         errorjiang = ErrorJClient(
             self.config.errorjiang_base_url,
@@ -981,6 +1244,23 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
                 },
             )
             return
+        if path == "/internal/timeline":
+            if not self.internal_authorized():
+                self.send_json(403, {"error": "forbidden"})
+                return
+            query = parse_qs(parsed.query)
+            platform = str((query.get("platform") or ["web"])[0])
+            owner_id = str((query.get("owner_id") or ["0"])[0])
+            status = str((query.get("status") or ["all"])[0])
+            rows = self.service.store.list_timeline_events(
+                platform, owner_id, 200
+            )
+            if status in ("open", "done"):
+                rows = [
+                    item for item in rows if item.get("status") == status
+                ]
+            self.send_json(200, {"events": rows})
+            return
         if path == "/internal/stickers":
             if not self.internal_authorized():
                 self.send_json(403, {"error": "forbidden"})
@@ -1071,6 +1351,9 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
             "/internal/settings",
             "/internal/memory/delete",
             "/internal/sticker/delete",
+            "/internal/timeline/create",
+            "/internal/timeline/status",
+            "/internal/timeline/delete",
         ):
             if not self.internal_authorized():
                 self.send_json(403, {"error": "forbidden"})
@@ -1106,6 +1389,68 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
                     platform, owner_id, memory_id
                 )
                 self.send_json(200, {"ok": deleted})
+                return
+            if parsed.path == "/internal/timeline/create":
+                platform = str(payload.get("platform") or "web")
+                owner_id = str(payload.get("owner_id") or "0")
+                title = str(payload.get("title") or "").strip()
+                content = str(payload.get("content") or "").strip()
+                if not title and not content:
+                    self.send_json(400, {"error": "event content required"})
+                    return
+                try:
+                    event_at = (
+                        int(payload["event_at"])
+                        if payload.get("event_at") is not None
+                        else None
+                    )
+                    follow_up_at = (
+                        int(payload["follow_up_at"])
+                        if payload.get("follow_up_at") is not None
+                        else None
+                    )
+                except (TypeError, ValueError):
+                    self.send_json(400, {"error": "invalid event time"})
+                    return
+                event_id = self.service.store.add_timeline_event(
+                    platform,
+                    owner_id,
+                    str(payload.get("event_type") or "event"),
+                    title,
+                    content,
+                    event_at,
+                    follow_up_at,
+                )
+                if not event_id:
+                    self.send_json(400, {"error": "event content required"})
+                    return
+                self.send_json(200, {"ok": True, "id": event_id})
+                return
+            if parsed.path in (
+                "/internal/timeline/status",
+                "/internal/timeline/delete",
+            ):
+                platform = str(payload.get("platform") or "web")
+                owner_id = str(payload.get("owner_id") or "0")
+                try:
+                    event_id = int(payload.get("id"))
+                except (TypeError, ValueError):
+                    self.send_json(400, {"error": "invalid event id"})
+                    return
+                if parsed.path == "/internal/timeline/delete":
+                    deleted = self.service.store.delete_timeline_event(
+                        platform, owner_id, event_id
+                    )
+                    self.send_json(200, {"ok": deleted})
+                    return
+                status = str(payload.get("status") or "")
+                if status not in ("open", "done"):
+                    self.send_json(400, {"error": "invalid event status"})
+                    return
+                updated = self.service.store.set_timeline_status(
+                    platform, owner_id, event_id, status
+                )
+                self.send_json(200, {"ok": updated})
                 return
             if parsed.path == "/internal/sticker/delete":
                 owner_id = str(payload.get("owner_id") or "0")

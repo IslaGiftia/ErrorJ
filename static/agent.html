@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#7b68ee">
-  <title>ErrorJ Agent</title>
+  <title>折兮颜</title>
   <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=4">
   <link rel="stylesheet" href="/static/site/site.css">
   <link rel="stylesheet" href="/static/fonts.css">
@@ -28,7 +28,7 @@
     </a>
     <div class="agent-topbar-title">
       <span>Error酱工作区</span>
-      <strong>ErrorJ Agent</strong>
+      <strong>折兮颜</strong>
     </div>
     <button class="agent-settings-btn" id="agentSettingsBtn" type="button" title="Agent 设置">
       <i data-lucide="sliders-horizontal"></i>
@@ -47,7 +47,7 @@
           <img src="/static/site/error-chan-avatar.png?v=1" alt="Error酱">
         </div>
         <div class="agent-identity-copy">
-          <h1>ErrorJ Agent</h1>
+          <h1>折兮颜</h1>
           <p id="agentStatusText">正在连接 Agent</p>
           <span class="agent-model-pill" id="agentModelPill">DeepSeek</span>
           <div class="agent-relationship" id="agentRelationship" hidden>
@@ -97,7 +97,7 @@
           </div>
           <div class="agent-message-body">
             <div class="agent-message-meta">
-              <strong>ErrorJ Agent</strong>
+              <strong>折兮颜</strong>
               <span>现在</span>
             </div>
             <div class="agent-bubble">
@@ -123,7 +123,7 @@
       </div>
 
       <form class="agent-composer" id="agentForm">
-        <textarea id="agentInput" rows="1" maxlength="4000" placeholder="给 ErrorJ Agent 发消息" required></textarea>
+        <textarea id="agentInput" rows="1" maxlength="4000" placeholder="给折兮颜发消息" required></textarea>
         <div class="agent-composer-bar">
           <span id="agentComposerHint">Enter 发送 · Shift + Enter 换行</span>
           <button type="submit" id="agentSend" title="发送消息" aria-label="发送消息">
@@ -138,7 +138,7 @@
     <header class="agent-settings-head">
       <div>
         <h2>折兮颜设置</h2>
-        <p>记忆、主动聊天和表情包</p>
+        <p>记忆、事件时间线、主动聊天和表情包</p>
       </div>
       <button type="button" id="agentSettingsClose" title="关闭" aria-label="关闭">
         <i data-lucide="x"></i>
@@ -185,6 +185,42 @@
 
       <section class="agent-setting-section">
         <div class="agent-section-title">
+          <h3>事件时间线</h3>
+          <span id="agentTimelineCount">0 条</span>
+        </div>
+        <form class="agent-timeline-form" id="agentTimelineForm">
+          <input type="text" id="agentTimelineTitle" maxlength="120" placeholder="事件标题，例如：周末一起整理房间">
+          <textarea id="agentTimelineContent" rows="2" maxlength="1000" placeholder="补充内容，也可以留空"></textarea>
+          <div class="agent-timeline-form-grid">
+            <label>
+              <span>类型</span>
+              <select id="agentTimelineType">
+                <option value="event">事件</option>
+                <option value="plan">计划</option>
+                <option value="promise">约定</option>
+                <option value="milestone">节点</option>
+                <option value="relationship">关系</option>
+              </select>
+            </label>
+            <label>
+              <span>发生时间</span>
+              <input type="datetime-local" id="agentTimelineEventAt">
+            </label>
+            <label>
+              <span>跟进时间</span>
+              <input type="datetime-local" id="agentTimelineFollowUpAt">
+            </label>
+            <button type="submit" id="agentTimelineAdd">
+              <i data-lucide="plus"></i>
+              <span>加入时间线</span>
+            </button>
+          </div>
+        </form>
+        <div class="agent-timeline-list" id="agentTimelineList"></div>
+      </section>
+
+      <section class="agent-setting-section">
+        <div class="agent-section-title">
           <h3>表情包库</h3>
           <span id="agentStickerCount">0 个</span>
         </div>
@@ -198,6 +234,6 @@
   </dialog>
 
   <script src="/static/vendor/lucide.min.js"></script>
-  <script src="/static/agent.js?v=4"></script>
+  <script src="/static/agent.js?v=5"></script>
 </body>
 </html>

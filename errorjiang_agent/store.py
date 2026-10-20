@@ -140,6 +140,25 @@ class AgentStore:
                     updated_at INTEGER NOT NULL,
                     PRIMARY KEY (platform, owner_id)
                 );
+
+                CREATE TABLE IF NOT EXISTS timeline_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    platform TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL DEFAULT 'event',
+                    title TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    event_at INTEGER NOT NULL,
+                    follow_up_at INTEGER,
+                    status TEXT NOT NULL DEFAULT 'open',
+                    created_at INTEGER NOT NULL,
+                    last_used_at INTEGER,
+                    UNIQUE(platform, owner_id, content)
+                );
+                CREATE INDEX IF NOT EXISTS idx_agent_timeline_owner
+                    ON timeline_events(
+                        platform, owner_id, status, follow_up_at, last_used_at
+                    );
                 """
             )
 
@@ -256,7 +275,8 @@ class AgentStore:
         query: str = "",
         limit: int = 50,
     ) -> list[dict]:
-        sql = """SELECT id, kind, content, importance, created_at, updated_at
+        sql = """SELECT id, kind, content, importance, created_at, updated_at,
+                        last_used_at
                  FROM memories WHERE platform = ? AND owner_id = ?"""
         params: list = [platform, owner_id]
         if query.strip():
@@ -312,6 +332,14 @@ class AgentStore:
                 (int(memory_id), platform, owner_id),
             )
         return cursor.rowcount > 0
+
+    def mark_memory_used(self, platform: str, owner_id: str, memory_id: int) -> None:
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """UPDATE memories SET last_used_at = ?
+                   WHERE id = ? AND platform = ? AND owner_id = ?""",
+                (int(time.time()), int(memory_id), platform, owner_id),
+            )
 
     def get_settings(self, platform: str, owner_id: str) -> dict:
         defaults = {
@@ -419,6 +447,15 @@ class AgentStore:
                 (day, owner_id),
             ).fetchone()
         return int(row["n"])
+
+    def last_proactive_at(self, owner_id: str) -> int:
+        with self._connection() as conn:
+            row = conn.execute(
+                """SELECT MAX(sent_at) AS sent_at FROM proactive_log
+                   WHERE owner_id = ?""",
+                (owner_id,),
+            ).fetchone()
+        return int(row["sent_at"] or 0)
 
     def bind_user(self, platform: str, owner_id: str, user_id: int) -> None:
         with self._lock, self._connection() as conn:
@@ -592,6 +629,144 @@ class AgentStore:
                 (platform, owner_id),
             ).fetchone()
         return str(row["content"])[:120] if row else ""
+
+    def add_timeline_event(
+        self,
+        platform: str,
+        owner_id: str,
+        event_type: str,
+        title: str,
+        content: str,
+        event_at: int | None = None,
+        follow_up_at: int | None = None,
+    ) -> int:
+        title_text = " ".join(str(title or "").split()).strip()[:120]
+        content_text = " ".join(str(content or "").split()).strip()[:1000]
+        if not content_text:
+            content_text = title_text
+        if not title_text:
+            title_text = content_text[:120]
+        if not content_text:
+            return 0
+        now = int(time.time())
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """INSERT INTO timeline_events
+                   (platform, owner_id, event_type, title, content, event_at,
+                    follow_up_at, status, created_at, last_used_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, NULL)
+                   ON CONFLICT(platform, owner_id, content) DO UPDATE SET
+                       event_type = excluded.event_type,
+                       title = excluded.title,
+                       event_at = excluded.event_at,
+                       follow_up_at = COALESCE(
+                           excluded.follow_up_at,
+                           timeline_events.follow_up_at
+                       )""",
+                (
+                    platform,
+                    owner_id,
+                    str(event_type or "event")[:30],
+                    title_text,
+                    content_text,
+                    int(event_at) if event_at is not None else now,
+                    int(follow_up_at) if follow_up_at else None,
+                    now,
+                ),
+            )
+            row = conn.execute(
+                """SELECT id FROM timeline_events
+                   WHERE platform = ? AND owner_id = ? AND content = ?""",
+                (platform, owner_id, content_text),
+            ).fetchone()
+        return int(row["id"]) if row else 0
+
+    def list_timeline_events(
+        self,
+        platform: str,
+        owner_id: str,
+        limit: int = 100,
+    ) -> list[dict]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM timeline_events
+                   WHERE platform = ? AND owner_id = ?
+                   ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END,
+                            COALESCE(follow_up_at, event_at) DESC, id DESC
+                   LIMIT ?""",
+                (platform, owner_id, max(1, min(int(limit), 200))),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def due_timeline_events(
+        self,
+        now: int,
+        limit: int = 20,
+        platform: str | None = None,
+        owner_id: str | None = None,
+    ) -> list[dict]:
+        clauses = [
+            "status = 'open'",
+            "follow_up_at IS NOT NULL",
+            "follow_up_at <= ?",
+            "last_used_at IS NULL",
+        ]
+        params: list = [int(now)]
+        if platform is not None:
+            clauses.append("platform = ?")
+            params.append(platform)
+        if owner_id is not None:
+            clauses.append("owner_id = ?")
+            params.append(owner_id)
+        params.append(max(1, min(int(limit), 100)))
+        with self._connection() as conn:
+            rows = conn.execute(
+                f"""SELECT * FROM timeline_events
+                    WHERE {" AND ".join(clauses)}
+                    ORDER BY follow_up_at, id LIMIT ?""",
+                params,
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_timeline_used(self, event_id: int) -> None:
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                "UPDATE timeline_events SET last_used_at = ? WHERE id = ?",
+                (int(time.time()), int(event_id)),
+            )
+
+    def set_timeline_status(
+        self,
+        platform: str,
+        owner_id: str,
+        event_id: int,
+        status: str,
+    ) -> bool:
+        if status not in ("open", "done"):
+            return False
+        with self._lock, self._connection() as conn:
+            cursor = conn.execute(
+                """UPDATE timeline_events
+                   SET status = ?,
+                       last_used_at = CASE
+                           WHEN ? = 'open' THEN NULL
+                           ELSE last_used_at
+                       END
+                   WHERE id = ? AND platform = ? AND owner_id = ?""",
+                (status, status, int(event_id), platform, owner_id),
+            )
+        return cursor.rowcount > 0
+
+    def delete_timeline_event(
+        self, platform: str, owner_id: str, event_id: int
+    ) -> bool:
+        with self._lock, self._connection() as conn:
+            cursor = conn.execute(
+                """DELETE FROM timeline_events
+                   WHERE id = ? AND platform = ? AND owner_id = ?""",
+                (int(event_id), platform, owner_id),
+            )
+        return cursor.rowcount > 0
 
     def create_pending(
         self,
