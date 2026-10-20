@@ -6462,6 +6462,52 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 
 备注：线上完整计算器数据需要登录，公网使用服务器实际返回的同版静态文件做哈希和页面结构检查；交互验证在隔离测试数据库上完成，没有改动线上真实账目。
 
+## 145. 2026-10-20 08:43:16 收敛全站按钮按压缩放与松手过冲
+
+来源：站长反馈全站按钮按下缩放 92% 比较抢眼，希望改为更克制的 95% 或更小幅度反馈。
+
+完成内容（提交 `9edda1a style:soften-global-button-press`，4 文件，+58/−5）：
+
+- 全站默认按压缩放从 92% 调整为 96%。
+- 主操作按钮使用 95%，图标按钮、工具栏、高频行内按钮使用 97%。
+- 松手过冲从 102.8% 收敛到 101.2%，避免按压缩小变轻后回弹显得过高。
+- `button-effects.js` 不再写死 92% / 102.8%，改为读取每个按钮自身 CSS 变量，保留分类覆盖能力。
+- 减少动效规则不变：系统开启减少动效时仍取消缩放、磁吸、液态扩散与微粒。
+
+部署步骤：
+```text
+本地：node --check static/site/button-effects.js；JSON 校验；git diff --check 干净；
+      python -m unittest discover -s tests -> 145 passed
+浏览器：Playwright 实测普通按钮 0.96、主按钮 0.95、图标按钮 0.97，
+        松手动画关键帧为 0.95 → 1.012 → 1
+提交：9edda1a style:soften-global-button-press
+      （fetch → pull --rebase → push；local == origin/main == 9edda1a）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 47c2215f6f85b2501e91b02b792cbb248f2a0ab15a7804b7e8271ce511af9e1c
+备份：/data/errorjiang-backup/20261020-084225/
+      （inventory.db 6.0M + changelog-seed.json 119K + auth.json 223B；无 WAL / SHM）
+服务器：systemctl stop -> cp 备份 -> git pull --ff-only -> 9edda1a
+      seed 安装；import_changelog_moments.py --date 2026-10-20 --force
+      -> 新增 4 条、覆盖 0 条、跳过 0 条（当天四条按 seed 重建）
+      systemctl start
+```
+
+验证结果：
+```text
+服务      -> errorjiang / nginx active，/api/health = {"ok": true}
+版本      -> 本地代码提交 = origin/main = 服务器 HEAD = 9edda1a
+             服务器工作区干净，未跟踪的 data.before-upload-20260929-183359/ 原样保留
+更新日志  -> /api/moments 里 2026-10-20 08:41:19
+             「收敛全站按钮按压缩放与松手过冲」（id 732，kind = log）
+静态文件  -> button-effects.css 线上 / 本地 SHA256 = BF4F78BE4B010884BBB91E1FFFA3CA442DE266D82379912DAD7CD938CE48E489
+             button-effects.js  线上 / 本地 SHA256 = AE87BCAB82F96FDD2C8A5370E61FBF4A58EB281B6A2D9941CC903DCA9C1C089F
+线上交互  -> 公网同版 finance.html 实测主按钮 var = 0.95、图标按钮 = 0.97、普通按钮 = 0.96；
+             鼠标按下主按钮 computed scale = 0.95，松手关键帧为 0.95 → 1.012 → 1
+回归      -> 145 项单测通过；减少动效和不支持 WAAPI 的降级逻辑未改动
+```
+
+备注：线上验证使用公网返回的同版静态页面和脚本，没有改动线上真实业务数据。
+
 ## 143. 2026-10-20 02:07:31 精简财务入口、收紧桌面布局并完善移动端折叠
 
 来源：站长继续测试财务模块后要求恢复删除按钮宽度、移除财务选项功能、减少 PC 留白、删除账目数量与账号搜索、调整移动端账目和费用明细折叠，并修正分摊人箭头旋转方式。
