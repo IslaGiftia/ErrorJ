@@ -6477,6 +6477,36 @@ NapCat    -> errorjiang-napcat 容器 Up 47 minutes
 - 列表、库存查询、URL、代码块、审核确认和操作结果仍保持原标点，不做全局删除。
 - QQ 回复、网页聊天和主动消息三个出口统一应用该处理。
 
+部署步骤：
+```text
+本地：python -m py_compile app.py errorjiang_agent/service.py errorjiang_agent/brain.py；
+      python -m unittest discover -s tests -v -> 177 passed；
+      python -m json.tool config/changelog-seed.json；git diff --check 干净
+提交：4d190f0 style: make agent chat punctuation more natural
+      （功能提交已推送；发布记录提交随后同步，最终 server HEAD 与 origin/main 一致）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = cdc3364f6b283ea034cc785eb6a1601e2ddff23af4183a05aa3a9435bac00b70
+备份：/data/errorjiang-backup/20261021-001127/
+      （inventory.db、changelog-seed.json、auth.json；无 WAL / SHM）
+服务器：systemctl stop errorjiang -> cp 备份 -> git pull --ff-only -> 4d190f0
+      app.init_db；seed 安装；import_changelog_moments.py --date 2026-10-21 --force
+      -> 新增 1 条、覆盖 0 条、跳过 0 条
+      systemctl start errorjiang；systemctl restart errorjiang-agent
+```
+
+验证结果：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 公网 /api/health = {"ok": true}；Agent 172.17.0.1:8011/health = {"ok": true}
+更新日志  -> 2026-10-21 00:10:05「折兮颜闲聊去掉句尾句号」
+             （id 738，kind = log）
+线上逻辑  -> 服务器实际执行 humanize_text("知道啦。今天也辛苦了。", strip_terminal_period=True)
+             -> '知道啦。今天也辛苦了'
+回归      -> 177 项单测通过；问号、感叹号、列表、URL、代码和正式确认标点保持不变
+```
+
+备注：本次只发布句号相关提示词、输出清理和测试，没有加入 QQBot、Telegram 或其他聊天通道改动。
+
 ## 144. 2026-10-20 02:53:51 计算器更名、分摊人面板对齐与移动端账目弹出选择
 
 来源：站长继续优化计算器页面，要求统一分摊人面板宽度、固定行内编辑高度、补全取消编辑交互、把统计移到标题右侧、将模块改名为“计算器”，并重做移动端账目选择和费用明细折叠。
