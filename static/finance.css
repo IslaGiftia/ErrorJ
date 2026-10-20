@@ -424,7 +424,7 @@ button {
 
 .fin-panel-head {
   display: flex;
-  min-height: 60px;
+  min-height: 64px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
