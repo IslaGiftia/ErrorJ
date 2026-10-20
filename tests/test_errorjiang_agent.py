@@ -68,6 +68,13 @@ class AgentStoreTests(unittest.TestCase):
         self.assertTrue(self.store.is_admin("qq", "10001"))
         self.assertFalse(self.store.is_admin("qq", "10002"))
 
+    def test_qq_user_can_be_linked_to_site_account(self):
+        self.store.bind_user("qq", "10003", 42)
+        self.assertEqual(self.store.linked_user_id("qq", "10003"), 42)
+        self.assertEqual(self.store.list_identities("qq")[0]["user_id"], 42)
+        self.assertTrue(self.store.unbind_user("qq", "10003"))
+        self.assertIsNone(self.store.linked_user_id("qq", "10003"))
+
     def test_memory_settings_and_stickers(self):
         self.store.add_memory("qq", "10001", "星星喜欢安静", "preference", 8)
         self.store.add_memory("qq", "10001", "星星喜欢安静", "preference", 9)
@@ -203,6 +210,31 @@ class AgentBrainTests(unittest.TestCase):
             errorjiang.calls,
             [("inventory.search", {"query": "STM32F103C8T6"})],
         )
+
+    def test_calculator_tool_mapping(self):
+        deepseek = FakeDeepSeek(
+            [
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call-aa",
+                            "type": "function",
+                            "function": {
+                                "name": "errorjiang_aa_events_list",
+                                "arguments": "{}",
+                            },
+                        }
+                    ],
+                },
+                {"role": "assistant", "content": "账目列表如下。"},
+            ]
+        )
+        errorjiang = FakeErrorJ()
+        brain = AgentBrain(deepseek, errorjiang, lambda args, context: {})
+        self.assertEqual(brain.reply("有哪些账目？", []), "账目列表如下。")
+        self.assertEqual(errorjiang.calls, [("aa.events.list", {})])
 
     def test_review_prepare_receives_current_chat_context(self):
         deepseek = FakeDeepSeek(

@@ -16468,6 +16468,146 @@ class InventoryHandler(BaseHTTPRequestHandler):
             {"ok": True, "kind": kind, "id": item_id, "action": action},
         )
 
+    def agent_require_aa(self, identity):
+        if self.agent_has_permission(identity, AA_PERMISSION):
+            return True
+        api_error(self, 403, "当前账号没有计算器权限。")
+        return False
+
+    def agent_tool_aa_events_list(self, identity, args):
+        if not self.agent_require_aa(identity):
+            return
+        current_user_id = int(identity.get("user_id") or 0)
+        if identity.get("kind") in ("owner", "admin"):
+            rows = query("SELECT id FROM aa_events ORDER BY updated_at DESC, id DESC")
+        else:
+            rows = query(
+                """SELECT e.id FROM aa_events e
+                   JOIN aa_members m ON m.event_id = e.id
+                   WHERE m.user_id = ?
+                   ORDER BY e.updated_at DESC, e.id DESC""",
+                (current_user_id,),
+            )
+        results = []
+        for row in rows[:20]:
+            payload = self.aa_event_payload(int(row["id"]), identity, False)
+            if not payload:
+                continue
+            results.append(
+                {
+                    "id": payload["id"],
+                    "title": payload["title"],
+                    "owner_name": payload["owner_name"],
+                    "member_count": payload["member_count"],
+                    "total_cents": payload["total_cents"],
+                    "my_balance_cents": payload["my_balance_cents"],
+                    "can_manage": payload["can_manage"],
+                }
+            )
+        self.send_json(200, {"count": len(results), "events": results})
+
+    def agent_tool_aa_event_get(self, identity, args):
+        if not self.agent_require_aa(identity):
+            return
+        try:
+            event_id = int(args.get("event_id"))
+        except (TypeError, ValueError):
+            api_error(self, 400, "账目编号不正确。")
+            return
+        payload = self.aa_event_payload(event_id, identity, True)
+        if not payload:
+            api_error(self, 404, "账目不存在或当前账号无权访问。")
+            return
+        self.send_json(200, payload)
+
+    def agent_tool_aa_expense_add(self, identity, args):
+        if not self.agent_require_aa(identity):
+            return
+        try:
+            event_id = int(args.get("event_id"))
+        except (TypeError, ValueError):
+            api_error(self, 400, "账目编号不正确。")
+            return
+        event = query_one("SELECT * FROM aa_events WHERE id = ?", (event_id,))
+        if not event:
+            api_error(self, 404, "账目不存在。")
+            return
+        current_user_id = int(identity.get("user_id") or 0)
+        member_ids = self.aa_event_member_ids(event_id)
+        if current_user_id not in member_ids:
+            api_error(self, 403, "只有账目成员可以录入费用。")
+            return
+        amount_cents = aa_amount_cents(args.get("amount_cents"))
+        if amount_cents is None:
+            api_error(self, 400, "金额需大于 0，且不超过 1,000,000 元。")
+            return
+        note = str(args.get("note") or "").strip()
+        if len(note) > AA_EXPENSE_NOTE_MAX_CHARS:
+            api_error(self, 400, "备注太长。")
+            return
+        raw_splits = args.get("split_user_ids")
+        if raw_splits is None:
+            split_user_ids = sorted(member_ids)
+        else:
+            if not isinstance(raw_splits, list):
+                api_error(self, 400, "分摊人格式不正确。")
+                return
+            try:
+                split_user_ids = sorted({int(item) for item in raw_splits})
+            except (TypeError, ValueError):
+                api_error(self, 400, "分摊人格式不正确。")
+                return
+            if not split_user_ids or any(
+                item not in member_ids for item in split_user_ids
+            ):
+                api_error(self, 400, "分摊人必须是当前账目成员。")
+                return
+        stamp = now_text()
+
+        def create(conn):
+            cursor = conn.execute(
+                """INSERT INTO aa_expenses
+                   (event_id, user_id, amount_cents, note, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    event_id,
+                    current_user_id,
+                    amount_cents,
+                    note,
+                    stamp,
+                    stamp,
+                ),
+            )
+            expense_id = int(cursor.lastrowid)
+            conn.executemany(
+                """INSERT INTO aa_expense_splits(expense_id, user_id)
+                   VALUES (?, ?)""",
+                [(expense_id, user_id) for user_id in split_user_ids],
+            )
+            conn.execute(
+                "UPDATE aa_events SET updated_at = ? WHERE id = ?",
+                (stamp, event_id),
+            )
+            return expense_id
+
+        expense_id = transaction(create)
+        self.log_activity(
+            "aa_expense_create",
+            f"ErrorJ Agent 在账目「{event['title']}」录入费用",
+            target_type="aa_event",
+            target_id=event_id,
+            actor=identity,
+        )
+        payload = self.aa_event_payload(event_id, identity, True)
+        self.send_json(
+            200,
+            {
+                "ok": True,
+                "expense_id": expense_id,
+                "event": payload,
+            },
+        )
+
     def api_agent_tool(self, payload, identity):
         tool = str((payload or {}).get("tool") or "").strip()
         args = (payload or {}).get("arguments") or {}
@@ -16481,6 +16621,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
             "notes.read": self.agent_tool_note_read,
             "reviews.list": self.agent_tool_reviews_list,
             "reviews.decide": self.agent_tool_reviews_decide,
+            "aa.events.list": self.agent_tool_aa_events_list,
+            "aa.event.get": self.agent_tool_aa_event_get,
+            "aa.expense.add": self.agent_tool_aa_expense_add,
         }
         handler = handlers.get(tool)
         if not handler:

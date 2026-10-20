@@ -107,6 +107,14 @@ class AgentStore:
                     sent_at INTEGER NOT NULL,
                     PRIMARY KEY (day, slot, owner_id)
                 );
+
+                CREATE TABLE IF NOT EXISTS identities (
+                    platform TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    PRIMARY KEY (platform, owner_id)
+                );
                 """
             )
 
@@ -386,6 +394,42 @@ class AgentStore:
                 (day, owner_id),
             ).fetchone()
         return int(row["n"])
+
+    def bind_user(self, platform: str, owner_id: str, user_id: int) -> None:
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """INSERT INTO identities(platform, owner_id, user_id, created_at)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(platform, owner_id) DO UPDATE SET
+                       user_id = excluded.user_id,
+                       created_at = excluded.created_at""",
+                (platform, owner_id, int(user_id), int(time.time())),
+            )
+
+    def unbind_user(self, platform: str, owner_id: str) -> bool:
+        with self._lock, self._connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM identities WHERE platform = ? AND owner_id = ?",
+                (platform, owner_id),
+            )
+        return cursor.rowcount > 0
+
+    def linked_user_id(self, platform: str, owner_id: str) -> int | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT user_id FROM identities WHERE platform = ? AND owner_id = ?",
+                (platform, owner_id),
+            ).fetchone()
+        return int(row["user_id"]) if row else None
+
+    def list_identities(self, platform: str = "qq") -> list[dict]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT owner_id, user_id, created_at FROM identities
+                   WHERE platform = ? ORDER BY created_at, owner_id""",
+                (platform,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def create_pending(
         self,

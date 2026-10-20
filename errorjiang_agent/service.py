@@ -29,6 +29,8 @@ from .store import AgentStore
 
 CONFIRM_RE = re.compile(r"^(?:确认|/confirm)\s+(\d{6})$", re.IGNORECASE)
 BIND_RE = re.compile(r"^(?:绑定|/bind)\s+(\S+)$", re.IGNORECASE)
+BIND_USER_RE = re.compile(r"^绑定用户\s+(\d{5,12})\s+(\d+)$")
+UNBIND_USER_RE = re.compile(r"^解绑用户\s+(\d{5,12})$")
 MAX_WEBHOOK_BYTES = 8 * 1024 * 1024
 
 
@@ -457,26 +459,72 @@ class AgentService:
                 "主 QQ 已绑定为 ErrorJ Agent 管理员。现在可以查询库存、链接、笔记和审核队列。",
             )
             return
-        if event.user_id not in self.config.admin_qqs and not self.store.is_admin(
+        is_admin = event.user_id in self.config.admin_qqs or self.store.is_admin(
             "qq", str(event.user_id)
-        ):
-            if event.message_type == "private":
-                hint = (
-                    f"当前 QQ 尚未绑定。请发送：绑定 {self.config.bind_code}"
-                    if self.config.bind_code and not self.store.has_admins()
-                    else "当前 QQ 尚未绑定 Error酱管理员身份。"
+        )
+        if is_admin:
+            bind_user_match = BIND_USER_RE.fullmatch(event.text.strip())
+            if bind_user_match:
+                qq_id, site_user_id = bind_user_match.groups()
+                self.store.bind_user("qq", qq_id, int(site_user_id))
+                self.send_reply(
+                    event,
+                    f"已将 QQ {qq_id} 绑定到 Error酱用户 #{site_user_id}。",
                 )
-                self.send_reply(event, hint)
+                return
+            unbind_user_match = UNBIND_USER_RE.fullmatch(event.text.strip())
+            if unbind_user_match:
+                qq_id = unbind_user_match.group(1)
+                removed = self.store.unbind_user("qq", qq_id)
+                self.send_reply(
+                    event,
+                    f"已解绑 QQ {qq_id}。" if removed else "这个 QQ 尚未绑定。",
+                )
+                return
+            if event.text.strip() in ("绑定列表", "/bindings"):
+                links = self.store.list_identities("qq")
+                if not links:
+                    self.send_reply(event, "目前没有普通用户 QQ 绑定。")
+                else:
+                    self.send_reply(
+                        event,
+                        "普通用户绑定：\n"
+                        + "\n".join(
+                            f"QQ {item['owner_id']} → 用户 #{item['user_id']}"
+                            for item in links
+                        ),
+                    )
+                return
+        linked_user_id = self.store.linked_user_id("qq", str(event.user_id))
+        if not is_admin and linked_user_id is None:
+            hint = (
+                f"当前 QQ 尚未绑定。请让管理员发送：绑定用户 {event.user_id} 用户编号"
+                if event.message_type == "private"
+                else "这个 QQ 尚未绑定 Error酱账号。"
+            )
+            self.send_reply(event, hint)
             return
+        target_user_id = 0 if is_admin else int(linked_user_id)
         if not self.rate_limiter.allow(str(event.user_id)):
             self.send_reply(event, "请求太频繁，请稍后再试。")
             return
         saved_stickers = self.save_message_stickers(event, payload)
         chat_lock = self._chat_locks[event.owner_id]
         with chat_lock:
-            self._process_event(event, saved_stickers)
+            self._process_event(
+                event,
+                saved_stickers,
+                target_user_id=target_user_id,
+                is_admin=is_admin,
+            )
 
-    def _process_event(self, event: MessageEvent, saved_stickers: int = 0) -> None:
+    def _process_event(
+        self,
+        event: MessageEvent,
+        saved_stickers: int = 0,
+        target_user_id: int = 0,
+        is_admin: bool = True,
+    ) -> None:
         text = event.text.strip()
         if not text:
             self.send_reply(
@@ -494,6 +542,7 @@ class AgentService:
             self.send_reply(
                 event,
                 "可以问我：元件库存、收藏网站链接、笔记内容、待审核列表。"
+                "也可以查询计算器账目和记录费用。"
                 "审核操作需要回复“确认 123456”。发送“重置对话”可清空上下文。",
             )
             return
@@ -525,14 +574,19 @@ class AgentService:
             "platform": "qq",
             "owner_id": str(event.user_id),
             "chat_id": str(event.chat_id),
-            "is_admin": "1",
+            "is_admin": "1" if is_admin else "0",
             "sticker_enabled": (
                 "1" if settings.get("sticker_enabled", True) else "0"
             ),
         }
+        errorjiang = ErrorJClient(
+            self.config.errorjiang_base_url,
+            self.config.errorjiang_token,
+            target_user_id,
+        )
         brain = AgentBrain(
             self.deepseek,
-            self.errorjiang,
+            errorjiang,
             self.prepare_review,
             self.prepare_sticker,
             max_tool_rounds=self.config.max_tool_rounds,
