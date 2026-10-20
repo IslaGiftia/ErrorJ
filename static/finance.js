@@ -216,31 +216,16 @@
     if (panel) panel.classList.toggle("is-fresh", state.transferPulse);
   }
 
-  function financeScrollTargets() {
-    return Array.prototype.slice.call(
-      document.querySelectorAll(
-        "#eventList, #expenseList, #transferList, #balanceList"
-      )
-    );
-  }
-
-  function updateFinanceBackTop() {
-    var button = $("financeBackTop");
-    if (!button) return;
-    var active =
-      (window.scrollY || document.documentElement.scrollTop || 0) > 24 ||
-      financeScrollTargets().some(function (target) {
-        return target.scrollTop > 24;
-      });
-    button.hidden = !active;
-  }
-
-  function scrollFinanceTop() {
-    window.scrollTo({ top: 0, behavior: "smooth" });
-    financeScrollTargets().forEach(function (target) {
-      target.scrollTo({ top: 0, behavior: "smooth" });
-    });
-    $("financeBackTop").hidden = true;
+  function syncFinanceLayoutHeight() {
+    var layout = document.querySelector(".fin-layout");
+    var side = document.querySelector(".fin-side-column");
+    if (!layout || !side) return;
+    if (isMobileEvents()) {
+      layout.style.minHeight = "";
+      return;
+    }
+    var bottom = side.offsetTop + side.offsetHeight + 24;
+    layout.style.minHeight = Math.max(window.innerHeight, bottom) + "px";
   }
 
   function balanceClass(value) {
@@ -600,7 +585,7 @@
     if ($("receiptsDialog").open) renderReceiptsDialog();
     refreshIcons();
     refreshButtons();
-    updateFinanceBackTop();
+    syncFinanceLayoutHeight();
   }
 
   async function loadDetail(eventId, updateUrl) {
@@ -1159,7 +1144,6 @@
     $("receiptsDialogClose").addEventListener("click", function () {
       $("receiptsDialog").close();
     });
-    $("financeBackTop").addEventListener("click", scrollFinanceTop);
 
     $("receiptGrid").addEventListener("click", function (event) {
       var upload = event.target.closest("[data-receipt-upload]");
@@ -1212,16 +1196,12 @@
       dialog.addEventListener("toggle", syncDialogScrollLock);
       dialog.addEventListener("close", syncDialogScrollLock);
     });
-    window.addEventListener("scroll", updateFinanceBackTop, { passive: true });
-    financeScrollTargets().forEach(function (target) {
-      target.addEventListener("scroll", updateFinanceBackTop, { passive: true });
-    });
     window.addEventListener("resize", function () {
       if (!isMobileEvents()) setMobileEventsOpen(false);
-      updateFinanceBackTop();
+      syncFinanceLayoutHeight();
     });
     syncDialogScrollLock();
-    updateFinanceBackTop();
+    syncFinanceLayoutHeight();
   }
 
   bindEvents();

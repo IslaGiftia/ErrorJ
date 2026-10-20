@@ -64,6 +64,20 @@ body {
   font-size: 14px;
   line-height: 1.5;
   letter-spacing: 0;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+body::-webkit-scrollbar,
+.fin-event-list::-webkit-scrollbar,
+.fin-expense-list::-webkit-scrollbar {
+  display: none;
+}
+
+.fin-event-list,
+.fin-expense-list {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 button,
@@ -431,6 +445,12 @@ button {
   gap: 12px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--fin-border);
+}
+
+.fin-transfer-panel .fin-panel-head,
+.fin-balance-panel .fin-panel-head {
+  min-height: 52px;
+  padding: 8px 14px;
 }
 
 .fin-panel-title-row {
@@ -1176,13 +1196,6 @@ body.fin-dialog-open {
   animation: fin-toast-in var(--dur-base) var(--ease-out-strong);
 }
 
-.fin-back-top {
-  position: fixed;
-  right: 22px;
-  bottom: 18px;
-  z-index: 42;
-}
-
 .fin-transfer-panel.is-fresh {
   animation: fin-transfer-breathe 2.8s ease-in-out infinite;
 }
@@ -1402,21 +1415,24 @@ body.fin-dialog-open {
 
 @media (min-width: 821px) {
   body {
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
 
   .fin-layout {
+    position: relative;
     grid-template-rows: minmax(0, 1fr);
-    height: 100vh;
-    height: 100dvh;
-    min-height: 0;
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
     padding: 16px 24px 16px 18px;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .fin-sidebar {
     display: flex;
-    height: 100%;
+    height: calc(100vh - 32px);
+    height: calc(100dvh - 32px);
     flex-direction: column;
     padding: 0 14px 0 0;
     overflow: hidden;
@@ -1434,7 +1450,8 @@ body.fin-dialog-open {
 
   .fin-main {
     min-height: 0;
-    height: 100%;
+    height: calc(100vh - 32px);
+    height: calc(100dvh - 32px);
     padding: 0 0 0 clamp(20px, 3vw, 46px);
     overflow: hidden;
   }
@@ -1476,15 +1493,15 @@ body.fin-dialog-open {
   }
 
   .fin-side-column {
-    position: fixed;
+    position: absolute;
     top: 76px;
     right: 24px;
     display: flex;
     width: var(--fin-side-width);
-    max-height: calc(100vh - 170px);
-    max-height: calc(100dvh - 170px);
+    max-height: none;
     flex-direction: column;
     gap: 14px;
+    padding-bottom: 24px;
   }
 
   .fin-side-column > .fin-overview {
@@ -1495,16 +1512,15 @@ body.fin-dialog-open {
   .fin-balance-panel {
     display: flex;
     min-height: 0;
-    max-height: 26vh;
+    max-height: none;
     flex-direction: column;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .fin-transfer-list,
   .fin-balance-list {
-    flex: 1;
     min-height: 0;
-    overflow: auto;
+    overflow: visible;
   }
 
   .fin-empty {
