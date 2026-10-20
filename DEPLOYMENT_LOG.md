@@ -6432,7 +6432,8 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
         事件时间线表单完整显示且没有横向越界，桌面双列 / 手机单列布局正常
 提交：40daf7f feat: add agent timeline and natural outreach
       02e0007 fix: refresh agent stylesheet cache
-      （local == origin/main == server HEAD = 02e0007）
+      （功能代码与缓存补丁按序部署；发布记录提交随后同步，
+        最终 server HEAD 与 origin/main 一致）
 seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
       两侧 SHA256 = 9d4feea3b76afe04811b4d91c44f451dd23d0492eb4640137b1347a22c3e8a51
 备份：/data/errorjiang-backup/20261020-234724/
