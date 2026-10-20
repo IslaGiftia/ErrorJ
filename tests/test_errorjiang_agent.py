@@ -220,6 +220,10 @@ class AgentStoreTests(unittest.TestCase):
         self.assertEqual(prepared["status"], "scheduled")
         reminders = self.store.list_reminders("qq", "10001")
         self.assertEqual(reminders[0]["text"], "提醒星星睡觉")
+        self.assertEqual(
+            AgentService.reminder_delivery_text(reminders[0]),
+            "提醒星星睡觉",
+        )
 
     def test_humanize_collapses_chat_blank_lines(self):
         text = "嗯，就一个句号。\n\n我收好了，你还想说什么？"
@@ -247,6 +251,24 @@ class AgentStoreTests(unittest.TestCase):
                 strip_terminal_period=True,
             ),
             "- 库存 3 条。",
+        )
+
+    def test_chat_bubbles_only_split_when_model_requests_it(self):
+        self.assertEqual(
+            AgentService.chat_bubbles("嗯，知道啦"),
+            ["嗯，知道啦"],
+        )
+        self.assertEqual(
+            AgentService.chat_bubbles(
+                "嗯。知道啦。\n[[split]]\n那你早点睡。"
+            ),
+            ["嗯。知道啦", "那你早点睡"],
+        )
+        self.assertEqual(
+            AgentService.chat_bubbles(
+                "一[[split]]二[[split]]三[[split]]四"
+            ),
+            ["一", "二", "三 四"],
         )
 
     def test_due_timeline_event_is_the_first_proactive_topic(self):

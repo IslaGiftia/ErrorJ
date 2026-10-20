@@ -35,6 +35,7 @@ MAX_WEBHOOK_BYTES = 8 * 1024 * 1024
 PROACTIVE_GREETING_WINDOW_MINUTES = 25
 PROACTIVE_MIN_GAP_SECONDS = 90 * 60
 PROACTIVE_MEMORY_COOLDOWN_SECONDS = 3 * 86400
+CHAT_SPLIT_RE = re.compile(r"\s*\[\[split\]\]\s*", re.IGNORECASE)
 
 
 class RateLimiter:
@@ -172,7 +173,7 @@ class AgentService:
         while not self._reminder_stop.wait(10):
             for reminder in self.store.due_reminders(int(time.time())):
                 try:
-                    text = f"提醒：{reminder['text']}"
+                    text = self.reminder_delivery_text(reminder)
                     if reminder.get("chat_type") == "group":
                         message = [
                             {
@@ -187,6 +188,10 @@ class AgentService:
                     self.store.mark_reminder_sent(int(reminder["id"]))
                 except Exception:
                     traceback.print_exc()
+
+    @staticmethod
+    def reminder_delivery_text(reminder: dict[str, Any]) -> str:
+        return str(reminder.get("text") or "").strip()
 
     def selected_sticker(self, tool_context: dict[str, str] | None):
         if not tool_context or not tool_context.get("selected_sticker"):
@@ -613,9 +618,8 @@ class AgentService:
             ],
             [],
         )
-        return self.humanize_text(
-            str(message.get("content") or ""),
-            strip_terminal_period=True,
+        return " ".join(
+            self.chat_bubbles(str(message.get("content") or ""))
         )[:500]
 
     @staticmethod
@@ -803,30 +807,52 @@ class AgentService:
                 value = re.sub(r"[。｡]([”’」』】）)]*)$", r"\1", value)
         return value.strip()
 
+    @classmethod
+    def chat_bubbles(cls, text: str) -> list[str]:
+        parts = CHAT_SPLIT_RE.split(str(text or ""))
+        bubbles = []
+        for part in parts:
+            value = cls.humanize_text(
+                part,
+                strip_terminal_period=True,
+            )[:500]
+            if value:
+                bubbles.append(value)
+        if len(bubbles) > 3:
+            bubbles = bubbles[:2] + [" ".join(bubbles[2:])[:500]]
+        return bubbles or [""]
+
     def send_reply(
         self,
         event: MessageEvent,
         text: str,
         sticker: dict[str, Any] | None = None,
+        bubbles: list[str] | None = None,
     ) -> None:
-        text = self.humanize_text(text)
-        if not text:
-            text = "这次没有生成有效回答。"
-        if len(text) > 3500:
-            text = text[:3500] + "\n（内容较长，已截断）"
-        segment = self.sticker_segment(sticker)
-        message = text
-        if segment:
-            message = [
-                {"type": "text", "data": {"text": text}},
-                segment,
-            ]
-        delay = min(2.8, max(0.55, len(text) * 0.018))
-        time.sleep(delay + random.uniform(0, 0.45))
-        if event.message_type == "group":
-            self.onebot.send_group(event.chat_id, message)
-        else:
-            self.onebot.send_private(event.user_id, message)
+        chunks = bubbles if bubbles is not None else [text]
+        chunks = [chunk for chunk in chunks if chunk]
+        if not chunks:
+            chunks = ["这次没有生成有效回答。"]
+        for index, chunk in enumerate(chunks):
+            if not bubbles:
+                chunk = self.humanize_text(chunk)
+            if len(chunk) > 3500:
+                chunk = chunk[:3500] + "\n（内容较长，已截断）"
+            segment = self.sticker_segment(sticker) if index == len(chunks) - 1 else None
+            message = chunk
+            if segment:
+                message = [
+                    {"type": "text", "data": {"text": chunk}},
+                    segment,
+                ]
+            delay = min(1.8, max(0.45, len(chunk) * 0.018))
+            time.sleep(delay + random.uniform(0, 0.35))
+            if event.message_type == "group":
+                self.onebot.send_group(event.chat_id, message)
+            else:
+                self.onebot.send_private(event.user_id, message)
+            if index < len(chunks) - 1:
+                time.sleep(random.uniform(0.35, 0.8))
 
     def confirm_pending(self, event: MessageEvent, code: str) -> str | None:
         action = self.store.consume_pending(
@@ -1069,9 +1095,15 @@ class AgentService:
         except Exception:
             self.send_reply(event, "处理消息时发生内部错误，请稍后重试。")
             return
-        reply = self.humanize_text(reply, strip_terminal_period=True)
+        bubbles = self.chat_bubbles(reply)
+        reply = "\n".join(bubbles)
         self.store.add_message("qq", str(event.user_id), "assistant", reply)
-        self.send_reply(event, reply, self.selected_sticker(context))
+        self.send_reply(
+            event,
+            reply,
+            self.selected_sticker(context),
+            bubbles=bubbles,
+        )
         self.update_relationship_after_exchange("qq", str(event.user_id), text)
         self.executor.submit(
             self.remember_exchange,
@@ -1160,7 +1192,8 @@ class AgentService:
             context,
             memories=memories,
         )
-        reply = self.humanize_text(reply, strip_terminal_period=True)
+        bubbles = self.chat_bubbles(reply)
+        reply = "\n".join(bubbles)
         self.store.add_message("web", owner, "assistant", reply)
         self.update_relationship_after_exchange("web", str(user_id), text)
         self.executor.submit(
