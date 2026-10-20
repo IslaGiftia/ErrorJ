@@ -6423,6 +6423,47 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 - 主动消息保留每日次数、安静时段和 90 分钟最小间隔；到期事件跟进一次后通过 `last_used_at` 去重，旧记忆三天内不会重复用于主动话题。
 - Agent 页面标题、聊天署名和输入提示统一显示“折兮颜”。
 
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -v -> 177 passed；
+      node --check static/agent.js / books.js / messages.js / moments.js / site/activity.js；
+      python -m json.tool config/changelog-seed.json；git diff --check 干净
+浏览器：Playwright 用当前静态页在 1440×900 与 390×844 视口打开折兮颜设置，
+        事件时间线表单完整显示且没有横向越界，桌面双列 / 手机单列布局正常
+提交：40daf7f feat: add agent timeline and natural outreach
+      02e0007 fix: refresh agent stylesheet cache
+      （local == origin/main == server HEAD = 02e0007）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 9d4feea3b76afe04811b4d91c44f451dd23d0492eb4640137b1347a22c3e8a51
+备份：/data/errorjiang-backup/20261020-234724/
+      （inventory.db、changelog-seed.json、auth.json；无 WAL / SHM）
+服务器：systemctl stop errorjiang -> cp 备份 -> git pull --ff-only -> 40daf7f
+      app.init_db；seed 安装；import_changelog_moments.py --date 2026-10-20 --force
+      -> 新增 5 条、覆盖 0 条、跳过 0 条
+      systemctl start errorjiang；systemctl restart errorjiang-agent
+      补丁 02e0007 推送后 git pull --ff-only；静态文件无需重启即可生效
+```
+
+验证结果：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 公网 /api/health = {"ok": true}；Agent 172.17.0.1:8011/health = {"ok": true}
+版本      -> 本地代码提交 = origin/main = 服务器 HEAD = 02e0007
+             服务器工作区干净，未跟踪的 data.before-upload-20260929-183359/ 原样保留
+更新日志  -> 2026-10-20 23:45:55「折兮颜加入事件时间线与自然主动话题」
+             （id 737，kind = log）
+权限      -> 公网 /agent 未登录访问返回 302 /login?next=/agent
+Agent API -> /internal/timeline?platform=web&owner_id=0&status=all 返回 200
+静态文件  -> agent.html 线上 / 本地 SHA256 = 18FE65F7EFF8F6E9F668B650CDAF3609B3E3A1A7C613F0D57AEBDACD8E3C6E7A
+             agent.css  线上 / 本地 SHA256 = D9859A739188B5BF84A13985F26BE7CFD295C879838D2A6F29FF24B66357B2A7
+             agent.js   线上 / 本地 SHA256 = 8FCAEF541695F85FA28E1127BEB84EE8493A9EC88F83F173377F664F5721FF62
+NapCat    -> errorjiang-napcat 容器 Up 47 minutes
+回归      -> 177 项单测通过；时间线存储、提取、状态切换、内部 API、
+             主动候选优先级、问候时间窗与记忆冷却均有测试覆盖
+```
+
+备注：本机 Chromium 直连公网域名时 TLS 被提前关闭，curl、服务器自身回环访问和 Nginx 配置检查均正常；页面渲染验证使用同一提交的静态文件在本地 HTTP 环境完成，线上三个静态文件的 SHA256 已与本地逐一比对一致。
+
 ## 144. 2026-10-20 02:53:51 计算器更名、分摊人面板对齐与移动端账目弹出选择
 
 来源：站长继续优化计算器页面，要求统一分摊人面板宽度、固定行内编辑高度、补全取消编辑交互、把统计移到标题右侧、将模块改名为“计算器”，并重做移动端账目选择和费用明细折叠。
