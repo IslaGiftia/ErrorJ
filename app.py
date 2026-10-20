@@ -8265,7 +8265,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def guard_request_inner(self, path, method):
         """真正的权限 / 来源判断。"""
-        if path.startswith("/api/agent/"):
+        if path == "/api/agent/tool":
             return self.guard_agent_request()
         if method in ("POST", "PATCH", "DELETE") and path not in ("/api/login", "/api/member/login"):
             if AUTH_STATE.get("enabled") and not self.origin_allowed():

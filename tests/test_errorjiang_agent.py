@@ -307,6 +307,19 @@ class AgentInternalAuthTests(unittest.TestCase):
         self.assertIsNone(app.required_permission("/agent", "GET"))
         self.assertIsNone(app.required_permission("/api/agent/web/chat", "POST"))
 
+    def test_agent_web_api_does_not_require_internal_token(self):
+        handler = self.make_handler({})
+        handler.session_identity = lambda: {
+            "kind": "owner",
+            "user_id": 0,
+            "username": "管理员",
+            "role": "owner",
+        }
+        with patch.dict(app.AUTH_STATE, {"enabled": True}, clear=False):
+            self.assertTrue(
+                handler.guard_request_inner("/api/agent/web/status", "GET")
+            )
+
 
 class AgentWebhookTests(unittest.TestCase):
     def test_chunked_onebot_event_is_accepted(self):
