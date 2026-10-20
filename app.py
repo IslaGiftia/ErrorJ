@@ -7847,6 +7847,59 @@ class InventoryHandler(BaseHTTPRequestHandler):
         identity = self.session_identity()
         return bool(identity and identity.get("kind") in ("owner", "admin"))
 
+    def agent_request_identity(self):
+        """校验 errorjiang-agent 的内部请求，并还原它声明的网站用户身份。"""
+        expected = os.environ.get("ERRORJIANG_AGENT_TOKEN", "").strip()
+        supplied = str(self.headers.get("X-ErrorJ-Agent-Token") or "").strip()
+        if not expected:
+            return None
+        if not supplied or not hmac.compare_digest(supplied, expected):
+            return None
+        try:
+            source_ip = ipaddress.ip_address(self.client_ip())
+        except ValueError:
+            return None
+        if not source_ip.is_loopback:
+            return None
+        try:
+            user_id = int(self.headers.get("X-ErrorJ-Agent-User") or "")
+        except (TypeError, ValueError):
+            return None
+        if user_id < 0:
+            return None
+        if user_id == 0:
+            return {
+                "kind": "owner",
+                "user_id": 0,
+                "username": "ErrorJ Agent",
+                "nickname": "管理员",
+                "role": "owner",
+            }
+        user = query_one(
+            "SELECT id, username, nickname, status FROM users WHERE id = ?",
+            (user_id,),
+        )
+        if not user or user.get("status") != "approved":
+            return None
+        is_admin_user = user_has_permission(user_id, ADMIN_PERMISSION)
+        return {
+            "kind": "admin" if is_admin_user else "member",
+            "user_id": user_id,
+            "username": user.get("username") or "",
+            "nickname": user.get("nickname") or user.get("username") or "",
+            "role": "admin" if is_admin_user else "member",
+        }
+
+    def guard_agent_request(self):
+        expected = os.environ.get("ERRORJIANG_AGENT_TOKEN", "").strip()
+        if not expected:
+            api_error(self, 503, "ErrorJ Agent 内部接口未启用。")
+            return False
+        if not self.agent_request_identity():
+            api_error(self, 401, "ErrorJ Agent 鉴权失败。")
+            return False
+        return True
+
     def can(self, permission):
         """当前请求是否具备某个权限点（管理员直接通过）。"""
         identity = self.session_identity()
@@ -8132,6 +8185,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def guard_request_inner(self, path, method):
         """真正的权限 / 来源判断。"""
+        if path.startswith("/api/agent/"):
+            return self.guard_agent_request()
         if method in ("POST", "PATCH", "DELETE") and path not in ("/api/login", "/api/member/login"):
             if AUTH_STATE.get("enabled") and not self.origin_allowed():
                 api_error(self, 403, "请求来源不合法。")
@@ -9846,7 +9901,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
             payload = get_payload(self)
             if payload is None:
                 return
-            if path == "/api/login":
+            if path == "/api/agent/tool":
+                self.api_agent_tool(payload, self.agent_request_identity())
+            elif path == "/api/login":
                 self.api_login(payload)
             elif path == "/api/member/login":
                 self.api_login(payload, member_only=True)
@@ -15958,6 +16015,369 @@ class InventoryHandler(BaseHTTPRequestHandler):
             target_id=report_id,
         )
         self.send_json(200, {"ok": True, "status": status})
+
+    # ---------- ErrorJ Agent 内部工具接口 ----------
+    @staticmethod
+    def agent_limit(value, default=8, maximum=20):
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            number = default
+        return max(1, min(number, maximum))
+
+    def agent_has_permission(self, identity, permission):
+        if not identity:
+            return False
+        if identity.get("kind") in ("owner", "admin"):
+            return True
+        return user_has_permission(identity.get("user_id"), permission)
+
+    @staticmethod
+    def agent_note_excerpt(content, limit=280):
+        text = str(content or "")
+        text = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", text)
+        text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
+        text = re.sub(r"```.*?```", " ", text, flags=re.DOTALL)
+        text = re.sub(r"[#>*_`~-]+", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        return text[:limit]
+
+    def agent_tool_inventory_search(self, identity, args):
+        if not self.agent_has_permission(identity, "inventory:view"):
+            api_error(self, 403, "当前账号没有仓库查看权限。")
+            return
+        search = str(args.get("query") or "").strip()[:200]
+        limit = self.agent_limit(args.get("limit"), 8, 12)
+        where = ""
+        params = []
+        if search:
+            like = f"%{search}%"
+            where = """
+                WHERE (p.part_number LIKE ? OR p.lcsc_code LIKE ? OR p.brand LIKE ?
+                       OR p.description LIKE ? OR p.package LIKE ? OR p.notes LIKE ?)
+            """
+            params.extend([like] * 6)
+        rows = query(
+            part_summary_select()
+            + where
+            + " ORDER BY p.updated_at DESC, p.id DESC LIMIT ?",
+            (*params, limit),
+        )
+        results = []
+        for row in rows:
+            batches = query(
+                """SELECT b.quantity, b.received_quantity - b.quantity AS used_quantity,
+                          l.code AS location_code, l.name AS location_name
+                   FROM batches b JOIN locations l ON l.id = b.location_id
+                   WHERE b.part_id = ? AND b.quantity > 0
+                   ORDER BY l.code, b.id DESC""",
+                (row["id"],),
+            )
+            results.append(
+                {
+                    "id": int(row["id"]),
+                    "part_number": row.get("part_number") or "",
+                    "lcsc_code": row.get("lcsc_code") or "",
+                    "brand": row.get("brand") or "",
+                    "package": row.get("package") or "",
+                    "description": row.get("description") or "",
+                    "notes": (row.get("notes") or "")[:1200],
+                    "stock_quantity": row.get("stock_quantity") or 0,
+                    "min_stock": row.get("min_stock") or 0,
+                    "category": row.get("category_name") or "",
+                    "datasheet_url": row.get("datasheet_url") or "",
+                    "locations": [
+                        {
+                            "code": batch.get("location_code") or "",
+                            "name": batch.get("location_name") or "",
+                            "quantity": batch.get("quantity") or 0,
+                        }
+                        for batch in batches
+                    ],
+                }
+            )
+        self.send_json(200, {"query": search, "count": len(results), "results": results})
+
+    def agent_tool_bookmark_search(self, identity, args):
+        if not self.agent_has_permission(identity, "bookmarks:view"):
+            api_error(self, 403, "当前账号没有书签查看权限。")
+            return
+        search = str(args.get("query") or "").strip()[:200]
+        limit = self.agent_limit(args.get("limit"), 8, 15)
+        where = ""
+        params = []
+        if search:
+            like = f"%{search}%"
+            where = """
+                WHERE (b.title LIKE ? OR b.url LIKE ? OR b.description LIKE ?
+                       OR f.name LIKE ?)
+            """
+            params.extend([like] * 4)
+        rows = query(
+            """SELECT b.id, b.title, b.url, b.description, b.link_status,
+                      f.name AS folder_name
+               FROM bookmarks b
+               LEFT JOIN bookmark_folders f ON f.id = b.folder_id
+            """
+            + where
+            + " ORDER BY b.updated_at DESC, b.id DESC LIMIT ?",
+            (*params, limit),
+        )
+        results = [
+            {
+                "id": int(row["id"]),
+                "title": row.get("title") or "",
+                "url": row.get("url") or "",
+                "description": (row.get("description") or "")[:600],
+                "folder": row.get("folder_name") or "",
+                "link_status": row.get("link_status") or "unknown",
+            }
+            for row in rows
+        ]
+        self.send_json(200, {"query": search, "count": len(results), "results": results})
+
+    def agent_tool_note_search(self, identity, args):
+        if not self.agent_has_permission(identity, "notes:view"):
+            api_error(self, 403, "当前账号没有笔记查看权限。")
+            return
+        search = str(args.get("query") or "").strip()[:200]
+        limit = self.agent_limit(args.get("limit"), 6, 10)
+        where = ""
+        params = []
+        if search:
+            like = f"%{search}%"
+            where = "WHERE (title LIKE ? OR content LIKE ? OR tags LIKE ?)"
+            params.extend([like, like, like])
+        rows = query(
+            """SELECT id, title, content, tags, created_at, updated_at
+               FROM learning_notes
+            """
+            + where
+            + " ORDER BY updated_at DESC, id DESC LIMIT ?",
+            (*params, limit),
+        )
+        results = [
+            {
+                "id": int(row["id"]),
+                "title": row.get("title") or "",
+                "tags": row.get("tags") or "",
+                "updated_at": row.get("updated_at") or "",
+                "excerpt": self.agent_note_excerpt(row.get("content")),
+            }
+            for row in rows
+        ]
+        self.send_json(200, {"query": search, "count": len(results), "results": results})
+
+    def agent_tool_note_read(self, identity, args):
+        if not self.agent_has_permission(identity, "notes:view"):
+            api_error(self, 403, "当前账号没有笔记查看权限。")
+            return
+        try:
+            note_id = int(args.get("id"))
+        except (TypeError, ValueError):
+            api_error(self, 400, "笔记编号不正确。")
+            return
+        row = query_one(
+            """SELECT id, title, content, tags, created_at, updated_at
+               FROM learning_notes WHERE id = ?""",
+            (note_id,),
+        )
+        if not row:
+            api_error(self, 404, "笔记不存在。")
+            return
+        self.send_json(
+            200,
+            {
+                "id": int(row["id"]),
+                "title": row.get("title") or "",
+                "tags": row.get("tags") or "",
+                "created_at": row.get("created_at") or "",
+                "updated_at": row.get("updated_at") or "",
+                "content": (row.get("content") or "")[:12000],
+                "truncated": len(row.get("content") or "") > 12000,
+            },
+        )
+
+    def agent_tool_reviews_list(self, identity, args):
+        if not self.agent_has_permission(identity, ADMIN_PERMISSION):
+            api_error(self, 403, "只有管理员可以查看审核队列。")
+            return
+        limit = self.agent_limit(args.get("limit"), 8, 20)
+        users = query(
+            """SELECT id, username, nickname, created_at
+               FROM users WHERE status = 'pending'
+               ORDER BY created_at ASC, id ASC LIMIT ?""",
+            (limit,),
+        )
+        messages = query(
+            """SELECT id, nickname, content, created_at
+               FROM site_messages
+               WHERE parent_id IS NULL AND status = 'pending'
+               ORDER BY created_at ASC, id ASC LIMIT ?""",
+            (limit,),
+        )
+        reports = query(
+            """SELECT id, target_type, target_title, reason, detail, created_at
+               FROM content_reports WHERE status = 'pending'
+               ORDER BY created_at ASC, id ASC LIMIT ?""",
+            (limit,),
+        )
+        self.send_json(
+            200,
+            {
+                "counts": {
+                    "users": query_one(
+                        "SELECT COUNT(*) AS n FROM users WHERE status = 'pending'"
+                    )["n"],
+                    "messages": query_one(
+                        """SELECT COUNT(*) AS n FROM site_messages
+                           WHERE parent_id IS NULL AND status = 'pending'"""
+                    )["n"],
+                    "reports": query_one(
+                        "SELECT COUNT(*) AS n FROM content_reports WHERE status = 'pending'"
+                    )["n"],
+                },
+                "users": users,
+                "messages": messages,
+                "reports": reports,
+            },
+        )
+
+    def agent_tool_reviews_decide(self, identity, args):
+        if not self.agent_has_permission(identity, ADMIN_PERMISSION):
+            api_error(self, 403, "只有管理员可以执行审核。")
+            return
+        kind = str(args.get("kind") or "").strip()
+        action = str(args.get("action") or "").strip()
+        note = str(args.get("note") or "").strip()[:500]
+        try:
+            item_id = int(args.get("id"))
+        except (TypeError, ValueError):
+            api_error(self, 400, "审核记录编号不正确。")
+            return
+        if kind == "user":
+            target = query_one("SELECT * FROM users WHERE id = ?", (item_id,))
+            if not target:
+                api_error(self, 404, "用户不存在。")
+                return
+            if target.get("status") != "pending":
+                api_error(self, 409, "该注册申请已经处理过了。")
+                return
+            if action not in ("approve", "reject"):
+                api_error(self, 400, "用户审核只支持通过或驳回。")
+                return
+            status = "approved" if action == "approve" else "rejected"
+            stamp = now_text()
+            execute(
+                """UPDATE users SET status = ?, approved_at = ?, updated_at = ?
+                   WHERE id = ?""",
+                (status, stamp if status == "approved" else None, stamp, item_id),
+            )
+            if status == "rejected":
+                delete_sessions_for_user(item_id)
+            write_audit(
+                identity,
+                f"user_{action}",
+                note or ("通过注册" if action == "approve" else "驳回注册"),
+                target,
+            )
+        elif kind == "message":
+            target = query_one(
+                "SELECT * FROM site_messages WHERE id = ? AND parent_id IS NULL",
+                (item_id,),
+            )
+            if not target:
+                api_error(self, 404, "留言不存在。")
+                return
+            if target.get("status") != "pending":
+                api_error(self, 409, "该留言已经处理过了。")
+                return
+            if action not in ("approve", "reject"):
+                api_error(self, 400, "留言审核只支持通过或驳回。")
+                return
+            status = "approved" if action == "approve" else "rejected"
+            execute(
+                """UPDATE site_messages
+                   SET status = ?, reviewed_by = ?, reviewed_at = ?, review_note = ?
+                   WHERE id = ?""",
+                (status, identity.get("nickname") or "管理员", now_text(), note or None, item_id),
+            )
+            execute(
+                """UPDATE site_message_files
+                   SET status = ?, reviewed_by = ?, reviewed_at = ?
+                   WHERE message_id = ?""",
+                (status, identity.get("nickname") or "管理员", now_text(), item_id),
+            )
+            write_audit(
+                identity,
+                f"{action}_message",
+                note or str(target.get("content") or "")[:200],
+                {"id": item_id, "nickname": target.get("nickname") or ""},
+            )
+        elif kind == "report":
+            target = query_one("SELECT * FROM content_reports WHERE id = ?", (item_id,))
+            if not target:
+                api_error(self, 404, "举报记录不存在。")
+                return
+            if target.get("status") != "pending":
+                api_error(self, 409, "该举报已经处理过了。")
+                return
+            if action not in ("resolve", "dismiss"):
+                api_error(self, 400, "举报审核只支持处理或忽略。")
+                return
+            status = "resolved" if action == "resolve" else "dismissed"
+            execute(
+                """UPDATE content_reports
+                   SET status = ?, handled_by = ?, handled_at = ?, resolution = ?
+                   WHERE id = ?""",
+                (
+                    status,
+                    identity.get("nickname") or "管理员",
+                    now_text(),
+                    note or None,
+                    item_id,
+                ),
+            )
+            write_audit(
+                identity,
+                f"report_{status}",
+                note or target.get("target_title") or "",
+                {"id": item_id, "nickname": target.get("target_title") or ""},
+            )
+        else:
+            api_error(self, 400, "未知审核类型。")
+            return
+        self.log_activity(
+            f"agent_review_{kind}_{action}",
+            f"ErrorJ Agent 审核 {kind} #{item_id}：{action}",
+            target_type=kind,
+            target_id=item_id,
+            actor=identity,
+        )
+        self.send_json(
+            200,
+            {"ok": True, "kind": kind, "id": item_id, "action": action},
+        )
+
+    def api_agent_tool(self, payload, identity):
+        tool = str((payload or {}).get("tool") or "").strip()
+        args = (payload or {}).get("arguments") or {}
+        if not isinstance(args, dict):
+            api_error(self, 400, "工具参数格式不正确。")
+            return
+        handlers = {
+            "inventory.search": self.agent_tool_inventory_search,
+            "bookmarks.search": self.agent_tool_bookmark_search,
+            "notes.search": self.agent_tool_note_search,
+            "notes.read": self.agent_tool_note_read,
+            "reviews.list": self.agent_tool_reviews_list,
+            "reviews.decide": self.agent_tool_reviews_decide,
+        }
+        handler = handlers.get(tool)
+        if not handler:
+            api_error(self, 400, "未知 ErrorJ Agent 工具。")
+            return
+        handler(identity, args)
 
     # ---------- 留言审核（管理员） ----------
     def api_admin_review(self, params):

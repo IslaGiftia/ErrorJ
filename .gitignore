@@ -22,6 +22,7 @@ env/
 .ruff_cache/
 .coverage
 htmlcov/
+errorjiang_agent/data/
 
 # 日志、临时文件与备份
 *.log

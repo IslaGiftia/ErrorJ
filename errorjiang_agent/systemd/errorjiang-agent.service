@@ -1,0 +1,23 @@
+[Unit]
+Description=ErrorJ Agent
+After=network.target errorjiang.service
+Wants=errorjiang.service
+
+[Service]
+Type=simple
+User=errorjiang
+Group=errorjiang
+WorkingDirectory=/opt/errorjiang
+EnvironmentFile=/etc/errorjiang-agent.env
+ExecStart=/usr/bin/python3 -m errorjiang_agent
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/errorjiang/errorjiang_agent/data
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
