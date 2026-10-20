@@ -14,8 +14,9 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from .brain import AgentBrain
-from .clients import AgentError, DeepSeekClient, ErrorJClient, OneBotClient
+from .clients import DeepSeekClient, ErrorJClient, OneBotClient
 from .config import Config
+from .errors import AgentError
 from .onebot import MessageEvent, event_key, parse_message_event
 from .store import AgentStore
 
@@ -51,6 +52,7 @@ class AgentService:
         self.store = AgentStore(config.db_path)
         self.onebot = OneBotClient(
             config.onebot_api_base,
+            config.onebot_ws_url,
             config.onebot_access_token,
         )
         self.deepseek = DeepSeekClient(

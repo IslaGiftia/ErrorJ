@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .clients import AgentError, DeepSeekClient, ErrorJClient
+from .clients import DeepSeekClient, ErrorJClient
+from .errors import AgentError
 
 
 SYSTEM_PROMPT = """你是 Error酱的私人 AI 助手，通过 QQ 与已绑定的管理员交流。

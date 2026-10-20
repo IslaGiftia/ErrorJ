@@ -1,6 +1,7 @@
 import json
 import http.client
 import os
+import socket
 import tempfile
 import threading
 import time
@@ -12,6 +13,7 @@ from unittest.mock import patch
 import app
 from errorjiang_agent.brain import AgentBrain
 from errorjiang_agent.onebot import event_key, parse_message_event
+from errorjiang_agent.onebot_ws import _masked_frame, _read_frame
 from errorjiang_agent.service import AgentHttpServer, AgentService
 from errorjiang_agent.store import AgentStore
 
@@ -118,6 +120,19 @@ class OneBotParserTests(unittest.TestCase):
         self.assertEqual(event.chat_id, 30001)
         self.assertTrue(event.to_me)
         self.assertIn("30001", event_key(event))
+
+    def test_websocket_frame_round_trip(self):
+        left, right = socket.socketpair()
+        try:
+            payload = "发送测试".encode("utf-8")
+            left.sendall(_masked_frame(payload))
+            opcode, fin, decoded = _read_frame(right)
+            self.assertEqual(opcode, 1)
+            self.assertTrue(fin)
+            self.assertEqual(decoded, payload)
+        finally:
+            left.close()
+            right.close()
 
 
 class FakeDeepSeek:

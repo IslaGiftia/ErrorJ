@@ -49,6 +49,7 @@ class Config:
     bind_code: str
     admin_user_id: int
     onebot_api_base: str
+    onebot_ws_url: str
     onebot_access_token: str
     onebot_webhook_secret: str
     group_enabled: bool
@@ -93,6 +94,9 @@ class Config:
             onebot_api_base=os.environ.get(
                 "ONEBOT_API_BASE", "http://127.0.0.1:3000"
             ).rstrip("/"),
+            onebot_ws_url=os.environ.get(
+                "ONEBOT_WS_URL", "ws://127.0.0.1:3001"
+            ).strip(),
             onebot_access_token=os.environ.get(
                 "ONEBOT_ACCESS_TOKEN", ""
             ).strip(),

@@ -5,9 +5,8 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-
-class AgentError(RuntimeError):
-    pass
+from .errors import AgentError
+from .onebot_ws import OneBotWebSocketClient
 
 
 def post_json(
@@ -96,9 +95,11 @@ class DeepSeekClient:
 
 
 class OneBotClient:
-    def __init__(self, api_base: str, access_token: str = ""):
+    def __init__(self, api_base: str, ws_url: str, access_token: str = ""):
         self.api_base = api_base.rstrip("/")
+        self.ws_url = ws_url
         self.access_token = access_token
+        self.ws = OneBotWebSocketClient(ws_url, access_token)
 
     def _headers(self) -> dict[str, str]:
         if not self.access_token:
@@ -106,17 +107,7 @@ class OneBotClient:
         return {"Authorization": f"Bearer {self.access_token}"}
 
     def send_private(self, user_id: int, message: str) -> None:
-        post_json(
-            self.api_base + "/send_private_msg",
-            {"user_id": int(user_id), "message": message},
-            headers=self._headers(),
-            timeout=30,
-        )
+        self.ws.call("send_private_msg", {"user_id": int(user_id), "message": message})
 
     def send_group(self, group_id: int, message: str) -> None:
-        post_json(
-            self.api_base + "/send_group_msg",
-            {"group_id": int(group_id), "message": message},
-            headers=self._headers(),
-            timeout=30,
-        )
+        self.ws.call("send_group_msg", {"group_id": int(group_id), "message": message})
