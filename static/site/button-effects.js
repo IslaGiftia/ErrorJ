@@ -398,10 +398,15 @@
     pressedEl = null;
     el.classList.remove("is-pressing");
     if (!canAnimate(el)) return;
+    var style = window.getComputedStyle(el);
+    var pressScale = parseFloat(style.getPropertyValue("--fx-press-scale"));
+    var overshoot = parseFloat(style.getPropertyValue("--fx-press-overshoot"));
+    if (!Number.isFinite(pressScale)) pressScale = 0.96;
+    if (!Number.isFinite(overshoot)) overshoot = 1.012;
     el.animate(
       [
-        { scale: String(0.92) },
-        { scale: "1.028", offset: 0.56 },
+        { scale: String(pressScale) },
+        { scale: String(overshoot), offset: 0.56 },
         { scale: "1" },
       ],
       {

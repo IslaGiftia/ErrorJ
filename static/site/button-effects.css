@@ -6,7 +6,8 @@
  * scale / translate 属性，避免覆盖各页面已有的 transform 过渡。
  */
 :root {
-  --fx-press-scale: 0.92;
+  --fx-press-scale: 0.96;
+  --fx-press-overshoot: 1.012;
   --fx-press-duration: 430ms;
   --fx-glow-color: var(--accent, var(--primary, #7b68ee));
   --fx-liquid-soft: rgba(123, 104, 238, 0.24);
@@ -20,6 +21,53 @@
 .fx-press:active,
 .fx-press.is-pressing {
   scale: var(--fx-press-scale);
+}
+
+/*
+ * 主操作保留稍微明显一点的反馈；图标、工具栏和高频行内按钮收得更轻。
+ * 96% 是全站默认，95% 用于主按钮，97% 用于高频小控件。
+ */
+.fx-press:is(
+  .btn-primary,
+  .mg-btn-primary,
+  .mo-btn-primary,
+  .mu-btn-primary,
+  .bk-btn-primary,
+  .rec-btn-primary,
+  .wb-btn-primary,
+  .nt-btn-primary,
+  .pin-header-btn-primary,
+  .pin-primary-btn,
+  .auth-submit,
+  .login-submit,
+  .register-submit,
+  .site-dialog-btn.primary,
+  .mp-btn-primary,
+  .mp-dialog-actions .mp-btn-primary,
+  .pr-action.primary,
+  .landing-module-btn,
+  .fin-btn-primary,
+  .fin-fab-primary
+) {
+  --fx-press-scale: 0.95;
+}
+
+.fx-press:is(
+  [class*="icon-btn"],
+  .theme-float,
+  .mp-tools > button,
+  .dl-tab,
+  .fin-fab:not(.fin-fab-primary),
+  .fin-row-btn,
+  .fin-expense-toggle,
+  .fin-mobile-events,
+  .mg-more-btn,
+  .mo-more-btn,
+  .nt-tool,
+  .pin-mobile-menu,
+  .pin-header-btn:not(.pin-header-btn-primary)
+) {
+  --fx-press-scale: 0.97;
 }
 
 .fx-magnetic {
