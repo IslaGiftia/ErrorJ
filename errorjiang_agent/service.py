@@ -10,6 +10,7 @@ import re
 import sys
 import threading
 import time
+import traceback
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -248,7 +249,19 @@ class AgentService:
         self.send_reply(event, reply)
 
     def schedule_event(self, payload: dict[str, Any]) -> None:
-        self.executor.submit(self.handle_event, payload)
+        future = self.executor.submit(self.handle_event, payload)
+        future.add_done_callback(self._event_done)
+
+    @staticmethod
+    def _event_done(future) -> None:
+        error = future.exception()
+        if error:
+            traceback.print_exception(
+                type(error),
+                error,
+                error.__traceback__,
+                file=sys.stderr,
+            )
 
     def close(self) -> None:
         self.executor.shutdown(wait=False, cancel_futures=True)
