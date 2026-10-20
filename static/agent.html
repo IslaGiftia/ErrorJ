@@ -20,41 +20,112 @@
   </script>
   <script src="/static/site/theme.js"></script>
 </head>
-<body class="agent-page">
+<body class="agent-page" data-agent-online="0">
+  <header class="agent-topbar">
+    <a class="agent-back" href="/" aria-label="返回首页">
+      <i data-lucide="arrow-left"></i>
+      <span>返回</span>
+    </a>
+    <div class="agent-topbar-title">
+      <span>Error酱工作区</span>
+      <strong>ErrorJ Agent</strong>
+    </div>
+    <span class="agent-top-status">
+      <i></i>
+      <span id="agentTopStatus">连接中</span>
+    </span>
+  </header>
+
   <main class="agent-shell">
-    <header class="agent-head">
-      <a class="agent-back" href="/">返回</a>
-      <div class="agent-title-wrap">
-        <span class="agent-avatar">
-          <img src="/static/site/error-chan-avatar.png?v=1" alt="">
-        </span>
-        <div>
-          <h1>ErrorJ Agent</h1>
-          <p id="agentStatusText">正在连接</p>
+    <aside class="agent-sidebar">
+      <section class="agent-identity">
+        <div class="agent-portrait">
+          <img src="/static/site/error-chan-avatar.png?v=1" alt="Error酱">
         </div>
-      </div>
-      <span class="agent-status-light" id="agentStatusLight" aria-hidden="true"></span>
-    </header>
+        <div class="agent-identity-copy">
+          <h1>ErrorJ Agent</h1>
+          <p id="agentStatusText">正在连接 Agent</p>
+          <span class="agent-model-pill" id="agentModelPill">DeepSeek</span>
+        </div>
+      </section>
 
-    <section class="agent-status-grid" aria-label="Agent 状态">
-      <div><span>模型</span><strong id="agentModel">--</strong></div>
-      <div><span>绑定管理员</span><strong id="agentAdmins">--</strong></div>
-      <div><span>通知群</span><strong id="agentGroups">--</strong></div>
-    </section>
+      <section class="agent-side-section agent-capabilities">
+        <h2>可以做什么</h2>
+        <div class="agent-capability-list">
+          <div><i data-lucide="package-search"></i><span>查询元件库存</span></div>
+          <div><i data-lucide="bookmark"></i><span>搜索收藏网站</span></div>
+          <div><i data-lucide="notebook-tabs"></i><span>读取与总结笔记</span></div>
+          <div><i data-lucide="badge-check"></i><span>整理待审核事项</span></div>
+        </div>
+      </section>
 
-    <section class="agent-chat" aria-label="Agent 测试聊天">
+      <section class="agent-side-section agent-runtime">
+        <h2>运行状态</h2>
+        <dl>
+          <div><dt>模型</dt><dd id="agentModel">--</dd></div>
+          <div><dt>管理员</dt><dd id="agentAdmins">--</dd></div>
+          <div><dt>通知群</dt><dd id="agentGroups">--</dd></div>
+        </dl>
+      </section>
+    </aside>
+
+    <section class="agent-workspace">
+      <header class="agent-chat-head">
+        <div>
+          <h2>对话</h2>
+          <p>直接提问，Agent 会按权限调用 Error酱工具。</p>
+        </div>
+        <span class="agent-online-chip" id="agentOnlineChip">
+          <i></i>
+          <span>离线</span>
+        </span>
+      </header>
+
       <div class="agent-messages" id="agentMessages" aria-live="polite">
         <article class="agent-message is-assistant">
-          <span>ErrorJ Agent</span>
-          <p>可以在这里测试对话和工具调用。</p>
+          <div class="agent-message-avatar">
+            <img src="/static/site/error-chan-avatar.png?v=1" alt="">
+          </div>
+          <div class="agent-message-body">
+            <div class="agent-message-meta">
+              <strong>ErrorJ Agent</strong>
+              <span>现在</span>
+            </div>
+            <div class="agent-bubble">
+              <p>你好，我可以查询库存、书签和笔记，也能整理 Error酱的待审核任务。</p>
+            </div>
+          </div>
         </article>
       </div>
+
+      <div class="agent-suggestions" id="agentSuggestions" aria-label="快捷提问">
+        <button type="button" data-agent-prompt="有哪些待审核用户、留言和举报？">
+          <i data-lucide="clipboard-check"></i>
+          <span>查看待审核事项</span>
+        </button>
+        <button type="button" data-agent-prompt="帮我查一下库存里有没有 STM32">
+          <i data-lucide="scan-search"></i>
+          <span>查询元件库存</span>
+        </button>
+        <button type="button" data-agent-prompt="帮我找一下和 Docker 有关的笔记">
+          <i data-lucide="notebook-pen"></i>
+          <span>搜索我的笔记</span>
+        </button>
+      </div>
+
       <form class="agent-composer" id="agentForm">
-        <textarea id="agentInput" rows="2" maxlength="4000" placeholder="问点什么" required></textarea>
-        <button type="submit" id="agentSend">发送</button>
+        <textarea id="agentInput" rows="1" maxlength="4000" placeholder="给 ErrorJ Agent 发消息" required></textarea>
+        <div class="agent-composer-bar">
+          <span id="agentComposerHint">Enter 发送 · Shift + Enter 换行</span>
+          <button type="submit" id="agentSend" title="发送消息" aria-label="发送消息">
+            <i data-lucide="arrow-up"></i>
+          </button>
+        </div>
       </form>
     </section>
   </main>
+
+  <script src="/static/vendor/lucide.min.js"></script>
   <script src="/static/agent.js"></script>
 </body>
 </html>
