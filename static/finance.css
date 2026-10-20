@@ -884,6 +884,10 @@ button {
   display: none;
 }
 
+.fin-expense-toggle-label {
+  display: none;
+}
+
 .fin-expense-toggle svg {
   transform-origin: center;
   transition: transform var(--dur-base) var(--ease-out-strong);
@@ -1346,7 +1350,21 @@ body.fin-dialog-open {
   }
 
   .fin-expense-toggle {
-    display: grid;
+    display: inline-flex;
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 66px;
+    height: 38px;
+    min-height: 38px;
+    gap: 5px;
+    padding: 0 10px;
+    font-size: 12px;
+    font-weight: 650;
+    color: var(--fin-muted);
+  }
+
+  .fin-expense-toggle-label {
+    display: inline;
   }
 
   .fin-expenses-panel.is-collapsed .fin-expense-list {

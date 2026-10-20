@@ -196,6 +196,7 @@
     state.expensesCollapsed = Boolean(collapsed);
     var panel = document.querySelector(".fin-expenses-panel");
     var toggle = $("expensesToggle");
+    var label = $("expensesToggleLabel");
     if (panel) panel.classList.toggle("is-collapsed", state.expensesCollapsed);
     if (toggle) {
       toggle.setAttribute(
@@ -207,6 +208,9 @@
         "aria-label",
         state.expensesCollapsed ? "展开费用明细" : "折叠费用明细"
       );
+    }
+    if (label) {
+      label.textContent = state.expensesCollapsed ? "展开" : "折叠";
     }
   }
 
