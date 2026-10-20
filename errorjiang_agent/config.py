@@ -46,6 +46,7 @@ class Config:
     errorjiang_base_url: str
     errorjiang_token: str
     admin_qqs: frozenset[int]
+    bind_code: str
     admin_user_id: int
     onebot_api_base: str
     onebot_access_token: str
@@ -87,6 +88,7 @@ class Config:
                 "ERRORJIANG_AGENT_TOKEN", ""
             ).strip(),
             admin_qqs=frozenset(qq_values),
+            bind_code=os.environ.get("ERRORJIANG_AGENT_BIND_CODE", "").strip(),
             admin_user_id=env_int("ERRORJIANG_AGENT_ADMIN_USER_ID", 0),
             onebot_api_base=os.environ.get(
                 "ONEBOT_API_BASE", "http://127.0.0.1:3000"
@@ -110,8 +112,8 @@ class Config:
             missing.append("DEEPSEEK_API_KEY")
         if not self.errorjiang_token:
             missing.append("ERRORJIANG_AGENT_TOKEN")
-        if not self.admin_qqs:
-            missing.append("ERRORJIANG_AGENT_ADMIN_QQS")
+        if not self.admin_qqs and not self.bind_code:
+            missing.append("ERRORJIANG_AGENT_ADMIN_QQS/ERRORJIANG_AGENT_BIND_CODE")
         if not self.onebot_webhook_secret:
             missing.append("ONEBOT_WEBHOOK_SECRET")
         if missing:

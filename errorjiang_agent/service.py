@@ -21,6 +21,7 @@ from .store import AgentStore
 
 
 CONFIRM_RE = re.compile(r"^(?:确认|/confirm)\s+(\d{6})$", re.IGNORECASE)
+BIND_RE = re.compile(r"^(?:绑定|/bind)\s+(\S+)$", re.IGNORECASE)
 MAX_WEBHOOK_BYTES = 1024 * 1024
 
 
@@ -71,6 +72,8 @@ class AgentService:
         self.rate_limiter = RateLimiter()
         self.executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="agent")
         self._chat_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
+        for qq in config.admin_qqs:
+            self.store.bind_admin("qq", str(qq))
 
     def prepare_review(
         self,
@@ -156,9 +159,30 @@ class AgentService:
             return
         if event.message_type == "group" and not event.to_me:
             return
-        if event.user_id not in self.config.admin_qqs:
+        bind_match = BIND_RE.fullmatch(event.text.strip())
+        if (
+            bind_match
+            and event.message_type == "private"
+            and self.config.bind_code
+            and not self.store.has_admins()
+            and hmac.compare_digest(bind_match.group(1), self.config.bind_code)
+        ):
+            self.store.bind_admin("qq", str(event.user_id))
+            self.send_reply(
+                event,
+                "主 QQ 已绑定为 ErrorJ Agent 管理员。现在可以查询库存、链接、笔记和审核队列。",
+            )
+            return
+        if event.user_id not in self.config.admin_qqs and not self.store.is_admin(
+            "qq", str(event.user_id)
+        ):
             if event.message_type == "private":
-                self.send_reply(event, "当前 QQ 尚未绑定 Error酱管理员身份。")
+                hint = (
+                    f"当前 QQ 尚未绑定。请发送：绑定 {self.config.bind_code}"
+                    if self.config.bind_code and not self.store.has_admins()
+                    else "当前 QQ 尚未绑定 Error酱管理员身份。"
+                )
+                self.send_reply(event, hint)
             return
         if not self.rate_limiter.allow(str(event.user_id)):
             self.send_reply(event, "请求太频繁，请稍后再试。")

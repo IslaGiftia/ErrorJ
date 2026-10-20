@@ -55,6 +55,13 @@ class AgentStoreTests(unittest.TestCase):
                 self.store.consume_pending("qq", "10001", "10001", code)
             )
 
+    def test_admin_binding_is_persistent(self):
+        self.assertFalse(self.store.has_admins())
+        self.store.bind_admin("qq", "10001")
+        self.assertTrue(self.store.has_admins())
+        self.assertTrue(self.store.is_admin("qq", "10001"))
+        self.assertFalse(self.store.is_admin("qq", "10002"))
+
     def test_service_prepares_action_for_current_chat(self):
         service = object.__new__(AgentService)
         service.store = self.store

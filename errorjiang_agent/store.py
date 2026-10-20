@@ -60,6 +60,13 @@ class AgentStore:
                     event_key TEXT PRIMARY KEY,
                     seen_at INTEGER NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS admins (
+                    platform TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    PRIMARY KEY (platform, owner_id)
+                );
                 """
             )
 
@@ -103,6 +110,30 @@ class AgentStore:
                 "DELETE FROM messages WHERE platform = ? AND owner_id = ?",
                 (platform, owner_id),
             )
+
+    def bind_admin(self, platform: str, owner_id: str) -> None:
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """INSERT OR IGNORE INTO admins(platform, owner_id, created_at)
+                   VALUES (?, ?, ?)""",
+                (platform, owner_id, int(time.time())),
+            )
+
+    def is_admin(self, platform: str, owner_id: str) -> bool:
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM admins WHERE platform = ? AND owner_id = ?",
+                (platform, owner_id),
+            ).fetchone()
+        return row is not None
+
+    def has_admins(self, platform: str = "qq") -> bool:
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM admins WHERE platform = ? LIMIT 1",
+                (platform,),
+            ).fetchone()
+        return row is not None
 
     def create_pending(
         self,
