@@ -78,6 +78,7 @@ class AgentService:
             self.errorjiang,
             self.prepare_review,
             self.prepare_sticker,
+            self.prepare_reminder,
             max_tool_rounds=config.max_tool_rounds,
         )
         self.rate_limiter = RateLimiter()
@@ -91,9 +92,16 @@ class AgentService:
             daemon=True,
             name="agent-proactive",
         )
+        self._reminder_stop = threading.Event()
+        self._reminder_thread = threading.Thread(
+            target=self._reminder_loop,
+            daemon=True,
+            name="agent-reminders",
+        )
         for qq in config.admin_qqs:
             self.store.bind_admin("qq", str(qq))
         self._proactive_thread.start()
+        self._reminder_thread.start()
 
     def prepare_sticker(
         self,
@@ -124,6 +132,58 @@ class AgentService:
             "emotion": emotion,
             "message": "表情包会在文字回复后发送。",
         }
+
+    def prepare_reminder(
+        self,
+        arguments: dict[str, Any],
+        tool_context: dict[str, str] | None,
+    ) -> dict[str, Any]:
+        if not tool_context:
+            raise AgentError("提醒上下文缺失。")
+        text = str(arguments.get("text") or "").strip()[:300]
+        if not text:
+            raise AgentError("提醒内容不能为空。")
+        try:
+            delay_minutes = float(arguments.get("delay_minutes"))
+        except (TypeError, ValueError):
+            raise AgentError("提醒时间不正确。") from None
+        if delay_minutes < 0.1 or delay_minutes > 7 * 24 * 60:
+            raise AgentError("提醒时间需在 6 秒到 7 天之间。")
+        due_at = int(time.time() + delay_minutes * 60)
+        reminder_id = self.store.add_reminder(
+            tool_context.get("platform") or "qq",
+            tool_context.get("owner_id") or "",
+            tool_context.get("chat_id") or "",
+            tool_context.get("chat_type") or "private",
+            text,
+            due_at,
+        )
+        return {
+            "status": "scheduled",
+            "reminder_id": reminder_id,
+            "due_at": due_at,
+            "message": f"已安排在 {datetime.fromtimestamp(due_at):%H:%M} 提醒。",
+        }
+
+    def _reminder_loop(self) -> None:
+        while not self._reminder_stop.wait(10):
+            for reminder in self.store.due_reminders(int(time.time())):
+                try:
+                    text = f"提醒：{reminder['text']}"
+                    if reminder.get("chat_type") == "group":
+                        message = [
+                            {
+                                "type": "at",
+                                "data": {"qq": str(reminder["owner_id"])},
+                            },
+                            {"type": "text", "data": {"text": " " + text}},
+                        ]
+                        self.onebot.send_group(int(reminder["chat_id"]), message)
+                    else:
+                        self.onebot.send_private(int(reminder["owner_id"]), text)
+                    self.store.mark_reminder_sent(int(reminder["id"]))
+                except Exception:
+                    traceback.print_exc()
 
     def selected_sticker(self, tool_context: dict[str, str] | None):
         if not tool_context or not tool_context.get("selected_sticker"):
@@ -387,13 +447,30 @@ class AgentService:
             "message": f"请回复“确认 {code}”，两分钟内有效。",
         }
 
+    @staticmethod
+    def humanize_text(text: str) -> str:
+        value = str(text or "").replace("**", "").replace("__", "")
+        value = re.sub(r"^#{1,6}\s*", "", value, flags=re.MULTILINE)
+        value = re.sub(r"\n{2,}", "\n", value).strip()
+        structured = bool(
+            re.search(
+                r"(^|\n)\s*(?:[-*]|\d+[.、])\s+|https?://|```",
+                value,
+                flags=re.MULTILINE,
+            )
+        )
+        if not structured:
+            value = re.sub(r"\s*\n\s*", " ", value)
+            value = re.sub(r"[ \t]{2,}", " ", value)
+        return value.strip()
+
     def send_reply(
         self,
         event: MessageEvent,
         text: str,
         sticker: dict[str, Any] | None = None,
     ) -> None:
-        text = text.strip()
+        text = self.humanize_text(text)
         if not text:
             text = "这次没有生成有效回答。"
         if len(text) > 3500:
@@ -405,6 +482,8 @@ class AgentService:
                 {"type": "text", "data": {"text": text}},
                 segment,
             ]
+        delay = min(2.8, max(0.55, len(text) * 0.018))
+        time.sleep(delay + random.uniform(0, 0.45))
         if event.message_type == "group":
             self.onebot.send_group(event.chat_id, message)
         else:
@@ -613,6 +692,7 @@ class AgentService:
             "platform": "qq",
             "owner_id": str(event.user_id),
             "chat_id": str(event.chat_id),
+            "chat_type": event.message_type,
             "is_admin": "1" if is_admin else "0",
             "sticker_enabled": (
                 "1" if settings.get("sticker_enabled", True) else "0"
@@ -628,6 +708,7 @@ class AgentService:
             errorjiang,
             self.prepare_review,
             self.prepare_sticker,
+            self.prepare_reminder,
             max_tool_rounds=self.config.max_tool_rounds,
         )
         try:
@@ -711,6 +792,7 @@ class AgentService:
             errorjiang,
             self.prepare_review,
             None,
+            self.prepare_reminder,
             max_tool_rounds=self.config.max_tool_rounds,
         )
         context = {
@@ -738,6 +820,7 @@ class AgentService:
 
     def close(self) -> None:
         self._proactive_stop.set()
+        self._reminder_stop.set()
         self.executor.shutdown(wait=False, cancel_futures=True)
 
 

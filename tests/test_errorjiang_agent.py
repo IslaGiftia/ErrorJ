@@ -113,6 +113,24 @@ class AgentStoreTests(unittest.TestCase):
         self.assertEqual(action["id"], 9)
         self.assertEqual(action["action"], "approve")
 
+    def test_reminder_is_scheduled(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        prepared = service.prepare_reminder(
+            {"delay_minutes": 10, "text": "提醒星星睡觉"},
+            {"platform": "qq", "owner_id": "10001", "chat_id": "10001", "chat_type": "private"},
+        )
+        self.assertEqual(prepared["status"], "scheduled")
+        reminders = self.store.list_reminders("qq", "10001")
+        self.assertEqual(reminders[0]["text"], "提醒星星睡觉")
+
+    def test_humanize_collapses_chat_blank_lines(self):
+        text = "嗯，就一个句号。\n\n我收好了，你还想说什么？"
+        self.assertEqual(
+            AgentService.humanize_text(text),
+            "嗯，就一个句号。 我收好了，你还想说什么？",
+        )
+
 
 class OneBotParserTests(unittest.TestCase):
     def test_private_message_parser(self):

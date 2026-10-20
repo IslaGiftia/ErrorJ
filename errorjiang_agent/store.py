@@ -115,6 +115,19 @@ class AgentStore:
                     created_at INTEGER NOT NULL,
                     PRIMARY KEY (platform, owner_id)
                 );
+
+                CREATE TABLE IF NOT EXISTS reminders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    platform TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    chat_id TEXT NOT NULL,
+                    chat_type TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    due_at INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    sent_at INTEGER,
+                    cancelled_at INTEGER
+                );
                 """
             )
 
@@ -430,6 +443,71 @@ class AgentStore:
                 (platform,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def add_reminder(
+        self,
+        platform: str,
+        owner_id: str,
+        chat_id: str,
+        chat_type: str,
+        text: str,
+        due_at: int,
+    ) -> int:
+        with self._lock, self._connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO reminders
+                   (platform, owner_id, chat_id, chat_type, text, due_at,
+                    created_at, sent_at, cancelled_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)""",
+                (
+                    platform,
+                    owner_id,
+                    chat_id,
+                    chat_type,
+                    str(text or "")[:500],
+                    int(due_at),
+                    int(time.time()),
+                ),
+            )
+        return int(cursor.lastrowid)
+
+    def due_reminders(self, now: int, limit: int = 20) -> list[dict]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM reminders
+                   WHERE sent_at IS NULL AND cancelled_at IS NULL AND due_at <= ?
+                   ORDER BY due_at, id LIMIT ?""",
+                (int(now), max(1, min(int(limit), 100))),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_reminder_sent(self, reminder_id: int) -> None:
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                "UPDATE reminders SET sent_at = ? WHERE id = ? AND sent_at IS NULL",
+                (int(time.time()), int(reminder_id)),
+            )
+
+    def list_reminders(self, platform: str, owner_id: str) -> list[dict]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT id, text, due_at, chat_type FROM reminders
+                   WHERE platform = ? AND owner_id = ?
+                     AND sent_at IS NULL AND cancelled_at IS NULL
+                   ORDER BY due_at, id LIMIT 50""",
+                (platform, owner_id),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def cancel_reminder(self, platform: str, owner_id: str, reminder_id: int) -> bool:
+        with self._lock, self._connection() as conn:
+            cursor = conn.execute(
+                """UPDATE reminders SET cancelled_at = ?
+                   WHERE id = ? AND platform = ? AND owner_id = ?
+                     AND sent_at IS NULL AND cancelled_at IS NULL""",
+                (int(time.time()), int(reminder_id), platform, owner_id),
+            )
+        return cursor.rowcount > 0
 
     def create_pending(
         self,
