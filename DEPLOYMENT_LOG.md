@@ -6519,6 +6519,39 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 - 分条后的内容重新进入上下文时使用换行合并，避免内部标记泄露到用户消息。
 - 网页聊天同样清理内部标记；主动消息继续使用单条短消息。
 
+部署步骤：
+```text
+本地：python -m py_compile app.py errorjiang_agent/service.py errorjiang_agent/brain.py；
+      python -m unittest discover -s tests -v -> 178 passed；
+      python -m json.tool config/changelog-seed.json；git diff --check 干净
+提交：e8d3a9f feat: humanize reminders and chat pacing
+      （功能提交已推送；发布记录提交随后同步，最终 server HEAD 与 origin/main 一致）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = fb1f76638db99260cb91e5985ee06d26c0be9293b5e718636db87565181490af
+备份：/data/errorjiang-backup/20261021-002026/
+      （inventory.db、changelog-seed.json、auth.json；无 WAL / SHM）
+服务器：systemctl stop errorjiang -> cp 备份 -> git pull --ff-only -> e8d3a9f
+      app.init_db；seed 安装；import_changelog_moments.py --date 2026-10-21 --force
+      -> 新增 2 条、覆盖 0 条、跳过 0 条（当天两条按 seed 重建）
+      systemctl start errorjiang；systemctl restart errorjiang-agent
+```
+
+验证结果：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 公网 /api/health = {"ok": true}；Agent 172.17.0.1:8011/health = {"ok": true}
+NapCat    -> errorjiang-napcat 容器在线
+更新日志  -> 2026-10-21 00:18:57「提醒回归普通聊天并支持自然分条」
+             （id 740，kind = log）
+线上逻辑  -> reminder_delivery_text({"text":"该睡大觉了，星星"})
+             -> '该睡大觉了，星星'
+             chat_bubbles("嗯。知道啦。[[split]]那你早点睡。")
+             -> ['嗯。知道啦', '那你早点睡']
+回归      -> 178 项单测通过；普通回答不分条，内部标记不会泄露给用户
+```
+
+备注：本次只发布提醒正文和聊天分条策略，没有修改 QQ 登录、群通知或其他聊天平台接入。
+
 ## 144. 2026-10-20 02:53:51 计算器更名、分摊人面板对齐与移动端账目弹出选择
 
 来源：站长继续优化计算器页面，要求统一分摊人面板宽度、固定行内编辑高度、补全取消编辑交互、把统计移到标题右侧、将模块改名为“计算器”，并重做移动端账目选择和费用明细折叠。
