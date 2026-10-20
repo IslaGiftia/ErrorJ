@@ -202,6 +202,22 @@
   white-space: nowrap;
 }
 
+.agent-relationship {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.agent-relationship span {
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  color: var(--muted);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
 .agent-side-section h2 {
   margin: 0 0 10px;
   color: var(--muted);
@@ -922,6 +938,10 @@
 
   .agent-identity h1 {
     font-size: 18px;
+  }
+
+  .agent-relationship {
+    display: none;
   }
 
   .agent-side-section {

@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=4">
   <link rel="stylesheet" href="/static/site/site.css">
   <link rel="stylesheet" href="/static/fonts.css">
-  <link rel="stylesheet" href="/static/agent.css?v=3">
+  <link rel="stylesheet" href="/static/agent.css?v=4">
   <script>
     (function () {
       try {
@@ -50,6 +50,11 @@
           <h1>ErrorJ Agent</h1>
           <p id="agentStatusText">正在连接 Agent</p>
           <span class="agent-model-pill" id="agentModelPill">DeepSeek</span>
+          <div class="agent-relationship" id="agentRelationship" hidden>
+            <span id="agentMood">平静</span>
+            <span id="agentLonging">想念 0</span>
+            <span id="agentJealousy">吃醋 0</span>
+          </div>
         </div>
       </section>
 
@@ -193,6 +198,6 @@
   </dialog>
 
   <script src="/static/vendor/lucide.min.js"></script>
-  <script src="/static/agent.js?v=3"></script>
+  <script src="/static/agent.js?v=4"></script>
 </body>
 </html>

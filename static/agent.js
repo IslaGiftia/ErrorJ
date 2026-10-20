@@ -131,6 +131,16 @@
     document.getElementById("agentGroups").textContent = online
       ? (agent.group_ids || []).join("、") || "未配置"
       : "--";
+    var relationship = agent.relationship || null;
+    var relationshipBox = document.getElementById("agentRelationship");
+    if (relationshipBox && relationship) {
+      relationshipBox.hidden = false;
+      document.getElementById("agentMood").textContent = relationship.mood || "平静";
+      document.getElementById("agentLonging").textContent =
+        "想念 " + (relationship.longing || 0);
+      document.getElementById("agentJealousy").textContent =
+        "吃醋 " + (relationship.jealousy || 0);
+    }
   }
 
   function loadStatus() {

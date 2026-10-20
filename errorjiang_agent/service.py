@@ -331,11 +331,75 @@ class AgentService:
         except Exception:
             traceback.print_exc()
 
-    def proactive_message(self, owner_id: str) -> str:
+    def relationship_context(self, platform: str, owner_id: str) -> dict:
+        state = self.store.get_relationship_state(platform, owner_id)
+        last_user_at = int(state.get("last_user_at") or 0)
+        idle_hours = (
+            max(0.0, (time.time() - last_user_at) / 3600)
+            if last_user_at
+            else 0.0
+        )
+        longing = max(0, min(10, int(idle_hours / 6) + (1 if idle_hours >= 3 else 0)))
+        return {
+            **state,
+            "idle_hours": round(idle_hours, 1),
+            "longing": longing,
+            "last_topic": self.store.last_user_topic(platform, owner_id),
+        }
+
+    def update_relationship_after_exchange(
+        self,
+        platform: str,
+        owner_id: str,
+        user_text: str,
+    ) -> dict:
+        state = self.relationship_context(platform, owner_id)
+        text = str(user_text or "")
+        jealousy = max(0, int(state.get("jealousy") or 0) - 1)
+        if re.search(r"别的\s*(?:AI|ai|女生|女孩|机器人)|找别人|前任|不理你", text):
+            jealousy = min(3, jealousy + 2)
+        care = min(10, int(state.get("care") or 6) + 1)
+        hour = datetime.now().hour
+        energy = 9 if 8 <= hour < 23 else 4
+        if jealousy >= 2:
+            mood = "有点吃醋"
+        elif hour >= 22:
+            mood = "有点困但还在"
+        elif re.search(r"想你|喜欢你|晚安|抱抱|亲亲", text):
+            mood = "嘴硬但开心"
+        else:
+            mood = "平静"
+        return self.store.update_relationship_state(
+            platform,
+            owner_id,
+            {
+                "mood": mood,
+                "energy": energy,
+                "care": care,
+                "jealousy": jealousy,
+                "last_topic": text[:120],
+            },
+        )
+
+    @staticmethod
+    def relationship_prompt(state: dict) -> str:
+        mood = state.get("mood") or "平静"
+        longing = int(state.get("longing") or 0)
+        care = int(state.get("care") or 0)
+        jealousy = int(state.get("jealousy") or 0)
+        return (
+            f"当前关系状态：心情{mood}，想念{longing}/10，在意{care}/10，"
+            f"轻微吃醋{jealousy}/3，已 {state.get('idle_hours', 0)} 小时没联系。"
+            "可以自然表达一点点想念或在意，但不要冷暴力、指责、索要关注或用情绪操纵星星。"
+        )
+
+    def proactive_message(self, owner_id: str, reason: str, state: dict) -> str:
         memories = self.store.memory_context("qq", owner_id, "", 8)
         prompt = (
             "你是折兮颜，称呼用户为星星。请主动发一条简短自然的消息。"
             "冷脸萌、轻微傲娇，关心但不过度黏人。不要提这是系统定时任务。"
+            f"\n主动原因：{reason}。"
+            f"\n{self.relationship_prompt(state)}"
         )
         if memories:
             prompt += "\n你记得：" + "；".join(memories)
@@ -380,17 +444,31 @@ class AgentService:
                     settings.get("proactive_max_per_day", 2)
                 ):
                     continue
+                state = self.relationship_context("qq", owner_id)
+                idle_hours = float(state.get("idle_hours") or 0)
                 slot = None
+                reason = "按日常时间问候"
                 if slot_time == settings.get("morning_time"):
                     slot = "morning"
+                    reason = "早上了，想自然问候星星"
                 elif slot_time == settings.get("night_time"):
                     slot = "night"
-                if not slot:
-                    continue
-                if not self.store.claim_proactive_slot(day, slot, owner_id):
+                    reason = "晚上到了，想提醒星星休息"
+                elif idle_hours >= 6:
+                    slot = "missing"
+                    reason = "已经一段时间没联系，有点想念星星"
+                elif now.hour >= 18:
+                    memories = self.store.list_memories("qq", owner_id, limit=20)
+                    if any(
+                        item.get("kind") in ("promise", "event")
+                        for item in memories
+                    ):
+                        slot = "followup"
+                        reason = "跟进以前记住的约定或事件"
+                if not slot or not self.store.claim_proactive_slot(day, slot, owner_id):
                     continue
                 try:
-                    text = self.proactive_message(owner_id)
+                    text = self.proactive_message(owner_id, reason, state)
                     if text:
                         self.onebot.send_private(int(owner_id), text)
                 except Exception:
@@ -687,6 +765,8 @@ class AgentService:
             if settings.get("memory_enabled", True)
             else []
         )
+        relationship = self.relationship_context("qq", str(event.user_id))
+        memories = list(memories) + [self.relationship_prompt(relationship)]
         self.store.add_message("qq", str(event.user_id), "user", text)
         context = {
             "platform": "qq",
@@ -726,6 +806,7 @@ class AgentService:
             return
         self.store.add_message("qq", str(event.user_id), "assistant", reply)
         self.send_reply(event, reply, self.selected_sticker(context))
+        self.update_relationship_after_exchange("qq", str(event.user_id), text)
         self.executor.submit(
             self.remember_exchange,
             "qq",
@@ -761,7 +842,6 @@ class AgentService:
         if event in group_events and self.config.group_enabled:
             for group_id in self.config.group_ids:
                 self.onebot.send_group(group_id, text)
-            return
         for owner_id in self.store.admin_ids("qq"):
             try:
                 self.onebot.send_private(int(owner_id), text)
@@ -781,6 +861,8 @@ class AgentService:
             if settings.get("memory_enabled", True)
             else []
         )
+        relationship = self.relationship_context("web", str(user_id))
+        memories = list(memories) + [self.relationship_prompt(relationship)]
         self.store.add_message("web", owner, "user", text)
         errorjiang = ErrorJClient(
             self.config.errorjiang_base_url,
@@ -809,6 +891,7 @@ class AgentService:
             memories=memories,
         )
         self.store.add_message("web", owner, "assistant", reply)
+        self.update_relationship_after_exchange("web", str(user_id), text)
         self.executor.submit(
             self.remember_exchange,
             "web",
@@ -861,6 +944,7 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
                     "group_enabled": self.service.config.group_enabled,
                     "group_ids": sorted(self.service.config.group_ids),
                     "bound_admins": len(self.service.store.admin_ids("qq")),
+                    "relationship": self.service.relationship_context("qq", "0"),
                 },
             )
             return

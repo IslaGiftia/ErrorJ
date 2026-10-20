@@ -128,6 +128,18 @@ class AgentStore:
                     sent_at INTEGER,
                     cancelled_at INTEGER
                 );
+
+                CREATE TABLE IF NOT EXISTS relationship_state (
+                    platform TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    mood TEXT NOT NULL DEFAULT '平静',
+                    energy INTEGER NOT NULL DEFAULT 7,
+                    care INTEGER NOT NULL DEFAULT 6,
+                    jealousy INTEGER NOT NULL DEFAULT 1,
+                    last_topic TEXT NOT NULL DEFAULT '',
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY (platform, owner_id)
+                );
                 """
             )
 
@@ -508,6 +520,78 @@ class AgentStore:
                 (int(time.time()), int(reminder_id), platform, owner_id),
             )
         return cursor.rowcount > 0
+
+    def get_relationship_state(self, platform: str, owner_id: str) -> dict:
+        with self._connection() as conn:
+            row = conn.execute(
+                """SELECT * FROM relationship_state
+                   WHERE platform = ? AND owner_id = ?""",
+                (platform, owner_id),
+            ).fetchone()
+            last_user = conn.execute(
+                """SELECT MAX(created_at) AS ts FROM messages
+                   WHERE platform = ? AND owner_id = ? AND role = 'user'""",
+                (platform, owner_id),
+            ).fetchone()
+        state = dict(row) if row else {
+            "mood": "平静",
+            "energy": 7,
+            "care": 6,
+            "jealousy": 1,
+            "last_topic": "",
+            "updated_at": int(time.time()),
+        }
+        state["last_user_at"] = (
+            int(last_user["ts"]) if last_user and last_user["ts"] else 0
+        )
+        return state
+
+    def update_relationship_state(
+        self,
+        platform: str,
+        owner_id: str,
+        values: dict,
+    ) -> dict:
+        current = self.get_relationship_state(platform, owner_id)
+        mood = str(values.get("mood") or current.get("mood") or "平静")[:20]
+        energy = max(0, min(int(values.get("energy", current.get("energy", 7))), 10))
+        care = max(0, min(int(values.get("care", current.get("care", 6))), 10))
+        jealousy = max(0, min(int(values.get("jealousy", current.get("jealousy", 1))), 3))
+        topic = str(values.get("last_topic", current.get("last_topic", "")) or "")[:120]
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """INSERT INTO relationship_state
+                   (platform, owner_id, mood, energy, care, jealousy, last_topic, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(platform, owner_id) DO UPDATE SET
+                       mood = excluded.mood,
+                       energy = excluded.energy,
+                       care = excluded.care,
+                       jealousy = excluded.jealousy,
+                       last_topic = excluded.last_topic,
+                       updated_at = excluded.updated_at""",
+                (
+                    platform,
+                    owner_id,
+                    mood,
+                    energy,
+                    care,
+                    jealousy,
+                    topic,
+                    int(time.time()),
+                ),
+            )
+        return self.get_relationship_state(platform, owner_id)
+
+    def last_user_topic(self, platform: str, owner_id: str) -> str:
+        with self._connection() as conn:
+            row = conn.execute(
+                """SELECT content FROM messages
+                   WHERE platform = ? AND owner_id = ? AND role = 'user'
+                   ORDER BY id DESC LIMIT 1""",
+                (platform, owner_id),
+            ).fetchone()
+        return str(row["content"])[:120] if row else ""
 
     def create_pending(
         self,

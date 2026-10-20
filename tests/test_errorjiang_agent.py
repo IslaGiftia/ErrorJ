@@ -94,6 +94,22 @@ class AgentStoreTests(unittest.TestCase):
         self.assertEqual(self.store.list_stickers("10001")[0]["id"], sticker_id)
         self.assertIsNotNone(self.store.delete_sticker("10001", sticker_id))
 
+    def test_relationship_state_is_persistent_and_bounded(self):
+        state = self.store.update_relationship_state(
+            "qq",
+            "10001",
+            {
+                "mood": "有点吃醋",
+                "energy": 20,
+                "care": 8,
+                "jealousy": 9,
+                "last_topic": "星星提到了别的 AI",
+            },
+        )
+        self.assertEqual(state["energy"], 10)
+        self.assertEqual(state["jealousy"], 3)
+        self.assertEqual(state["mood"], "有点吃醋")
+
     def test_service_prepares_action_for_current_chat(self):
         service = object.__new__(AgentService)
         service.store = self.store
@@ -515,6 +531,7 @@ class AgentNotificationTests(unittest.TestCase):
         self.assertEqual(len(service.onebot.group_messages), 1)
         self.assertEqual(service.onebot.group_messages[0][0], 1128878349)
         self.assertIn("用户A", service.onebot.group_messages[0][1])
+        self.assertEqual(len(service.onebot.private_messages), 1)
 
     def test_admin_review_event_is_sent_privately(self):
         service = self.make_service()
@@ -545,7 +562,6 @@ class AgentNotificationTests(unittest.TestCase):
                 datetime(2026, 10, 20, 12, 0), "23:30", "08:00"
             )
         )
-
 
 if __name__ == "__main__":
     unittest.main()
