@@ -135,6 +135,15 @@ class AgentStore:
             ).fetchone()
         return row is not None
 
+    def admin_ids(self, platform: str = "qq") -> list[str]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT owner_id FROM admins
+                   WHERE platform = ? ORDER BY created_at, owner_id""",
+                (platform,),
+            ).fetchall()
+        return [str(row["owner_id"]) for row in rows]
+
     def create_pending(
         self,
         platform: str,

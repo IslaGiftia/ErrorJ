@@ -303,6 +303,10 @@ class AgentInternalAuthTests(unittest.TestCase):
         self.assertEqual(execute.call_args.args[0][:20], "UPDATE users SET sta")
         write_audit.assert_called_once()
 
+    def test_agent_web_page_is_admin_only(self):
+        self.assertIsNone(app.required_permission("/agent", "GET"))
+        self.assertIsNone(app.required_permission("/api/agent/web/chat", "POST"))
+
 
 class AgentWebhookTests(unittest.TestCase):
     def test_chunked_onebot_event_is_accepted(self):
@@ -343,6 +347,54 @@ class AgentWebhookTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
         self.assertEqual(received[0]["raw_message"], "绑定 123456")
+
+
+class AgentNotificationTests(unittest.TestCase):
+    def make_service(self):
+        service = object.__new__(AgentService)
+        service.config = SimpleNamespace(
+            group_enabled=True,
+            group_ids=frozenset({1128878349}),
+        )
+        service.store = SimpleNamespace(admin_ids=lambda platform="qq": ["2873523107"])
+        service.onebot = SimpleNamespace(
+            group_messages=[],
+            private_messages=[],
+        )
+        service.onebot.send_group = lambda group_id, text: service.onebot.group_messages.append(
+            (group_id, text)
+        )
+        service.onebot.send_private = lambda user_id, text: service.onebot.private_messages.append(
+            (user_id, text)
+        )
+        return service
+
+    def test_public_activity_is_sent_to_whitelisted_group(self):
+        service = self.make_service()
+        service.send_notification(
+            {
+                "event": "place",
+                "title": "Error酱：有新的标记点",
+                "body": "用户A 新增了标记点「测试」",
+                "link": "https://zhexiyan.cc/map",
+            }
+        )
+        self.assertEqual(len(service.onebot.group_messages), 1)
+        self.assertEqual(service.onebot.group_messages[0][0], 1128878349)
+        self.assertIn("用户A", service.onebot.group_messages[0][1])
+
+    def test_admin_review_event_is_sent_privately(self):
+        service = self.make_service()
+        service.send_notification(
+            {
+                "event": "register",
+                "title": "Error酱：新的注册申请",
+                "body": "新用户提交了申请",
+            }
+        )
+        self.assertEqual(service.onebot.group_messages, [])
+        self.assertEqual(len(service.onebot.private_messages), 1)
+        self.assertEqual(service.onebot.private_messages[0][0], 2873523107)
 
 
 if __name__ == "__main__":

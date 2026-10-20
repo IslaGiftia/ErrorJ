@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <title>ErrorJ Agent</title>
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=4">
+  <link rel="stylesheet" href="/static/site/site.css">
+  <link rel="stylesheet" href="/static/fonts.css">
+  <link rel="stylesheet" href="/static/agent.css">
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
+</head>
+<body class="agent-page">
+  <main class="agent-shell">
+    <header class="agent-head">
+      <a class="agent-back" href="/">返回</a>
+      <div class="agent-title-wrap">
+        <span class="agent-avatar">
+          <img src="/static/site/error-chan-avatar.png?v=1" alt="">
+        </span>
+        <div>
+          <h1>ErrorJ Agent</h1>
+          <p id="agentStatusText">正在连接</p>
+        </div>
+      </div>
+      <span class="agent-status-light" id="agentStatusLight" aria-hidden="true"></span>
+    </header>
+
+    <section class="agent-status-grid" aria-label="Agent 状态">
+      <div><span>模型</span><strong id="agentModel">--</strong></div>
+      <div><span>绑定管理员</span><strong id="agentAdmins">--</strong></div>
+      <div><span>通知群</span><strong id="agentGroups">--</strong></div>
+    </section>
+
+    <section class="agent-chat" aria-label="Agent 测试聊天">
+      <div class="agent-messages" id="agentMessages" aria-live="polite">
+        <article class="agent-message is-assistant">
+          <span>ErrorJ Agent</span>
+          <p>可以在这里测试对话和工具调用。</p>
+        </article>
+      </div>
+      <form class="agent-composer" id="agentForm">
+        <textarea id="agentInput" rows="2" maxlength="4000" placeholder="问点什么" required></textarea>
+        <button type="submit" id="agentSend">发送</button>
+      </form>
+    </section>
+  </main>
+  <script src="/static/agent.js"></script>
+</body>
+</html>

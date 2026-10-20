@@ -144,6 +144,8 @@
     document.body.setAttribute("data-auth-enabled", authState.enabled ? "1" : "0");
     document.body.setAttribute("data-authenticated", authState.authenticated ? "1" : "0");
     document.body.setAttribute("data-auth-role", authState.role);
+    var agentEntry = document.getElementById("agentEntry");
+    if (agentEntry) agentEntry.hidden = !authState.admin;
     if (!button || !text) return;
     button.classList.toggle("is-authenticated", authState.authenticated);
     if (!authState.authenticated) {

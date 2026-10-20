@@ -53,6 +53,7 @@ class Config:
     onebot_access_token: str
     onebot_webhook_secret: str
     group_enabled: bool
+    group_ids: frozenset[int]
     context_messages: int
     max_tool_rounds: int
 
@@ -65,6 +66,11 @@ class Config:
             item = item.strip()
             if item.isdigit():
                 qq_values.add(int(item))
+        group_values = set()
+        for item in os.environ.get("ERRORJIANG_AGENT_GROUP_IDS", "").split(","):
+            item = item.strip()
+            if item.isdigit():
+                group_values.add(int(item))
         secret = os.environ.get("ONEBOT_WEBHOOK_SECRET", "").strip()
         if not secret:
             secret = os.environ.get("ERRORJIANG_AGENT_TOKEN", "").strip()
@@ -102,6 +108,7 @@ class Config:
             ).strip(),
             onebot_webhook_secret=secret,
             group_enabled=env_bool("ERRORJIANG_AGENT_GROUP_ENABLED", False),
+            group_ids=frozenset(group_values),
             context_messages=max(
                 2, min(env_int("ERRORJIANG_AGENT_CONTEXT_MESSAGES", 8), 20)
             ),
@@ -120,5 +127,7 @@ class Config:
             missing.append("ERRORJIANG_AGENT_ADMIN_QQS/ERRORJIANG_AGENT_BIND_CODE")
         if not self.onebot_webhook_secret:
             missing.append("ONEBOT_WEBHOOK_SECRET")
+        if self.group_enabled and not self.group_ids:
+            missing.append("ERRORJIANG_AGENT_GROUP_IDS")
         if missing:
             raise ValueError("缺少配置：" + ", ".join(missing))

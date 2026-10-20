@@ -958,6 +958,44 @@ html[data-theme="dark"] .theme-glyph__moon {
   flex: 0 0 auto;
 }
 
+.agent-avatar-entry {
+  position: relative;
+  display: grid;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--primary) 26%, var(--line));
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
+  box-shadow:
+    0 8px 22px color-mix(in srgb, var(--primary) 18%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--panel) 72%, transparent);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.agent-avatar-entry::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 42%;
+  background: linear-gradient(to bottom, transparent, var(--panel));
+  pointer-events: none;
+}
+
+.agent-avatar-entry img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.08);
+  transition: transform var(--dur-base) var(--ease-out-strong);
+}
+
+.agent-avatar-entry:hover img {
+  transform: scale(1.14);
+}
+
 .auth-status-btn {
   display: inline-flex;
   align-items: center;
@@ -1188,6 +1226,11 @@ html[data-theme="dark"] .theme-glyph__moon {
   .auth-status-btn {
     height: 36px;
     padding: 0 11px;
+  }
+
+  .agent-avatar-entry {
+    width: 36px;
+    height: 36px;
   }
 
   .auth-status-btn #authStatusText {

@@ -53,6 +53,12 @@ PROMPTS_SEED_PATH = BASE_DIR / "config" / "prompts-seed.json"
 DB_PATH = DATA_DIR / "inventory.db"
 HOST = os.environ.get("INVENTORY_HOST", "0.0.0.0")
 PORT = int(os.environ.get("INVENTORY_PORT", "8000"))
+AGENT_BASE_URL = os.environ.get(
+    "ERRORJIANG_AGENT_URL", "http://172.17.0.1:8011"
+).rstrip("/")
+PUBLIC_SITE_URL = os.environ.get(
+    "ERRORJIANG_PUBLIC_URL", "https://zhexiyan.cc"
+).rstrip("/")
 MAP_PUBLIC = os.environ.get("INVENTORY_MAP_PUBLIC", "1").strip().lower() not in (
     "0",
     "false",
@@ -6126,6 +6132,8 @@ def required_permission(path, method):
     """把请求映射到权限点；返回 None 表示仍按"仅管理员"处理。"""
     if path == "/workbench" or path.startswith("/workbench/"):
         return None
+    if path == "/agent" or path.startswith("/api/agent/web"):
+        return None
     if path.startswith("/api/workbench") or path.startswith("/api/prompts"):
         return None
     # 计算器是独立的授权模块：一个权限点同时控制页面和全部业务接口，
@@ -6961,8 +6969,80 @@ def deliver_notification(channel, url, title, body, event, link="/workbench"):
         return False, str(exc)[:200]
 
 
+def agent_internal_request(path, payload=None, timeout=15):
+    token = os.environ.get("ERRORJIANG_AGENT_TOKEN", "").strip()
+    if not token:
+        raise RuntimeError("ErrorJ Agent 尚未配置内部令牌。")
+    headers = {
+        "Accept": "application/json",
+        "X-ErrorJ-Agent-Token": token,
+        "User-Agent": "ErrorJ-Agent-Bridge/1.0",
+    }
+    data = None
+    method = "GET"
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers["Content-Type"] = "application/json; charset=utf-8"
+        method = "POST"
+    request = Request(
+        AGENT_BASE_URL + path,
+        data=data,
+        headers=headers,
+        method=method,
+    )
+    with urlopen(request, timeout=timeout) as response:
+        raw = response.read()
+        return json.loads(raw.decode("utf-8")) if raw else {}
+
+
+def notify_agent_async(event, title, body, link="/workbench"):
+    token = os.environ.get("ERRORJIANG_AGENT_TOKEN", "").strip()
+    if not token:
+        return False
+    absolute_link = str(link or "")
+    if absolute_link.startswith("/"):
+        absolute_link = PUBLIC_SITE_URL + absolute_link
+
+    def worker():
+        try:
+            agent_internal_request(
+                "/internal/notify",
+                {
+                    "event": str(event or ""),
+                    "title": str(title or ""),
+                    "body": str(body or ""),
+                    "link": absolute_link,
+                },
+                timeout=10,
+            )
+            notify_log_write(event, title, body, "agent", "ok", "HTTP 200")
+        except HTTPError as exc:
+            notify_log_write(
+                event, title, body, "agent", "fail", f"HTTP {exc.code}"
+            )
+        except (
+            URLError,
+            ValueError,
+            OSError,
+            RuntimeError,
+            json.JSONDecodeError,
+        ) as exc:
+            notify_log_write(
+                event,
+                title,
+                body,
+                "agent",
+                "fail",
+                str(exc)[:200],
+            )
+
+    threading.Thread(target=worker, daemon=True).start()
+    return True
+
+
 def notify_async(event, title, body, link="/workbench"):
     """事件触发时异步推送，不阻塞请求。"""
+    notify_agent_async(event, title, body, link)
     settings = notify_settings()
     if (
         not settings["enabled"]
@@ -9716,6 +9796,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.send_file("messages.html")
             elif path == "/workbench":
                 self.send_file("workbench.html")
+            elif path == "/agent":
+                self.send_file("agent.html")
             elif path == "/references":
                 self.send_file("references.html")
             elif path == "/moments":
@@ -9804,6 +9886,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_admin_sensitive_words(query)
             elif path == "/api/admin/review":
                 self.api_admin_review(query)
+            elif path == "/api/agent/web/status":
+                self.api_agent_web_status()
             elif path == "/api/admin/reports":
                 self.api_admin_reports(query)
             elif path == "/api/admin/notify":
@@ -9903,6 +9987,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/agent/tool":
                 self.api_agent_tool(payload, self.agent_request_identity())
+            elif path == "/api/agent/web/chat":
+                self.api_agent_web_chat(payload)
             elif path == "/api/login":
                 self.api_login(payload)
             elif path == "/api/member/login":
@@ -13061,6 +13147,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
             ip_region=ip_region,
         )
         self.notify_members_new_moment(row_id)
+        notify_async(
+            "moment",
+            "Error酱：管理员发布了新动态",
+            f"{(content[:100] if content else '（仅配图）')}",
+            f"/moments?moment={row_id}",
+        )
         self.send_json(200, {"id": row_id, "images": len(saved)})
 
     def api_moment_item(self, path):
@@ -16378,6 +16470,51 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 400, "未知 ErrorJ Agent 工具。")
             return
         handler(identity, args)
+
+    def api_agent_web_status(self):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以查看 ErrorJ Agent。")
+            return
+        try:
+            status = agent_internal_request("/internal/status", timeout=5)
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            self.send_json(
+                200,
+                {"ok": False, "error": str(exc)[:200]},
+            )
+            return
+        self.send_json(200, {"ok": True, "agent": status})
+
+    def api_agent_web_chat(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以使用 ErrorJ Agent。")
+            return
+        message = str((payload or {}).get("message") or "").strip()
+        if not message:
+            api_error(self, 400, "请输入要发送的内容。")
+            return
+        if len(message) > 4000:
+            api_error(self, 400, "单次消息不能超过 4000 字。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/web-chat",
+                {"user_id": 0, "message": message},
+                timeout=110,
+            )
+        except HTTPError as exc:
+            detail = "Agent 请求失败。"
+            try:
+                error_data = json.loads(exc.read().decode("utf-8"))
+                detail = str(error_data.get("error") or detail)
+            except Exception:
+                pass
+            api_error(self, 502, detail)
+            return
+        except (URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, {"reply": str(data.get("reply") or "").strip()})
 
     # ---------- 留言审核（管理员） ----------
     def api_admin_review(self, params):

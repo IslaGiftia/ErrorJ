@@ -160,6 +160,8 @@ class AgentService:
             return
         if event.message_type == "group" and not self.config.group_enabled:
             return
+        if event.message_type == "group" and event.chat_id not in self.config.group_ids:
+            return
         if event.message_type == "group" and not event.to_me:
             return
         bind_match = BIND_RE.fullmatch(event.text.strip())
@@ -263,6 +265,57 @@ class AgentService:
                 file=sys.stderr,
             )
 
+    def send_notification(self, payload: dict[str, Any]) -> None:
+        event = str(payload.get("event") or "").strip()
+        title = str(payload.get("title") or "Error酱通知").strip()
+        body = str(payload.get("body") or "").strip()
+        link = str(payload.get("link") or "").strip()
+        text = title + (f"\n{body}" if body else "")
+        if link:
+            text += f"\n{link}"
+        group_events = {"message", "moment", "moment_comment", "place"}
+        if event in group_events and self.config.group_enabled:
+            for group_id in self.config.group_ids:
+                self.onebot.send_group(group_id, text)
+            return
+        for owner_id in self.store.admin_ids("qq"):
+            try:
+                self.onebot.send_private(int(owner_id), text)
+            except (ValueError, AgentError):
+                continue
+
+    def web_chat(self, user_id: int, text: str) -> str:
+        owner = f"web:{int(user_id)}"
+        history = self.store.get_messages(
+            "web",
+            owner,
+            self.config.context_messages,
+        )
+        self.store.add_message("web", owner, "user", text)
+        errorjiang = ErrorJClient(
+            self.config.errorjiang_base_url,
+            self.config.errorjiang_token,
+            int(user_id),
+        )
+        brain = AgentBrain(
+            self.deepseek,
+            errorjiang,
+            self.prepare_review,
+            max_tool_rounds=self.config.max_tool_rounds,
+        )
+        reply = brain.reply(
+            text,
+            history,
+            {
+                "platform": "web",
+                "owner_id": str(user_id),
+                "chat_id": str(user_id),
+                "is_admin": "1" if int(user_id) == self.config.admin_user_id else "0",
+            },
+        )
+        self.store.add_message("web", owner, "assistant", reply)
+        return reply
+
     def close(self) -> None:
         self.executor.shutdown(wait=False, cancel_futures=True)
 
@@ -291,19 +344,24 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
         if path == "/health":
             self.send_json(200, {"ok": True})
             return
+        if path == "/internal/status":
+            if not self.internal_authorized():
+                self.send_json(403, {"error": "forbidden"})
+                return
+            self.send_json(
+                200,
+                {
+                    "ok": True,
+                    "model": self.service.config.deepseek_model,
+                    "group_enabled": self.service.config.group_enabled,
+                    "group_ids": sorted(self.service.config.group_ids),
+                    "bound_admins": len(self.service.store.admin_ids("qq")),
+                },
+            )
+            return
         self.send_json(404, {"error": "not found"})
 
-    def do_POST(self) -> None:
-        parsed = urlsplit(self.path)
-        prefix = "/onebot/event/"
-        if not parsed.path.startswith(prefix):
-            self.send_json(404, {"error": "not found"})
-            return
-        supplied = parsed.path[len(prefix) :]
-        expected = self.service.config.onebot_webhook_secret
-        if not supplied or not hmac.compare_digest(supplied, expected):
-            self.send_json(403, {"error": "forbidden"})
-            return
+    def read_json_body(self) -> dict[str, Any] | None:
         transfer_encoding = str(
             self.headers.get("Transfer-Encoding") or ""
         ).lower()
@@ -322,7 +380,7 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
                     total += size
                     if total > MAX_WEBHOOK_BYTES:
                         self.send_json(413, {"error": "invalid body size"})
-                        return
+                        return None
                     chunks.append(self.rfile.read(size))
                     self.rfile.read(2)
                 raw = b"".join(chunks)
@@ -330,18 +388,77 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
                 length = int(self.headers.get("Content-Length") or 0)
                 if length <= 0 or length > MAX_WEBHOOK_BYTES:
                     self.send_json(413, {"error": "invalid body size"})
-                    return
+                    return None
                 raw = self.rfile.read(length)
         except (ValueError, OSError):
             self.send_json(400, {"error": "invalid request body"})
-            return
+            return None
         try:
             payload = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
             self.send_json(400, {"error": "invalid json"})
-            return
+            return None
         if not isinstance(payload, dict):
             self.send_json(400, {"error": "invalid event"})
+            return None
+        return payload
+
+    def internal_authorized(self) -> bool:
+        supplied = str(self.headers.get("X-ErrorJ-Agent-Token") or "")
+        expected = self.service.config.errorjiang_token
+        return bool(
+            supplied
+            and expected
+            and hmac.compare_digest(supplied, expected)
+        )
+
+    def do_POST(self) -> None:
+        parsed = urlsplit(self.path)
+        if parsed.path in ("/internal/notify", "/internal/web-chat"):
+            if not self.internal_authorized():
+                self.send_json(403, {"error": "forbidden"})
+                return
+            payload = self.read_json_body()
+            if payload is None:
+                return
+            if parsed.path == "/internal/notify":
+                self.service.executor.submit(self.service.send_notification, payload)
+                self.send_json(200, {"ok": True})
+                return
+            try:
+                user_id = int(payload.get("user_id"))
+            except (TypeError, ValueError):
+                self.send_json(400, {"error": "invalid user"})
+                return
+            text = str(payload.get("message") or "").strip()
+            if user_id < 0 or not text or len(text) > 4000:
+                self.send_json(400, {"error": "invalid message"})
+                return
+            if not self.rate_limiter.allow(f"web:{user_id}"):
+                self.send_json(429, {"error": "请求太频繁，请稍后再试。"})
+                return
+            try:
+                reply = self.service.web_chat(user_id, text)
+            except AgentError as exc:
+                self.send_json(502, {"error": str(exc)})
+                return
+            except Exception:
+                traceback.print_exc()
+                self.send_json(500, {"error": "Agent 处理失败。"})
+                return
+            self.send_json(200, {"reply": reply})
+            return
+        prefix = "/onebot/event/"
+        if not parsed.path.startswith(prefix):
+            self.send_json(404, {"error": "not found"})
+            return
+        supplied = parsed.path[len(prefix) :]
+        expected = self.service.config.onebot_webhook_secret
+        if not supplied or not hmac.compare_digest(supplied, expected):
+            self.send_json(403, {"error": "forbidden"})
+            return
+        payload = self.read_json_body()
+        if payload is None:
             return
         self.service.schedule_event(payload)
         self.send_json(200, {"ok": True})
