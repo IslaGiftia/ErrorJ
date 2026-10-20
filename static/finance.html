@@ -26,6 +26,9 @@
   <button class="fin-mobile-events" id="mobileEventsBtn" type="button" title="展开账目" aria-label="展开账目" aria-expanded="false">
     <i data-lucide="menu"></i>
   </button>
+  <button class="site-back-top fin-back-top" id="financeBackTop" type="button" title="返回顶部" aria-label="返回顶部" hidden>
+    <i data-lucide="arrow-up"></i>
+  </button>
   <nav class="fin-fab-stack" id="financeActions" aria-label="计算器操作">
     <button class="fin-fab fin-fab-primary fin-fab-wide" id="newEventBtn" type="button" title="新建账目" aria-label="新建账目">
       <i data-lucide="plus"></i><span>新建</span>
@@ -67,15 +70,15 @@
           <section class="fin-panel fin-expenses-panel">
             <header class="fin-panel-head">
               <div class="fin-panel-title-row">
-                <h2>费用明细</h2>
+                <h2>项目</h2>
                 <span id="expenseMeta">0 笔</span>
               </div>
               <div class="fin-expense-actions">
-                <button class="fin-icon-btn fin-expense-toggle" id="expensesToggle" type="button" title="折叠费用明细" aria-label="折叠费用明细" aria-expanded="true">
-                  <i data-lucide="chevron-up"></i>
-                </button>
                 <button class="fin-btn fin-add-expense" id="addExpenseBtn" type="button" hidden>
                   <i data-lucide="plus"></i><span>记一笔</span>
+                </button>
+                <button class="fin-icon-btn fin-expense-toggle" id="expensesToggle" type="button" title="折叠项目" aria-label="折叠项目" aria-expanded="true">
+                  <i data-lucide="chevron-up"></i>
                 </button>
               </div>
             </header>
@@ -98,7 +101,7 @@
               </div>
             </section>
 
-            <section class="fin-panel">
+            <section class="fin-panel fin-transfer-panel" id="transferPanel">
               <header class="fin-panel-head">
                 <div class="fin-panel-title-row">
                   <h2>转账方案</h2>
@@ -108,7 +111,7 @@
               <div class="fin-transfer-list" id="transferList"></div>
             </section>
 
-            <section class="fin-panel">
+            <section class="fin-panel fin-balance-panel">
               <header class="fin-panel-head">
                 <div>
                   <h2>成员结算</h2>

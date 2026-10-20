@@ -10366,7 +10366,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not identity:
             api_error(self, 401, "请登录后操作")
             return
-        candidates = []
+        candidates = [
+            {"id": 0, "username": "admin", "name": "管理员"},
+        ]
         for row in query(
             """SELECT id, username, nickname FROM users
                WHERE status = 'approved'

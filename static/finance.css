@@ -17,6 +17,7 @@
   --fin-danger-soft: #fff0f0;
   --fin-shadow: 0 1px 3px rgba(26, 31, 42, 0.06);
   --fin-shadow-raised: 0 16px 44px rgba(25, 29, 38, 0.18);
+  --fin-side-width: 330px;
   color-scheme: light;
 }
 
@@ -830,18 +831,27 @@ button {
   padding: 0 10px;
   font-size: 12px;
   opacity: 1;
+  visibility: visible;
   transform: translateY(0);
   transition:
     opacity var(--dur-fast) ease,
     transform var(--dur-fast) ease,
+    visibility 0s linear 0s,
     background-color var(--dur-fast) ease,
     border-color var(--dur-fast) ease;
 }
 
 .fin-add-expense.is-fading {
   opacity: 0;
+  visibility: hidden;
   transform: translateY(4px);
   pointer-events: none;
+  transition:
+    opacity var(--dur-fast) ease,
+    transform var(--dur-fast) ease,
+    visibility 0s linear var(--dur-fast),
+    background-color var(--dur-fast) ease,
+    border-color var(--dur-fast) ease;
 }
 
 .fin-expense-actions {
@@ -1166,6 +1176,31 @@ body.fin-dialog-open {
   animation: fin-toast-in var(--dur-base) var(--ease-out-strong);
 }
 
+.fin-back-top {
+  position: fixed;
+  right: 22px;
+  bottom: 18px;
+  z-index: 42;
+}
+
+.fin-transfer-panel.is-fresh {
+  animation: fin-transfer-breathe 2.8s ease-in-out infinite;
+}
+
+@keyframes fin-transfer-breathe {
+  0%,
+  100% {
+    border-color: var(--fin-border);
+    box-shadow: var(--fin-shadow);
+  }
+  50% {
+    border-color: color-mix(in srgb, var(--fin-accent) 55%, var(--fin-border));
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--fin-accent) 14%, transparent),
+      0 8px 24px color-mix(in srgb, var(--fin-accent) 14%, transparent);
+  }
+}
+
 @keyframes fin-toast-in {
   from {
     opacity: 0;
@@ -1189,9 +1224,17 @@ body.fin-dialog-open {
 }
 
 @media (max-width: 820px) {
+  body {
+    overflow: auto;
+  }
+
   .fin-layout {
     display: block;
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
     padding: 60px 12px 42px;
+    overflow: visible;
   }
 
   .fin-mobile-events {
@@ -1228,7 +1271,48 @@ body.fin-dialog-open {
   }
 
   .fin-main {
+    height: auto;
     padding: 20px 0 40px;
+    overflow: visible;
+  }
+
+  .fin-event {
+    display: block;
+    height: auto;
+    min-height: 0;
+  }
+
+  .fin-content-grid {
+    display: grid;
+    padding-right: 0;
+    overflow: visible;
+  }
+
+  .fin-expenses-panel {
+    display: block;
+    min-height: 0;
+  }
+
+  .fin-expense-list {
+    overflow: visible;
+  }
+
+  .fin-side-column {
+    position: static;
+    right: auto;
+    width: auto;
+    max-height: none;
+    display: grid;
+  }
+
+  .fin-transfer-panel,
+  .fin-balance-panel {
+    max-height: none;
+  }
+
+  .fin-transfer-list,
+  .fin-balance-list {
+    overflow: visible;
   }
 
   .fin-event-head h1 {
@@ -1309,6 +1393,123 @@ body.fin-dialog-open {
   .fin-receipt-grid {
     grid-template-columns: 1fr;
   }
+
+  .fin-back-top {
+    right: 14px;
+    bottom: 14px;
+  }
+}
+
+@media (min-width: 821px) {
+  body {
+    overflow: hidden;
+  }
+
+  .fin-layout {
+    grid-template-rows: minmax(0, 1fr);
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    padding: 16px 24px 16px 18px;
+    overflow: hidden;
+  }
+
+  .fin-sidebar {
+    display: flex;
+    height: 100%;
+    flex-direction: column;
+    padding: 0 14px 0 0;
+    overflow: hidden;
+  }
+
+  .fin-sidebar-head {
+    flex: none;
+  }
+
+  .fin-event-list {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+  }
+
+  .fin-main {
+    min-height: 0;
+    height: 100%;
+    padding: 0 0 0 clamp(20px, 3vw, 46px);
+    overflow: hidden;
+  }
+
+  .fin-event {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    max-width: none;
+    flex-direction: column;
+  }
+
+  .fin-event-head {
+    flex: none;
+  }
+
+  .fin-content-grid {
+    display: grid;
+    flex: 1;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    min-height: 0;
+    align-items: stretch;
+    padding-right: calc(var(--fin-side-width) + 18px);
+    overflow: hidden;
+  }
+
+  .fin-expenses-panel {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .fin-expense-list {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+  }
+
+  .fin-side-column {
+    position: fixed;
+    top: 76px;
+    right: 24px;
+    display: flex;
+    width: var(--fin-side-width);
+    max-height: calc(100vh - 170px);
+    max-height: calc(100dvh - 170px);
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .fin-side-column > .fin-overview {
+    flex: none;
+  }
+
+  .fin-transfer-panel,
+  .fin-balance-panel {
+    display: flex;
+    min-height: 0;
+    max-height: 26vh;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .fin-transfer-list,
+  .fin-balance-list {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+  }
+
+  .fin-empty {
+    min-height: 100%;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1318,5 +1519,9 @@ body.fin-dialog-open {
     scroll-behavior: auto !important;
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .fin-transfer-panel.is-fresh {
+    animation: none;
   }
 }

@@ -12,7 +12,7 @@
     draftExpense: null,
     mobileEventsOpen: false,
     expensesCollapsed: false,
-    addExpenseHideTimer: 0,
+    transferPulse: false,
     selectedParticipants: new Set(),
     receiptTargetId: null,
     receiptButton: null,
@@ -208,6 +208,39 @@
         state.expensesCollapsed ? "展开费用明细" : "折叠费用明细"
       );
     }
+  }
+
+  function setTransferPulse(active) {
+    state.transferPulse = Boolean(active);
+    var panel = $("transferPanel");
+    if (panel) panel.classList.toggle("is-fresh", state.transferPulse);
+  }
+
+  function financeScrollTargets() {
+    return Array.prototype.slice.call(
+      document.querySelectorAll(
+        "#eventList, #expenseList, #transferList, #balanceList"
+      )
+    );
+  }
+
+  function updateFinanceBackTop() {
+    var button = $("financeBackTop");
+    if (!button) return;
+    var active =
+      (window.scrollY || document.documentElement.scrollTop || 0) > 24 ||
+      financeScrollTargets().some(function (target) {
+        return target.scrollTop > 24;
+      });
+    button.hidden = !active;
+  }
+
+  function scrollFinanceTop() {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    financeScrollTargets().forEach(function (target) {
+      target.scrollTo({ top: 0, behavior: "smooth" });
+    });
+    $("financeBackTop").hidden = true;
   }
 
   function balanceClass(value) {
@@ -513,27 +546,21 @@
         !state.draftExpense &&
         !state.inlineEditId
     );
-    $("editEventBtn").hidden = !(detail && detail.can_manage);
+    $("editEventBtn").hidden = !detail;
     $("receiptsBtn").hidden = !detail;
-    $("deleteEventBtn").hidden = !(detail && detail.can_manage);
+    $("deleteEventBtn").hidden = !detail;
+    $("deleteEventBtn").toggleAttribute(
+      "data-hold-confirm",
+      Boolean(detail && detail.can_manage)
+    );
+    refreshButtons();
   }
 
   function setAddExpenseVisibility(visible) {
     var button = $("addExpenseBtn");
     if (!button) return;
-    window.clearTimeout(state.addExpenseHideTimer);
-    if (visible) {
-      button.hidden = false;
-      window.requestAnimationFrame(function () {
-        button.classList.remove("is-fading");
-      });
-      return;
-    }
-    button.classList.add("is-fading");
-    state.addExpenseHideTimer = window.setTimeout(function () {
-      button.hidden = true;
-      button.classList.remove("is-fading");
-    }, 160);
+    button.hidden = false;
+    button.classList.toggle("is-fading", !visible);
   }
 
   function renderDetail() {
@@ -573,6 +600,7 @@
     if ($("receiptsDialog").open) renderReceiptsDialog();
     refreshIcons();
     refreshButtons();
+    updateFinanceBackTop();
   }
 
   async function loadDetail(eventId, updateUrl) {
@@ -583,6 +611,7 @@
       state.detail = detail;
       state.inlineEditId = null;
       state.expensesCollapsed = false;
+      setTransferPulse(false);
       if (updateUrl !== false) setEventUrl(detail.id);
       renderEventList();
       renderDetail();
@@ -818,6 +847,7 @@
       if (data.event) state.detail = data.event;
       renderDetail();
       await loadEvents(state.detail && state.detail.id);
+      setTransferPulse(true);
       toast("费用已保存");
     } catch (err) {
       buttonFail(button);
@@ -858,6 +888,7 @@
       if (data.event) state.detail = data.event;
       renderDetail();
       await loadEvents(state.detail && state.detail.id);
+      setTransferPulse(true);
       toast("费用已更新");
     } catch (err) {
       buttonFail(button);
@@ -883,6 +914,10 @@
 
   async function deleteCurrentEvent() {
     if (!state.detail) return;
+    if (!state.detail.can_manage) {
+      toast("只有创建人可以删除这个账目。");
+      return;
+    }
     var eventId = state.detail.id;
     try {
       await api("/api/aa/events/" + eventId, { method: "DELETE" });
@@ -996,7 +1031,12 @@
       addDraftExpense();
     });
     $("editEventBtn").addEventListener("click", function () {
-      if (state.detail) openEventDialog(state.detail.id);
+      if (!state.detail) return;
+      if (!state.detail.can_manage) {
+        toast("只有创建人可以修改参与人。");
+        return;
+      }
+      openEventDialog(state.detail.id);
     });
     $("deleteEventBtn").addEventListener("click", deleteCurrentEvent);
     $("receiptsBtn").addEventListener("click", openReceipts);
@@ -1119,6 +1159,7 @@
     $("receiptsDialogClose").addEventListener("click", function () {
       $("receiptsDialog").close();
     });
+    $("financeBackTop").addEventListener("click", scrollFinanceTop);
 
     $("receiptGrid").addEventListener("click", function (event) {
       var upload = event.target.closest("[data-receipt-upload]");
@@ -1152,6 +1193,7 @@
       if (event.key === "Escape") closeSplitPickers(null);
     });
     document.addEventListener("click", function (event) {
+      if (state.transferPulse) setTransferPulse(false);
       if (
         state.mobileEventsOpen &&
         !event.target.closest(".fin-sidebar") &&
@@ -1170,10 +1212,16 @@
       dialog.addEventListener("toggle", syncDialogScrollLock);
       dialog.addEventListener("close", syncDialogScrollLock);
     });
+    window.addEventListener("scroll", updateFinanceBackTop, { passive: true });
+    financeScrollTargets().forEach(function (target) {
+      target.addEventListener("scroll", updateFinanceBackTop, { passive: true });
+    });
     window.addEventListener("resize", function () {
       if (!isMobileEvents()) setMobileEventsOpen(false);
+      updateFinanceBackTop();
     });
     syncDialogScrollLock();
+    updateFinanceBackTop();
   }
 
   bindEvents();
