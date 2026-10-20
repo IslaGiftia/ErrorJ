@@ -348,6 +348,48 @@ class AgentWebhookTests(unittest.TestCase):
             server.server_close()
         self.assertEqual(received[0]["raw_message"], "绑定 123456")
 
+    def test_internal_web_chat_uses_service_rate_limiter(self):
+        class Limiter:
+            def __init__(self):
+                self.keys = []
+
+            def allow(self, key):
+                self.keys.append(key)
+                return True
+
+        limiter = Limiter()
+        fake_service = SimpleNamespace(
+            config=SimpleNamespace(errorjiang_token="internal-token"),
+            rate_limiter=limiter,
+            web_chat=lambda user_id, text: f"reply:{user_id}:{text}",
+        )
+        server = AgentHttpServer(("127.0.0.1", 0), fake_service)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        connection = http.client.HTTPConnection(
+            "127.0.0.1", server.server_address[1], timeout=5
+        )
+        try:
+            body = json.dumps({"user_id": 0, "message": "你好"}).encode("utf-8")
+            connection.request(
+                "POST",
+                "/internal/web-chat",
+                body=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-ErrorJ-Agent-Token": "internal-token",
+                },
+            )
+            response = connection.getresponse()
+            payload = json.loads(response.read().decode("utf-8"))
+            self.assertEqual(response.status, 200)
+            self.assertEqual(payload["reply"], "reply:0:你好")
+        finally:
+            connection.close()
+            server.shutdown()
+            server.server_close()
+        self.assertEqual(limiter.keys, ["web:0"])
+
 
 class AgentNotificationTests(unittest.TestCase):
     def make_service(self):

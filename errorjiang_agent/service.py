@@ -434,7 +434,7 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
             if user_id < 0 or not text or len(text) > 4000:
                 self.send_json(400, {"error": "invalid message"})
                 return
-            if not self.rate_limiter.allow(f"web:{user_id}"):
+            if not self.service.rate_limiter.allow(f"web:{user_id}"):
                 self.send_json(429, {"error": "请求太频繁，请稍后再试。"})
                 return
             try:
