@@ -29,7 +29,7 @@ from .store import AgentStore
 
 CONFIRM_RE = re.compile(r"^(?:确认|/confirm)\s+(\d{6})$", re.IGNORECASE)
 BIND_RE = re.compile(r"^(?:绑定|/bind)\s+(\S+)$", re.IGNORECASE)
-BIND_USER_RE = re.compile(r"^绑定用户\s+(\d{5,12})\s+(\d+)$")
+BIND_USER_RE = re.compile(r"^绑定用户\s+(\d{5,12})\s+(.+)$")
 UNBIND_USER_RE = re.compile(r"^解绑用户\s+(\d{5,12})$")
 MAX_WEBHOOK_BYTES = 8 * 1024 * 1024
 
@@ -465,11 +465,44 @@ class AgentService:
         if is_admin:
             bind_user_match = BIND_USER_RE.fullmatch(event.text.strip())
             if bind_user_match:
-                qq_id, site_user_id = bind_user_match.groups()
-                self.store.bind_user("qq", qq_id, int(site_user_id))
+                qq_id, site_ref = bind_user_match.groups()
+                site_ref = site_ref.strip()
+                if site_ref.isdigit():
+                    site_user_id = int(site_ref)
+                    site_name = f"用户 #{site_user_id}"
+                else:
+                    try:
+                        resolved = self.errorjiang.tool(
+                            "users.resolve", {"query": site_ref}
+                        )
+                    except AgentError as exc:
+                        self.send_reply(event, f"账号解析失败：{exc}")
+                        return
+                    users = resolved.get("users") or []
+                    if not users:
+                        self.send_reply(event, f"没有找到已认证用户“{site_ref}”。")
+                        return
+                    if len(users) > 1:
+                        names = [
+                            f"#{item['id']} {item.get('nickname') or item['username']}"
+                            for item in users
+                        ]
+                        self.send_reply(
+                            event,
+                            "找到多个同名账号，请改用用户编号：\n"
+                            + "\n".join(names),
+                        )
+                        return
+                    site_user_id = int(users[0]["id"])
+                    site_name = (
+                        users[0].get("nickname")
+                        or users[0].get("username")
+                        or f"用户 #{site_user_id}"
+                    )
+                self.store.bind_user("qq", qq_id, site_user_id)
                 self.send_reply(
                     event,
-                    f"已将 QQ {qq_id} 绑定到 Error酱用户 #{site_user_id}。",
+                    f"已将 QQ {qq_id} 绑定到 {site_name}（#{site_user_id}）。",
                 )
                 return
             unbind_user_match = UNBIND_USER_RE.fullmatch(event.text.strip())

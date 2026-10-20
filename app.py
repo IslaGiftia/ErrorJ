@@ -16608,6 +16608,39 @@ class InventoryHandler(BaseHTTPRequestHandler):
             },
         )
 
+    def agent_tool_users_resolve(self, identity, args):
+        if not self.agent_has_permission(identity, ADMIN_PERMISSION):
+            api_error(self, 403, "只有管理员可以解析绑定账号。")
+            return
+        query_text = str(args.get("query") or "").strip()[:80]
+        if not query_text:
+            api_error(self, 400, "请输入用户名、昵称或用户 ID。")
+            return
+        if query_text.isdigit():
+            rows = query(
+                """SELECT id, username, nickname, status FROM users
+                   WHERE id = ? LIMIT 1""",
+                (int(query_text),),
+            )
+        else:
+            rows = query(
+                """SELECT id, username, nickname, status FROM users
+                   WHERE status = 'approved'
+                     AND (username = ? COLLATE NOCASE OR nickname = ? COLLATE NOCASE)
+                   ORDER BY id LIMIT 5""",
+                (query_text, query_text),
+            )
+        results = [
+            {
+                "id": int(row["id"]),
+                "username": row.get("username") or "",
+                "nickname": row.get("nickname") or "",
+                "status": row.get("status") or "",
+            }
+            for row in rows
+        ]
+        self.send_json(200, {"count": len(results), "users": results})
+
     def api_agent_tool(self, payload, identity):
         tool = str((payload or {}).get("tool") or "").strip()
         args = (payload or {}).get("arguments") or {}
@@ -16624,6 +16657,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             "aa.events.list": self.agent_tool_aa_events_list,
             "aa.event.get": self.agent_tool_aa_event_get,
             "aa.expense.add": self.agent_tool_aa_expense_add,
+            "users.resolve": self.agent_tool_users_resolve,
         }
         handler = handlers.get(tool)
         if not handler:
