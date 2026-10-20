@@ -936,6 +936,8 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
             if not self.internal_authorized():
                 self.send_json(403, {"error": "forbidden"})
                 return
+            admin_ids = self.service.store.admin_ids("qq")
+            relationship_owner = admin_ids[0] if admin_ids else "0"
             self.send_json(
                 200,
                 {
@@ -943,8 +945,10 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
                     "model": self.service.config.deepseek_model,
                     "group_enabled": self.service.config.group_enabled,
                     "group_ids": sorted(self.service.config.group_ids),
-                    "bound_admins": len(self.service.store.admin_ids("qq")),
-                    "relationship": self.service.relationship_context("qq", "0"),
+                    "bound_admins": len(admin_ids),
+                    "relationship": self.service.relationship_context(
+                        "qq", relationship_owner
+                    ),
                 },
             )
             return
