@@ -504,6 +504,12 @@ class AgentService:
             )
             self.send_reply(event, hint)
             return
+        if not is_admin and event.message_type == "private":
+            self.send_reply(
+                event,
+                "普通用户请在授权群里 @折兮颜 使用。主 QQ 私聊仅限管理员。",
+            )
+            return
         target_user_id = 0 if is_admin else int(linked_user_id)
         if not self.rate_limiter.allow(str(event.user_id)):
             self.send_reply(event, "请求太频繁，请稍后再试。")
