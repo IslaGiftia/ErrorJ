@@ -593,7 +593,8 @@ class AgentService:
         prompt = (
             "你是折兮颜，称呼用户为星星。请主动发一条简短自然的消息。"
             "冷脸萌、轻微傲娇，关心但不过度黏人。只发一到两句，"
-            "不要分点、不要空行、不要提这是系统定时任务。"
+            "不要分点、不要空行、闲聊句末通常不加句号，"
+            "问号和感叹号按语气保留，不要提这是系统定时任务。"
             "不要假装刚看到消息，也不要用质问或冷暴力的语气。"
             f"\n主动原因：{reason}。"
             f"\n{self.relationship_prompt(state)}"
@@ -612,7 +613,10 @@ class AgentService:
             ],
             [],
         )
-        return self.humanize_text(str(message.get("content") or ""))[:500]
+        return self.humanize_text(
+            str(message.get("content") or ""),
+            strip_terminal_period=True,
+        )[:500]
 
     @staticmethod
     def in_quiet_hours(now: datetime, start: str, end: str) -> bool:
@@ -781,7 +785,7 @@ class AgentService:
         }
 
     @staticmethod
-    def humanize_text(text: str) -> str:
+    def humanize_text(text: str, strip_terminal_period: bool = False) -> str:
         value = str(text or "").replace("**", "").replace("__", "")
         value = re.sub(r"^#{1,6}\s*", "", value, flags=re.MULTILINE)
         value = re.sub(r"\n{2,}", "\n", value).strip()
@@ -795,6 +799,8 @@ class AgentService:
         if not structured:
             value = re.sub(r"\s*\n\s*", " ", value)
             value = re.sub(r"[ \t]{2,}", " ", value)
+            if strip_terminal_period:
+                value = re.sub(r"[。｡]([”’」』】）)]*)$", r"\1", value)
         return value.strip()
 
     def send_reply(
@@ -1063,6 +1069,7 @@ class AgentService:
         except Exception:
             self.send_reply(event, "处理消息时发生内部错误，请稍后重试。")
             return
+        reply = self.humanize_text(reply, strip_terminal_period=True)
         self.store.add_message("qq", str(event.user_id), "assistant", reply)
         self.send_reply(event, reply, self.selected_sticker(context))
         self.update_relationship_after_exchange("qq", str(event.user_id), text)
@@ -1153,6 +1160,7 @@ class AgentService:
             context,
             memories=memories,
         )
+        reply = self.humanize_text(reply, strip_terminal_period=True)
         self.store.add_message("web", owner, "assistant", reply)
         self.update_relationship_after_exchange("web", str(user_id), text)
         self.executor.submit(

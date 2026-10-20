@@ -227,6 +227,27 @@ class AgentStoreTests(unittest.TestCase):
             AgentService.humanize_text(text),
             "嗯，就一个句号。 我收好了，你还想说什么？",
         )
+        self.assertEqual(
+            AgentService.humanize_text(
+                "知道啦。今天也辛苦了。",
+                strip_terminal_period=True,
+            ),
+            "知道啦。今天也辛苦了",
+        )
+        self.assertEqual(
+            AgentService.humanize_text(
+                "“晚安。”",
+                strip_terminal_period=True,
+            ),
+            "“晚安”",
+        )
+        self.assertEqual(
+            AgentService.humanize_text(
+                "- 库存 3 条。",
+                strip_terminal_period=True,
+            ),
+            "- 库存 3 条。",
+        )
 
     def test_due_timeline_event_is_the_first_proactive_topic(self):
         now = datetime(2026, 10, 20, 9, 10)
