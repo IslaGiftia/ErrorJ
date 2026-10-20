@@ -22,7 +22,7 @@ from .store import AgentStore
 
 CONFIRM_RE = re.compile(r"^(?:确认|/confirm)\s+(\d{6})$", re.IGNORECASE)
 BIND_RE = re.compile(r"^(?:绑定|/bind)\s+(\S+)$", re.IGNORECASE)
-MAX_WEBHOOK_BYTES = 1024 * 1024
+MAX_WEBHOOK_BYTES = 8 * 1024 * 1024
 
 
 class RateLimiter:
@@ -289,15 +289,37 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
         if not supplied or not hmac.compare_digest(supplied, expected):
             self.send_json(403, {"error": "forbidden"})
             return
+        transfer_encoding = str(
+            self.headers.get("Transfer-Encoding") or ""
+        ).lower()
         try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            self.send_json(400, {"error": "invalid content length"})
+            if "chunked" in transfer_encoding:
+                chunks = []
+                total = 0
+                while True:
+                    line = self.rfile.readline(128).strip()
+                    if not line:
+                        continue
+                    size = int(line.split(b";", 1)[0], 16)
+                    if size == 0:
+                        self.rfile.readline(8192)
+                        break
+                    total += size
+                    if total > MAX_WEBHOOK_BYTES:
+                        self.send_json(413, {"error": "invalid body size"})
+                        return
+                    chunks.append(self.rfile.read(size))
+                    self.rfile.read(2)
+                raw = b"".join(chunks)
+            else:
+                length = int(self.headers.get("Content-Length") or 0)
+                if length <= 0 or length > MAX_WEBHOOK_BYTES:
+                    self.send_json(413, {"error": "invalid body size"})
+                    return
+                raw = self.rfile.read(length)
+        except (ValueError, OSError):
+            self.send_json(400, {"error": "invalid request body"})
             return
-        if length <= 0 or length > MAX_WEBHOOK_BYTES:
-            self.send_json(413, {"error": "invalid body size"})
-            return
-        raw = self.rfile.read(length)
         try:
             payload = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):

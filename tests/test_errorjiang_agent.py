@@ -1,15 +1,18 @@
 import json
+import http.client
 import os
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import app
 from errorjiang_agent.brain import AgentBrain
 from errorjiang_agent.onebot import event_key, parse_message_event
-from errorjiang_agent.service import AgentService
+from errorjiang_agent.service import AgentHttpServer, AgentService
 from errorjiang_agent.store import AgentStore
 
 
@@ -284,6 +287,47 @@ class AgentInternalAuthTests(unittest.TestCase):
         execute.assert_called_once()
         self.assertEqual(execute.call_args.args[0][:20], "UPDATE users SET sta")
         write_audit.assert_called_once()
+
+
+class AgentWebhookTests(unittest.TestCase):
+    def test_chunked_onebot_event_is_accepted(self):
+        received = []
+        fake_service = SimpleNamespace(
+            config=SimpleNamespace(onebot_webhook_secret="hook-secret"),
+            schedule_event=received.append,
+        )
+        server = AgentHttpServer(("127.0.0.1", 0), fake_service)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        payload = json.dumps(
+            {
+                "post_type": "message",
+                "message_type": "private",
+                "user_id": 10001,
+                "message_id": 2,
+                "raw_message": "绑定 123456",
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+        connection = http.client.HTTPConnection(
+            "127.0.0.1", server.server_address[1], timeout=5
+        )
+        try:
+            connection.request(
+                "POST",
+                "/onebot/event/hook-secret",
+                body=[payload],
+                headers={"Content-Type": "application/json"},
+                encode_chunked=True,
+            )
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            response.read()
+        finally:
+            connection.close()
+            server.shutdown()
+            server.server_close()
+        self.assertEqual(received[0]["raw_message"], "绑定 123456")
 
 
 if __name__ == "__main__":
