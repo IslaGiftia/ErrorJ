@@ -30,6 +30,10 @@
       <span>Error酱工作区</span>
       <strong>ErrorJ Agent</strong>
     </div>
+    <button class="agent-settings-btn" id="agentSettingsBtn" type="button" title="Agent 设置">
+      <i data-lucide="sliders-horizontal"></i>
+      <span>设置</span>
+    </button>
     <span class="agent-top-status">
       <i></i>
       <span id="agentTopStatus">连接中</span>
@@ -124,6 +128,69 @@
       </form>
     </section>
   </main>
+
+  <dialog class="agent-settings-dialog" id="agentSettingsDialog">
+    <header class="agent-settings-head">
+      <div>
+        <h2>折兮颜设置</h2>
+        <p>记忆、主动聊天和表情包</p>
+      </div>
+      <button type="button" id="agentSettingsClose" title="关闭" aria-label="关闭">
+        <i data-lucide="x"></i>
+      </button>
+    </header>
+    <div class="agent-settings-body">
+      <section class="agent-setting-section">
+        <label class="agent-switch-row">
+          <span><strong>长期记忆</strong><small>从私聊和网页对话中记住偏好与约定</small></span>
+          <input type="checkbox" id="settingMemoryEnabled">
+        </label>
+        <label class="agent-switch-row">
+          <span><strong>主动聊天</strong><small>在设定时间主动发 QQ 私聊</small></span>
+          <input type="checkbox" id="settingProactiveEnabled">
+        </label>
+        <label class="agent-switch-row">
+          <span><strong>表情包</strong><small>允许折兮颜在回复中低频使用表情包</small></span>
+          <input type="checkbox" id="settingStickerEnabled">
+        </label>
+        <div class="agent-setting-row is-disabled">
+          <span><strong>语音</strong><small>云端语音服务暂未启用</small></span>
+          <em>未启用</em>
+        </div>
+      </section>
+
+      <section class="agent-setting-section">
+        <h3>主动聊天</h3>
+        <div class="agent-setting-grid">
+          <label><span>每日最多</span><input type="number" id="settingProactiveMax" min="1" max="6"></label>
+          <label><span>早安时间</span><input type="time" id="settingMorningTime"></label>
+          <label><span>晚安时间</span><input type="time" id="settingNightTime"></label>
+          <label><span>免打扰开始</span><input type="time" id="settingQuietStart"></label>
+          <label><span>免打扰结束</span><input type="time" id="settingQuietEnd"></label>
+        </div>
+      </section>
+
+      <section class="agent-setting-section">
+        <div class="agent-section-title">
+          <h3>长期记忆</h3>
+          <input type="search" id="agentMemorySearch" placeholder="搜索记忆">
+        </div>
+        <div class="agent-memory-list" id="agentMemoryList"></div>
+      </section>
+
+      <section class="agent-setting-section">
+        <div class="agent-section-title">
+          <h3>表情包库</h3>
+          <span id="agentStickerCount">0 个</span>
+        </div>
+        <div class="agent-sticker-grid" id="agentStickerGrid"></div>
+      </section>
+    </div>
+    <footer class="agent-settings-foot">
+      <span id="agentSettingsStatus"></span>
+      <button type="button" id="agentSettingsSave">保存设置</button>
+    </footer>
+  </dialog>
 
   <script src="/static/vendor/lucide.min.js"></script>
   <script src="/static/agent.js?v=2"></script>

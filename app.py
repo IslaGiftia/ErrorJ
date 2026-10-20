@@ -6134,6 +6134,8 @@ def required_permission(path, method):
         return None
     if path == "/agent" or path.startswith("/api/agent/web"):
         return None
+    if path.startswith("/agent-stickers/"):
+        return None
     if path.startswith("/api/workbench") or path.startswith("/api/prompts"):
         return None
     # 计算器是独立的授权模块：一个权限点同时控制页面和全部业务接口，
@@ -9772,6 +9774,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not self.guard_request(path, "GET"):
             return
         try:
+            if path.startswith("/agent-stickers/"):
+                self.api_agent_sticker_file(path)
+                return
             if path in PAGE_VIEW_PATHS:
                 self.log_page_view(path)
             if path in ("/", "/index.html"):
@@ -9888,6 +9893,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_admin_review(query)
             elif path == "/api/agent/web/status":
                 self.api_agent_web_status()
+            elif path == "/api/agent/web/settings":
+                self.api_agent_web_settings()
+            elif path == "/api/agent/web/memories":
+                self.api_agent_web_memories(query)
+            elif path == "/api/agent/web/stickers":
+                self.api_agent_web_stickers(query)
             elif path == "/api/admin/reports":
                 self.api_admin_reports(query)
             elif path == "/api/admin/notify":
@@ -9989,6 +10000,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_agent_tool(payload, self.agent_request_identity())
             elif path == "/api/agent/web/chat":
                 self.api_agent_web_chat(payload)
+            elif path == "/api/agent/web/settings":
+                self.api_agent_web_settings_save(payload)
+            elif path == "/api/agent/web/memory-delete":
+                self.api_agent_web_memory_delete(payload)
+            elif path == "/api/agent/web/sticker-delete":
+                self.api_agent_web_sticker_delete(payload)
             elif path == "/api/login":
                 self.api_login(payload)
             elif path == "/api/member/login":
@@ -16515,6 +16532,175 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 502, str(exc)[:200])
             return
         self.send_json(200, {"reply": str(data.get("reply") or "").strip()})
+
+    def api_agent_web_settings(self):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以管理 ErrorJ Agent。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/settings?platform=web&owner_id=0", timeout=10
+            )
+            qq_data = agent_internal_request(
+                "/internal/settings?platform=qq&owner_id=0", timeout=10
+            )
+            merged = dict(data.get("settings") or {})
+            merged.update(qq_data.get("settings") or {})
+            data["settings"] = merged
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_settings_save(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以管理 ErrorJ Agent。")
+            return
+        values = (payload or {}).get("settings")
+        if not isinstance(values, dict):
+            api_error(self, 400, "设置格式不正确。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/settings",
+                {
+                    "platform": "web",
+                    "owner_id": "0",
+                    "settings": values,
+                },
+                timeout=10,
+            )
+            agent_internal_request(
+                "/internal/settings",
+                {
+                    "platform": "qq",
+                    "owner_id": "0",
+                    "settings": values,
+                },
+                timeout=10,
+            )
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_memories(self, query):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以管理 ErrorJ Agent 记忆。")
+            return
+        search = str((query.get("q") or [""])[0])
+        try:
+            data = agent_internal_request(
+                "/internal/memories?platform=web&owner_id=0&q="
+                + quote(search),
+                timeout=10,
+            )
+            qq_data = agent_internal_request(
+                "/internal/memories?platform=qq&owner_id=0&q="
+                + quote(search),
+                timeout=10,
+            )
+            memories = []
+            for item in data.get("memories") or []:
+                item = dict(item)
+                item["platform"] = "web"
+                memories.append(item)
+            for item in qq_data.get("memories") or []:
+                item = dict(item)
+                item["platform"] = "qq"
+                memories.append(item)
+            memories.sort(
+                key=lambda item: (int(item.get("importance") or 0), int(item.get("id") or 0)),
+                reverse=True,
+            )
+            data["memories"] = memories
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_memory_delete(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以管理 ErrorJ Agent 记忆。")
+            return
+        try:
+            memory_id = int((payload or {}).get("id"))
+        except (TypeError, ValueError):
+            api_error(self, 400, "记忆编号不正确。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/memory/delete",
+                {
+                    "platform": str((payload or {}).get("platform") or "web"),
+                    "owner_id": "0",
+                    "id": memory_id,
+                },
+                timeout=10,
+            )
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_stickers(self, query):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以管理表情包。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/stickers?owner_id=0", timeout=10
+            )
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_sticker_delete(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以管理表情包。")
+            return
+        try:
+            sticker_id = int((payload or {}).get("id"))
+        except (TypeError, ValueError):
+            api_error(self, 400, "表情包编号不正确。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/sticker/delete",
+                {"owner_id": "0", "id": sticker_id},
+                timeout=10,
+            )
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_sticker_file(self, path):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以查看表情包。")
+            return
+        filename = Path(path[len("/agent-stickers/") :]).name
+        if not filename:
+            api_error(self, 404, "表情包不存在。")
+            return
+        try:
+            request = Request(
+                AGENT_BASE_URL + "/stickers/" + quote(filename),
+                headers={"User-Agent": "ErrorJ-Agent-Bridge/1.0"},
+            )
+            with urlopen(request, timeout=10) as response:
+                body = response.read()
+                content_type = response.headers.get("Content-Type") or "application/octet-stream"
+        except (HTTPError, URLError, OSError) as exc:
+            api_error(self, 404, str(exc)[:120])
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "private, max-age=3600")
+        self.end_headers()
+        self.wfile.write(body)
 
     # ---------- 留言审核（管理员） ----------
     def api_admin_review(self, params):

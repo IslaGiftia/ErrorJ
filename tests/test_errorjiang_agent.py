@@ -6,6 +6,7 @@ import tempfile
 import threading
 import time
 import unittest
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -66,6 +67,25 @@ class AgentStoreTests(unittest.TestCase):
         self.assertTrue(self.store.has_admins())
         self.assertTrue(self.store.is_admin("qq", "10001"))
         self.assertFalse(self.store.is_admin("qq", "10002"))
+
+    def test_memory_settings_and_stickers(self):
+        self.store.add_memory("qq", "10001", "星星喜欢安静", "preference", 8)
+        self.store.add_memory("qq", "10001", "星星喜欢安静", "preference", 9)
+        memories = self.store.list_memories("qq", "10001")
+        self.assertEqual(len(memories), 1)
+        self.assertEqual(memories[0]["importance"], 9)
+        self.assertIn("安静", self.store.memory_context("qq", "10001", "安静")[0])
+
+        settings = self.store.save_settings(
+            "qq", "10001", {"proactive_max_per_day": 3}
+        )
+        self.assertEqual(settings["proactive_max_per_day"], 3)
+
+        sticker_id = self.store.add_sticker(
+            "10001", "face", "178", "开心"
+        )
+        self.assertEqual(self.store.list_stickers("10001")[0]["id"], sticker_id)
+        self.assertIsNotNone(self.store.delete_sticker("10001", sticker_id))
 
     def test_service_prepares_action_for_current_chat(self):
         service = object.__new__(AgentService)
@@ -450,6 +470,23 @@ class AgentNotificationTests(unittest.TestCase):
         self.assertEqual(service.onebot.group_messages, [])
         self.assertEqual(len(service.onebot.private_messages), 1)
         self.assertEqual(service.onebot.private_messages[0][0], 2873523107)
+
+    def test_proactive_quiet_hours_cross_midnight(self):
+        self.assertTrue(
+            AgentService.in_quiet_hours(
+                datetime(2026, 10, 20, 23, 45), "23:30", "08:00"
+            )
+        )
+        self.assertTrue(
+            AgentService.in_quiet_hours(
+                datetime(2026, 10, 20, 7, 30), "23:30", "08:00"
+            )
+        )
+        self.assertFalse(
+            AgentService.in_quiet_hours(
+                datetime(2026, 10, 20, 12, 0), "23:30", "08:00"
+            )
+        )
 
 
 if __name__ == "__main__":

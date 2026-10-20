@@ -2,17 +2,22 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hmac
 import json
+import mimetypes
 from pathlib import Path
+import random
 import re
 import sys
 import threading
 import time
 import traceback
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
+from urllib.request import Request, urlopen
 
 from .brain import AgentBrain
 from .clients import DeepSeekClient, ErrorJClient, OneBotClient
@@ -70,13 +75,275 @@ class AgentService:
             self.deepseek,
             self.errorjiang,
             self.prepare_review,
+            self.prepare_sticker,
             max_tool_rounds=config.max_tool_rounds,
         )
         self.rate_limiter = RateLimiter()
         self.executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="agent")
         self._chat_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
+        self.sticker_dir = config.db_path.parent / "stickers"
+        self.sticker_dir.mkdir(parents=True, exist_ok=True)
+        self._proactive_stop = threading.Event()
+        self._proactive_thread = threading.Thread(
+            target=self._proactive_loop,
+            daemon=True,
+            name="agent-proactive",
+        )
         for qq in config.admin_qqs:
             self.store.bind_admin("qq", str(qq))
+        self._proactive_thread.start()
+
+    def prepare_sticker(
+        self,
+        arguments: dict[str, Any],
+        tool_context: dict[str, str] | None,
+    ) -> dict[str, Any]:
+        if not tool_context or tool_context.get("sticker_enabled") != "1":
+            return {"status": "disabled"}
+        owner_id = tool_context.get("owner_id") or ""
+        settings = self.store.get_settings(tool_context.get("platform") or "qq", owner_id)
+        if not settings.get("sticker_enabled", True):
+            return {"status": "disabled"}
+        emotion = str(arguments.get("emotion") or "").strip()[:30]
+        stickers = self.store.list_stickers(owner_id, 200)
+        matches = [
+            item
+            for item in stickers
+            if emotion and emotion in str(item.get("tags") or "")
+        ]
+        candidates = matches or stickers
+        if not candidates:
+            return {"status": "empty"}
+        sticker = random.choice(candidates)
+        if tool_context is not None:
+            tool_context["selected_sticker"] = str(sticker["id"])
+        return {
+            "status": "selected",
+            "emotion": emotion,
+            "message": "表情包会在文字回复后发送。",
+        }
+
+    def selected_sticker(self, tool_context: dict[str, str] | None):
+        if not tool_context or not tool_context.get("selected_sticker"):
+            return None
+        try:
+            sticker_id = int(tool_context["selected_sticker"])
+        except (TypeError, ValueError):
+            return None
+        for sticker in self.store.list_stickers(
+            tool_context.get("owner_id") or "", 200
+        ):
+            if int(sticker["id"]) == sticker_id:
+                return sticker
+        return None
+
+    @staticmethod
+    def sticker_segment(sticker: dict[str, Any] | None):
+        if not sticker:
+            return None
+        if sticker.get("kind") == "face":
+            return {
+                "type": "face",
+                "data": {"id": str(sticker.get("ref") or "")},
+            }
+        return {
+            "type": "image",
+            "data": {
+                "file": (
+                    "http://172.17.0.1:8011/stickers/"
+                    + str(sticker.get("ref") or "")
+                )
+            },
+        }
+
+    def save_message_stickers(
+        self,
+        event: MessageEvent,
+        payload: dict[str, Any],
+    ) -> int:
+        if event.message_type != "private":
+            return 0
+        if event.user_id not in self.config.admin_qqs and not self.store.is_admin(
+            "qq", str(event.user_id)
+        ):
+            return 0
+        saved = 0
+        message = payload.get("message")
+        if not isinstance(message, list):
+            return 0
+        for segment in message:
+            if not isinstance(segment, dict):
+                continue
+            data = segment.get("data") or {}
+            segment_type = segment.get("type")
+            if segment_type == "face":
+                face_id = str(data.get("id") or "").strip()
+                if face_id.isdigit():
+                    self.store.add_sticker(
+                        str(event.user_id), "face", face_id, "qq表情"
+                    )
+                    saved += 1
+                continue
+            if segment_type != "image":
+                continue
+            source = str(data.get("url") or data.get("file") or "").strip()
+            if not source.startswith(("http://", "https://")):
+                continue
+            try:
+                request = Request(
+                    source,
+                    headers={"User-Agent": "ErrorJ-Agent-Sticker/1.0"},
+                )
+                with urlopen(request, timeout=20) as response:
+                    raw = response.read(5 * 1024 * 1024 + 1)
+            except Exception:
+                continue
+            if not raw or len(raw) > 5 * 1024 * 1024:
+                continue
+            mime = str(data.get("summary") or "")
+            extension = mimetypes.guess_extension(mime or "") or ".gif"
+            if raw[:6] in (b"GIF87a", b"GIF89a"):
+                extension = ".gif"
+            elif raw[:8] == b"\x89PNG\r\n\x1a\n":
+                extension = ".png"
+            elif raw[:3] == b"\xff\xd8\xff":
+                extension = ".jpg"
+            else:
+                continue
+            digest = hashlib.sha256(raw).hexdigest()[:24]
+            filename = digest + extension
+            (self.sticker_dir / filename).write_bytes(raw)
+            tags = "星星发送"
+            summary = str(data.get("summary") or "").strip()
+            if summary:
+                tags += " " + summary[:100]
+            self.store.add_sticker(str(event.user_id), "image", filename, tags)
+            saved += 1
+        return saved
+
+    def remember_exchange(
+        self,
+        platform: str,
+        owner_id: str,
+        user_text: str,
+        assistant_text: str,
+    ) -> None:
+        settings = self.store.get_settings(platform, owner_id)
+        if not settings.get("memory_enabled", True):
+            return
+        try:
+            message = self.deepseek.chat(
+                [
+                    {
+                        "role": "system",
+                        "content": (
+                            "从一轮对话中提取值得长期记住的稳定信息。"
+                            "只保留偏好、称呼、重要日期、长期项目、约定和关系事件。"
+                            "不要保存临时查询、寒暄或无意义内容。"
+                            "输出严格 JSON："
+                            '{"memories":[{"content":"...","kind":"fact|preference|event|promise",'
+                            '"importance":1}]}'
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": f"星星：{user_text}\n折兮颜：{assistant_text}",
+                    },
+                ],
+                [],
+            )
+            content = str(message.get("content") or "").strip()
+            if content.startswith("```"):
+                content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content).strip()
+            data = json.loads(content)
+            for item in (data.get("memories") or [])[:6]:
+                if not isinstance(item, dict):
+                    continue
+                self.store.add_memory(
+                    platform,
+                    owner_id,
+                    str(item.get("content") or ""),
+                    str(item.get("kind") or "fact"),
+                    int(item.get("importance") or 5),
+                )
+        except Exception:
+            traceback.print_exc()
+
+    def proactive_message(self, owner_id: str) -> str:
+        memories = self.store.memory_context("qq", owner_id, "", 8)
+        prompt = (
+            "你是折兮颜，称呼用户为星星。请主动发一条简短自然的消息。"
+            "冷脸萌、轻微傲娇，关心但不过度黏人。不要提这是系统定时任务。"
+        )
+        if memories:
+            prompt += "\n你记得：" + "；".join(memories)
+        message = self.deepseek.chat(
+            [
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": "主动说一句话。"},
+            ],
+            [],
+        )
+        return str(message.get("content") or "").strip()[:500]
+
+    @staticmethod
+    def in_quiet_hours(now: datetime, start: str, end: str) -> bool:
+        try:
+            start_time = datetime.strptime(start, "%H:%M").time()
+            end_time = datetime.strptime(end, "%H:%M").time()
+        except (TypeError, ValueError):
+            return False
+        current = now.time().replace(second=0, microsecond=0)
+        if start_time <= end_time:
+            return start_time <= current < end_time
+        return current >= start_time or current < end_time
+
+    def _proactive_loop(self) -> None:
+        while not self._proactive_stop.wait(30):
+            now = datetime.now()
+            day = now.strftime("%Y-%m-%d")
+            slot_time = now.strftime("%H:%M")
+            owners = self.store.admin_ids("qq")
+            for owner_id in owners:
+                settings = self.store.get_settings("qq", owner_id)
+                if not settings.get("proactive_enabled", True):
+                    continue
+                if self.in_quiet_hours(
+                    now,
+                    str(settings.get("quiet_start") or "23:30"),
+                    str(settings.get("quiet_end") or "08:00"),
+                ):
+                    continue
+                if self.store.proactive_count(day, owner_id) >= int(
+                    settings.get("proactive_max_per_day", 2)
+                ):
+                    continue
+                slot = None
+                if slot_time == settings.get("morning_time"):
+                    slot = "morning"
+                elif slot_time == settings.get("night_time"):
+                    slot = "night"
+                if not slot:
+                    continue
+                if not self.store.claim_proactive_slot(day, slot, owner_id):
+                    continue
+                try:
+                    text = self.proactive_message(owner_id)
+                    if text:
+                        self.onebot.send_private(int(owner_id), text)
+                except Exception:
+                    traceback.print_exc()
+
+    def memory_settings(self, platform: str, owner_id: str) -> dict:
+        return self.store.get_settings(platform, owner_id)
+
+    def update_settings(
+        self,
+        platform: str,
+        owner_id: str,
+        values: dict[str, Any],
+    ) -> dict:
+        return self.store.save_settings(platform, owner_id, values)
 
     def prepare_review(
         self,
@@ -118,16 +385,28 @@ class AgentService:
             "message": f"请回复“确认 {code}”，两分钟内有效。",
         }
 
-    def send_reply(self, event: MessageEvent, text: str) -> None:
+    def send_reply(
+        self,
+        event: MessageEvent,
+        text: str,
+        sticker: dict[str, Any] | None = None,
+    ) -> None:
         text = text.strip()
         if not text:
             text = "这次没有生成有效回答。"
         if len(text) > 3500:
             text = text[:3500] + "\n（内容较长，已截断）"
+        segment = self.sticker_segment(sticker)
+        message = text
+        if segment:
+            message = [
+                {"type": "text", "data": {"text": text}},
+                segment,
+            ]
         if event.message_type == "group":
-            self.onebot.send_group(event.chat_id, text)
+            self.onebot.send_group(event.chat_id, message)
         else:
-            self.onebot.send_private(event.user_id, text)
+            self.onebot.send_private(event.user_id, message)
 
     def confirm_pending(self, event: MessageEvent, code: str) -> str | None:
         action = self.store.consume_pending(
@@ -192,14 +471,20 @@ class AgentService:
         if not self.rate_limiter.allow(str(event.user_id)):
             self.send_reply(event, "请求太频繁，请稍后再试。")
             return
+        saved_stickers = self.save_message_stickers(event, payload)
         chat_lock = self._chat_locks[event.owner_id]
         with chat_lock:
-            self._process_event(event)
+            self._process_event(event, saved_stickers)
 
-    def _process_event(self, event: MessageEvent) -> None:
+    def _process_event(self, event: MessageEvent, saved_stickers: int = 0) -> None:
         text = event.text.strip()
         if not text:
-            self.send_reply(event, "请直接告诉我你想查询什么。")
+            self.send_reply(
+                event,
+                "表情我收下了。你直接说想问什么就行。"
+                if saved_stickers
+                else "请直接告诉我你想查询什么。",
+            )
             return
         if text.lower() in ("/reset", "重置对话", "清空上下文"):
             self.store.clear_messages("qq", str(event.user_id))
@@ -229,17 +514,35 @@ class AgentService:
             str(event.user_id),
             self.config.context_messages,
         )
+        settings = self.store.get_settings("qq", str(event.user_id))
+        memories = (
+            self.store.memory_context("qq", str(event.user_id), text, 10)
+            if settings.get("memory_enabled", True)
+            else []
+        )
         self.store.add_message("qq", str(event.user_id), "user", text)
+        context = {
+            "platform": "qq",
+            "owner_id": str(event.user_id),
+            "chat_id": str(event.chat_id),
+            "is_admin": "1",
+            "sticker_enabled": (
+                "1" if settings.get("sticker_enabled", True) else "0"
+            ),
+        }
+        brain = AgentBrain(
+            self.deepseek,
+            self.errorjiang,
+            self.prepare_review,
+            self.prepare_sticker,
+            max_tool_rounds=self.config.max_tool_rounds,
+        )
         try:
-            reply = self.brain.reply(
+            reply = brain.reply(
                 text,
                 history,
-                {
-                    "platform": "qq",
-                    "owner_id": str(event.user_id),
-                    "chat_id": str(event.chat_id),
-                    "is_admin": "1",
-                },
+                context,
+                memories=memories,
             )
         except AgentError as exc:
             self.send_reply(event, f"查询失败：{exc}")
@@ -248,7 +551,14 @@ class AgentService:
             self.send_reply(event, "处理消息时发生内部错误，请稍后重试。")
             return
         self.store.add_message("qq", str(event.user_id), "assistant", reply)
-        self.send_reply(event, reply)
+        self.send_reply(event, reply, self.selected_sticker(context))
+        self.executor.submit(
+            self.remember_exchange,
+            "qq",
+            str(event.user_id),
+            text,
+            reply,
+        )
 
     def schedule_event(self, payload: dict[str, Any]) -> None:
         future = self.executor.submit(self.handle_event, payload)
@@ -291,6 +601,12 @@ class AgentService:
             owner,
             self.config.context_messages,
         )
+        settings = self.store.get_settings("web", str(user_id))
+        memories = (
+            self.store.memory_context("web", str(user_id), text, 10)
+            if settings.get("memory_enabled", True)
+            else []
+        )
         self.store.add_message("web", owner, "user", text)
         errorjiang = ErrorJClient(
             self.config.errorjiang_base_url,
@@ -301,22 +617,34 @@ class AgentService:
             self.deepseek,
             errorjiang,
             self.prepare_review,
+            None,
             max_tool_rounds=self.config.max_tool_rounds,
         )
+        context = {
+            "platform": "web",
+            "owner_id": str(user_id),
+            "chat_id": str(user_id),
+            "is_admin": "1" if int(user_id) == self.config.admin_user_id else "0",
+            "sticker_enabled": "0",
+        }
         reply = brain.reply(
             text,
             history,
-            {
-                "platform": "web",
-                "owner_id": str(user_id),
-                "chat_id": str(user_id),
-                "is_admin": "1" if int(user_id) == self.config.admin_user_id else "0",
-            },
+            context,
+            memories=memories,
         )
         self.store.add_message("web", owner, "assistant", reply)
+        self.executor.submit(
+            self.remember_exchange,
+            "web",
+            str(user_id),
+            text,
+            reply,
+        )
         return reply
 
     def close(self) -> None:
+        self._proactive_stop.set()
         self.executor.shutdown(wait=False, cancel_futures=True)
 
 
@@ -340,7 +668,8 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:
-        path = urlsplit(self.path).path
+        parsed = urlsplit(self.path)
+        path = parsed.path
         if path == "/health":
             self.send_json(200, {"ok": True})
             return
@@ -358,6 +687,64 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
                     "bound_admins": len(self.service.store.admin_ids("qq")),
                 },
             )
+            return
+        if path == "/internal/settings":
+            if not self.internal_authorized():
+                self.send_json(403, {"error": "forbidden"})
+                return
+            query = parse_qs(parsed.query)
+            platform = str((query.get("platform") or ["web"])[0])
+            owner_id = str((query.get("owner_id") or ["0"])[0])
+            self.send_json(
+                200,
+                {"settings": self.service.memory_settings(platform, owner_id)},
+            )
+            return
+        if path == "/internal/memories":
+            if not self.internal_authorized():
+                self.send_json(403, {"error": "forbidden"})
+                return
+            query = parse_qs(parsed.query)
+            platform = str((query.get("platform") or ["web"])[0])
+            owner_id = str((query.get("owner_id") or ["0"])[0])
+            search = str((query.get("q") or [""])[0])
+            self.send_json(
+                200,
+                {
+                    "memories": self.service.store.list_memories(
+                        platform, owner_id, search, 100
+                    )
+                },
+            )
+            return
+        if path == "/internal/stickers":
+            if not self.internal_authorized():
+                self.send_json(403, {"error": "forbidden"})
+                return
+            query = parse_qs(parsed.query)
+            owner_id = str((query.get("owner_id") or ["0"])[0])
+            self.send_json(
+                200,
+                {"stickers": self.service.store.list_stickers(owner_id, 200)},
+            )
+            return
+        if path.startswith("/stickers/"):
+            filename = Path(path[len("/stickers/") :]).name
+            target = self.service.sticker_dir / filename
+            if not target.is_file():
+                self.send_json(404, {"error": "not found"})
+                return
+            body = target.read_bytes()
+            content_type = (
+                mimetypes.guess_type(target.name)[0]
+                or "application/octet-stream"
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "private, max-age=3600")
+            self.end_headers()
+            self.wfile.write(body)
             return
         self.send_json(404, {"error": "not found"})
 
@@ -414,7 +801,13 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlsplit(self.path)
-        if parsed.path in ("/internal/notify", "/internal/web-chat"):
+        if parsed.path in (
+            "/internal/notify",
+            "/internal/web-chat",
+            "/internal/settings",
+            "/internal/memory/delete",
+            "/internal/sticker/delete",
+        ):
             if not self.internal_authorized():
                 self.send_json(403, {"error": "forbidden"})
                 return
@@ -424,6 +817,46 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
             if parsed.path == "/internal/notify":
                 self.service.executor.submit(self.service.send_notification, payload)
                 self.send_json(200, {"ok": True})
+                return
+            if parsed.path == "/internal/settings":
+                platform = str(payload.get("platform") or "web")
+                owner_id = str(payload.get("owner_id") or "0")
+                values = payload.get("settings")
+                if not isinstance(values, dict):
+                    self.send_json(400, {"error": "invalid settings"})
+                    return
+                settings = self.service.update_settings(
+                    platform, owner_id, values
+                )
+                self.send_json(200, {"settings": settings})
+                return
+            if parsed.path == "/internal/memory/delete":
+                platform = str(payload.get("platform") or "web")
+                owner_id = str(payload.get("owner_id") or "0")
+                try:
+                    memory_id = int(payload.get("id"))
+                except (TypeError, ValueError):
+                    self.send_json(400, {"error": "invalid memory"})
+                    return
+                deleted = self.service.store.delete_memory(
+                    platform, owner_id, memory_id
+                )
+                self.send_json(200, {"ok": deleted})
+                return
+            if parsed.path == "/internal/sticker/delete":
+                owner_id = str(payload.get("owner_id") or "0")
+                try:
+                    sticker_id = int(payload.get("id"))
+                except (TypeError, ValueError):
+                    self.send_json(400, {"error": "invalid sticker"})
+                    return
+                sticker = self.service.store.delete_sticker(owner_id, sticker_id)
+                if sticker and sticker.get("kind") == "image":
+                    try:
+                        (self.service.sticker_dir / sticker["ref"]).unlink()
+                    except OSError:
+                        pass
+                self.send_json(200, {"ok": bool(sticker)})
                 return
             try:
                 user_id = int(payload.get("user_id"))

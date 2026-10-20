@@ -9,6 +9,10 @@
   var statusText = document.getElementById("agentStatusText");
   var topStatus = document.getElementById("agentTopStatus");
   var onlineChip = document.getElementById("agentOnlineChip");
+  var settingsDialog = document.getElementById("agentSettingsDialog");
+  var settingsStatus = document.getElementById("agentSettingsStatus");
+  var memoryList = document.getElementById("agentMemoryList");
+  var stickerGrid = document.getElementById("agentStickerGrid");
   var avatarSrc = "/static/site/error-chan-avatar.png?v=1";
 
   function refreshIcons() {
@@ -146,6 +150,174 @@
         setStatus(false, null);
       });
   }
+
+  function settingValue(id, value) {
+    var element = document.getElementById(id);
+    if (!element) return;
+    if (element.type === "checkbox") element.checked = Boolean(value);
+    else element.value = value == null ? "" : String(value);
+  }
+
+  function loadSettings() {
+    return fetch("/api/agent/web/settings", {
+      credentials: "same-origin",
+      cache: "no-store",
+    })
+      .then(function (response) {
+        return response.json().then(function (data) {
+          if (!response.ok) throw new Error(data.error || "设置加载失败");
+          var settings = data.settings || {};
+          settingValue("settingMemoryEnabled", settings.memory_enabled);
+          settingValue("settingProactiveEnabled", settings.proactive_enabled);
+          settingValue("settingStickerEnabled", settings.sticker_enabled);
+          settingValue("settingProactiveMax", settings.proactive_max_per_day);
+          settingValue("settingMorningTime", settings.morning_time);
+          settingValue("settingNightTime", settings.night_time);
+          settingValue("settingQuietStart", settings.quiet_start);
+          settingValue("settingQuietEnd", settings.quiet_end);
+        });
+      })
+      .catch(function (error) {
+        settingsStatus.textContent = error.message;
+      });
+  }
+
+  function loadMemories(query) {
+    var url = "/api/agent/web/memories";
+    if (query && query.trim()) url += "?q=" + encodeURIComponent(query.trim());
+    return fetch(url, { credentials: "same-origin", cache: "no-store" })
+      .then(function (response) { return response.json(); })
+      .then(function (data) {
+        memoryList.innerHTML = "";
+        (data.memories || []).forEach(function (memory) {
+          var item = document.createElement("div");
+          item.className = "agent-memory-item";
+          var copy = document.createElement("div");
+          var text = document.createElement("p");
+          text.textContent = memory.content;
+          var meta = document.createElement("small");
+          meta.textContent =
+            (memory.platform === "qq" ? "QQ 私聊" : "网页对话") +
+            " · " + memory.kind + " · 重要度 " + memory.importance;
+          copy.append(text, meta);
+          var remove = document.createElement("button");
+          remove.type = "button";
+          remove.title = "删除记忆";
+          remove.setAttribute("aria-label", "删除记忆");
+          remove.innerHTML = '<i data-lucide="trash-2"></i>';
+          remove.addEventListener("click", function () {
+            fetch("/api/agent/web/memory-delete", {
+              method: "POST",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: memory.id, platform: memory.platform }),
+            }).then(function () { loadMemories(document.getElementById("agentMemorySearch").value); });
+          });
+          item.append(copy, remove);
+          memoryList.appendChild(item);
+        });
+        if (!(data.memories || []).length) {
+          memoryList.innerHTML = '<div class="agent-memory-item"><p>还没有长期记忆。</p></div>';
+        }
+        refreshIcons();
+      });
+  }
+
+  function loadStickers() {
+    return fetch("/api/agent/web/stickers", {
+      credentials: "same-origin",
+      cache: "no-store",
+    })
+      .then(function (response) { return response.json(); })
+      .then(function (data) {
+        stickerGrid.innerHTML = "";
+        var stickers = data.stickers || [];
+        document.getElementById("agentStickerCount").textContent = stickers.length + " 个";
+        stickers.forEach(function (sticker) {
+          var item = document.createElement("div");
+          item.className = "agent-sticker-item";
+          if (sticker.kind === "image") {
+            var image = document.createElement("img");
+            image.src = "/agent-stickers/" + encodeURIComponent(sticker.ref);
+            image.alt = "";
+            item.appendChild(image);
+          } else {
+            var face = document.createElement("span");
+            face.textContent = "表情 " + sticker.ref;
+            item.appendChild(face);
+          }
+          var remove = document.createElement("button");
+          remove.type = "button";
+          remove.title = "删除表情";
+          remove.setAttribute("aria-label", "删除表情");
+          remove.innerHTML = '<i data-lucide="x"></i>';
+          remove.addEventListener("click", function () {
+            fetch("/api/agent/web/sticker-delete", {
+              method: "POST",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: sticker.id }),
+            }).then(loadStickers);
+          });
+          item.appendChild(remove);
+          stickerGrid.appendChild(item);
+        });
+        if (!stickers.length) {
+          stickerGrid.innerHTML = '<div class="agent-sticker-item"><span>暂无</span></div>';
+        }
+        refreshIcons();
+      });
+  }
+
+  function openSettings() {
+    settingsStatus.textContent = "";
+    settingsDialog.showModal();
+    loadSettings();
+    loadMemories("");
+    loadStickers();
+    refreshIcons();
+  }
+
+  function saveSettings() {
+    settingsStatus.textContent = "正在保存";
+    var values = {
+      memory_enabled: document.getElementById("settingMemoryEnabled").checked,
+      proactive_enabled: document.getElementById("settingProactiveEnabled").checked,
+      sticker_enabled: document.getElementById("settingStickerEnabled").checked,
+      proactive_max_per_day: Number(document.getElementById("settingProactiveMax").value) || 2,
+      morning_time: document.getElementById("settingMorningTime").value,
+      night_time: document.getElementById("settingNightTime").value,
+      quiet_start: document.getElementById("settingQuietStart").value,
+      quiet_end: document.getElementById("settingQuietEnd").value,
+    };
+    fetch("/api/agent/web/settings", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ settings: values }),
+    })
+      .then(function (response) {
+        return response.json().then(function (data) {
+          if (!response.ok) throw new Error(data.error || "保存失败");
+          return data;
+        });
+      })
+      .then(function () {
+        settingsStatus.textContent = "已保存";
+      })
+      .catch(function (error) {
+        settingsStatus.textContent = error.message;
+      });
+  }
+
+  document.getElementById("agentSettingsBtn").addEventListener("click", openSettings);
+  document.getElementById("agentSettingsClose").addEventListener("click", function () {
+    settingsDialog.close();
+  });
+  document.getElementById("agentSettingsSave").addEventListener("click", saveSettings);
+  document.getElementById("agentMemorySearch").addEventListener("input", function () {
+    loadMemories(this.value);
+  });
 
   function submitMessage(text) {
     var value = String(text || "").trim();

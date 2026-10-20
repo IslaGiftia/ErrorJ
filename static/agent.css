@@ -81,6 +81,37 @@
   font-weight: 700;
 }
 
+.agent-settings-btn {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--panel) 84%, transparent);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.agent-settings-btn:hover {
+  border-color: var(--agent-accent);
+  color: var(--agent-accent-strong);
+}
+
+.agent-settings-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.agent-settings-btn + .agent-top-status {
+  margin-left: 0;
+}
+
 .agent-top-status i,
 .agent-online-chip i {
   width: 8px;
@@ -570,6 +601,291 @@
   height: 18px;
 }
 
+.agent-settings-dialog {
+  width: min(720px, calc(100vw - 24px));
+  max-height: min(820px, calc(100dvh - 32px));
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 28px 90px color-mix(in srgb, #111 24%, transparent);
+  overflow: hidden;
+}
+
+.agent-settings-dialog::backdrop {
+  background: color-mix(in srgb, #111 36%, transparent);
+  backdrop-filter: blur(5px);
+}
+
+.agent-settings-head,
+.agent-settings-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 15px 18px;
+}
+
+.agent-settings-head {
+  border-bottom: 1px solid var(--line);
+}
+
+.agent-settings-head h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.agent-settings-head p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.agent-settings-head button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.agent-settings-head svg {
+  width: 16px;
+  height: 16px;
+}
+
+.agent-settings-body {
+  display: grid;
+  max-height: calc(100dvh - 180px);
+  gap: 12px;
+  padding: 14px 18px 18px;
+  overflow-y: auto;
+}
+
+.agent-setting-section {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg) 65%, var(--panel));
+}
+
+.agent-setting-section h3 {
+  margin: 0 0 10px;
+  font-size: 12px;
+}
+
+.agent-switch-row,
+.agent-setting-row {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.agent-switch-row + .agent-switch-row,
+.agent-setting-row {
+  border-top: 1px solid var(--line);
+}
+
+.agent-switch-row span,
+.agent-setting-row span {
+  min-width: 0;
+}
+
+.agent-switch-row strong,
+.agent-setting-row strong,
+.agent-switch-row small,
+.agent-setting-row small {
+  display: block;
+}
+
+.agent-switch-row strong,
+.agent-setting-row strong {
+  font-size: 12px;
+}
+
+.agent-switch-row small,
+.agent-setting-row small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.agent-switch-row input {
+  width: 36px;
+  height: 20px;
+  accent-color: var(--agent-accent);
+}
+
+.agent-setting-row.is-disabled {
+  opacity: 0.58;
+}
+
+.agent-setting-row em {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.agent-setting-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.agent-setting-grid label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.agent-setting-grid input,
+.agent-section-title input {
+  min-width: 0;
+  height: 34px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.agent-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.agent-section-title h3 {
+  margin: 0;
+}
+
+.agent-section-title span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.agent-section-title input {
+  width: 180px;
+}
+
+.agent-memory-list {
+  display: grid;
+  max-height: 220px;
+  gap: 7px;
+  overflow-y: auto;
+}
+
+.agent-memory-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.agent-memory-item p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.agent-memory-item small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.agent-memory-item button,
+.agent-sticker-item button {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.agent-memory-item svg,
+.agent-sticker-item svg {
+  width: 13px;
+  height: 13px;
+}
+
+.agent-sticker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(86px, 1fr));
+  gap: 9px;
+}
+
+.agent-sticker-item {
+  position: relative;
+  display: grid;
+  min-height: 86px;
+  place-items: center;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.agent-sticker-item img {
+  width: 68px;
+  height: 68px;
+  object-fit: contain;
+}
+
+.agent-sticker-item span {
+  color: var(--muted);
+  font-size: 22px;
+}
+
+.agent-sticker-item button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: color-mix(in srgb, var(--panel) 86%, transparent);
+}
+
+.agent-settings-foot {
+  border-top: 1px solid var(--line);
+}
+
+.agent-settings-foot > span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.agent-settings-foot button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--agent-accent);
+  border-radius: 10px;
+  background: var(--agent-accent);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 @media (max-width: 900px) {
   .agent-page {
     padding: 0 10px 12px;
@@ -663,6 +979,20 @@
 
   .agent-copy {
     opacity: 1;
+  }
+
+  .agent-settings-btn span {
+    display: none;
+  }
+
+  .agent-settings-btn {
+    width: 34px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .agent-setting-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

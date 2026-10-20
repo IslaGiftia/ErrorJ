@@ -106,8 +106,8 @@ class OneBotClient:
             return {}
         return {"Authorization": f"Bearer {self.access_token}"}
 
-    def send_private(self, user_id: int, message: str) -> None:
+    def send_private(self, user_id: int, message: str | list[dict[str, Any]]) -> None:
         self.ws.call("send_private_msg", {"user_id": int(user_id), "message": message})
 
-    def send_group(self, group_id: int, message: str) -> None:
+    def send_group(self, group_id: int, message: str | list[dict[str, Any]]) -> None:
         self.ws.call("send_group_msg", {"group_id": int(group_id), "message": message})
