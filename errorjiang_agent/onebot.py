@@ -11,13 +11,14 @@ CQ_CODE_RE = re.compile(r"\[CQ:[^\]]+\]")
 
 @dataclass(frozen=True)
 class MessageEvent:
-    self_id: int
-    user_id: int
+    self_id: int | str
+    user_id: int | str
     message_type: str
-    chat_id: int
-    message_id: int
+    chat_id: int | str
+    message_id: int | str
     text: str
     to_me: bool
+    platform: str = "qq"
 
     @property
     def owner_id(self) -> str:
@@ -87,4 +88,7 @@ def event_key(event: MessageEvent) -> str:
         suffix = str(event.message_id)
     else:
         suffix = hashlib.sha256(event.text.encode("utf-8")).hexdigest()[:16]
-    return f"{event.self_id}:{event.message_type}:{event.chat_id}:{suffix}"
+    return (
+        f"{event.platform}:{event.self_id}:"
+        f"{event.message_type}:{event.chat_id}:{suffix}"
+    )

@@ -52,6 +52,12 @@ class Config:
     onebot_ws_url: str
     onebot_access_token: str
     onebot_webhook_secret: str
+    qqbot_enabled: bool
+    qqbot_app_id: str
+    qqbot_app_secret: str
+    qqbot_bot_qq: str
+    qqbot_admin_openids: frozenset[str]
+    qqbot_group_ids: frozenset[str]
     group_enabled: bool
     group_ids: frozenset[int]
     context_messages: int
@@ -71,6 +77,16 @@ class Config:
             item = item.strip()
             if item.isdigit():
                 group_values.add(int(item))
+        qqbot_group_values = {
+            item.strip()
+            for item in os.environ.get("QQBOT_GROUP_IDS", "").split(",")
+            if item.strip()
+        }
+        qqbot_admin_values = {
+            item.strip()
+            for item in os.environ.get("QQBOT_ADMIN_OPENIDS", "").split(",")
+            if item.strip()
+        }
         secret = os.environ.get("ONEBOT_WEBHOOK_SECRET", "").strip()
         if not secret:
             secret = os.environ.get("ERRORJIANG_AGENT_TOKEN", "").strip()
@@ -107,6 +123,12 @@ class Config:
                 "ONEBOT_ACCESS_TOKEN", ""
             ).strip(),
             onebot_webhook_secret=secret,
+            qqbot_enabled=env_bool("QQBOT_ENABLED", False),
+            qqbot_app_id=os.environ.get("QQBOT_APP_ID", "").strip(),
+            qqbot_app_secret=os.environ.get("QQBOT_APP_SECRET", "").strip(),
+            qqbot_bot_qq=os.environ.get("QQBOT_BOT_QQ", "").strip(),
+            qqbot_admin_openids=frozenset(qqbot_admin_values),
+            qqbot_group_ids=frozenset(qqbot_group_values),
             group_enabled=env_bool("ERRORJIANG_AGENT_GROUP_ENABLED", False),
             group_ids=frozenset(group_values),
             context_messages=max(
@@ -127,6 +149,11 @@ class Config:
             missing.append("ERRORJIANG_AGENT_ADMIN_QQS/ERRORJIANG_AGENT_BIND_CODE")
         if not self.onebot_webhook_secret:
             missing.append("ONEBOT_WEBHOOK_SECRET")
+        if self.qqbot_enabled:
+            if not self.qqbot_app_id:
+                missing.append("QQBOT_APP_ID")
+            if not self.qqbot_app_secret:
+                missing.append("QQBOT_APP_SECRET")
         if self.group_enabled and not self.group_ids:
             missing.append("ERRORJIANG_AGENT_GROUP_IDS")
         if missing:

@@ -13,8 +13,10 @@ from unittest.mock import patch
 
 import app
 from errorjiang_agent.brain import AgentBrain
-from errorjiang_agent.onebot import event_key, parse_message_event
+from errorjiang_agent.config import Config
+from errorjiang_agent.onebot import MessageEvent, event_key, parse_message_event
 from errorjiang_agent.onebot_ws import _masked_frame, _read_frame
+from errorjiang_agent.qqbot import parse_qqbot_event
 from errorjiang_agent.service import AgentHttpServer, AgentService
 from errorjiang_agent.store import AgentStore
 
@@ -271,6 +273,73 @@ class AgentStoreTests(unittest.TestCase):
             ["一", "二", "三 四"],
         )
 
+    def test_qqbot_reply_uses_openapi_messages_per_bubble(self):
+        class FakeQQBot:
+            def __init__(self):
+                self.messages = []
+
+            def send_message(self, message_type, chat_id, message_id, content):
+                self.messages.append(
+                    (message_type, chat_id, message_id, content)
+                )
+
+        service = object.__new__(AgentService)
+        service.qqbot = FakeQQBot()
+        service.onebot = SimpleNamespace()
+        service.sticker_segment = lambda sticker: None
+        event = MessageEvent(
+            self_id="bot",
+            user_id="member-openid",
+            message_type="group",
+            chat_id="group-openid",
+            message_id="message-id",
+            text="你好",
+            to_me=True,
+            platform="qqbot",
+        )
+        with patch("errorjiang_agent.service.time.sleep"), patch(
+            "errorjiang_agent.service.random.uniform",
+            return_value=0,
+        ):
+            service.send_reply(
+                event,
+                "嗯\n早点睡",
+                bubbles=["嗯", "早点睡"],
+            )
+        self.assertEqual(
+            service.qqbot.messages,
+            [
+                ("group", "group-openid", "message-id", "嗯"),
+                ("group", "group-openid", "message-id", "早点睡"),
+            ],
+        )
+
+    def test_qqbot_config_is_loaded_when_enabled(self):
+        with patch.dict(
+            os.environ,
+            {
+                "QQBOT_ENABLED": "true",
+                "QQBOT_APP_ID": "10001",
+                "QQBOT_APP_SECRET": "secret",
+                "QQBOT_BOT_QQ": "20002",
+                "QQBOT_GROUP_IDS": "group-a,group-b",
+                "QQBOT_ADMIN_OPENIDS": "admin-openid",
+            },
+            clear=False,
+        ):
+            config = Config.load(Path(self.temp.name))
+        self.assertTrue(config.qqbot_enabled)
+        self.assertEqual(config.qqbot_app_id, "10001")
+        self.assertEqual(config.qqbot_bot_qq, "20002")
+        self.assertEqual(
+            config.qqbot_group_ids,
+            frozenset({"group-a", "group-b"}),
+        )
+        self.assertEqual(
+            config.qqbot_admin_openids,
+            frozenset({"admin-openid"}),
+        )
+
     def test_due_timeline_event_is_the_first_proactive_topic(self):
         now = datetime(2026, 10, 20, 9, 10)
         candidates = AgentService.proactive_candidates(
@@ -387,6 +456,45 @@ class OneBotParserTests(unittest.TestCase):
         finally:
             left.close()
             right.close()
+
+    def test_qqbot_group_at_event_maps_openids(self):
+        event = parse_qqbot_event(
+            "GROUP_AT_MESSAGE_CREATE",
+            {
+                "id": "message-1",
+                "content": "查一下库存",
+                "group_openid": "group-openid",
+                "author": {
+                    "member_openid": "member-openid",
+                    "username": "星星",
+                },
+            },
+            "bot-qq",
+        )
+        self.assertIsNotNone(event)
+        self.assertEqual(event.platform, "qqbot")
+        self.assertEqual(event.message_type, "group")
+        self.assertEqual(event.user_id, "member-openid")
+        self.assertEqual(event.chat_id, "group-openid")
+        self.assertEqual(event.message_id, "message-1")
+
+    def test_qqbot_c2c_event_maps_user_openid(self):
+        event = parse_qqbot_event(
+            "C2C_MESSAGE_CREATE",
+            {
+                "id": "message-2",
+                "content": "在吗",
+                "author": {
+                    "user_openid": "user-openid",
+                    "username": "星星",
+                },
+            },
+            "bot-qq",
+        )
+        self.assertIsNotNone(event)
+        self.assertEqual(event.message_type, "private")
+        self.assertEqual(event.user_id, "user-openid")
+        self.assertEqual(event.chat_id, "user-openid")
 
 
 class FakeDeepSeek:

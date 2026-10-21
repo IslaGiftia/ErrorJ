@@ -24,6 +24,7 @@ from .clients import DeepSeekClient, ErrorJClient, OneBotClient
 from .config import Config
 from .errors import AgentError
 from .onebot import MessageEvent, event_key, parse_message_event
+from .qqbot import QQBotClient
 from .store import AgentStore
 
 
@@ -31,6 +32,8 @@ CONFIRM_RE = re.compile(r"^(?:确认|/confirm)\s+(\d{6})$", re.IGNORECASE)
 BIND_RE = re.compile(r"^(?:绑定|/bind)\s+(\S+)$", re.IGNORECASE)
 BIND_USER_RE = re.compile(r"^绑定用户\s+(\d{5,12})\s+(.+)$")
 UNBIND_USER_RE = re.compile(r"^解绑用户\s+(\d{5,12})$")
+BIND_USER_ANY_RE = re.compile(r"^绑定用户\s+(\S{5,128})\s+(.+)$")
+UNBIND_USER_ANY_RE = re.compile(r"^解绑用户\s+(\S{5,128})$")
 MAX_WEBHOOK_BYTES = 8 * 1024 * 1024
 PROACTIVE_GREETING_WINDOW_MINUTES = 25
 PROACTIVE_MIN_GAP_SECONDS = 90 * 60
@@ -87,6 +90,16 @@ class AgentService:
         )
         self.rate_limiter = RateLimiter()
         self.executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="agent")
+        self.qqbot = (
+            QQBotClient(
+                config.qqbot_app_id,
+                config.qqbot_app_secret,
+                config.qqbot_bot_qq,
+                self.schedule_qqbot_event,
+            )
+            if config.qqbot_enabled
+            else None
+        )
         self._chat_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
         self.sticker_dir = config.db_path.parent / "stickers"
         self.sticker_dir.mkdir(parents=True, exist_ok=True)
@@ -102,10 +115,21 @@ class AgentService:
             daemon=True,
             name="agent-reminders",
         )
+        self._qqbot_thread = None
+        if self.qqbot:
+            self._qqbot_thread = threading.Thread(
+                target=self.qqbot.run,
+                daemon=True,
+                name="agent-qqbot",
+            )
         for qq in config.admin_qqs:
             self.store.bind_admin("qq", str(qq))
+        for openid in config.qqbot_admin_openids:
+            self.store.bind_admin("qqbot", openid)
         self._proactive_thread.start()
         self._reminder_thread.start()
+        if self._qqbot_thread:
+            self._qqbot_thread.start()
 
     def prepare_sticker(
         self,
@@ -847,7 +871,14 @@ class AgentService:
                 ]
             delay = min(1.8, max(0.45, len(chunk) * 0.018))
             time.sleep(delay + random.uniform(0, 0.35))
-            if event.message_type == "group":
+            if event.platform == "qqbot" and self.qqbot:
+                self.qqbot.send_message(
+                    event.message_type,
+                    str(event.chat_id),
+                    str(event.message_id),
+                    chunk,
+                )
+            elif event.message_type == "group":
                 self.onebot.send_group(event.chat_id, message)
             else:
                 self.onebot.send_private(event.user_id, message)
@@ -856,7 +887,7 @@ class AgentService:
 
     def confirm_pending(self, event: MessageEvent, code: str) -> str | None:
         action = self.store.consume_pending(
-            "qq",
+            event.platform,
             str(event.user_id),
             str(event.chat_id),
             code,
@@ -881,12 +912,35 @@ class AgentService:
         event = parse_message_event(payload)
         if not event:
             return
+        self._handle_message_event(event, payload)
+
+    def schedule_qqbot_event(self, event: MessageEvent) -> None:
+        future = self.executor.submit(self._handle_message_event, event, None, 0)
+        future.add_done_callback(self._event_done)
+
+    def _handle_message_event(
+        self,
+        event: MessageEvent,
+        payload: dict[str, Any] | None = None,
+        saved_stickers: int = 0,
+    ) -> None:
+        platform = event.platform
         if self.store.seen_event(event_key(event)):
             return
-        if event.message_type == "group" and not self.config.group_enabled:
-            return
-        if event.message_type == "group" and event.chat_id not in self.config.group_ids:
-            return
+        if event.message_type == "group":
+            if platform == "qq" and not self.config.group_enabled:
+                return
+            if (
+                platform == "qq"
+                and event.chat_id not in self.config.group_ids
+            ):
+                return
+            if (
+                platform == "qqbot"
+                and self.config.qqbot_group_ids
+                and str(event.chat_id) not in self.config.qqbot_group_ids
+            ):
+                return
         if event.message_type == "group" and not event.to_me:
             return
         bind_match = BIND_RE.fullmatch(event.text.strip())
@@ -894,20 +948,26 @@ class AgentService:
             bind_match
             and event.message_type == "private"
             and self.config.bind_code
-            and not self.store.has_admins()
+            and not self.store.has_admins(platform)
             and hmac.compare_digest(bind_match.group(1), self.config.bind_code)
         ):
-            self.store.bind_admin("qq", str(event.user_id))
+            self.store.bind_admin(platform, str(event.user_id))
             self.send_reply(
                 event,
-                "主 QQ 已绑定为 ErrorJ Agent 管理员。现在可以查询库存、链接、笔记和审核队列。",
+                "主账号已绑定为 ErrorJ Agent 管理员。现在可以查询库存、链接、笔记和审核队列。",
             )
             return
-        is_admin = event.user_id in self.config.admin_qqs or self.store.is_admin(
-            "qq", str(event.user_id)
+        is_admin = (
+            platform == "qq" and event.user_id in self.config.admin_qqs
+        ) or self.store.is_admin(
+            platform, str(event.user_id)
         )
         if is_admin:
-            bind_user_match = BIND_USER_RE.fullmatch(event.text.strip())
+            bind_user_match = (
+                BIND_USER_ANY_RE
+                if platform == "qqbot"
+                else BIND_USER_RE
+            ).fullmatch(event.text.strip())
             if bind_user_match:
                 qq_id, site_ref = bind_user_match.groups()
                 site_ref = site_ref.strip()
@@ -943,41 +1003,49 @@ class AgentService:
                         or users[0].get("username")
                         or f"用户 #{site_user_id}"
                     )
-                self.store.bind_user("qq", qq_id, site_user_id)
+                self.store.bind_user(platform, qq_id, site_user_id)
                 self.send_reply(
                     event,
-                    f"已将 QQ {qq_id} 绑定到 {site_name}（#{site_user_id}）。",
+                    f"已将账号 {qq_id} 绑定到 {site_name}（#{site_user_id}）。",
                 )
                 return
-            unbind_user_match = UNBIND_USER_RE.fullmatch(event.text.strip())
+            unbind_user_match = (
+                UNBIND_USER_ANY_RE
+                if platform == "qqbot"
+                else UNBIND_USER_RE
+            ).fullmatch(event.text.strip())
             if unbind_user_match:
                 qq_id = unbind_user_match.group(1)
-                removed = self.store.unbind_user("qq", qq_id)
+                removed = self.store.unbind_user(platform, qq_id)
                 self.send_reply(
                     event,
-                    f"已解绑 QQ {qq_id}。" if removed else "这个 QQ 尚未绑定。",
+                    f"已解绑账号 {qq_id}。"
+                    if removed
+                    else "这个账号尚未绑定。",
                 )
                 return
             if event.text.strip() in ("绑定列表", "/bindings"):
-                links = self.store.list_identities("qq")
+                links = self.store.list_identities(platform)
                 if not links:
-                    self.send_reply(event, "目前没有普通用户 QQ 绑定。")
+                    self.send_reply(event, "目前没有普通用户绑定。")
                 else:
                     self.send_reply(
                         event,
                         "普通用户绑定：\n"
                         + "\n".join(
-                            f"QQ {item['owner_id']} → 用户 #{item['user_id']}"
+                            f"{item['owner_id']} → 用户 #{item['user_id']}"
                             for item in links
                         ),
                     )
                 return
-        linked_user_id = self.store.linked_user_id("qq", str(event.user_id))
+        linked_user_id = self.store.linked_user_id(
+            platform, str(event.user_id)
+        )
         if not is_admin and linked_user_id is None:
             hint = (
-                f"当前 QQ 尚未绑定。请让管理员发送：绑定用户 {event.user_id} 用户编号"
+                f"当前账号尚未绑定。请让管理员发送：绑定用户 {event.user_id} 用户编号"
                 if event.message_type == "private"
-                else "这个 QQ 尚未绑定 Error酱账号。"
+                else "这个账号尚未绑定 Error酱账号。"
             )
             self.send_reply(event, hint)
             return
@@ -991,8 +1059,9 @@ class AgentService:
         if not self.rate_limiter.allow(str(event.user_id)):
             self.send_reply(event, "请求太频繁，请稍后再试。")
             return
-        saved_stickers = self.save_message_stickers(event, payload)
-        chat_lock = self._chat_locks[event.owner_id]
+        if platform == "qq" and payload:
+            saved_stickers = self.save_message_stickers(event, payload)
+        chat_lock = self._chat_locks[f"{platform}:{event.owner_id}"]
         with chat_lock:
             self._process_event(
                 event,
@@ -1008,6 +1077,7 @@ class AgentService:
         target_user_id: int = 0,
         is_admin: bool = True,
     ) -> None:
+        platform = event.platform
         text = event.text.strip()
         if not text:
             self.send_reply(
@@ -1018,7 +1088,7 @@ class AgentService:
             )
             return
         if text.lower() in ("/reset", "重置对话", "清空上下文"):
-            self.store.clear_messages("qq", str(event.user_id))
+            self.store.clear_messages(platform, str(event.user_id))
             self.send_reply(event, "对话上下文已清空。")
             return
         if text.lower() in ("/help", "帮助"):
@@ -1042,31 +1112,33 @@ class AgentService:
             )
             return
         history = self.store.get_messages(
-            "qq",
+            platform,
             str(event.user_id),
             self.config.context_messages,
         )
-        settings = self.store.get_settings("qq", str(event.user_id))
+        settings = self.store.get_settings(platform, str(event.user_id))
         memories = (
-            self.store.memory_context("qq", str(event.user_id), text, 10)
+            self.store.memory_context(platform, str(event.user_id), text, 10)
             if settings.get("memory_enabled", True)
             else []
         )
-        relationship = self.relationship_context("qq", str(event.user_id))
+        relationship = self.relationship_context(platform, str(event.user_id))
         memories = (
             list(memories)
-            + self.timeline_context("qq", str(event.user_id))
+            + self.timeline_context(platform, str(event.user_id))
             + [self.relationship_prompt(relationship)]
         )
-        self.store.add_message("qq", str(event.user_id), "user", text)
+        self.store.add_message(platform, str(event.user_id), "user", text)
         context = {
-            "platform": "qq",
+            "platform": platform,
             "owner_id": str(event.user_id),
             "chat_id": str(event.chat_id),
             "chat_type": event.message_type,
             "is_admin": "1" if is_admin else "0",
             "sticker_enabled": (
-                "1" if settings.get("sticker_enabled", True) else "0"
+                "1"
+                if platform == "qq" and settings.get("sticker_enabled", True)
+                else "0"
             ),
         }
         errorjiang = ErrorJClient(
@@ -1097,17 +1169,19 @@ class AgentService:
             return
         bubbles = self.chat_bubbles(reply)
         reply = "\n".join(bubbles)
-        self.store.add_message("qq", str(event.user_id), "assistant", reply)
+        self.store.add_message(platform, str(event.user_id), "assistant", reply)
         self.send_reply(
             event,
             reply,
             self.selected_sticker(context),
             bubbles=bubbles,
         )
-        self.update_relationship_after_exchange("qq", str(event.user_id), text)
+        self.update_relationship_after_exchange(
+            platform, str(event.user_id), text
+        )
         self.executor.submit(
             self.remember_exchange,
-            "qq",
+            platform,
             str(event.user_id),
             text,
             reply,
@@ -1208,6 +1282,8 @@ class AgentService:
     def close(self) -> None:
         self._proactive_stop.set()
         self._reminder_stop.set()
+        if self.qqbot:
+            self.qqbot.close()
         self.executor.shutdown(wait=False, cancel_futures=True)
 
 
@@ -1250,6 +1326,11 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
                     "group_enabled": self.service.config.group_enabled,
                     "group_ids": sorted(self.service.config.group_ids),
                     "bound_admins": len(admin_ids),
+                    "qqbot": (
+                        self.service.qqbot.status()
+                        if self.service.qqbot
+                        else {"enabled": False, "connected": False}
+                    ),
                     "relationship": self.service.relationship_context(
                         "qq", relationship_owner
                     ),
