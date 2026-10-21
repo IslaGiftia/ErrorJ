@@ -948,6 +948,18 @@ class AgentService:
                 return
         if event.message_type == "group" and not event.to_me:
             return
+        if (
+            platform == "qqbot"
+            and event.message_type == "private"
+            and self.config.qqbot_auto_bind_first_admin
+            and not self.store.has_admins("qqbot")
+        ):
+            self.store.bind_admin("qqbot", str(event.user_id))
+            self.send_reply(
+                event,
+                "主账号已绑定为折兮颜管理员。现在可以直接聊天",
+            )
+            return
         bind_match = BIND_RE.fullmatch(event.text.strip())
         if (
             bind_match

@@ -324,6 +324,7 @@ class AgentStoreTests(unittest.TestCase):
                 "QQBOT_BOT_QQ": "20002",
                 "QQBOT_GROUP_IDS": "group-a,group-b",
                 "QQBOT_ADMIN_OPENIDS": "admin-openid",
+                "QQBOT_AUTO_BIND_FIRST_ADMIN": "true",
             },
             clear=False,
         ):
@@ -339,6 +340,7 @@ class AgentStoreTests(unittest.TestCase):
             config.qqbot_admin_openids,
             frozenset({"admin-openid"}),
         )
+        self.assertTrue(config.qqbot_auto_bind_first_admin)
 
     def test_due_timeline_event_is_the_first_proactive_topic(self):
         now = datetime(2026, 10, 20, 9, 10)

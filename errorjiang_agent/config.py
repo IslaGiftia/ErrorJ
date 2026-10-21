@@ -58,6 +58,7 @@ class Config:
     qqbot_bot_qq: str
     qqbot_admin_openids: frozenset[str]
     qqbot_group_ids: frozenset[str]
+    qqbot_auto_bind_first_admin: bool
     group_enabled: bool
     group_ids: frozenset[int]
     context_messages: int
@@ -129,6 +130,9 @@ class Config:
             qqbot_bot_qq=os.environ.get("QQBOT_BOT_QQ", "").strip(),
             qqbot_admin_openids=frozenset(qqbot_admin_values),
             qqbot_group_ids=frozenset(qqbot_group_values),
+            qqbot_auto_bind_first_admin=env_bool(
+                "QQBOT_AUTO_BIND_FIRST_ADMIN", False
+            ),
             group_enabled=env_bool("ERRORJIANG_AGENT_GROUP_ENABLED", False),
             group_ids=frozenset(group_values),
             context_messages=max(
