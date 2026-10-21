@@ -915,6 +915,11 @@ class AgentService:
         self._handle_message_event(event, payload)
 
     def schedule_qqbot_event(self, event: MessageEvent) -> None:
+        print(
+            f"[QQBot] 接收 {event.message_type} "
+            f"user={event.user_id} chat={event.chat_id}",
+            flush=True,
+        )
         future = self.executor.submit(self._handle_message_event, event, None, 0)
         future.add_done_callback(self._event_done)
 
