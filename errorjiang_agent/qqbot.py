@@ -553,17 +553,17 @@ class QQBotClient:
         upload_id = str(prepared.get("upload_id") or "").strip()
         if not upload_id:
             raise AgentError("QQBot 没有返回 upload_id。")
-        block_size = int(prepared.get("block_size") or 5 * 1024 * 1024)
         parts = prepared.get("parts") or []
         if not parts:
             raise AgentError("QQBot 没有返回上传分片。")
+        offset = 0
         for part in sorted(parts, key=lambda item: int(item.get("index") or 0)):
             index = int(part.get("index") or 0)
-            start = index * block_size
-            size = int(part.get("block_size") or block_size)
-            chunk = raw[start : start + size]
+            size = int(part.get("block_size") or 5 * 1024 * 1024)
+            chunk = raw[offset : offset + size]
             if not chunk:
                 raise AgentError("QQBot 分片数据为空。")
+            offset += len(chunk)
             request = Request(
                 str(part.get("presigned_url") or ""),
                 data=chunk,

@@ -631,7 +631,7 @@ class AgentStoreTests(unittest.TestCase):
                     "block_size": str(len(raw)),
                     "parts": [
                         {
-                            "index": 0,
+                            "index": 1,
                             "presigned_url": "https://upload.example/part",
                             "block_size": str(len(raw)),
                         }
