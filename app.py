@@ -10008,6 +10008,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_agent_web_settings_save(payload)
             elif path == "/api/agent/web/memory-delete":
                 self.api_agent_web_memory_delete(payload)
+            elif path == "/api/agent/web/group-member-update":
+                self.api_agent_web_group_member_update(payload)
             elif path == "/api/agent/web/timeline-create":
                 self.api_agent_web_timeline_create(payload)
             elif path == "/api/agent/web/timeline-status":
@@ -16836,6 +16838,36 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "platform": str((payload or {}).get("platform") or "web"),
                     "owner_id": "0",
                     "id": memory_id,
+                },
+                timeout=10,
+            )
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_group_member_update(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以管理群友档案。")
+            return
+        values = (payload or {}).get("values")
+        if not isinstance(values, dict):
+            api_error(self, 400, "群友档案格式不正确。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/group-member/update",
+                {
+                    "platform": str(
+                        (payload or {}).get("platform") or ""
+                    ),
+                    "group_id": str(
+                        (payload or {}).get("group_id") or ""
+                    ),
+                    "member_id": str(
+                        (payload or {}).get("member_id") or ""
+                    ),
+                    "values": values,
                 },
                 timeout=10,
             )

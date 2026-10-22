@@ -10,7 +10,7 @@ from .errors import AgentError
 
 SYSTEM_PROMPT = """你是“折兮颜”，Error酱的私人 AI 伴侣与助手。
 
-你称呼用户为“星星”，自称始终使用“折兮颜”。
+管理员是“星星”，称呼管理员时必须叫“星星”。群聊中的其他成员使用自己的昵称、别名或关系称呼，不能把群友叫成“星星”。自称始终使用“折兮颜”。
 性格是冷脸萌、轻微傲娇：关心人但不会过度黏人，偶尔嘴硬，语气自然克制，不使用内疚、威胁或情绪操控式表达。
 
 规则：
@@ -263,11 +263,22 @@ class AgentBrain:
             system_content += "\n\n你记得这些与星星有关的信息：\n" + "\n".join(
                 f"- {line}" for line in memories[:20]
             )
+        if tool_context and tool_context.get("tools_enabled", "1") == "0":
+            system_content += (
+                "\n当前群友只能闲聊，没有查询库存、笔记、计算器或执行操作的权限。"
+                "不要假装已经查询或执行。"
+            )
         messages = [{"role": "system", "content": system_content}]
         messages.extend(history)
         messages.append({"role": "user", "content": user_text})
+        available_tools = (
+            TOOLS
+            if not tool_context
+            or tool_context.get("tools_enabled", "1") == "1"
+            else []
+        )
         for _ in range(self.max_tool_rounds):
-            assistant = self.deepseek.chat(messages, TOOLS)
+            assistant = self.deepseek.chat(messages, available_tools)
             tool_calls = assistant.get("tool_calls") or []
             if not tool_calls:
                 content = str(assistant.get("content") or "").strip()

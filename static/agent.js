@@ -24,6 +24,21 @@
     }
   }
 
+  function escapeHtml(value) {
+    return String(value == null ? "" : value).replace(
+      /[&<>"']/g,
+      function (character) {
+        return {
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        }[character];
+      }
+    );
+  }
+
   function messageTime() {
     return new Date().toLocaleTimeString("zh-CN", {
       hour: "2-digit",
@@ -268,10 +283,11 @@
           members.length + " 人";
         members.forEach(function (member) {
           var item = document.createElement("div");
-          item.className = "agent-memory-item";
+          item.className = "agent-memory-item agent-group-member";
           var copy = document.createElement("div");
           var name = document.createElement("p");
-          name.textContent = member.display_name || "未命名群友";
+          name.textContent =
+            member.alias || member.display_name || "未命名群友";
           var meta = document.createElement("small");
           var bound = member.user_id
             ? "Error酱 #" + member.user_id
@@ -283,13 +299,86 @@
             " · " + memberTail +
             " · " + timelineDate(member.last_seen);
           copy.append(name, meta);
-          item.appendChild(copy);
+          var actions = document.createElement("div");
+          actions.className = "agent-member-actions";
+          var edit = document.createElement("button");
+          edit.type = "button";
+          edit.title = "编辑群友档案";
+          edit.setAttribute("aria-label", "编辑群友档案");
+          edit.innerHTML = '<i data-lucide="pencil"></i>';
+          actions.appendChild(edit);
+
+          var editor = document.createElement("form");
+          editor.className = "agent-member-editor";
+          editor.hidden = true;
+          editor.innerHTML =
+            '<label><span>别名</span><input name="alias" maxlength="80" value="' +
+            escapeHtml(member.alias || "") +
+            '"></label>' +
+            '<label><span>关系</span><input name="relationship" maxlength="80" value="' +
+            escapeHtml(member.relationship || "群友") +
+            '"></label>' +
+            '<label class="agent-member-notes"><span>档案备注</span><textarea name="notes" rows="2" maxlength="300">' +
+            escapeHtml(member.notes || "") +
+            "</textarea></label>" +
+            '<div class="agent-member-switches">' +
+            '<label><input type="checkbox" name="allow_chat"' +
+            (Number(member.allow_chat) ? " checked" : "") +
+            ">允许聊天</label>" +
+            '<label><input type="checkbox" name="allow_tools"' +
+            (Number(member.allow_tools) ? " checked" : "") +
+            ">允许工具</label>" +
+            '<label><input type="checkbox" name="memory_enabled"' +
+            (Number(member.memory_enabled) ? " checked" : "") +
+            ">启用记忆</label>" +
+            "</div>" +
+            '<button type="submit">保存档案</button>';
+          edit.addEventListener("click", function () {
+            editor.hidden = !editor.hidden;
+          });
+          editor.addEventListener("submit", function (event) {
+            event.preventDefault();
+            var data = new FormData(editor);
+            var values = {
+              alias: String(data.get("alias") || ""),
+              relationship: String(data.get("relationship") || ""),
+              notes: String(data.get("notes") || ""),
+              allow_chat: data.get("allow_chat") === "on",
+              allow_tools: data.get("allow_tools") === "on",
+              memory_enabled: data.get("memory_enabled") === "on",
+            };
+            fetch("/api/agent/web/group-member-update", {
+              method: "POST",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                platform: member.platform,
+                group_id: member.group_id,
+                member_id: member.member_id,
+                values: values,
+              }),
+            })
+              .then(function (response) {
+                return response.json().then(function (result) {
+                  if (!response.ok) {
+                    throw new Error(result.error || "保存失败");
+                  }
+                  return result;
+                });
+              })
+              .then(loadGroupMembers)
+              .catch(function (error) {
+                settingsStatus.textContent = error.message;
+              });
+          });
+          item.append(copy, actions, editor);
           groupMemberList.appendChild(item);
         });
         if (!members.length) {
           groupMemberList.innerHTML =
             '<div class="agent-memory-item"><p>还没有群友主动 @ 过折兮颜。</p></div>';
         }
+        refreshIcons();
       })
       .catch(function (error) {
         settingsStatus.textContent = error.message;

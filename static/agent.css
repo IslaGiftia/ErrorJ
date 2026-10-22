@@ -844,6 +844,109 @@
   height: 13px;
 }
 
+.agent-group-member {
+  align-items: start;
+}
+
+.agent-member-actions {
+  display: flex;
+  gap: 5px;
+}
+
+.agent-member-actions button {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.agent-member-editor {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+}
+
+.agent-member-editor[hidden] {
+  display: none;
+}
+
+.agent-member-editor label {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.agent-member-editor input[type="text"],
+.agent-member-editor input:not([type]),
+.agent-member-editor textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+}
+
+.agent-member-editor input[type="text"],
+.agent-member-editor input:not([type]) {
+  height: 32px;
+  padding: 0 8px;
+}
+
+.agent-member-editor textarea {
+  padding: 7px 8px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.agent-member-notes,
+.agent-member-switches,
+.agent-member-editor > button {
+  grid-column: 1 / -1;
+}
+
+.agent-member-switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+
+.agent-member-switches label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text);
+  font-size: 10px;
+}
+
+.agent-member-switches input {
+  accent-color: var(--agent-accent);
+}
+
+.agent-member-editor > button {
+  min-height: 32px;
+  border: 1px solid var(--agent-accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--agent-accent) 12%, var(--panel));
+  color: var(--text);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .agent-timeline-form {
   display: grid;
   gap: 8px;
@@ -1211,6 +1314,10 @@
 
   .agent-timeline-form-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .agent-member-editor {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .agent-timeline-form-grid > button {

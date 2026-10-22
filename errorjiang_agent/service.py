@@ -358,6 +358,86 @@ class AgentService:
                     created += 1
             except Exception:
                 traceback.print_exc()
+        for group in self.store.recent_group_chats(
+            since,
+            minimum_messages=4,
+            limit=10,
+        ):
+            platform = str(group.get("platform") or "")
+            group_id = str(group.get("group_id") or "")
+            if not platform or not group_id:
+                continue
+            messages = self.store.get_group_messages(
+                platform,
+                group_id,
+                limit=60,
+            )
+            if len(messages) < 4:
+                continue
+            if not self.store.claim_memory_consolidation(
+                day,
+                f"{platform}-group",
+                group_id,
+                len(messages),
+            ):
+                continue
+            transcript = "\n".join(
+                (
+                    f"{row.get('display_name') or '群友'}："
+                    if row.get("role") == "user"
+                    else "折兮颜："
+                )
+                + str(row.get("content") or "")[:500]
+                for row in messages[-40:]
+            )
+            try:
+                response = self.deepseek.chat(
+                    [
+                        {
+                            "role": "system",
+                            "content": (
+                                "你在整理一个群聊的共享记忆。"
+                                "只记录所有群友都可以知道的公开约定、计划和共同事件。"
+                                "不要把私聊内容、个人隐私、密码、令牌或只涉及单人的敏感信息写进群记忆。"
+                                "合并重复内容，不确定的信息不要写。"
+                                "输出严格 JSON："
+                                '{"summary":"一句话概括",'
+                                '"memories":[{"content":"...",'
+                                '"kind":"fact|relationship|promise|habit|event",'
+                                '"importance":1,"confidence":1}]}'
+                            ),
+                        },
+                        {"role": "user", "content": transcript},
+                    ],
+                    [],
+                )
+                content = str(response.get("content") or "").strip()
+                if content.startswith("```"):
+                    content = re.sub(
+                        r"^```(?:json)?\s*|\s*```$",
+                        "",
+                        content,
+                    ).strip()
+                data = json.loads(content)
+                for item in (data.get("memories") or [])[:5]:
+                    if not isinstance(item, dict):
+                        continue
+                    confidence = int(item.get("confidence") or 5)
+                    text = str(item.get("content") or "").strip()
+                    if confidence < 4 or not text:
+                        continue
+                    self.store.add_memory(
+                        f"{platform}-group",
+                        group_id,
+                        text,
+                        str(item.get("kind") or "event"),
+                        int(item.get("importance") or 5),
+                        confidence,
+                        "group_consolidation",
+                    )
+                    created += 1
+            except Exception:
+                traceback.print_exc()
         return created
 
     @staticmethod
@@ -523,6 +603,7 @@ class AgentService:
         owner_id: str,
         user_text: str,
         assistant_text: str,
+        user_label: str = "星星",
     ) -> None:
         settings = self.store.get_settings(platform, owner_id)
         if not settings.get("memory_enabled", True):
@@ -550,7 +631,10 @@ class AgentService:
                     },
                     {
                         "role": "user",
-                        "content": f"星星：{user_text}\n折兮颜：{assistant_text}",
+                        "content": (
+                            f"{user_label}：{user_text}\n"
+                            f"折兮颜：{assistant_text}"
+                        ),
                     },
                 ],
                 [],
@@ -1371,6 +1455,15 @@ class AgentService:
                 "普通用户请在授权群里 @折兮颜 使用。主 QQ 私聊仅限管理员。",
             )
             return
+        if event.message_type == "group" and not is_admin:
+            profile = self.store.get_group_member(
+                platform,
+                str(event.chat_id),
+                str(event.user_id),
+            )
+            if profile and not int(profile.get("allow_chat", 1)):
+                self.send_reply(event, "管理员暂时关闭了你在群里的聊天权限")
+                return
         target_user_id = 0 if is_admin else int(linked_user_id)
         if not self.rate_limiter.allow(str(event.user_id)):
             self.send_reply(event, "请求太频繁，请稍后再试。")
@@ -1407,6 +1500,11 @@ class AgentService:
             return
         if text.lower() in ("/reset", "重置对话", "清空上下文"):
             self.store.clear_messages(platform, str(event.user_id))
+            if event.message_type == "group":
+                self.store.clear_group_messages(
+                    platform,
+                    str(event.chat_id),
+                )
             self.send_reply(event, "对话上下文已清空。")
             return
         if text.lower() in ("/help", "帮助"):
@@ -1429,37 +1527,113 @@ class AgentService:
                 reply or "确认码无效、已过期或不属于当前聊天。",
             )
             return
-        history = self.store.get_messages(
-            platform,
-            str(event.user_id),
-            self.config.context_messages,
+        member_profile = (
+            self.store.get_group_member(
+                platform,
+                str(event.chat_id),
+                str(event.user_id),
+            )
+            if event.message_type == "group"
+            else None
         )
+        speaker_name = (
+            "星星"
+            if is_admin
+            else (
+                str((member_profile or {}).get("alias") or "").strip()
+                or str((member_profile or {}).get("display_name") or "").strip()
+                or event.display_name
+                or "群友"
+            )
+        )
+        if event.message_type == "group":
+            history = []
+            for item in self.store.get_group_messages(
+                platform,
+                str(event.chat_id),
+                self.config.context_messages,
+            ):
+                name = str(item.get("display_name") or "群友")
+                content = str(item.get("content") or "")
+                if item.get("role") == "user":
+                    content = f"{name}：{content}"
+                history.append(
+                    {
+                        "role": str(item.get("role") or "user"),
+                        "content": content,
+                    }
+                )
+        else:
+            history = self.store.get_messages(
+                platform,
+                str(event.user_id),
+                self.config.context_messages,
+            )
         settings = self.store.get_settings(platform, str(event.user_id))
+        memory_enabled = bool(settings.get("memory_enabled", True)) and (
+            bool((member_profile or {}).get("memory_enabled", 1))
+            if event.message_type == "group"
+            else True
+        )
         memories = (
             self.store.memory_context(platform, str(event.user_id), text, 10)
-            if settings.get("memory_enabled", True)
+            if memory_enabled
             else []
         )
-        relationship = self.relationship_context(platform, str(event.user_id))
-        speaker_note = ""
-        if event.display_name:
-            speaker_note = (
-                f"当前发言人昵称：{event.display_name}"
-                f"（{'群聊' if event.message_type == 'group' else '私聊'}）"
+        if event.message_type == "group" and memory_enabled:
+            memories.extend(
+                self.store.memory_context(
+                    f"{platform}-group",
+                    str(event.chat_id),
+                    text,
+                    6,
+                )
             )
+        relationship = self.relationship_context(platform, str(event.user_id))
+        profile_notes = []
+        if event.message_type == "group":
+            relation = str(
+                (member_profile or {}).get("relationship") or "群友"
+            ).strip()
+            notes = str((member_profile or {}).get("notes") or "").strip()
+            profile_notes.append(
+                f"当前群聊发言人是{ speaker_name }，关系：{relation}。"
+                "不要称呼群友为星星，星星只指管理员。"
+            )
+            if notes:
+                profile_notes.append(f"关于{speaker_name}的档案备注：{notes}")
         memories = (
-            ([speaker_note] if speaker_note else [])
+            profile_notes
             + list(memories)
             + self.timeline_context(platform, str(event.user_id))
             + [self.relationship_prompt(relationship)]
         )
         self.store.add_message(platform, str(event.user_id), "user", text)
+        if event.message_type == "group":
+            self.store.add_group_message(
+                platform,
+                str(event.chat_id),
+                str(event.user_id),
+                speaker_name,
+                "user",
+                text,
+                str(event.message_id),
+            )
         context = {
             "platform": platform,
             "owner_id": str(event.user_id),
             "chat_id": str(event.chat_id),
             "chat_type": event.message_type,
             "is_admin": "1" if is_admin else "0",
+            "speaker_name": speaker_name,
+            "tools_enabled": (
+                "0"
+                if event.message_type == "group"
+                and not is_admin
+                and member_profile
+                and not int(member_profile.get("allow_tools", 1))
+                else "1"
+            ),
             "sticker_enabled": (
                 "1"
                 if platform in ("qq", "qqbot")
@@ -1480,9 +1654,14 @@ class AgentService:
             self.prepare_reminder,
             max_tool_rounds=self.config.max_tool_rounds,
         )
+        brain_text = (
+            f"{speaker_name}：{text}"
+            if event.message_type == "group"
+            else text
+        )
         try:
             reply = brain.reply(
-                text,
+                brain_text,
                 history,
                 context,
                 memories=memories,
@@ -1496,6 +1675,16 @@ class AgentService:
         bubbles = self.chat_bubbles(reply)
         reply = "\n".join(bubbles)
         self.store.add_message(platform, str(event.user_id), "assistant", reply)
+        if event.message_type == "group":
+            self.store.add_group_message(
+                platform,
+                str(event.chat_id),
+                "assistant",
+                "折兮颜",
+                "assistant",
+                reply,
+                f"assistant:{event.message_id}",
+            )
         sticker = self.selected_sticker(context)
         if (
             platform == "qqbot"
@@ -1524,6 +1713,7 @@ class AgentService:
             str(event.user_id),
             text,
             reply,
+            speaker_name,
         )
 
     def schedule_event(self, payload: dict[str, Any]) -> None:
@@ -1827,6 +2017,7 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
             "/internal/timeline/create",
             "/internal/timeline/status",
             "/internal/timeline/delete",
+            "/internal/group-member/update",
         ):
             if not self.internal_authorized():
                 self.send_json(403, {"error": "forbidden"})
@@ -1898,6 +2089,28 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
                     self.send_json(400, {"error": "event content required"})
                     return
                 self.send_json(200, {"ok": True, "id": event_id})
+                return
+            if parsed.path == "/internal/group-member/update":
+                platform = str(payload.get("platform") or "")
+                group_id = str(payload.get("group_id") or "")
+                member_id = str(payload.get("member_id") or "")
+                values = payload.get("values")
+                if not platform or not group_id or not member_id:
+                    self.send_json(400, {"error": "invalid member"})
+                    return
+                if not isinstance(values, dict):
+                    self.send_json(400, {"error": "invalid values"})
+                    return
+                member = self.service.store.update_group_member_profile(
+                    platform,
+                    group_id,
+                    member_id,
+                    values,
+                )
+                if member is None:
+                    self.send_json(404, {"error": "member not found"})
+                    return
+                self.send_json(200, {"member": member})
                 return
             if parsed.path in (
                 "/internal/timeline/status",

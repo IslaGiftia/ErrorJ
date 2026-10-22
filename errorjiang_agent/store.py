@@ -134,12 +134,33 @@ class AgentStore:
                     group_id TEXT NOT NULL,
                     member_id TEXT NOT NULL,
                     display_name TEXT NOT NULL DEFAULT '',
+                    alias TEXT NOT NULL DEFAULT '',
+                    relationship TEXT NOT NULL DEFAULT '群友',
+                    allow_chat INTEGER NOT NULL DEFAULT 1,
+                    allow_tools INTEGER NOT NULL DEFAULT 1,
+                    memory_enabled INTEGER NOT NULL DEFAULT 1,
+                    notes TEXT NOT NULL DEFAULT '',
                     first_seen INTEGER NOT NULL,
                     last_seen INTEGER NOT NULL,
                     message_count INTEGER NOT NULL DEFAULT 0,
                     last_topic TEXT NOT NULL DEFAULT '',
                     PRIMARY KEY (platform, group_id, member_id)
                 );
+
+                CREATE TABLE IF NOT EXISTS group_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    platform TEXT NOT NULL,
+                    group_id TEXT NOT NULL,
+                    member_id TEXT NOT NULL,
+                    display_name TEXT NOT NULL DEFAULT '',
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    source_message_id TEXT NOT NULL DEFAULT '',
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(platform, group_id, source_message_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_group_messages_group
+                    ON group_messages(platform, group_id, id);
 
                 CREATE TABLE IF NOT EXISTS memory_consolidation_runs (
                     day TEXT NOT NULL,
@@ -207,6 +228,24 @@ class AgentStore:
                 if name not in memory_columns:
                     conn.execute(
                         f"ALTER TABLE memories ADD COLUMN {name} {definition}"
+                    )
+            member_columns = {
+                row["name"]
+                for row in conn.execute(
+                    "PRAGMA table_info(group_members)"
+                ).fetchall()
+            }
+            for name, definition in (
+                ("alias", "TEXT NOT NULL DEFAULT ''"),
+                ("relationship", "TEXT NOT NULL DEFAULT '群友'"),
+                ("allow_chat", "INTEGER NOT NULL DEFAULT 1"),
+                ("allow_tools", "INTEGER NOT NULL DEFAULT 1"),
+                ("memory_enabled", "INTEGER NOT NULL DEFAULT 1"),
+                ("notes", "TEXT NOT NULL DEFAULT ''"),
+            ):
+                if name not in member_columns:
+                    conn.execute(
+                        f"ALTER TABLE group_members ADD COLUMN {name} {definition}"
                     )
 
     def seen_event(self, event_key: str) -> bool:
@@ -508,6 +547,132 @@ class AgentStore:
                 (platform, str(member_id)),
             ).fetchone()
         return str(row["display_name"] or "") if row else ""
+
+    def update_group_member_profile(
+        self,
+        platform: str,
+        group_id: str,
+        member_id: str,
+        values: dict,
+    ) -> dict | None:
+        current = self.get_group_member(platform, group_id, member_id)
+        if not current:
+            return None
+        allowed = {
+            "alias",
+            "relationship",
+            "allow_chat",
+            "allow_tools",
+            "memory_enabled",
+            "notes",
+        }
+        updates = {}
+        for key in allowed:
+            if key not in values:
+                continue
+            if key in ("allow_chat", "allow_tools", "memory_enabled"):
+                updates[key] = 1 if bool(values[key]) else 0
+            else:
+                updates[key] = " ".join(
+                    str(values[key] or "").split()
+                ).strip()[:300]
+        if not updates:
+            return current
+        assignments = ", ".join(f"{key} = ?" for key in updates)
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                f"""UPDATE group_members SET {assignments}
+                    WHERE platform = ? AND group_id = ? AND member_id = ?""",
+                (
+                    *updates.values(),
+                    platform,
+                    str(group_id),
+                    str(member_id),
+                ),
+            )
+        return self.get_group_member(platform, group_id, member_id)
+
+    def add_group_message(
+        self,
+        platform: str,
+        group_id: str,
+        member_id: str,
+        display_name: str,
+        role: str,
+        content: str,
+        source_message_id: str = "",
+    ) -> None:
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """INSERT OR IGNORE INTO group_messages
+                   (platform, group_id, member_id, display_name, role,
+                    content, source_message_id, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    platform,
+                    str(group_id),
+                    str(member_id),
+                    str(display_name or "")[:80],
+                    str(role or "user"),
+                    str(content or "")[:4000],
+                    str(source_message_id or ""),
+                    int(time.time()),
+                ),
+            )
+
+    def get_group_messages(
+        self,
+        platform: str,
+        group_id: str,
+        limit: int = 20,
+    ) -> list[dict]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT member_id, display_name, role, content, created_at
+                   FROM group_messages
+                   WHERE platform = ? AND group_id = ?
+                   ORDER BY id DESC LIMIT ?""",
+                (
+                    platform,
+                    str(group_id),
+                    max(1, min(int(limit), 100)),
+                ),
+            ).fetchall()
+        return [dict(row) for row in reversed(rows)]
+
+    def clear_group_messages(
+        self,
+        platform: str,
+        group_id: str,
+    ) -> None:
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """DELETE FROM group_messages
+                   WHERE platform = ? AND group_id = ?""",
+                (platform, str(group_id)),
+            )
+
+    def recent_group_chats(
+        self,
+        since: int,
+        minimum_messages: int = 4,
+        limit: int = 20,
+    ) -> list[dict]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT platform, group_id, COUNT(*) AS message_count
+                   FROM group_messages
+                   WHERE role = 'user' AND created_at >= ?
+                   GROUP BY platform, group_id
+                   HAVING COUNT(*) >= ?
+                   ORDER BY MAX(created_at) DESC LIMIT ?""",
+                (
+                    int(since),
+                    max(1, int(minimum_messages)),
+                    max(1, min(int(limit), 100)),
+                ),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def get_messages_since(
         self,

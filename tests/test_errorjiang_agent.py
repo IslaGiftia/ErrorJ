@@ -163,6 +163,65 @@ class AgentStoreTests(unittest.TestCase):
             ),
             "小明改名",
         )
+        updated = self.store.update_group_member_profile(
+            "qqbot",
+            "group-openid",
+            "member-openid",
+            {
+                "alias": "明明",
+                "relationship": "朋友",
+                "allow_chat": False,
+                "allow_tools": False,
+                "memory_enabled": False,
+                "notes": "不喜欢被叫全名",
+            },
+        )
+        self.assertEqual(updated["alias"], "明明")
+        self.assertEqual(updated["relationship"], "朋友")
+        self.assertEqual(updated["allow_chat"], 0)
+        self.assertEqual(updated["allow_tools"], 0)
+        self.assertEqual(updated["memory_enabled"], 0)
+
+    def test_group_chat_history_keeps_speakers_and_deduplicates(self):
+        self.store.add_group_message(
+            "qqbot",
+            "group-openid",
+            "member-a",
+            "小明",
+            "user",
+            "周六去吃火锅",
+            "message-1",
+        )
+        self.store.add_group_message(
+            "qqbot",
+            "group-openid",
+            "member-a",
+            "小明",
+            "user",
+            "周六去吃火锅",
+            "message-1",
+        )
+        self.store.add_group_message(
+            "qqbot",
+            "group-openid",
+            "assistant",
+            "折兮颜",
+            "assistant",
+            "可以，折兮颜记下了",
+            "assistant:message-1",
+        )
+        history = self.store.get_group_messages(
+            "qqbot",
+            "group-openid",
+        )
+        self.assertEqual(len(history), 2)
+        self.assertEqual(history[0]["display_name"], "小明")
+        self.assertEqual(history[1]["role"], "assistant")
+        self.store.clear_group_messages("qqbot", "group-openid")
+        self.assertEqual(
+            self.store.get_group_messages("qqbot", "group-openid"),
+            [],
+        )
 
     def test_idle_memory_consolidation_is_daily_and_structured(self):
         class Consolidator:
@@ -211,6 +270,56 @@ class AgentStoreTests(unittest.TestCase):
             ),
             0,
         )
+
+    def test_group_chat_consolidates_shared_memories_separately(self):
+        class Consolidator:
+            def chat(self, messages, tools):
+                return {
+                    "content": json.dumps(
+                        {
+                            "summary": "群活动",
+                            "memories": [
+                                {
+                                    "content": "大家约好周六一起吃火锅",
+                                    "kind": "event",
+                                    "importance": 8,
+                                    "confidence": 9,
+                                }
+                            ],
+                        },
+                        ensure_ascii=False,
+                    )
+                }
+
+        for index in range(8):
+            self.store.add_group_message(
+                "qqbot",
+                "group-openid",
+                f"member-{index % 3}",
+                f"群友{index % 3}",
+                "user" if index % 2 == 0 else "assistant",
+                f"群消息 {index}",
+                f"group-message-{index}",
+            )
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.deepseek = Consolidator()
+        self.assertEqual(
+            service.consolidate_memories(
+                "2026-10-22",
+                datetime(2026, 10, 22, 3, 30),
+            ),
+            1,
+        )
+        group_memories = self.store.list_memories(
+            "qqbot-group",
+            "group-openid",
+        )
+        self.assertEqual(
+            group_memories[0]["source"],
+            "group_consolidation",
+        )
+        self.assertIn("火锅", group_memories[0]["content"])
 
     def test_timeline_events_are_deduplicated_and_used_once(self):
         event_id = self.store.add_timeline_event(
@@ -844,6 +953,37 @@ class AgentBrainTests(unittest.TestCase):
         self.assertEqual(reply, "请确认。")
         self.assertEqual(captured["arguments"]["id"], 3)
         self.assertEqual(captured["context"]["owner_id"], "10001")
+
+    def test_group_member_can_be_limited_to_chat_without_tools(self):
+        class CaptureDeepSeek:
+            def __init__(self):
+                self.tools = None
+
+            def chat(self, messages, tools):
+                self.tools = tools
+                return {"role": "assistant", "content": "好"}
+
+        deepseek = CaptureDeepSeek()
+        brain = AgentBrain(
+            deepseek,
+            FakeErrorJ(),
+            lambda args, context: {},
+        )
+        self.assertEqual(
+            brain.reply(
+                "小明：你好",
+                [],
+                {
+                    "platform": "qqbot",
+                    "owner_id": "member-openid",
+                    "is_admin": "0",
+                    "speaker_name": "小明",
+                    "tools_enabled": "0",
+                },
+            ),
+            "好",
+        )
+        self.assertEqual(deepseek.tools, [])
 
 
 class AgentInternalAuthTests(unittest.TestCase):
