@@ -86,6 +86,9 @@ class AgentStore:
                     kind TEXT NOT NULL DEFAULT 'fact',
                     content TEXT NOT NULL,
                     importance INTEGER NOT NULL DEFAULT 5,
+                    confidence INTEGER NOT NULL DEFAULT 5,
+                    source TEXT NOT NULL DEFAULT 'chat',
+                    access_count INTEGER NOT NULL DEFAULT 0,
                     created_at INTEGER NOT NULL,
                     updated_at INTEGER NOT NULL,
                     last_used_at INTEGER,
@@ -124,6 +127,27 @@ class AgentStore:
                     user_id INTEGER NOT NULL,
                     created_at INTEGER NOT NULL,
                     PRIMARY KEY (platform, owner_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS group_members (
+                    platform TEXT NOT NULL,
+                    group_id TEXT NOT NULL,
+                    member_id TEXT NOT NULL,
+                    display_name TEXT NOT NULL DEFAULT '',
+                    first_seen INTEGER NOT NULL,
+                    last_seen INTEGER NOT NULL,
+                    message_count INTEGER NOT NULL DEFAULT 0,
+                    last_topic TEXT NOT NULL DEFAULT '',
+                    PRIMARY KEY (platform, group_id, member_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS memory_consolidation_runs (
+                    day TEXT NOT NULL,
+                    platform TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    message_count INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    PRIMARY KEY (day, platform, owner_id)
                 );
 
                 CREATE TABLE IF NOT EXISTS reminders (
@@ -171,6 +195,19 @@ class AgentStore:
                     );
                 """
             )
+            memory_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(memories)").fetchall()
+            }
+            for name, definition in (
+                ("confidence", "INTEGER NOT NULL DEFAULT 5"),
+                ("source", "TEXT NOT NULL DEFAULT 'chat'"),
+                ("access_count", "INTEGER NOT NULL DEFAULT 0"),
+            ):
+                if name not in memory_columns:
+                    conn.execute(
+                        f"ALTER TABLE memories ADD COLUMN {name} {definition}"
+                    )
 
     def seen_event(self, event_key: str) -> bool:
         now = int(time.time())
@@ -253,6 +290,8 @@ class AgentStore:
         content: str,
         kind: str = "fact",
         importance: int = 5,
+        confidence: int = 5,
+        source: str = "chat",
     ) -> None:
         text = " ".join(str(content or "").split()).strip()[:1000]
         if not text:
@@ -261,11 +300,13 @@ class AgentStore:
         with self._lock, self._connection() as conn:
             conn.execute(
                 """INSERT INTO memories
-                   (platform, owner_id, kind, content, importance,
-                    created_at, updated_at, last_used_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+                   (platform, owner_id, kind, content, importance, confidence,
+                    source, access_count, created_at, updated_at, last_used_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL)
                    ON CONFLICT(platform, owner_id, content) DO UPDATE SET
                        importance = MAX(memories.importance, excluded.importance),
+                       confidence = MAX(memories.confidence, excluded.confidence),
+                       source = excluded.source,
                        updated_at = excluded.updated_at""",
                 (
                     platform,
@@ -273,6 +314,8 @@ class AgentStore:
                     str(kind or "fact")[:30],
                     text,
                     max(1, min(int(importance or 5), 10)),
+                    max(1, min(int(confidence or 5), 10)),
+                    str(source or "chat")[:30],
                     now,
                     now,
                 ),
@@ -285,8 +328,8 @@ class AgentStore:
         query: str = "",
         limit: int = 50,
     ) -> list[dict]:
-        sql = """SELECT id, kind, content, importance, created_at, updated_at,
-                        last_used_at
+        sql = """SELECT id, kind, content, importance, confidence, source,
+                        access_count, created_at, updated_at, last_used_at
                  FROM memories WHERE platform = ? AND owner_id = ?"""
         params: list = [platform, owner_id]
         if query.strip():
@@ -306,34 +349,61 @@ class AgentStore:
         limit: int = 10,
     ) -> list[str]:
         words = [
-            word
+            word.lower()
             for word in re.findall(r"[\w\u4e00-\u9fff]{2,}", query)
             if len(word) <= 20
         ][:6]
         with self._connection() as conn:
-            if words:
-                clauses = " OR ".join("content LIKE ?" for _ in words)
-                rows = conn.execute(
-                    f"""SELECT id, content FROM memories
-                        WHERE platform = ? AND owner_id = ? AND ({clauses})
-                        ORDER BY importance DESC, updated_at DESC LIMIT ?""",
-                    (platform, owner_id, *[f"%{word}%" for word in words], limit),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    """SELECT id, content FROM memories
-                       WHERE platform = ? AND owner_id = ?
-                       ORDER BY importance DESC, updated_at DESC LIMIT ?""",
-                    (platform, owner_id, limit),
-                ).fetchall()
+            rows = conn.execute(
+                """SELECT id, kind, content, importance, confidence,
+                          access_count, updated_at, last_used_at
+                   FROM memories
+                   WHERE platform = ? AND owner_id = ?
+                   ORDER BY updated_at DESC LIMIT 200""",
+                (platform, owner_id),
+            ).fetchall()
+            now = int(time.time())
+            kind_weights = {
+                "boundary": 2.2,
+                "preference": 1.7,
+                "relationship": 1.7,
+                "promise": 1.5,
+                "habit": 1.2,
+                "event": 1.0,
+                "fact": 0.8,
+            }
+
+            def score(row: sqlite3.Row) -> float:
+                content = str(row["content"] or "").lower()
+                relevance = sum(
+                    1.0 for word in words if word and word in content
+                )
+                age_days = max(
+                    0.0,
+                    (now - int(row["updated_at"] or now)) / 86400,
+                )
+                recency = max(0.0, 2.5 - age_days * 0.18)
+                return (
+                    relevance * 8.0
+                    + int(row["importance"] or 5) * 0.72
+                    + int(row["confidence"] or 5) * 0.48
+                    + kind_weights.get(str(row["kind"] or "fact"), 0.8)
+                    + recency
+                    + min(5, int(row["access_count"] or 0)) * 0.22
+                )
+
+            ranked = sorted(rows, key=score, reverse=True)[
+                : max(1, min(int(limit), 50))
+            ]
             if rows:
-                now = int(time.time())
-                ids = [row["id"] for row in rows]
+                ids = [row["id"] for row in ranked]
                 conn.executemany(
-                    "UPDATE memories SET last_used_at = ? WHERE id = ?",
+                    """UPDATE memories
+                       SET last_used_at = ?, access_count = access_count + 1
+                       WHERE id = ?""",
                     [(now, item_id) for item_id in ids],
                 )
-        return [str(row["content"]) for row in rows]
+        return [str(row["content"]) for row in ranked]
 
     def delete_memory(self, platform: str, owner_id: str, memory_id: int) -> bool:
         with self._lock, self._connection() as conn:
@@ -347,9 +417,165 @@ class AgentStore:
         with self._lock, self._connection() as conn:
             conn.execute(
                 """UPDATE memories SET last_used_at = ?
+                       , access_count = access_count + 1
                    WHERE id = ? AND platform = ? AND owner_id = ?""",
                 (int(time.time()), int(memory_id), platform, owner_id),
             )
+
+    def remember_group_member(
+        self,
+        platform: str,
+        group_id: str,
+        member_id: str,
+        display_name: str,
+        topic: str = "",
+    ) -> dict:
+        now = int(time.time())
+        name = " ".join(str(display_name or "").split()).strip()[:80]
+        recent_topic = " ".join(str(topic or "").split()).strip()[:200]
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """INSERT INTO group_members
+                   (platform, group_id, member_id, display_name, first_seen,
+                    last_seen, message_count, last_topic)
+                   VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+                   ON CONFLICT(platform, group_id, member_id) DO UPDATE SET
+                       display_name = CASE
+                           WHEN excluded.display_name != ''
+                           THEN excluded.display_name
+                           ELSE group_members.display_name
+                       END,
+                       last_seen = excluded.last_seen,
+                       message_count = group_members.message_count + 1,
+                       last_topic = CASE
+                           WHEN excluded.last_topic != ''
+                           THEN excluded.last_topic
+                           ELSE group_members.last_topic
+                       END""",
+                (
+                    platform,
+                    str(group_id),
+                    str(member_id),
+                    name,
+                    now,
+                    now,
+                    recent_topic,
+                ),
+            )
+            row = conn.execute(
+                """SELECT * FROM group_members
+                   WHERE platform = ? AND group_id = ? AND member_id = ?""",
+                (platform, str(group_id), str(member_id)),
+            ).fetchone()
+        return dict(row) if row else {}
+
+    def get_group_member(
+        self,
+        platform: str,
+        group_id: str,
+        member_id: str,
+    ) -> dict | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                """SELECT * FROM group_members
+                   WHERE platform = ? AND group_id = ? AND member_id = ?""",
+                (platform, str(group_id), str(member_id)),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def list_group_members(self, limit: int = 100) -> list[dict]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT m.*, i.user_id
+                   FROM group_members m
+                   LEFT JOIN identities i
+                     ON i.platform = m.platform AND i.owner_id = m.member_id
+                   ORDER BY m.last_seen DESC LIMIT ?""",
+                (max(1, min(int(limit), 300)),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def group_member_display_name(
+        self,
+        platform: str,
+        member_id: str,
+    ) -> str:
+        with self._connection() as conn:
+            row = conn.execute(
+                """SELECT display_name FROM group_members
+                   WHERE platform = ? AND member_id = ?
+                   ORDER BY last_seen DESC LIMIT 1""",
+                (platform, str(member_id)),
+            ).fetchone()
+        return str(row["display_name"] or "") if row else ""
+
+    def get_messages_since(
+        self,
+        platform: str,
+        owner_id: str,
+        since: int,
+        limit: int = 80,
+    ) -> list[dict]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT role, content, created_at FROM messages
+                   WHERE platform = ? AND owner_id = ? AND created_at >= ?
+                   ORDER BY id DESC LIMIT ?""",
+                (
+                    platform,
+                    owner_id,
+                    int(since),
+                    max(1, min(int(limit), 200)),
+                ),
+            ).fetchall()
+        return [dict(row) for row in reversed(rows)]
+
+    def recent_message_owners(
+        self,
+        since: int,
+        minimum_messages: int = 4,
+        limit: int = 50,
+    ) -> list[dict]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT platform, owner_id, COUNT(*) AS message_count
+                   FROM messages
+                   WHERE role = 'user' AND created_at >= ?
+                   GROUP BY platform, owner_id
+                   HAVING COUNT(*) >= ?
+                   ORDER BY MAX(created_at) DESC LIMIT ?""",
+                (
+                    int(since),
+                    max(1, int(minimum_messages)),
+                    max(1, min(int(limit), 200)),
+                ),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def claim_memory_consolidation(
+        self,
+        day: str,
+        platform: str,
+        owner_id: str,
+        message_count: int,
+    ) -> bool:
+        with self._lock, self._connection() as conn:
+            try:
+                conn.execute(
+                    """INSERT INTO memory_consolidation_runs
+                       (day, platform, owner_id, message_count, created_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (
+                        day,
+                        platform,
+                        owner_id,
+                        int(message_count),
+                        int(time.time()),
+                    ),
+                )
+                return True
+            except sqlite3.IntegrityError:
+                return False
 
     def get_settings(self, platform: str, owner_id: str) -> dict:
         defaults = {
@@ -362,6 +588,8 @@ class AgentStore:
             "night_time": "21:30",
             "sticker_enabled": True,
             "voice_enabled": False,
+            "memory_consolidation_enabled": True,
+            "memory_consolidation_time": "03:30",
         }
         with self._connection() as conn:
             row = conn.execute(

@@ -45,6 +45,10 @@ PROACTIVE_GREETING_WINDOW_MINUTES = 25
 PROACTIVE_MIN_GAP_SECONDS = 90 * 60
 PROACTIVE_MEMORY_COOLDOWN_SECONDS = 3 * 86400
 CHAT_SPLIT_RE = re.compile(r"\s*\[\[split\]\]\s*", re.IGNORECASE)
+MEMORY_CONSOLIDATION_LOOKBACK_SECONDS = 2 * 86400
+STICKER_REQUEST_RE = re.compile(
+    r"(?:发|来|整)(?:个|一个|张|一下)?[^，。！？!?]{0,8}(?:表情包|表情)"
+)
 
 
 class RateLimiter:
@@ -121,6 +125,12 @@ class AgentService:
             daemon=True,
             name="agent-reminders",
         )
+        self._memory_consolidation_stop = threading.Event()
+        self._memory_consolidation_thread = threading.Thread(
+            target=self._memory_consolidation_loop,
+            daemon=True,
+            name="agent-memory-consolidation",
+        )
         self._qqbot_thread = None
         if self.qqbot:
             self._qqbot_thread = threading.Thread(
@@ -134,6 +144,7 @@ class AgentService:
             self.store.bind_admin("qqbot", openid)
         self._proactive_thread.start()
         self._reminder_thread.start()
+        self._memory_consolidation_thread.start()
         if self._qqbot_thread:
             self._qqbot_thread.start()
 
@@ -222,6 +233,132 @@ class AgentService:
                     self.store.mark_reminder_sent(int(reminder["id"]))
                 except Exception:
                     traceback.print_exc()
+
+    def _memory_consolidation_loop(self) -> None:
+        while not self._memory_consolidation_stop.wait(60):
+            try:
+                now = datetime.now()
+                admin_ids = (
+                    self.store.admin_ids("qq")
+                    + self.store.admin_ids("qqbot")
+                )
+                if not admin_ids:
+                    continue
+                settings = self.store.get_settings(
+                    "qq" if self.store.admin_ids("qq") else "qqbot",
+                    admin_ids[0],
+                )
+                if not settings.get("memory_consolidation_enabled", True):
+                    continue
+                target_time = str(
+                    settings.get("memory_consolidation_time") or "03:30"
+                )
+                if not self.proactive_time_near(now, target_time):
+                    continue
+                self.consolidate_memories(now.strftime("%Y-%m-%d"), now)
+            except Exception:
+                traceback.print_exc()
+
+    def consolidate_memories(
+        self,
+        day: str,
+        now: datetime | None = None,
+    ) -> int:
+        current = now or datetime.now()
+        since = int(current.timestamp()) - MEMORY_CONSOLIDATION_LOOKBACK_SECONDS
+        owners = self.store.recent_message_owners(
+            since,
+            minimum_messages=4,
+            limit=10,
+        )
+        created = 0
+        for owner in owners:
+            platform = str(owner.get("platform") or "")
+            owner_id = str(owner.get("owner_id") or "")
+            if not platform or not owner_id:
+                continue
+            settings = self.store.get_settings(platform, owner_id)
+            if not settings.get("memory_enabled", True):
+                continue
+            if not settings.get("memory_consolidation_enabled", True):
+                continue
+            messages = self.store.get_messages_since(
+                platform,
+                owner_id,
+                since,
+                limit=60,
+            )
+            if len(messages) < 4:
+                continue
+            if not self.store.claim_memory_consolidation(
+                day,
+                platform,
+                owner_id,
+                len(messages),
+            ):
+                continue
+            member_name = self.store.group_member_display_name(
+                platform,
+                owner_id,
+            )
+            user_label = member_name or "星星"
+            transcript = "\n".join(
+                f"{user_label if row['role'] == 'user' else '折兮颜'}："
+                f"{str(row['content'])[:500]}"
+                for row in messages[-40:]
+            )
+            try:
+                response = self.deepseek.chat(
+                    [
+                        {
+                            "role": "system",
+                            "content": (
+                                "你在整理一段长期聊天记忆。"
+                                "只提炼稳定、以后仍可能有用的信息："
+                                "偏好、称呼、边界、习惯、关系变化、约定和重要事件。"
+                                "不要记录临时查询、寒暄、密码、令牌或敏感隐私。"
+                                "合并重复内容，不确定的信息不要写。"
+                                "输出严格 JSON："
+                                '{"summary":"一句话概括",'
+                                '"memories":[{"content":"...",'
+                                '"kind":"fact|preference|relationship|promise|habit|boundary|event",'
+                                '"importance":1,"confidence":1}]}'
+                            ),
+                        },
+                        {"role": "user", "content": transcript},
+                    ],
+                    [],
+                )
+                content = str(response.get("content") or "").strip()
+                if content.startswith("```"):
+                    content = re.sub(
+                        r"^```(?:json)?\s*|\s*```$",
+                        "",
+                        content,
+                    ).strip()
+                data = json.loads(content)
+                for item in (data.get("memories") or [])[:5]:
+                    if not isinstance(item, dict):
+                        continue
+                    confidence = int(item.get("confidence") or 5)
+                    if confidence < 4:
+                        continue
+                    text = str(item.get("content") or "").strip()
+                    if not text:
+                        continue
+                    self.store.add_memory(
+                        platform,
+                        owner_id,
+                        text,
+                        str(item.get("kind") or "fact"),
+                        int(item.get("importance") or 5),
+                        confidence,
+                        "consolidation",
+                    )
+                    created += 1
+            except Exception:
+                traceback.print_exc()
+        return created
 
     @staticmethod
     def reminder_delivery_text(reminder: dict[str, Any]) -> str:
@@ -397,11 +534,13 @@ class AgentService:
                         "role": "system",
                         "content": (
                             "从一轮对话中提取值得长期记住的稳定信息。"
-                            "只保留偏好、称呼、重要日期、长期项目、约定和关系事件。"
+                            "只保留偏好、称呼、边界、习惯、重要日期、"
+                            "长期项目、约定和关系事件。"
                             "不要保存临时查询、寒暄或无意义内容。"
                             "输出严格 JSON："
-                            '{"memories":[{"content":"...","kind":"fact|preference|event|promise",'
-                            '"importance":1}],'
+                            '{"memories":[{"content":"...",'
+                            '"kind":"fact|preference|relationship|promise|habit|boundary|event",'
+                            '"importance":1,"confidence":1}],'
                             '"events":[{"title":"...","content":"...",'
                             '"event_type":"plan|promise|milestone|relationship|event",'
                             '"event_at":"YYYY-MM-DD HH:MM:SS or null",'
@@ -429,6 +568,8 @@ class AgentService:
                     str(item.get("content") or ""),
                     str(item.get("kind") or "fact"),
                     int(item.get("importance") or 5),
+                    int(item.get("confidence") or 5),
+                    "chat",
                 )
             for item in (data.get("events") or [])[:6]:
                 if not isinstance(item, dict):
@@ -1039,6 +1180,14 @@ class AgentService:
                 return
         if event.message_type == "group" and not event.to_me:
             return
+        if event.message_type == "group":
+            self.store.remember_group_member(
+                platform,
+                str(event.chat_id),
+                str(event.user_id),
+                event.display_name,
+                event.text,
+            )
         redeem_match = REDEEM_IDENTITY_BIND_CODE_RE.fullmatch(
             event.text.strip()
         )
@@ -1093,6 +1242,25 @@ class AgentService:
             platform, str(event.user_id)
         )
         if is_admin:
+            if event.text.strip() in ("群友档案", "/members"):
+                members = self.store.list_group_members(100)
+                if not members:
+                    self.send_reply(event, "目前还没有记录到群友")
+                    return
+                lines = []
+                for member in members[:20]:
+                    name = member.get("display_name") or "未命名群友"
+                    bound = (
+                        f"用户 #{member['user_id']}"
+                        if member.get("user_id")
+                        else "未绑定"
+                    )
+                    lines.append(
+                        f"{name} · {bound} · "
+                        f"{int(member.get('message_count') or 0)} 次"
+                    )
+                self.send_reply(event, "群友档案：\n" + "\n".join(lines))
+                return
             create_bind_code_match = CREATE_IDENTITY_BIND_CODE_RE.fullmatch(
                 event.text.strip()
             )
@@ -1273,8 +1441,15 @@ class AgentService:
             else []
         )
         relationship = self.relationship_context(platform, str(event.user_id))
+        speaker_note = ""
+        if event.display_name:
+            speaker_note = (
+                f"当前发言人昵称：{event.display_name}"
+                f"（{'群聊' if event.message_type == 'group' else '私聊'}）"
+            )
         memories = (
-            list(memories)
+            ([speaker_note] if speaker_note else [])
+            + list(memories)
             + self.timeline_context(platform, str(event.user_id))
             + [self.relationship_prompt(relationship)]
         )
@@ -1321,10 +1496,23 @@ class AgentService:
         bubbles = self.chat_bubbles(reply)
         reply = "\n".join(bubbles)
         self.store.add_message(platform, str(event.user_id), "assistant", reply)
+        sticker = self.selected_sticker(context)
+        if (
+            platform == "qqbot"
+            and sticker is None
+            and STICKER_REQUEST_RE.search(text)
+        ):
+            candidates = [
+                item
+                for item in self.store.list_stickers(str(event.user_id), 200)
+                if item.get("kind") == "image"
+            ]
+            if candidates:
+                sticker = random.choice(candidates)
         self.send_reply(
             event,
             reply,
-            self.selected_sticker(context),
+            sticker,
             bubbles=bubbles,
         )
         self.update_relationship_after_exchange(
@@ -1433,6 +1621,7 @@ class AgentService:
     def close(self) -> None:
         self._proactive_stop.set()
         self._reminder_stop.set()
+        self._memory_consolidation_stop.set()
         if self.qqbot:
             self.qqbot.close()
         self.executor.shutdown(wait=False, cancel_futures=True)
@@ -1533,6 +1722,17 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
                     item for item in rows if item.get("status") == status
                 ]
             self.send_json(200, {"events": rows})
+            return
+        if path == "/internal/group-members":
+            if not self.internal_authorized():
+                self.send_json(403, {"error": "forbidden"})
+                return
+            self.send_json(
+                200,
+                {
+                    "members": self.service.store.list_group_members(200)
+                },
+            )
             return
         if path == "/internal/stickers":
             if not self.internal_authorized():

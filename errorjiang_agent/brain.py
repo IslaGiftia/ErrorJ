@@ -261,7 +261,7 @@ class AgentBrain:
         )
         if memories:
             system_content += "\n\n你记得这些与星星有关的信息：\n" + "\n".join(
-                f"- {line}" for line in memories[:12]
+                f"- {line}" for line in memories[:20]
             )
         messages = [{"role": "system", "content": system_content}]
         messages.extend(history)

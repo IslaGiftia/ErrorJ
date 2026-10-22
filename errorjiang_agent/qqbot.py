@@ -93,6 +93,7 @@ def parse_qqbot_event(
         to_me=True,
         platform="qqbot",
         attachments=tuple(attachments),
+        display_name=str(author.get("username") or "").strip()[:80],
     )
 
 

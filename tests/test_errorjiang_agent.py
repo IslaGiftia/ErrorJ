@@ -96,6 +96,122 @@ class AgentStoreTests(unittest.TestCase):
         self.assertEqual(self.store.list_stickers("10001")[0]["id"], sticker_id)
         self.assertIsNotNone(self.store.delete_sticker("10001", sticker_id))
 
+    def test_memory_context_uses_relevance_and_confidence(self):
+        self.store.add_memory(
+            "qq",
+            "10001",
+            "星星喜欢安静的咖啡馆",
+            "preference",
+            6,
+            8,
+        )
+        self.store.add_memory(
+            "qq",
+            "10001",
+            "星星上周去了图书馆",
+            "event",
+            5,
+            3,
+        )
+        self.store.add_memory(
+            "qq",
+            "10001",
+            "星星不喜欢太吵的地方",
+            "preference",
+            9,
+            9,
+        )
+        relevant = self.store.memory_context(
+            "qq",
+            "10001",
+            "图书馆",
+            2,
+        )
+        self.assertIn("图书馆", relevant[0])
+        confident = self.store.memory_context("qq", "10001", "", 2)
+        self.assertIn("不喜欢太吵", confident[0])
+        memory = self.store.list_memories("qq", "10001")[0]
+        self.assertIn("confidence", memory)
+        self.assertIn("source", memory)
+
+    def test_group_member_directory_survives_and_links_site_account(self):
+        first = self.store.remember_group_member(
+            "qqbot",
+            "group-openid",
+            "member-openid",
+            "小明",
+            "今天去吃饭",
+        )
+        self.assertEqual(first["message_count"], 1)
+        second = self.store.remember_group_member(
+            "qqbot",
+            "group-openid",
+            "member-openid",
+            "小明改名",
+            "下次还去",
+        )
+        self.assertEqual(second["message_count"], 2)
+        self.assertEqual(second["display_name"], "小明改名")
+        self.store.bind_user("qqbot", "member-openid", 7)
+        members = self.store.list_group_members()
+        self.assertEqual(members[0]["user_id"], 7)
+        self.assertEqual(members[0]["last_topic"], "下次还去")
+        self.assertEqual(
+            self.store.group_member_display_name(
+                "qqbot",
+                "member-openid",
+            ),
+            "小明改名",
+        )
+
+    def test_idle_memory_consolidation_is_daily_and_structured(self):
+        class Consolidator:
+            def chat(self, messages, tools):
+                return {
+                    "content": json.dumps(
+                        {
+                            "summary": "记住偏好",
+                            "memories": [
+                                {
+                                    "content": "星星更喜欢安静的聊天环境",
+                                    "kind": "preference",
+                                    "importance": 8,
+                                    "confidence": 9,
+                                }
+                            ],
+                        },
+                        ensure_ascii=False,
+                    )
+                }
+
+        for index in range(8):
+            self.store.add_message(
+                "qqbot",
+                "member-openid",
+                "user" if index % 2 == 0 else "assistant",
+                f"消息 {index}",
+            )
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.deepseek = Consolidator()
+        self.assertEqual(
+            service.consolidate_memories(
+                "2026-10-22",
+                datetime(2026, 10, 22, 3, 30),
+            ),
+            1,
+        )
+        memories = self.store.list_memories("qqbot", "member-openid")
+        self.assertEqual(memories[0]["source"], "consolidation")
+        self.assertEqual(memories[0]["confidence"], 9)
+        self.assertEqual(
+            service.consolidate_memories(
+                "2026-10-22",
+                datetime(2026, 10, 22, 3, 31),
+            ),
+            0,
+        )
+
     def test_timeline_events_are_deduplicated_and_used_once(self):
         event_id = self.store.add_timeline_event(
             "qq",
@@ -272,6 +388,17 @@ class AgentStoreTests(unittest.TestCase):
             ),
             ["一", "二", "三 四"],
         )
+
+    def test_explicit_sticker_requests_are_detected(self):
+        from errorjiang_agent.service import STICKER_REQUEST_RE
+
+        for text in (
+            "发个表情包",
+            "来一个无语的表情",
+            "整张晚安表情包",
+        ):
+            self.assertIsNotNone(STICKER_REQUEST_RE.search(text))
+        self.assertIsNone(STICKER_REQUEST_RE.search("这个表情包是什么"))
 
     def test_qqbot_reply_uses_openapi_messages_per_bubble(self):
         class FakeQQBot:
@@ -580,6 +707,7 @@ class OneBotParserTests(unittest.TestCase):
         self.assertEqual(event.user_id, "member-openid")
         self.assertEqual(event.chat_id, "group-openid")
         self.assertEqual(event.message_id, "message-1")
+        self.assertEqual(event.display_name, "星星")
         self.assertEqual(
             event.attachments[0]["content_type"],
             "image/png",

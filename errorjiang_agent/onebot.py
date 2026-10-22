@@ -20,6 +20,7 @@ class MessageEvent:
     to_me: bool
     platform: str = "qq"
     attachments: tuple[dict[str, Any], ...] = ()
+    display_name: str = ""
 
     @property
     def owner_id(self) -> str:
@@ -73,6 +74,10 @@ def parse_message_event(payload: dict[str, Any]) -> MessageEvent | None:
         message_type == "group"
         and bool(re.search(r"\[CQ:at,qq=(?:all|\d+)[^\]]*\]", str(raw_message or "")))
     )
+    sender = payload.get("sender") or {}
+    display_name = str(
+        sender.get("card") or sender.get("nickname") or ""
+    ).strip()[:80]
     return MessageEvent(
         self_id=self_id,
         user_id=user_id,
@@ -81,6 +86,7 @@ def parse_message_event(payload: dict[str, Any]) -> MessageEvent | None:
         message_id=message_id,
         text=text,
         to_me=to_me,
+        display_name=display_name,
     )
 
 

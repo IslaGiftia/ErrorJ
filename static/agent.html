@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=4">
   <link rel="stylesheet" href="/static/site/site.css">
   <link rel="stylesheet" href="/static/fonts.css">
-  <link rel="stylesheet" href="/static/agent.css?v=5">
+  <link rel="stylesheet" href="/static/agent.css?v=6">
   <script>
     (function () {
       try {
@@ -138,7 +138,7 @@
     <header class="agent-settings-head">
       <div>
         <h2>折兮颜设置</h2>
-        <p>记忆、事件时间线、主动聊天和表情包</p>
+        <p>群友档案、记忆整理、时间线、主动聊天和表情包</p>
       </div>
       <button type="button" id="agentSettingsClose" title="关闭" aria-label="关闭">
         <i data-lucide="x"></i>
@@ -149,6 +149,10 @@
         <label class="agent-switch-row">
           <span><strong>长期记忆</strong><small>从私聊和网页对话中记住偏好与约定</small></span>
           <input type="checkbox" id="settingMemoryEnabled">
+        </label>
+        <label class="agent-switch-row">
+          <span><strong>空闲记忆整理</strong><small>在安静时段合并重复记忆、提炼长期信息</small></span>
+          <input type="checkbox" id="settingMemoryConsolidationEnabled">
         </label>
         <label class="agent-switch-row">
           <span><strong>主动聊天</strong><small>在设定时间主动发 QQ 私聊</small></span>
@@ -165,6 +169,13 @@
       </section>
 
       <section class="agent-setting-section">
+        <h3>记忆整理</h3>
+        <div class="agent-setting-grid">
+          <label><span>每日整理时间</span><input type="time" id="settingMemoryConsolidationTime"></label>
+        </div>
+      </section>
+
+      <section class="agent-setting-section">
         <h3>主动聊天</h3>
         <div class="agent-setting-grid">
           <label><span>每日最多</span><input type="number" id="settingProactiveMax" min="1" max="6"></label>
@@ -173,6 +184,14 @@
           <label><span>免打扰开始</span><input type="time" id="settingQuietStart"></label>
           <label><span>免打扰结束</span><input type="time" id="settingQuietEnd"></label>
         </div>
+      </section>
+
+      <section class="agent-setting-section">
+        <div class="agent-section-title">
+          <h3>群友档案</h3>
+          <span id="agentGroupMemberCount">0 人</span>
+        </div>
+        <div class="agent-memory-list" id="agentGroupMemberList"></div>
       </section>
 
       <section class="agent-setting-section">
@@ -234,6 +253,6 @@
   </dialog>
 
   <script src="/static/vendor/lucide.min.js"></script>
-  <script src="/static/agent.js?v=5"></script>
+  <script src="/static/agent.js?v=6"></script>
 </body>
 </html>

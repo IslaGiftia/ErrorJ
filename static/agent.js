@@ -12,6 +12,7 @@
   var settingsDialog = document.getElementById("agentSettingsDialog");
   var settingsStatus = document.getElementById("agentSettingsStatus");
   var memoryList = document.getElementById("agentMemoryList");
+  var groupMemberList = document.getElementById("agentGroupMemberList");
   var timelineList = document.getElementById("agentTimelineList");
   var timelineForm = document.getElementById("agentTimelineForm");
   var stickerGrid = document.getElementById("agentStickerGrid");
@@ -180,6 +181,14 @@
           if (!response.ok) throw new Error(data.error || "设置加载失败");
           var settings = data.settings || {};
           settingValue("settingMemoryEnabled", settings.memory_enabled);
+          settingValue(
+            "settingMemoryConsolidationEnabled",
+            settings.memory_consolidation_enabled
+          );
+          settingValue(
+            "settingMemoryConsolidationTime",
+            settings.memory_consolidation_time
+          );
           settingValue("settingProactiveEnabled", settings.proactive_enabled);
           settingValue("settingStickerEnabled", settings.sticker_enabled);
           settingValue("settingProactiveMax", settings.proactive_max_per_day);
@@ -208,9 +217,15 @@
           var text = document.createElement("p");
           text.textContent = memory.content;
           var meta = document.createElement("small");
+          var platformLabel = memory.platform === "qq"
+            ? "QQ 私聊"
+            : (memory.platform === "qqbot" ? "QQBot" : "网页对话");
           meta.textContent =
-            (memory.platform === "qq" ? "QQ 私聊" : "网页对话") +
-            " · " + memory.kind + " · 重要度 " + memory.importance;
+            platformLabel +
+            " · " + memory.kind +
+            " · 重要度 " + memory.importance +
+            " · 置信度 " + (memory.confidence || 5) +
+            (memory.source === "consolidation" ? " · 空闲整理" : "");
           copy.append(text, meta);
           var remove = document.createElement("button");
           remove.type = "button";
@@ -232,6 +247,52 @@
           memoryList.innerHTML = '<div class="agent-memory-item"><p>还没有长期记忆。</p></div>';
         }
         refreshIcons();
+      });
+  }
+
+  function loadGroupMembers() {
+    return fetch("/api/agent/web/group-members", {
+      credentials: "same-origin",
+      cache: "no-store",
+    })
+      .then(function (response) {
+        return response.json().then(function (data) {
+          if (!response.ok) throw new Error(data.error || "群友档案加载失败");
+          return data;
+        });
+      })
+      .then(function (data) {
+        var members = data.members || [];
+        groupMemberList.innerHTML = "";
+        document.getElementById("agentGroupMemberCount").textContent =
+          members.length + " 人";
+        members.forEach(function (member) {
+          var item = document.createElement("div");
+          item.className = "agent-memory-item";
+          var copy = document.createElement("div");
+          var name = document.createElement("p");
+          name.textContent = member.display_name || "未命名群友";
+          var meta = document.createElement("small");
+          var bound = member.user_id
+            ? "Error酱 #" + member.user_id
+            : "未绑定";
+          var memberTail = String(member.member_id || "").slice(-8);
+          meta.textContent =
+            bound +
+            " · " + Number(member.message_count || 0) + " 次发言" +
+            " · " + memberTail +
+            " · " + timelineDate(member.last_seen);
+          copy.append(name, meta);
+          item.appendChild(copy);
+          groupMemberList.appendChild(item);
+        });
+        if (!members.length) {
+          groupMemberList.innerHTML =
+            '<div class="agent-memory-item"><p>还没有群友主动 @ 过折兮颜。</p></div>';
+        }
+      })
+      .catch(function (error) {
+        settingsStatus.textContent = error.message;
       });
   }
 
@@ -417,6 +478,7 @@
     settingsDialog.showModal();
     loadSettings();
     loadMemories("");
+    loadGroupMembers();
     loadTimeline();
     loadStickers();
     refreshIcons();
@@ -426,6 +488,8 @@
     settingsStatus.textContent = "正在保存";
     var values = {
       memory_enabled: document.getElementById("settingMemoryEnabled").checked,
+      memory_consolidation_enabled: document.getElementById("settingMemoryConsolidationEnabled").checked,
+      memory_consolidation_time: document.getElementById("settingMemoryConsolidationTime").value,
       proactive_enabled: document.getElementById("settingProactiveEnabled").checked,
       sticker_enabled: document.getElementById("settingStickerEnabled").checked,
       proactive_max_per_day: Number(document.getElementById("settingProactiveMax").value) || 2,

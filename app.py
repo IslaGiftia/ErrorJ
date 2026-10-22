@@ -9897,6 +9897,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_agent_web_settings()
             elif path == "/api/agent/web/memories":
                 self.api_agent_web_memories(query)
+            elif path == "/api/agent/web/group-members":
+                self.api_agent_web_group_members(query)
             elif path == "/api/agent/web/timeline":
                 self.api_agent_web_timeline(query)
             elif path == "/api/agent/web/stickers":
@@ -16799,6 +16801,20 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 reverse=True,
             )
             data["memories"] = memories
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_group_members(self, query):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以查看群友档案。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/group-members",
+                timeout=10,
+            )
         except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
             api_error(self, 502, str(exc)[:200])
             return
