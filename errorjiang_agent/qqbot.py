@@ -463,14 +463,13 @@ class QQBotClient:
             headers=self._auth_headers(),
         )
 
-    def send_file_from_url(
+    def upload_file_from_url(
         self,
         message_type: str,
         chat_id: str,
-        message_id: str,
         filename: str,
         url: str,
-    ) -> None:
+    ) -> str:
         target = "groups" if message_type == "group" else "users"
         payload = {
             "file_type": 4,
@@ -498,6 +497,23 @@ class QQBotClient:
         file_info = str(upload.get("file_info") or "").strip()
         if not file_info:
             raise AgentError("QQBot 没有返回文件 file_info。")
+        return file_info
+
+    def send_file_from_url(
+        self,
+        message_type: str,
+        chat_id: str,
+        message_id: str,
+        filename: str,
+        url: str,
+    ) -> None:
+        file_info = self.upload_file_from_url(
+            message_type,
+            chat_id,
+            filename,
+            url,
+        )
+        target = "groups" if message_type == "group" else "users"
         sequence = self._next_sequence(message_id)
         self._http_json(
             f"{API_BASE}/v2/{target}/{quote(str(chat_id))}/messages",
