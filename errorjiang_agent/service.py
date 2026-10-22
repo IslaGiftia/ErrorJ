@@ -34,6 +34,10 @@ BIND_USER_RE = re.compile(r"^绑定用户\s+(\d{5,12})\s+(.+)$")
 UNBIND_USER_RE = re.compile(r"^解绑用户\s+(\d{5,12})$")
 BIND_USER_ANY_RE = re.compile(r"^绑定用户\s+(\S{5,128})\s+(.+)$")
 UNBIND_USER_ANY_RE = re.compile(r"^解绑用户\s+(\S{5,128})$")
+CREATE_IDENTITY_BIND_CODE_RE = re.compile(
+    r"^(?:生成绑定码|创建绑定码|绑定码)\s+(\d+)$"
+)
+REDEEM_IDENTITY_BIND_CODE_RE = re.compile(r"^绑定账号\s+(\d{6})$")
 MAX_WEBHOOK_BYTES = 8 * 1024 * 1024
 PROACTIVE_GREETING_WINDOW_MINUTES = 25
 PROACTIVE_MIN_GAP_SECONDS = 90 * 60
@@ -948,6 +952,28 @@ class AgentService:
                 return
         if event.message_type == "group" and not event.to_me:
             return
+        redeem_match = REDEEM_IDENTITY_BIND_CODE_RE.fullmatch(
+            event.text.strip()
+        )
+        if redeem_match:
+            target_user_id = self.store.consume_identity_bind_code(
+                platform,
+                redeem_match.group(1),
+                str(event.user_id),
+            )
+            if target_user_id is None:
+                self.send_reply(event, "绑定码无效、已使用或已经过期")
+                return
+            self.store.bind_user(
+                platform,
+                str(event.user_id),
+                target_user_id,
+            )
+            self.send_reply(
+                event,
+                f"绑定完成，当前账号已关联到用户 #{target_user_id}",
+            )
+            return
         if (
             platform == "qqbot"
             and event.message_type == "private"
@@ -980,6 +1006,24 @@ class AgentService:
             platform, str(event.user_id)
         )
         if is_admin:
+            create_bind_code_match = CREATE_IDENTITY_BIND_CODE_RE.fullmatch(
+                event.text.strip()
+            )
+            if create_bind_code_match:
+                if platform != "qqbot":
+                    self.send_reply(event, "绑定码仅用于官方 QQ 机器人")
+                    return
+                target_user_id = int(create_bind_code_match.group(1))
+                code, expires_at = self.store.create_identity_bind_code(
+                    platform,
+                    target_user_id,
+                )
+                self.send_reply(
+                    event,
+                    f"绑定码 {code}，10 分钟内有效。"
+                    f"请让朋友在群里 @折兮颜 发送：绑定账号 {code}",
+                )
+                return
             bind_user_match = (
                 BIND_USER_ANY_RE
                 if platform == "qqbot"

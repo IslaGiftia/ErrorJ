@@ -342,6 +342,28 @@ class AgentStoreTests(unittest.TestCase):
         )
         self.assertTrue(config.qqbot_auto_bind_first_admin)
 
+    def test_qqbot_identity_bind_code_is_one_time(self):
+        code, expires_at = self.store.create_identity_bind_code(
+            "qqbot",
+            12,
+        )
+        self.assertGreater(expires_at, int(time.time()))
+        self.assertEqual(
+            self.store.consume_identity_bind_code(
+                "qqbot",
+                code,
+                "group-member-openid",
+            ),
+            12,
+        )
+        self.assertIsNone(
+            self.store.consume_identity_bind_code(
+                "qqbot",
+                code,
+                "group-member-openid",
+            )
+        )
+
     def test_due_timeline_event_is_the_first_proactive_topic(self):
         now = datetime(2026, 10, 20, 9, 10)
         candidates = AgentService.proactive_candidates(

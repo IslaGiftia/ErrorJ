@@ -57,6 +57,16 @@ class AgentStore:
                     used_at INTEGER
                 );
 
+                CREATE TABLE IF NOT EXISTS identity_bind_codes (
+                    code TEXT PRIMARY KEY,
+                    platform TEXT NOT NULL,
+                    target_user_id INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    used_at INTEGER,
+                    used_openid TEXT
+                );
+
                 CREATE TABLE IF NOT EXISTS seen_events (
                     event_key TEXT PRIMARY KEY,
                     seen_at INTEGER NOT NULL
@@ -805,6 +815,67 @@ class AgentStore:
                 except sqlite3.IntegrityError:
                     continue
         raise RuntimeError("无法生成审核确认码，请稍后重试。")
+
+    def create_identity_bind_code(
+        self,
+        platform: str,
+        target_user_id: int,
+        ttl_seconds: int = 600,
+    ) -> tuple[str, int]:
+        now = int(time.time())
+        expires_at = now + max(60, min(int(ttl_seconds), 3600))
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                "DELETE FROM identity_bind_codes "
+                "WHERE expires_at < ? OR used_at IS NOT NULL",
+                (now,),
+            )
+            for _ in range(12):
+                code = f"{secrets.randbelow(1_000_000):06d}"
+                try:
+                    conn.execute(
+                        """INSERT INTO identity_bind_codes
+                           (code, platform, target_user_id, created_at,
+                            expires_at, used_at, used_openid)
+                           VALUES (?, ?, ?, ?, ?, NULL, NULL)""",
+                        (
+                            code,
+                            platform,
+                            int(target_user_id),
+                            now,
+                            expires_at,
+                        ),
+                    )
+                    return code, expires_at
+                except sqlite3.IntegrityError:
+                    continue
+        raise RuntimeError("无法生成绑定码，请稍后重试。")
+
+    def consume_identity_bind_code(
+        self,
+        platform: str,
+        code: str,
+        openid: str,
+    ) -> int | None:
+        now = int(time.time())
+        with self._lock, self._connection() as conn:
+            row = conn.execute(
+                """SELECT target_user_id FROM identity_bind_codes
+                   WHERE code = ? AND platform = ? AND used_at IS NULL
+                     AND expires_at >= ?""",
+                (str(code), platform, now),
+            ).fetchone()
+            if not row:
+                return None
+            cursor = conn.execute(
+                """UPDATE identity_bind_codes
+                   SET used_at = ?, used_openid = ?
+                   WHERE code = ? AND platform = ? AND used_at IS NULL""",
+                (now, openid, str(code), platform),
+            )
+            if cursor.rowcount <= 0:
+                return None
+            return int(row["target_user_id"])
 
     def consume_pending(
         self, platform: str, owner_id: str, chat_id: str, code: str
