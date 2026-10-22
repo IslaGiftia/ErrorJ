@@ -6437,6 +6437,37 @@ QQBot    -> Gateway READY，机器人 QQ 4015320753
             空闲整理开关与成员编辑表单；无横向越界
 ```
 
+部署步骤：
+```text
+本地：python -m py_compile app.py；python -m unittest discover -s tests -q -> 199 passed；
+      node --check static/agent.js / books.js / messages.js / moments.js / site/activity.js；
+      python -m json.tool config/changelog-seed.json；git diff --check 干净
+提交：功能提交 4b2d965..e2461c6（QQBot、群聊大脑、Memory 2.0、表情和内容工具箱）
+      发布说明 1f8ed11 docs: release QQBot agent upgrade
+      （发布记录提交随后同步，最终 server HEAD 与 origin/main 一致）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 63336606b1454bebc17274e1f468744213292137dc1c52d9d27c7daf653d2771
+备份：/data/errorjiang-backup/20261022-220413/
+      （inventory.db、changelog-seed.json、auth.json；无 WAL / SHM）
+服务器：systemctl stop errorjiang -> cp 备份 -> git pull --ff-only -> 1f8ed11
+      app.init_db；seed 安装；import_changelog_moments.py --date 2026-10-22 --force
+      -> 新增 1 条、覆盖 0 条、跳过 0 条
+      systemctl start errorjiang；systemctl restart errorjiang-agent
+```
+
+最终验证：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 公网 /api/health = {"ok": true}；Agent 172.17.0.1:8011/health = {"ok": true}
+QQBot    -> Gateway READY，机器人 QQ 4015320753
+更新日志  -> 2026-10-22 22:02:31
+             「折兮颜迁移官方 QQBot 并升级群聊记忆与内容工具箱」
+             （id 741，kind = log）
+内容工具  -> 线上音乐 / 书籍 / 网页各返回 5 条；歌曲签名 URL 200 可下载
+大文件    -> 36MB 歌曲完成 4 个分片上传并返回 file_info
+静态文件  -> static/references.html 线上 / 本地 SHA256 = E33CF789186AEC89F3BF5CEE81FA38B97550DE0B0315C62ADAE95965D5DD2AFD
+```
+
 ## 146. 2026-10-20 23:45:55 折兮颜加入事件时间线与自然主动话题
 
 来源：站长希望折兮颜能记住聊天里出现的约定与事件，并在更合适的时机自然地主动开启话题，而不是只在固定早晚问候。
