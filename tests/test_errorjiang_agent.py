@@ -617,6 +617,71 @@ class AgentStoreTests(unittest.TestCase):
         self.assertIn("file_data", calls[0][1])
         self.assertEqual(calls[1][1]["msg_type"], 7)
 
+    def test_qqbot_large_file_uses_chunked_upload(self):
+        client = QQBotClient("app", "secret", "bot", lambda event: None)
+        client._auth_headers = lambda: {"Authorization": "test"}
+        calls = []
+        raw = b"x" * (4 * 1024 * 1024)
+
+        def fake_http(url, payload=None, headers=None):
+            calls.append((url, payload, headers))
+            if url.endswith("/upload_prepare"):
+                return {
+                    "upload_id": "upload-1",
+                    "block_size": str(len(raw)),
+                    "parts": [
+                        {
+                            "index": 0,
+                            "presigned_url": "https://upload.example/part",
+                            "block_size": str(len(raw)),
+                        }
+                    ],
+                }
+            if url.endswith("/upload_part_finish"):
+                return {}
+            return {"file_info": "file-info"}
+
+        class FakeDownload:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self, limit):
+                return raw
+
+        class FakePut:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        client._http_json = fake_http
+        with patch(
+            "errorjiang_agent.qqbot.urlopen",
+            side_effect=[FakeDownload(), FakePut()],
+        ):
+            file_info = client.upload_file_from_url(
+                "group",
+                "group-openid",
+                "large.mp3",
+                "https://zhexiyan.cc/signed",
+            )
+        self.assertEqual(file_info, "file-info")
+        self.assertTrue(
+            any(url.endswith("/upload_prepare") for url, _, _ in calls)
+        )
+        merged = [
+            payload
+            for url, payload, _ in calls
+            if url.endswith("/files")
+        ][0]
+        self.assertEqual(merged["upload_id"], "upload-1")
+
     def test_content_send_callback_records_selected_file(self):
         class ContentClient:
             def __init__(self, *args):

@@ -471,30 +471,140 @@ class QQBotClient:
         url: str,
     ) -> str:
         target = "groups" if message_type == "group" else "users"
-        payload = {
-            "file_type": 4,
-            "file_name": str(filename or "file.bin")[:120],
-            "srv_send_msg": False,
-        }
+        raw = b""
         try:
             request = Request(
                 str(url),
                 headers={"User-Agent": "ErrorJ-QQBot-File/1.0"},
             )
             with urlopen(request, timeout=30) as response:
-                raw = response.read(5 * 1024 * 1024 + 1)
+                raw = response.read(200 * 1024 * 1024 + 1)
         except Exception:
             raw = b""
-        if raw and len(raw) <= 5 * 1024 * 1024:
-            payload["file_data"] = base64.b64encode(raw).decode("ascii")
-        else:
-            payload["url"] = str(url)
+        if raw:
+            return self.upload_file_bytes(
+                message_type,
+                chat_id,
+                filename,
+                raw,
+                file_type=4,
+            )
+        payload = {
+            "file_type": 4,
+            "file_name": str(filename or "file.bin")[:120],
+            "url": str(url),
+            "srv_send_msg": False,
+        }
         upload = self._http_json(
             f"{API_BASE}/v2/{target}/{quote(str(chat_id))}/files",
             payload,
             headers=self._auth_headers(),
         )
         file_info = str(upload.get("file_info") or "").strip()
+        if not file_info:
+            raise AgentError("QQBot 没有返回文件 file_info。")
+        return file_info
+
+    def upload_file_bytes(
+        self,
+        message_type: str,
+        chat_id: str,
+        filename: str,
+        raw: bytes,
+        file_type: int = 4,
+    ) -> str:
+        if not raw:
+            raise AgentError("上传文件为空。")
+        if len(raw) > 200 * 1024 * 1024:
+            raise AgentError("QQBot 文件不能超过 200MB。")
+        target = "groups" if message_type == "group" else "users"
+        direct_payload = base64.b64encode(raw)
+        if len(direct_payload) <= 5 * 1024 * 1024:
+            upload = self._http_json(
+                f"{API_BASE}/v2/{target}/{quote(str(chat_id))}/files",
+                {
+                    "file_type": file_type,
+                    "file_name": str(filename or "file.bin")[:120],
+                    "file_data": direct_payload.decode("ascii"),
+                    "srv_send_msg": False,
+                },
+                headers=self._auth_headers(),
+            )
+            file_info = str(upload.get("file_info") or "").strip()
+            if not file_info:
+                raise AgentError("QQBot 没有返回文件 file_info。")
+            return file_info
+
+        md5 = hashlib.md5(raw).hexdigest()
+        sha1 = hashlib.sha1(raw).hexdigest()
+        md5_10m = hashlib.md5(raw[:10002432]).hexdigest()
+        prepared = self._http_json(
+            f"{API_BASE}/v2/{target}/{quote(str(chat_id))}/upload_prepare",
+            {
+                "file_type": file_type,
+                "file_size": str(len(raw)),
+                "file_name": str(filename or "file.bin")[:120],
+                "md5": md5,
+                "sha1": sha1,
+                "md5_10m": md5_10m,
+            },
+            headers=self._auth_headers(),
+        )
+        upload_id = str(prepared.get("upload_id") or "").strip()
+        if not upload_id:
+            raise AgentError("QQBot 没有返回 upload_id。")
+        block_size = int(prepared.get("block_size") or 5 * 1024 * 1024)
+        parts = prepared.get("parts") or []
+        if not parts:
+            raise AgentError("QQBot 没有返回上传分片。")
+        for part in sorted(parts, key=lambda item: int(item.get("index") or 0)):
+            index = int(part.get("index") or 0)
+            start = index * block_size
+            size = int(part.get("block_size") or block_size)
+            chunk = raw[start : start + size]
+            if not chunk:
+                raise AgentError("QQBot 分片数据为空。")
+            request = Request(
+                str(part.get("presigned_url") or ""),
+                data=chunk,
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "Content-Length": str(len(chunk)),
+                    "User-Agent": "ErrorJ-QQBot/1.0",
+                },
+                method="PUT",
+            )
+            try:
+                with urlopen(request, timeout=90) as response:
+                    if not 200 <= response.status < 300:
+                        raise AgentError(
+                            f"QQBot 分片上传失败：HTTP {response.status}"
+                        )
+            except HTTPError as exc:
+                raise AgentError(
+                    f"QQBot 分片上传失败：HTTP {exc.code}"
+                ) from exc
+            self._http_json(
+                f"{API_BASE}/v2/{target}/{quote(str(chat_id))}/upload_part_finish",
+                {
+                    "upload_id": upload_id,
+                    "part_index": index,
+                    "block_size": str(len(chunk)),
+                    "md5": hashlib.md5(chunk).hexdigest(),
+                },
+                headers=self._auth_headers(),
+            )
+        merged = self._http_json(
+            f"{API_BASE}/v2/{target}/{quote(str(chat_id))}/files",
+            {
+                "file_type": file_type,
+                "file_name": str(filename or "file.bin")[:120],
+                "upload_id": upload_id,
+                "srv_send_msg": False,
+            },
+            headers=self._auth_headers(),
+        )
+        file_info = str(merged.get("file_info") or "").strip()
         if not file_info:
             raise AgentError("QQBot 没有返回文件 file_info。")
         return file_info
