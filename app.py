@@ -8304,6 +8304,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
             else:
                 api_error(self, 403, "当前账号没有访问权限。")
             return False
+        if path.startswith("/api/agent/media/"):
+            return True
         if not AUTH_STATE.get("enabled"):
             return True
         if identity and identity.get("kind") in ("owner", "admin"):

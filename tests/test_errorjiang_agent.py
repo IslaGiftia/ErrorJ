@@ -1254,6 +1254,17 @@ class AgentInternalAuthTests(unittest.TestCase):
                 handler.guard_request_inner("/api/agent/web/status", "GET")
             )
 
+    def test_signed_agent_media_can_be_fetched_without_session(self):
+        handler = self.make_handler({})
+        handler.session_identity = lambda: None
+        with patch.dict(app.AUTH_STATE, {"enabled": True}, clear=False):
+            self.assertTrue(
+                handler.guard_request_inner(
+                    "/api/agent/media/book/3",
+                    "GET",
+                )
+            )
+
     def test_agent_content_search_returns_music_metadata(self):
         handler = self.make_handler({})
         captured = {}
