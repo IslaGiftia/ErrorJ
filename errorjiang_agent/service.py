@@ -150,6 +150,10 @@ class AgentService:
             return {"status": "disabled"}
         emotion = str(arguments.get("emotion") or "").strip()[:30]
         stickers = self.store.list_stickers(owner_id, 200)
+        if tool_context.get("platform") == "qqbot":
+            stickers = [
+                item for item in stickers if item.get("kind") == "image"
+            ]
         matches = [
             item
             for item in stickers
@@ -318,6 +322,61 @@ class AgentService:
             if summary:
                 tags += " " + summary[:100]
             self.store.add_sticker(str(event.user_id), "image", filename, tags)
+            saved += 1
+        return saved
+
+    @staticmethod
+    def sticker_extension_from_bytes(raw: bytes) -> str | None:
+        if raw[:6] in (b"GIF87a", b"GIF89a"):
+            return ".gif"
+        if raw[:8] == b"\x89PNG\r\n\x1a\n":
+            return ".png"
+        if raw[:3] == b"\xff\xd8\xff":
+            return ".jpg"
+        if raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+            return ".webp"
+        if raw[:2] == b"BM":
+            return ".bmp"
+        return None
+
+    def save_qqbot_attachments(self, event: MessageEvent) -> int:
+        saved = 0
+        for attachment in event.attachments[:8]:
+            content_type = str(
+                attachment.get("content_type") or ""
+            ).lower()
+            if not content_type.startswith("image/"):
+                continue
+            source = str(attachment.get("url") or "").strip()
+            if not source.startswith(("http://", "https://")):
+                continue
+            try:
+                request = Request(
+                    source,
+                    headers={"User-Agent": "ErrorJ-QQBot-Sticker/1.0"},
+                )
+                with urlopen(request, timeout=20) as response:
+                    raw = response.read(5 * 1024 * 1024 + 1)
+            except Exception:
+                continue
+            if not raw or len(raw) > 5 * 1024 * 1024:
+                continue
+            extension = self.sticker_extension_from_bytes(raw)
+            if not extension:
+                continue
+            digest = hashlib.sha256(raw).hexdigest()[:24]
+            filename = digest + extension
+            (self.sticker_dir / filename).write_bytes(raw)
+            tags = "QQ图片"
+            summary = str(attachment.get("filename") or "").strip()
+            if summary:
+                tags += " " + summary[:100]
+            self.store.add_sticker(
+                str(event.user_id),
+                "image",
+                filename,
+                tags,
+            )
             saved += 1
         return saved
 
@@ -868,7 +927,11 @@ class AgentService:
                 chunk = self.humanize_text(chunk)
             if len(chunk) > 3500:
                 chunk = chunk[:3500] + "\n（内容较长，已截断）"
-            segment = self.sticker_segment(sticker) if index == len(chunks) - 1 else None
+            segment = (
+                self.sticker_segment(sticker)
+                if event.platform == "qq" and index == len(chunks) - 1
+                else None
+            )
             message = chunk
             if segment:
                 message = [
@@ -890,6 +953,23 @@ class AgentService:
                 self.onebot.send_private(event.user_id, message)
             if index < len(chunks) - 1:
                 time.sleep(random.uniform(0.35, 0.8))
+        if (
+            event.platform == "qqbot"
+            and self.qqbot
+            and sticker
+            and sticker.get("kind") == "image"
+        ):
+            filename = Path(str(sticker.get("ref") or "")).name
+            target = self.sticker_dir / filename
+            if filename and target.is_file():
+                time.sleep(random.uniform(0.35, 0.7))
+                self.qqbot.send_image(
+                    event.message_type,
+                    str(event.chat_id),
+                    str(event.message_id),
+                    filename,
+                    target.read_bytes(),
+                )
 
     def confirm_pending(self, event: MessageEvent, code: str) -> str | None:
         action = self.store.consume_pending(
@@ -1129,6 +1209,8 @@ class AgentService:
             return
         if platform == "qq" and payload:
             saved_stickers = self.save_message_stickers(event, payload)
+        elif platform == "qqbot" and event.attachments:
+            saved_stickers = self.save_qqbot_attachments(event)
         chat_lock = self._chat_locks[f"{platform}:{event.owner_id}"]
         with chat_lock:
             self._process_event(
@@ -1205,7 +1287,8 @@ class AgentService:
             "is_admin": "1" if is_admin else "0",
             "sticker_enabled": (
                 "1"
-                if platform == "qq" and settings.get("sticker_enabled", True)
+                if platform in ("qq", "qqbot")
+                and settings.get("sticker_enabled", True)
                 else "0"
             ),
         }

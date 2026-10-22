@@ -19,6 +19,7 @@ class MessageEvent:
     text: str
     to_me: bool
     platform: str = "qq"
+    attachments: tuple[dict[str, Any], ...] = ()
 
     @property
     def owner_id(self) -> str:

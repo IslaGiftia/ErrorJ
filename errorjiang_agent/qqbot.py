@@ -73,6 +73,16 @@ def parse_qqbot_event(
         message_type = "private"
     if not user_id or not chat_id:
         return None
+    attachments = []
+    for item in payload.get("attachments") or []:
+        if isinstance(item, dict):
+            attachments.append(dict(item))
+    for element in payload.get("msg_elements") or []:
+        if not isinstance(element, dict):
+            continue
+        for item in element.get("attachments") or []:
+            if isinstance(item, dict):
+                attachments.append(dict(item))
     return MessageEvent(
         self_id=self_id,
         user_id=user_id,
@@ -82,6 +92,7 @@ def parse_qqbot_event(
         text=text,
         to_me=True,
         platform="qqbot",
+        attachments=tuple(attachments),
     )
 
 
@@ -368,6 +379,15 @@ class QQBotClient:
                 pass
             sock.close()
 
+    def _next_sequence(self, message_id: str) -> int:
+        with self._reply_lock:
+            sequence = self._reply_sequences.get(message_id, 0) + 1
+            self._reply_sequences[message_id] = sequence
+            if len(self._reply_sequences) > 2000:
+                self._reply_sequences.clear()
+                self._reply_sequences[message_id] = sequence
+            return sequence
+
     def send_message(
         self,
         message_type: str,
@@ -376,17 +396,66 @@ class QQBotClient:
         content: str,
     ) -> None:
         target = "groups" if message_type == "group" else "users"
-        with self._reply_lock:
-            sequence = self._reply_sequences.get(message_id, 0) + 1
-            self._reply_sequences[message_id] = sequence
-            if len(self._reply_sequences) > 2000:
-                self._reply_sequences.clear()
-                self._reply_sequences[message_id] = sequence
+        sequence = self._next_sequence(message_id)
         self._http_json(
             f"{API_BASE}/v2/{target}/{quote(str(chat_id))}/messages",
             {
                 "content": str(content or "")[:1800],
                 "msg_type": 0,
+                "msg_id": str(message_id),
+                "msg_seq": sequence,
+            },
+            headers=self._auth_headers(),
+        )
+
+    def upload_image(
+        self,
+        message_type: str,
+        chat_id: str,
+        filename: str,
+        data: bytes,
+    ) -> str:
+        if not data:
+            raise AgentError("表情图片为空。")
+        if len(data) > 5 * 1024 * 1024:
+            raise AgentError("QQBot 直接上传图片不能超过 5MB。")
+        target = "groups" if message_type == "group" else "users"
+        response = self._http_json(
+            f"{API_BASE}/v2/{target}/{quote(str(chat_id))}/files",
+            {
+                "file_type": 1,
+                "file_name": str(filename or "sticker.png")[:120],
+                "file_data": base64.b64encode(data).decode("ascii"),
+                "srv_send_msg": False,
+            },
+            headers=self._auth_headers(),
+        )
+        file_info = str(response.get("file_info") or "").strip()
+        if not file_info:
+            raise AgentError("QQBot 没有返回图片 file_info。")
+        return file_info
+
+    def send_image(
+        self,
+        message_type: str,
+        chat_id: str,
+        message_id: str,
+        filename: str,
+        data: bytes,
+    ) -> None:
+        file_info = self.upload_image(
+            message_type,
+            chat_id,
+            filename,
+            data,
+        )
+        target = "groups" if message_type == "group" else "users"
+        sequence = self._next_sequence(message_id)
+        self._http_json(
+            f"{API_BASE}/v2/{target}/{quote(str(chat_id))}/messages",
+            {
+                "msg_type": 7,
+                "media": {"file_info": file_info},
                 "msg_id": str(message_id),
                 "msg_seq": sequence,
             },

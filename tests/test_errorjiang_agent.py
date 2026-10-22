@@ -16,7 +16,7 @@ from errorjiang_agent.brain import AgentBrain
 from errorjiang_agent.config import Config
 from errorjiang_agent.onebot import MessageEvent, event_key, parse_message_event
 from errorjiang_agent.onebot_ws import _masked_frame, _read_frame
-from errorjiang_agent.qqbot import parse_qqbot_event
+from errorjiang_agent.qqbot import QQBotClient, parse_qqbot_event
 from errorjiang_agent.service import AgentHttpServer, AgentService
 from errorjiang_agent.store import AgentStore
 
@@ -314,6 +314,79 @@ class AgentStoreTests(unittest.TestCase):
             ],
         )
 
+    def test_qqbot_image_upload_uses_file_info_and_media_message(self):
+        client = QQBotClient("app", "secret", "bot", lambda event: None)
+        client._auth_headers = lambda: {"Authorization": "test"}
+        calls = []
+
+        def fake_http(url, payload=None, headers=None):
+            calls.append((url, payload, headers))
+            if url.endswith("/files"):
+                return {"file_info": "file-info"}
+            return {"id": "sent"}
+
+        client._http_json = fake_http
+        client.send_image(
+            "group",
+            "group-openid",
+            "message-id",
+            "sticker.png",
+            b"png-data",
+        )
+        self.assertTrue(calls[0][0].endswith("/groups/group-openid/files"))
+        self.assertEqual(calls[0][1]["file_type"], 1)
+        self.assertEqual(calls[0][1]["file_name"], "sticker.png")
+        self.assertEqual(calls[1][1]["msg_type"], 7)
+        self.assertEqual(
+            calls[1][1]["media"],
+            {"file_info": "file-info"},
+        )
+
+    def test_qqbot_image_attachment_is_saved_as_sticker(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self, limit):
+                return b"\x89PNG\r\n\x1a\n" + b"sticker-data"
+
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.sticker_dir = Path(self.temp.name) / "stickers"
+        service.sticker_dir.mkdir()
+        event = MessageEvent(
+            self_id="bot",
+            user_id="member-openid",
+            message_type="group",
+            chat_id="group-openid",
+            message_id="message-id",
+            text="",
+            to_me=True,
+            platform="qqbot",
+            attachments=(
+                {
+                    "content_type": "image/png",
+                    "filename": "sticker.png",
+                    "url": "https://example.com/sticker.png",
+                },
+            ),
+        )
+        with patch(
+            "errorjiang_agent.service.urlopen",
+            return_value=FakeResponse(),
+        ):
+            saved = service.save_qqbot_attachments(event)
+        self.assertEqual(saved, 1)
+        stickers = self.store.list_stickers("member-openid")
+        self.assertEqual(len(stickers), 1)
+        self.assertEqual(stickers[0]["kind"], "image")
+        self.assertTrue(
+            (service.sticker_dir / stickers[0]["ref"]).is_file()
+        )
+
     def test_qqbot_config_is_loaded_when_enabled(self):
         with patch.dict(
             os.environ,
@@ -492,6 +565,12 @@ class OneBotParserTests(unittest.TestCase):
                     "member_openid": "member-openid",
                     "username": "星星",
                 },
+                "attachments": [
+                    {
+                        "content_type": "image/png",
+                        "url": "https://example.com/sticker.png",
+                    }
+                ],
             },
             "bot-qq",
         )
@@ -501,6 +580,10 @@ class OneBotParserTests(unittest.TestCase):
         self.assertEqual(event.user_id, "member-openid")
         self.assertEqual(event.chat_id, "group-openid")
         self.assertEqual(event.message_id, "message-1")
+        self.assertEqual(
+            event.attachments[0]["content_type"],
+            "image/png",
+        )
 
     def test_qqbot_c2c_event_maps_user_openid(self):
         event = parse_qqbot_event(
