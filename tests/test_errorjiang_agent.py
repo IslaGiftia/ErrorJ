@@ -719,12 +719,23 @@ class AgentInternalAuthTests(unittest.TestCase):
         self.assertIsNone(app.required_permission("/api/agent/web/chat", "POST"))
 
     def test_binding_command_accepts_username(self):
-        from errorjiang_agent.service import BIND_USER_RE
+        from errorjiang_agent.service import (
+            BIND_USER_RE,
+            REDEEM_IDENTITY_BIND_CODE_RE,
+        )
 
         match = BIND_USER_RE.fullmatch("绑定用户 123456789 星星")
         self.assertIsNotNone(match)
         self.assertEqual(match.group(1), "123456789")
         self.assertEqual(match.group(2).strip(), "星星")
+        for text in (
+            "绑定账号 748876",
+            "绑定码：748876",
+            "绑定 748876",
+        ):
+            match = REDEEM_IDENTITY_BIND_CODE_RE.fullmatch(text)
+            self.assertIsNotNone(match)
+            self.assertEqual(match.group(1), "748876")
 
     def test_agent_web_api_does_not_require_internal_token(self):
         handler = self.make_handler({})

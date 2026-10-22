@@ -37,7 +37,9 @@ UNBIND_USER_ANY_RE = re.compile(r"^解绑用户\s+(\S{5,128})$")
 CREATE_IDENTITY_BIND_CODE_RE = re.compile(
     r"^(?:生成绑定码|创建绑定码|绑定码)\s+(\d+)$"
 )
-REDEEM_IDENTITY_BIND_CODE_RE = re.compile(r"^绑定账号\s+(\d{6})$")
+REDEEM_IDENTITY_BIND_CODE_RE = re.compile(
+    r"^(?:绑定账号|绑定码|绑定)\s*[:：]?\s*(\d{6})$"
+)
 MAX_WEBHOOK_BYTES = 8 * 1024 * 1024
 PROACTIVE_GREETING_WINDOW_MINUTES = 25
 PROACTIVE_MIN_GAP_SECONDS = 90 * 60
@@ -924,6 +926,11 @@ class AgentService:
             f"user={event.user_id} chat={event.chat_id}",
             flush=True,
         )
+        if "绑定" in event.text:
+            print(
+                f"[QQBot] 绑定尝试 text={event.text[:120]!r}",
+                flush=True,
+            )
         future = self.executor.submit(self._handle_message_event, event, None, 0)
         future.add_done_callback(self._event_done)
 
