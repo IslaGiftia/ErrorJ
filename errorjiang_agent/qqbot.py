@@ -472,14 +472,27 @@ class QQBotClient:
         url: str,
     ) -> None:
         target = "groups" if message_type == "group" else "users"
+        payload = {
+            "file_type": 4,
+            "file_name": str(filename or "file.bin")[:120],
+            "srv_send_msg": False,
+        }
+        try:
+            request = Request(
+                str(url),
+                headers={"User-Agent": "ErrorJ-QQBot-File/1.0"},
+            )
+            with urlopen(request, timeout=30) as response:
+                raw = response.read(5 * 1024 * 1024 + 1)
+        except Exception:
+            raw = b""
+        if raw and len(raw) <= 5 * 1024 * 1024:
+            payload["file_data"] = base64.b64encode(raw).decode("ascii")
+        else:
+            payload["url"] = str(url)
         upload = self._http_json(
             f"{API_BASE}/v2/{target}/{quote(str(chat_id))}/files",
-            {
-                "file_type": 4,
-                "file_name": str(filename or "file.bin")[:120],
-                "url": str(url),
-                "srv_send_msg": False,
-            },
+            payload,
             headers=self._auth_headers(),
         )
         file_info = str(upload.get("file_info") or "").strip()

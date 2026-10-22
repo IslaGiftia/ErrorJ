@@ -583,6 +583,16 @@ class AgentStoreTests(unittest.TestCase):
         client._auth_headers = lambda: {"Authorization": "test"}
         calls = []
 
+        class FakeDownload:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self, limit):
+                return b"book-data"
+
         def fake_http(url, payload=None, headers=None):
             calls.append((url, payload, headers))
             if url.endswith("/files"):
@@ -590,17 +600,21 @@ class AgentStoreTests(unittest.TestCase):
             return {"id": "sent"}
 
         client._http_json = fake_http
-        client.send_file_from_url(
-            "private",
-            "user-openid",
-            "message-id",
-            "book.epub",
-            "https://zhexiyan.cc/signed",
-        )
+        with patch(
+            "errorjiang_agent.qqbot.urlopen",
+            return_value=FakeDownload(),
+        ):
+            client.send_file_from_url(
+                "private",
+                "user-openid",
+                "message-id",
+                "book.epub",
+                "https://zhexiyan.cc/signed",
+            )
         self.assertTrue(calls[0][0].endswith("/users/user-openid/files"))
         self.assertEqual(calls[0][1]["file_type"], 4)
         self.assertEqual(calls[0][1]["file_name"], "book.epub")
-        self.assertEqual(calls[0][1]["url"], "https://zhexiyan.cc/signed")
+        self.assertIn("file_data", calls[0][1])
         self.assertEqual(calls[1][1]["msg_type"], 7)
 
     def test_content_send_callback_records_selected_file(self):
