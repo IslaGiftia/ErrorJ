@@ -96,6 +96,7 @@ class AgentService:
             self.prepare_review,
             self.prepare_sticker,
             self.prepare_reminder,
+            self.prepare_content_send,
             max_tool_rounds=config.max_tool_rounds,
         )
         self.rate_limiter = RateLimiter()
@@ -213,6 +214,30 @@ class AgentService:
             "due_at": due_at,
             "message": f"已安排在 {datetime.fromtimestamp(due_at):%H:%M} 提醒。",
         }
+
+    def prepare_content_send(
+        self,
+        arguments: dict[str, Any],
+        tool_context: dict[str, str] | None,
+    ) -> dict[str, Any]:
+        if not tool_context:
+            raise AgentError("内容发送上下文缺失。")
+        try:
+            target_user_id = int(tool_context.get("target_user_id") or 0)
+        except (TypeError, ValueError):
+            target_user_id = 0
+        client = ErrorJClient(
+            self.config.errorjiang_base_url,
+            self.config.errorjiang_token,
+            target_user_id,
+        )
+        result = client.tool("content.send", arguments)
+        if result.get("status") == "file":
+            tool_context["selected_content"] = json.dumps(
+                result,
+                ensure_ascii=False,
+            )
+        return result
 
     def _reminder_loop(self) -> None:
         while not self._reminder_stop.wait(10):
@@ -457,6 +482,44 @@ class AgentService:
             if int(sticker["id"]) == sticker_id:
                 return sticker
         return None
+
+    def send_selected_content(
+        self,
+        event: MessageEvent,
+        tool_context: dict[str, str] | None,
+    ) -> None:
+        if not tool_context or not tool_context.get("selected_content"):
+            return
+        try:
+            item = json.loads(tool_context["selected_content"])
+        except (TypeError, json.JSONDecodeError):
+            return
+        if not isinstance(item, dict) or item.get("status") != "file":
+            return
+        url = str(item.get("url") or "")
+        filename = str(item.get("file_name") or "file.bin")
+        if not url.startswith(("http://", "https://")):
+            return
+        time.sleep(random.uniform(0.35, 0.7))
+        if event.platform == "qqbot" and self.qqbot:
+            self.qqbot.send_file_from_url(
+                event.message_type,
+                str(event.chat_id),
+                str(event.message_id),
+                filename,
+                url,
+            )
+        elif event.platform == "qq":
+            message = [
+                {
+                    "type": "file",
+                    "data": {"file": url, "name": filename},
+                }
+            ]
+            if event.message_type == "group":
+                self.onebot.send_group(event.chat_id, message)
+            elif event.message_type == "private":
+                self.onebot.send_private(event.user_id, message)
 
     @staticmethod
     def sticker_segment(sticker: dict[str, Any] | None):
@@ -1625,6 +1688,7 @@ class AgentService:
             "chat_id": str(event.chat_id),
             "chat_type": event.message_type,
             "is_admin": "1" if is_admin else "0",
+            "target_user_id": str(target_user_id),
             "speaker_name": speaker_name,
             "tools_enabled": (
                 "0"
@@ -1652,6 +1716,7 @@ class AgentService:
             self.prepare_review,
             self.prepare_sticker,
             self.prepare_reminder,
+            self.prepare_content_send,
             max_tool_rounds=self.config.max_tool_rounds,
         )
         brain_text = (
@@ -1704,6 +1769,7 @@ class AgentService:
             sticker,
             bubbles=bubbles,
         )
+        self.send_selected_content(event, context)
         self.update_relationship_after_exchange(
             platform, str(event.user_id), text
         )
@@ -1780,6 +1846,7 @@ class AgentService:
             self.prepare_review,
             None,
             self.prepare_reminder,
+            self.prepare_content_send,
             max_tool_rounds=self.config.max_tool_rounds,
         )
         context = {
@@ -1787,6 +1854,7 @@ class AgentService:
             "owner_id": str(user_id),
             "chat_id": str(user_id),
             "is_admin": "1" if int(user_id) == self.config.admin_user_id else "0",
+            "target_user_id": str(user_id),
             "sticker_enabled": "0",
         }
         reply = brain.reply(
@@ -1795,6 +1863,21 @@ class AgentService:
             context,
             memories=memories,
         )
+        if context.get("selected_content"):
+            try:
+                selected = json.loads(context["selected_content"])
+            except (TypeError, json.JSONDecodeError):
+                selected = {}
+            if (
+                isinstance(selected, dict)
+                and selected.get("status") == "file"
+                and selected.get("url")
+            ):
+                reply = (
+                    reply.rstrip()
+                    + "\n下载文件："
+                    + str(selected["url"])
+                )
         bubbles = self.chat_bubbles(reply)
         reply = "\n".join(bubbles)
         self.store.add_message("web", owner, "assistant", reply)

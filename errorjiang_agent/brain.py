@@ -30,7 +30,9 @@ SYSTEM_PROMPT = """你是“折兮颜”，Error酱的私人 AI 伴侣与助手�
 14. 用户要求记录费用时调用 errorjiang_aa_expense_add；金额、付款意图、账目和分摊人不明确时先追问。
 15. 用户要求“十分钟后提醒我”等定时任务时调用 errorjiang_reminder_create。
 16. 闲聊像真人即时聊天：通常一到两句，简短自然，不用 Markdown 标题、粗体、客服腔，不空行。闲聊句末通常不加句号，问号和感叹号按语气保留，不要为了语法完整把短句写成书面句。只有查询结果需要结构化时才使用列表。
-17. 如果一句话里确实有多个自然反应或需要停顿，可以用单独一行 [[split]] 拆成最多三条短消息，由系统分条发送；普通回答保持一条，不要为了多发消息而刻意拆分。"""
+17. 如果一句话里确实有多个自然反应或需要停顿，可以用单独一行 [[split]] 拆成最多三条短消息，由系统分条发送；普通回答保持一条，不要为了多发消息而刻意拆分。
+18. 用户询问歌曲、电子书、推荐网页或站内资源时调用 errorjiang_content_search；网页链接可以直接在回复中给出。
+19. 用户要求发送本地歌曲或电子书文件时调用 errorjiang_content_send。工具返回 status=file 后，系统会发送文件，不要提前声称文件已发送。"""
 
 
 TOOLS = [
@@ -105,6 +107,40 @@ TOOLS = [
                     "limit": {"type": "integer", "minimum": 1, "maximum": 15},
                 },
                 "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "errorjiang_content_search",
+            "description": "搜索 Error酱的歌曲、电子书、推荐网页和站内资源。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": ["all", "music", "book", "web"],
+                    },
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 20},
+                },
+                "required": ["kind", "query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "errorjiang_content_send",
+            "description": "把库里的本地歌曲或电子书文件发送到当前聊天。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string", "enum": ["music", "book"]},
+                    "id": {"type": "integer"},
+                },
+                "required": ["kind", "id"],
             },
         },
     },
@@ -215,6 +251,7 @@ TOOLS = [
 TOOL_NAMES = {
     "errorjiang_inventory_search": "inventory.search",
     "errorjiang_bookmark_search": "bookmarks.search",
+    "errorjiang_content_search": "content.search",
     "errorjiang_note_search": "notes.search",
     "errorjiang_note_read": "notes.read",
     "errorjiang_reviews_list": "reviews.list",
@@ -232,6 +269,7 @@ class AgentBrain:
         prepare_review,
         prepare_sticker=None,
         prepare_reminder=None,
+        prepare_content_send=None,
         max_tool_rounds: int = 4,
     ):
         self.deepseek = deepseek
@@ -239,6 +277,7 @@ class AgentBrain:
         self.prepare_review = prepare_review
         self.prepare_sticker = prepare_sticker
         self.prepare_reminder = prepare_reminder
+        self.prepare_content_send = prepare_content_send
         self.max_tool_rounds = max_tool_rounds
 
     def execute_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -314,6 +353,14 @@ class AgentBrain:
                                 result = {"error": "提醒功能未启用。"}
                             else:
                                 result = self.prepare_reminder(arguments, tool_context)
+                        elif name == "errorjiang_content_send":
+                            if not self.prepare_content_send:
+                                result = {"error": "内容发送功能未启用。"}
+                            else:
+                                result = self.prepare_content_send(
+                                    arguments,
+                                    tool_context,
+                                )
                         else:
                             result = self.execute_tool(name, arguments)
                     except AgentError as exc:

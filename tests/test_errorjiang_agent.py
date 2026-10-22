@@ -578,6 +578,65 @@ class AgentStoreTests(unittest.TestCase):
             {"file_info": "file-info"},
         )
 
+    def test_qqbot_file_url_upload_sends_media_message(self):
+        client = QQBotClient("app", "secret", "bot", lambda event: None)
+        client._auth_headers = lambda: {"Authorization": "test"}
+        calls = []
+
+        def fake_http(url, payload=None, headers=None):
+            calls.append((url, payload, headers))
+            if url.endswith("/files"):
+                return {"file_info": "file-info"}
+            return {"id": "sent"}
+
+        client._http_json = fake_http
+        client.send_file_from_url(
+            "private",
+            "user-openid",
+            "message-id",
+            "book.epub",
+            "https://zhexiyan.cc/signed",
+        )
+        self.assertTrue(calls[0][0].endswith("/users/user-openid/files"))
+        self.assertEqual(calls[0][1]["file_type"], 4)
+        self.assertEqual(calls[0][1]["file_name"], "book.epub")
+        self.assertEqual(calls[0][1]["url"], "https://zhexiyan.cc/signed")
+        self.assertEqual(calls[1][1]["msg_type"], 7)
+
+    def test_content_send_callback_records_selected_file(self):
+        class ContentClient:
+            def __init__(self, *args):
+                pass
+
+            def tool(self, name, arguments):
+                self.name = name
+                return {
+                    "status": "file",
+                    "kind": "book",
+                    "id": 3,
+                    "file_name": "book.epub",
+                    "url": "https://zhexiyan.cc/signed",
+                }
+
+        service = object.__new__(AgentService)
+        service.config = SimpleNamespace(
+            errorjiang_base_url="http://127.0.0.1:8000",
+            errorjiang_token="token",
+        )
+        context = {
+            "platform": "qqbot",
+            "owner_id": "member-openid",
+            "target_user_id": "3",
+        }
+        with patch("errorjiang_agent.service.ErrorJClient", ContentClient):
+            result = service.prepare_content_send(
+                {"kind": "book", "id": 3},
+                context,
+            )
+        self.assertEqual(result["status"], "file")
+        selected = json.loads(context["selected_content"])
+        self.assertEqual(selected["file_name"], "book.epub")
+
     def test_qqbot_image_attachment_is_saved_as_sticker(self):
         class FakeResponse:
             def __enter__(self):
@@ -985,6 +1044,100 @@ class AgentBrainTests(unittest.TestCase):
         )
         self.assertEqual(deepseek.tools, [])
 
+    def test_content_search_and_send_tools_are_dispatched(self):
+        deepseek = FakeDeepSeek(
+            [
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call-search",
+                            "type": "function",
+                            "function": {
+                                "name": "errorjiang_content_search",
+                                "arguments": json.dumps(
+                                    {
+                                        "kind": "book",
+                                        "query": "STM32",
+                                    }
+                                ),
+                            },
+                        }
+                    ],
+                },
+                {
+                    "role": "assistant",
+                    "content": "找到一本书。",
+                },
+            ]
+        )
+        errorjiang = FakeErrorJ()
+        brain = AgentBrain(
+            deepseek,
+            errorjiang,
+            lambda args, context: {},
+        )
+        self.assertEqual(
+            brain.reply("找一本 STM32 的书", []),
+            "找到一本书。",
+        )
+        self.assertEqual(
+            errorjiang.calls,
+            [
+                (
+                    "content.search",
+                    {"kind": "book", "query": "STM32"},
+                )
+            ],
+        )
+
+        deepseek = FakeDeepSeek(
+            [
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call-send",
+                            "type": "function",
+                            "function": {
+                                "name": "errorjiang_content_send",
+                                "arguments": json.dumps(
+                                    {"kind": "book", "id": 3}
+                                ),
+                            },
+                        }
+                    ],
+                },
+                {
+                    "role": "assistant",
+                    "content": "正在发。",
+                },
+            ]
+        )
+        captured = {}
+
+        def prepare_content(arguments, context):
+            captured["arguments"] = arguments
+            return {"status": "file"}
+
+        brain = AgentBrain(
+            deepseek,
+            FakeErrorJ(),
+            lambda args, context: {},
+            prepare_content_send=prepare_content,
+        )
+        self.assertEqual(
+            brain.reply(
+                "把第三本书发我",
+                [],
+                {"tools_enabled": "1"},
+            ),
+            "正在发。",
+        )
+        self.assertEqual(captured["arguments"], {"kind": "book", "id": 3})
+
 
 class AgentInternalAuthTests(unittest.TestCase):
     def make_handler(self, headers, ip="127.0.0.1"):
@@ -1100,6 +1253,81 @@ class AgentInternalAuthTests(unittest.TestCase):
             self.assertTrue(
                 handler.guard_request_inner("/api/agent/web/status", "GET")
             )
+
+    def test_agent_content_search_returns_music_metadata(self):
+        handler = self.make_handler({})
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        identity = {
+            "kind": "member",
+            "user_id": 7,
+            "username": "test",
+            "nickname": "test",
+        }
+        rows = [
+            {
+                "id": 2,
+                "title": "测试歌曲",
+                "artist": "歌手",
+                "album": "专辑",
+                "duration": 120,
+                "file_size": 1024,
+                "source_type": "file",
+            }
+        ]
+        with patch.object(app, "query", return_value=rows):
+            handler.agent_tool_content_search(
+                identity,
+                {"kind": "music", "query": "测试"},
+            )
+        self.assertEqual(captured["status"], 200)
+        self.assertEqual(
+            captured["payload"]["results"][0]["title"],
+            "测试歌曲",
+        )
+
+    def test_agent_content_send_returns_signed_file_url(self):
+        handler = self.make_handler({})
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        target = Path(temp.name) / "book_files" / "book.epub"
+        target.parent.mkdir()
+        target.write_bytes(b"book-data")
+        identity = {
+            "kind": "member",
+            "user_id": 7,
+            "username": "test",
+            "nickname": "test",
+            "role": "member",
+        }
+        with patch.dict(
+            os.environ,
+            {"ERRORJIANG_AGENT_TOKEN": "agent-test-token"},
+            clear=False,
+        ), patch.object(app, "DATA_DIR", Path(temp.name)), patch.object(
+            handler,
+            "download_resource",
+            return_value={
+                "title": "测试书",
+                "file_path": "book_files/book.epub",
+                "download_name": "测试书.epub",
+            },
+        ):
+            handler.agent_tool_content_send(
+                identity,
+                {"kind": "book", "id": 3},
+            )
+        self.assertEqual(captured["status"], 200)
+        payload = captured["payload"]
+        self.assertEqual(payload["status"], "file")
+        self.assertIn("/api/agent/media/book/3?", payload["url"])
+        self.assertEqual(payload["file_size"], len(b"book-data"))
 
 
 class AgentWebhookTests(unittest.TestCase):

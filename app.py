@@ -6134,6 +6134,8 @@ def required_permission(path, method):
         return None
     if path == "/agent" or path.startswith("/api/agent/web"):
         return None
+    if path.startswith("/api/agent/media/"):
+        return ""
     if path.startswith("/agent-stickers/"):
         return None
     if path.startswith("/api/workbench") or path.startswith("/api/prompts"):
@@ -6995,6 +6997,22 @@ def agent_internal_request(path, payload=None, timeout=15):
     with urlopen(request, timeout=timeout) as response:
         raw = response.read()
         return json.loads(raw.decode("utf-8")) if raw else {}
+
+
+def agent_media_signature(kind, item_id, expires):
+    secret = os.environ.get("ERRORJIANG_AGENT_TOKEN", "").strip().encode("utf-8")
+    message = f"{kind}:{int(item_id)}:{int(expires)}".encode("utf-8")
+    return hmac.new(secret, message, hashlib.sha256).hexdigest()
+
+
+def agent_media_url(kind, item_id, ttl_seconds=600):
+    expires = int(time.time()) + max(60, min(int(ttl_seconds), 1800))
+    signature = agent_media_signature(kind, item_id, expires)
+    return (
+        PUBLIC_SITE_URL.rstrip("/")
+        + f"/api/agent/media/{quote(str(kind))}/{int(item_id)}"
+        + f"?expires={expires}&sig={signature}"
+    )
 
 
 def notify_agent_async(event, title, body, link="/workbench"):
@@ -9903,6 +9921,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_agent_web_timeline(query)
             elif path == "/api/agent/web/stickers":
                 self.api_agent_web_stickers(query)
+            elif re.fullmatch(r"/api/agent/media/(?:music|book)/\d+", path):
+                self.api_agent_media(path, query)
             elif path == "/api/admin/reports":
                 self.api_admin_reports(query)
             elif path == "/api/admin/notify":
@@ -16257,6 +16277,171 @@ class InventoryHandler(BaseHTTPRequestHandler):
         ]
         self.send_json(200, {"query": search, "count": len(results), "results": results})
 
+    def agent_tool_content_search(self, identity, args):
+        kind = str(args.get("kind") or "all").strip().lower()
+        search = str(args.get("query") or "").strip()[:100]
+        limit = self.agent_limit(args.get("limit"), 8, 20)
+        like = f"%{search}%"
+        results = []
+        if kind in ("all", "music"):
+            rows = query(
+                """SELECT id, title, artist, album, duration, file_size,
+                          source_type
+                   FROM site_music
+                   WHERE ? = '' OR title LIKE ? OR artist LIKE ?
+                      OR album LIKE ?
+                   ORDER BY sort_order, id LIMIT ?""",
+                (search, like, like, like, limit),
+            )
+            results.extend(
+                {
+                    "kind": "music",
+                    "id": int(row["id"]),
+                    "title": row.get("title") or "",
+                    "artist": row.get("artist") or "",
+                    "album": row.get("album") or "",
+                    "duration": row.get("duration"),
+                    "file_size": row.get("file_size"),
+                    "source_type": row.get("source_type") or "",
+                }
+                for row in rows
+            )
+        if kind in ("all", "book"):
+            rows = query(
+                """SELECT id, title, author, tags, description, format,
+                          file_size
+                   FROM books
+                   WHERE ? = '' OR title LIKE ? OR author LIKE ?
+                      OR tags LIKE ? OR description LIKE ?
+                   ORDER BY sort_order, id LIMIT ?""",
+                (search, like, like, like, like, limit),
+            )
+            results.extend(
+                {
+                    "kind": "book",
+                    "id": int(row["id"]),
+                    "title": row.get("title") or "",
+                    "author": row.get("author") or "",
+                    "format": row.get("format") or "",
+                    "description": str(row.get("description") or "")[:300],
+                    "file_size": row.get("file_size"),
+                }
+                for row in rows
+            )
+        if kind in ("all", "web"):
+            rows = query(
+                """SELECT id, title, subtitle, description, category, tags, url
+                   FROM recommendations
+                   WHERE kind IN ('site', 'resource') AND url IS NOT NULL
+                     AND url != ''
+                     AND (? = '' OR title LIKE ? OR subtitle LIKE ?
+                          OR description LIKE ? OR category LIKE ? OR tags LIKE ?)
+                   ORDER BY pinned DESC, sort_order, id LIMIT ?""",
+                (
+                    search,
+                    like,
+                    like,
+                    like,
+                    like,
+                    like,
+                    limit,
+                ),
+            )
+            results.extend(
+                {
+                    "kind": "web",
+                    "id": int(row["id"]),
+                    "title": row.get("title") or "",
+                    "subtitle": row.get("subtitle") or "",
+                    "description": str(row.get("description") or "")[:300],
+                    "category": row.get("category") or "",
+                    "url": row.get("url") or "",
+                }
+                for row in rows
+            )
+            rows = query(
+                """SELECT id, name, url, category, description
+                   FROM site_links
+                   WHERE ? = '' OR name LIKE ? OR category LIKE ?
+                      OR description LIKE ?
+                   ORDER BY sort_order, id LIMIT ?""",
+                (search, like, like, like, limit),
+            )
+            results.extend(
+                {
+                    "kind": "web_link",
+                    "id": int(row["id"]),
+                    "title": row.get("name") or "",
+                    "category": row.get("category") or "",
+                    "description": str(row.get("description") or "")[:300],
+                    "url": row.get("url") or "",
+                }
+                for row in rows
+            )
+        self.send_json(
+            200,
+            {
+                "query": search,
+                "kind": kind,
+                "count": len(results[:limit]),
+                "results": results[:limit],
+            },
+        )
+
+    def agent_tool_content_send(self, identity, args):
+        kind = str(args.get("kind") or "").strip().lower()
+        if kind not in ("music", "book"):
+            api_error(self, 400, "目前只能发送歌曲或电子书文件。")
+            return
+        try:
+            item_id = int(args.get("id"))
+        except (TypeError, ValueError):
+            api_error(self, 400, "内容编号不正确。")
+            return
+        resource = self.download_resource(kind, item_id)
+        if not resource:
+            if kind == "music":
+                row = query_one(
+                    """SELECT title, source_type, source_id
+                       FROM site_music WHERE id = ?""",
+                    (item_id,),
+                )
+                if row and row.get("source_type") == "url":
+                    self.send_json(
+                        200,
+                        {
+                            "status": "link",
+                            "kind": "music",
+                            "id": item_id,
+                            "title": row.get("title") or "歌曲",
+                            "url": row.get("source_id") or "",
+                        },
+                    )
+                    return
+            api_error(self, 404, "文件不存在。")
+            return
+        target_path = DATA_DIR / resource["file_path"]
+        if not target_path.is_file():
+            api_error(self, 404, "文件不存在。")
+            return
+        mime_type = (
+            mimetypes.guess_type(resource["download_name"])[0]
+            or "application/octet-stream"
+        )
+        self.send_json(
+            200,
+            {
+                "status": "file",
+                "kind": kind,
+                "id": item_id,
+                "title": resource["title"],
+                "file_name": resource["download_name"],
+                "file_size": target_path.stat().st_size,
+                "mime_type": mime_type,
+                "url": agent_media_url(kind, item_id),
+            },
+        )
+
     def agent_tool_note_search(self, identity, args):
         if not self.agent_has_permission(identity, "notes:view"):
             api_error(self, 403, "当前账号没有笔记查看权限。")
@@ -16662,6 +16847,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
         handlers = {
             "inventory.search": self.agent_tool_inventory_search,
             "bookmarks.search": self.agent_tool_bookmark_search,
+            "content.search": self.agent_tool_content_search,
+            "content.send": self.agent_tool_content_send,
             "notes.search": self.agent_tool_note_search,
             "notes.read": self.agent_tool_note_read,
             "reviews.list": self.agent_tool_reviews_list,
@@ -16676,6 +16863,40 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 400, "未知 ErrorJ Agent 工具。")
             return
         handler(identity, args)
+
+    def api_agent_media(self, path, query):
+        parts = path.strip("/").split("/")
+        if len(parts) != 5:
+            api_error(self, 404, "媒体不存在。")
+            return
+        kind = parts[3]
+        try:
+            item_id = int(parts[4])
+            expires = int((query.get("expires") or ["0"])[0])
+        except (TypeError, ValueError):
+            api_error(self, 400, "媒体链接格式不正确。")
+            return
+        signature = str((query.get("sig") or [""])[0])
+        if (
+            not signature
+            or expires < int(time.time())
+            or int(time.time()) - expires > 60
+        ):
+            api_error(self, 403, "媒体链接已过期。")
+            return
+        expected = agent_media_signature(kind, item_id, expires)
+        if not hmac.compare_digest(signature, expected):
+            api_error(self, 403, "媒体链接无效。")
+            return
+        resource = self.download_resource(kind, item_id)
+        if not resource:
+            api_error(self, 404, "媒体不存在。")
+            return
+        self.send_data_file(
+            resource["file_path"],
+            resource["download_name"],
+            allow_range=True,
+        )
 
     def api_agent_web_status(self):
         if not self.is_admin():
