@@ -6725,13 +6725,42 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 
 部署步骤：
 ```text
-待执行
+本地：python -m unittest discover -s tests -v -> 230 passed；
+      Python / 相关 JavaScript 语法检查；changelog-seed JSON 校验；
+      git diff --check 干净
+提交：0bb7cd5 feat: expand agent footprints notes and map
+      （fetch → pull --rebase → push；local == origin/main == 0bb7cd5）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 035df0776696b92608ff42c8b7bd6dc2e9044433ebe2be7f5d4d426443879fd3
+备份：/data/errorjiang-backup/20261025-065519/
+      （inventory.db、changelog-seed.json、auth.json；无 WAL / SHM）
+服务器：systemctl stop -> cp 备份 -> git pull --ff-only -> 0bb7cd5
+      app.init_db；seed 安装；import_changelog_moments.py --date 2026-10-25 --force
+      -> 新增 1 条、覆盖 0 条、跳过 0 条
+      systemctl start errorjiang；systemctl restart errorjiang-agent
 ```
 
 验证结果：
 ```text
-待执行
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 公网 /api/health = {"ok": true}；
+             Agent 172.17.0.1:8011/health = {"ok": true}
+QQBot     -> 已连接 4015320753
+版本      -> 功能提交 = origin/main = 0bb7cd5；服务器已拉取 0bb7cd5
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+更新日志  -> /api/moments 中 2026-10-25 06:52:34
+             「折兮颜接入足迹与笔记，地图商户与手感升级」（id 742，kind = log）
+静态文件  -> 规范化 CRLF 后，map.js / map.css / map.html / messages.css /
+             moments.css / notes.js / references.html 公网与本地 SHA256 全部一致
+公网页    -> references.html 已包含 2026-10-25 更新摘要
+公网交互  -> Playwright 使用线上同版 map.html / notes.html：
+             周边商户层正常显示，分类 Sheet 可快速下扫关闭，
+             /notes?note=742 可直接打开目标笔记
+本地回归  -> 230 项单测通过；位置 / 文件附件解析、笔记导入导出、
+             自动足迹分类、地图周边 POI、Sheet 拖动和减少动效均通过
 ```
+
+备注：发布检查发现一个既有问题：官方 QQBot 群聊的到期提醒仍按 OneBot 群号发送，日志会周期性出现 `int()` 解析 openid 失败的 traceback。它不属于本次功能改动，且需要单独的 QQBot 主动消息消息引用策略；本次未擅自丢弃提醒或扩大改动范围，服务健康与消息连接均正常。
 
 ## 143. 2026-10-20 02:07:31 精简财务入口、收紧桌面布局并完善移动端折叠
 
