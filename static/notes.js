@@ -1869,6 +1869,10 @@
     syncListHeadHeights();
     try {
       await loadNotes();
+      const focusNoteId = Number(
+        new URLSearchParams(window.location.search).get("note") || 0
+      );
+      if (focusNoteId) openNote(focusNoteId, { mode: "read", force: true });
     } catch (err) {
       $("listStatus").textContent = "加载失败";
       toast(err.message || "加载笔记失败");

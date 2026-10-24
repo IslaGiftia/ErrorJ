@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import base64
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hmac
+import ipaddress
 import json
 import mimetypes
 from pathlib import Path
 import random
 import re
+import socket
 import sys
 import threading
 import time
@@ -27,6 +30,17 @@ from .onebot import MessageEvent, event_key, parse_message_event
 from .qqbot import QQBotClient
 from .store import AgentStore
 
+
+NOTE_IMPORT_MAX_BYTES = 20 * 1024 * 1024
+NOTE_ATTACHMENT_EXTENSIONS = {".doc", ".docx", ".pdf", ".txt", ".md", ".markdown"}
+NOTE_ATTACHMENT_MIME_EXTENSIONS = {
+    "application/msword": ".doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/pdf": ".pdf",
+    "text/plain": ".txt",
+    "text/markdown": ".md",
+    "text/x-markdown": ".md",
+}
 
 CONFIRM_RE = re.compile(r"^(?:确认|/confirm)\s+(\d{6})$", re.IGNORECASE)
 BIND_RE = re.compile(r"^(?:绑定|/bind)\s+(\S+)$", re.IGNORECASE)
@@ -98,6 +112,7 @@ class AgentService:
             self.prepare_reminder,
             self.prepare_content_send,
             max_tool_rounds=config.max_tool_rounds,
+            prepare_footprint=self.prepare_footprint,
         )
         self.rate_limiter = RateLimiter()
         self.executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="agent")
@@ -660,6 +675,141 @@ class AgentService:
             saved += 1
         return saved
 
+    @staticmethod
+    def note_attachment_name(attachment: dict[str, Any]) -> str | None:
+        filename = str(
+            attachment.get("filename")
+            or attachment.get("file_name")
+            or attachment.get("name")
+            or ""
+        ).strip()
+        filename = Path(filename or "attachment").name[:180]
+        extension = Path(filename).suffix.lower()
+        content_type = str(attachment.get("content_type") or "").split(";", 1)[0].lower()
+        if not extension:
+            extension = NOTE_ATTACHMENT_MIME_EXTENSIONS.get(content_type, "")
+            if extension:
+                filename += extension
+        extension = Path(filename).suffix.lower()
+        return filename if extension in NOTE_ATTACHMENT_EXTENSIONS else None
+
+    @staticmethod
+    def attachment_url_allowed(url: str, allow_private: bool = False) -> bool:
+        parsed = urlsplit(url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            return False
+        if parsed.username or parsed.password:
+            return False
+        hostname = parsed.hostname.lower()
+        if hostname in ("localhost", "localhost.localdomain"):
+            return False
+        try:
+            addresses = socket.getaddrinfo(
+                hostname,
+                parsed.port or (443 if parsed.scheme == "https" else 80),
+                type=socket.SOCK_STREAM,
+            )
+        except OSError:
+            return False
+        for item in addresses:
+            try:
+                address = ipaddress.ip_address(item[4][0])
+            except ValueError:
+                return False
+            if not address.is_global and not allow_private:
+                return False
+        return bool(addresses)
+
+    def download_note_attachment(
+        self,
+        attachment: dict[str, Any],
+        allow_private: bool = False,
+    ) -> bytes:
+        source = str(attachment.get("url") or "").strip()
+        if not self.attachment_url_allowed(source, allow_private):
+            raise AgentError("附件地址不安全或无法访问。")
+        try:
+            request = Request(
+                source,
+                headers={"User-Agent": "ErrorJ-Agent-NoteImport/1.0"},
+            )
+            with urlopen(request, timeout=30) as response:
+                length = response.headers.get("Content-Length")
+                if length and int(length) > NOTE_IMPORT_MAX_BYTES:
+                    raise AgentError("文档超过 20MB，无法导入。")
+                raw = response.read(NOTE_IMPORT_MAX_BYTES + 1)
+        except AgentError:
+            raise
+        except Exception as exc:
+            raise AgentError(f"下载文档失败：{exc}") from exc
+        if not raw:
+            raise AgentError("文档内容为空。")
+        if len(raw) > NOTE_IMPORT_MAX_BYTES:
+            raise AgentError("文档超过 20MB，无法导入。")
+        return raw
+
+    def import_note_attachments(
+        self,
+        event: MessageEvent,
+        target_user_id: int,
+    ) -> bool:
+        documents = []
+        for attachment in event.attachments:
+            filename = self.note_attachment_name(attachment)
+            if filename:
+                documents.append((filename, attachment))
+            if len(documents) >= 5:
+                break
+        if not documents:
+            return False
+        if event.message_type == "group":
+            profile = self.store.get_group_member(
+                event.platform,
+                str(event.chat_id),
+                str(event.user_id),
+            )
+            if profile and not int(profile.get("allow_tools", 1)):
+                self.send_reply(event, "管理员暂时关闭了你在群里使用工具")
+                return True
+        client = ErrorJClient(
+            self.config.errorjiang_base_url,
+            self.config.errorjiang_token,
+            target_user_id,
+        )
+        imported = []
+        errors = []
+        for filename, attachment in documents:
+            try:
+                raw = self.download_note_attachment(
+                    attachment,
+                    allow_private=event.platform == "qq",
+                )
+                result = client.tool(
+                    "notes.import",
+                    {
+                        "file_name": filename,
+                        "data_base64": base64.b64encode(raw).decode("ascii"),
+                    },
+                )
+                imported.append(result)
+            except AgentError as exc:
+                errors.append(f"{filename}：{exc}")
+            except Exception:
+                errors.append(f"{filename}：导入失败")
+        lines = []
+        if imported:
+            lines.append(f"已导入 {len(imported)} 篇笔记：")
+            for item in imported:
+                lines.append(
+                    f"《{item.get('title') or '未命名笔记'}》"
+                    + (f"\n{item.get('url')}" if item.get("url") else "")
+                )
+        if errors:
+            lines.append("失败：")
+            lines.extend(errors)
+        self.send_reply(event, "\n".join(lines) or "没有导入任何笔记。")
+        return True
+
     def remember_exchange(
         self,
         platform: str,
@@ -1165,6 +1315,80 @@ class AgentService:
             "message": f"请回复“确认 {code}”，两分钟内有效。",
         }
 
+    def prepare_footprint(
+        self,
+        arguments: dict[str, Any],
+        tool_context: dict[str, str] | None,
+    ) -> dict[str, Any]:
+        if not tool_context:
+            raise AgentError("足迹上下文缺失。")
+        if tool_context.get("tools_enabled", "1") == "0":
+            raise AgentError("当前会话没有新增足迹的权限。")
+        selection_ref = str(arguments.get("selection_ref") or "").strip()
+        if not selection_ref:
+            raise AgentError("请先选择一个高德地点候选。")
+        try:
+            target_user_id = int(tool_context.get("target_user_id") or 0)
+        except (TypeError, ValueError):
+            raise AgentError("当前账号没有关联有效的站点身份。") from None
+        create_arguments = {
+            "selection_ref": selection_ref,
+            "category_id": arguments.get("category_id"),
+            "status": str(arguments.get("status") or ""),
+            "rating": arguments.get("rating", 0),
+            "note": str(arguments.get("note") or "")[:2000],
+            "subtitle": str(arguments.get("subtitle") or "")[:120],
+            "signature": str(arguments.get("signature") or "")[:300],
+            "tags": str(arguments.get("tags") or "")[:200],
+        }
+        client = ErrorJClient(
+            self.config.errorjiang_base_url,
+            self.config.errorjiang_token,
+            target_user_id,
+        )
+        resolved = client.tool("footprints.resolve", create_arguments)
+        place = resolved.get("place") or {}
+        if not place.get("name"):
+            raise AgentError("没有取得可添加的足迹地点。")
+        code, expires_at = self.store.create_pending(
+            tool_context.get("platform") or "qq",
+            tool_context.get("owner_id") or "",
+            tool_context.get("chat_id") or "",
+            {
+                "operation": "footprint_create",
+                "target_user_id": target_user_id,
+                "arguments": create_arguments,
+            },
+        )
+        status_labels = {
+            "wish": "想去",
+            "visited": "去过",
+        }
+        lines = [f"准备新增足迹「{place.get('name')}」"]
+        if place.get("address"):
+            lines.append(f"地址：{place['address']}")
+        if place.get("category_name"):
+            lines.append(f"分类：{place['category_name']}")
+        if place.get("status") in status_labels:
+            lines.append(f"状态：{status_labels[place['status']]}")
+        duplicates = resolved.get("possible_duplicates") or []
+        if duplicates:
+            nearest = duplicates[0]
+            lines.append(
+                "提醒：附近可能已有足迹"
+                f"「{nearest.get('name') or '未命名'}」"
+                f"（约 {nearest.get('distance_meters')} 米）"
+            )
+        lines.append(f"请回复“确认 {code}”，两分钟内有效。")
+        return {
+            "status": "pending_confirmation",
+            "code": code,
+            "expires_at": expires_at,
+            "place": place,
+            "possible_duplicates": duplicates,
+            "message": "\n".join(lines),
+        }
+
     @staticmethod
     def humanize_text(text: str, strip_terminal_period: bool = False) -> str:
         value = str(text or "").replace("**", "").replace("__", "")
@@ -1268,6 +1492,23 @@ class AgentService:
         )
         if not action:
             return None
+        if action.get("operation") == "footprint_create":
+            target_user_id = int(action.get("target_user_id") or 0)
+            client = ErrorJClient(
+                self.config.errorjiang_base_url,
+                self.config.errorjiang_token,
+                target_user_id,
+            )
+            result = client.tool(
+                "footprints.create",
+                action.get("arguments") or {},
+            )
+            name = str(result.get("name") or "未命名地点")
+            link = str(result.get("url") or "").strip()
+            return (
+                f"已添加足迹「{name}」。"
+                + (f"\n{link}" if link else "")
+            ).strip()
         result = self.errorjiang.tool("reviews.decide", action)
         kind = action.get("kind")
         action_name = action.get("action")
@@ -1537,12 +1778,28 @@ class AgentService:
             saved_stickers = self.save_qqbot_attachments(event)
         chat_lock = self._chat_locks[f"{platform}:{event.owner_id}"]
         with chat_lock:
+            if self.import_note_attachments(event, target_user_id):
+                return
             self._process_event(
                 event,
                 saved_stickers,
                 target_user_id=target_user_id,
                 is_admin=is_admin,
             )
+
+    def add_shared_location(
+        self,
+        event: MessageEvent,
+        target_user_id: int,
+    ) -> dict[str, Any]:
+        if not event.location:
+            raise AgentError("没有从消息里解析到位置。")
+        client = ErrorJClient(
+            self.config.errorjiang_base_url,
+            self.config.errorjiang_token,
+            target_user_id,
+        )
+        return client.tool("footprints.location_add", event.location)
 
     def _process_event(
         self,
@@ -1553,7 +1810,7 @@ class AgentService:
     ) -> None:
         platform = event.platform
         text = event.text.strip()
-        if not text:
+        if not text and not event.location:
             self.send_reply(
                 event,
                 "表情我收下了。你直接说想问什么就行。"
@@ -1573,9 +1830,11 @@ class AgentService:
         if text.lower() in ("/help", "帮助"):
             self.send_reply(
                 event,
-                "可以问我：元件库存、收藏网站链接、笔记内容、待审核列表。"
-                "也可以查询计算器账目和记录费用。"
-                "审核操作需要回复“确认 123456”。发送“重置对话”可清空上下文。",
+                "可以问我：元件库存、收藏网站链接、笔记内容、已有足迹。"
+                "也可以让我用高德搜索并直接新增足迹，或生成选点链接。"
+                "分享 QQ 位置卡片也可以直接新增。"
+                "审核操作需要回复“确认 123456”。"
+                "发送“重置对话”可清空上下文。",
             )
             return
         confirm_match = CONFIRM_RE.fullmatch(text)
@@ -1583,7 +1842,7 @@ class AgentService:
             try:
                 reply = self.confirm_pending(event, confirm_match.group(1))
             except AgentError as exc:
-                self.send_reply(event, f"审核执行失败：{exc}")
+                self.send_reply(event, f"操作执行失败：{exc}")
                 return
             self.send_reply(
                 event,
@@ -1609,6 +1868,39 @@ class AgentService:
                 or "群友"
             )
         )
+        if event.location:
+            if (
+                event.message_type == "group"
+                and not is_admin
+                and member_profile
+                and not int(member_profile.get("allow_tools", 1))
+            ):
+                self.send_reply(event, "管理员暂时关闭了你在群里使用工具")
+                return
+            try:
+                result = self.add_shared_location(event, target_user_id)
+            except AgentError as exc:
+                self.send_reply(event, f"位置卡片添加失败：{exc}")
+                return
+            if result.get("status") == "added":
+                place = result.get("place") or {}
+                reply = f"已从位置卡片添加足迹「{place.get('name') or '共享位置'}」。"
+                if place.get("category_name"):
+                    reply += f"\n分类：{place['category_name']}"
+                if place.get("url"):
+                    reply += f"\n{place['url']}"
+            elif result.get("status") == "existing":
+                existing = result.get("existing") or {}
+                reply = (
+                    f"这个位置附近已经有足迹「{existing.get('name') or '未命名'}」，"
+                    "没有重复添加。"
+                )
+                if existing.get("url"):
+                    reply += f"\n{existing['url']}"
+            else:
+                reply = str(result.get("message") or "位置卡片没有添加成功。")
+            self.send_reply(event, reply)
+            return
         if event.message_type == "group":
             history = []
             for item in self.store.get_group_messages(
@@ -1718,6 +2010,7 @@ class AgentService:
             self.prepare_reminder,
             self.prepare_content_send,
             max_tool_rounds=self.config.max_tool_rounds,
+            prepare_footprint=self.prepare_footprint,
         )
         brain_text = (
             f"{speaker_name}：{text}"
@@ -1817,6 +2110,27 @@ class AgentService:
 
     def web_chat(self, user_id: int, text: str) -> str:
         owner = f"web:{int(user_id)}"
+        confirm_match = CONFIRM_RE.fullmatch(text.strip())
+        if confirm_match:
+            event = MessageEvent(
+                self_id="web",
+                user_id=str(user_id),
+                message_type="private",
+                chat_id=str(user_id),
+                message_id="",
+                text=text,
+                to_me=True,
+                platform="web",
+            )
+            try:
+                reply = self.confirm_pending(event, confirm_match.group(1))
+            except AgentError as exc:
+                reply = f"操作执行失败：{exc}"
+            if not reply:
+                reply = "确认码无效、已过期或不属于当前聊天。"
+            self.store.add_message("web", owner, "user", text)
+            self.store.add_message("web", owner, "assistant", reply)
+            return reply
         history = self.store.get_messages(
             "web",
             owner,
@@ -1848,6 +2162,7 @@ class AgentService:
             self.prepare_reminder,
             self.prepare_content_send,
             max_tool_rounds=self.config.max_tool_rounds,
+            prepare_footprint=self.prepare_footprint,
         )
         context = {
             "platform": "web",

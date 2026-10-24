@@ -823,6 +823,7 @@ body {
   border-radius: var(--radius);
   background: var(--mp-surface);
   box-shadow: var(--mp-shadow);
+  transform-origin: bottom center;
 }
 
 .mp-owner-pop .mp-owner-options {
@@ -838,12 +839,18 @@ body {
 @keyframes mp-pop-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(8px) scale(0.97);
   }
 
   to {
     opacity: 1;
     transform: none;
+  }
+}
+
+@keyframes mp-pop-fade-in {
+  from {
+    opacity: 0;
   }
 }
 
@@ -1005,6 +1012,100 @@ body {
 }
 
 /* ---------- markers & popup ---------- */
+
+.mp-merchant-marker {
+  border: 0;
+  background: transparent;
+}
+
+.mp-merchant-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 180px;
+  padding: 3px 6px 3px 4px;
+  border: 1px solid color-mix(in srgb, var(--mp-border) 78%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mp-surface) 92%, transparent);
+  color: var(--mp-text);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(15, 20, 30, 0.18);
+  backdrop-filter: blur(5px);
+}
+
+.mp-merchant-label.is-compact {
+  width: 14px;
+  height: 14px;
+  max-width: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+}
+
+.mp-merchant-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid #fff;
+  border-radius: 50%;
+  background: var(--merchant-color, var(--mp-accent));
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.32);
+}
+
+.mp-merchant-label.is-compact .mp-merchant-dot {
+  width: 9px;
+  height: 9px;
+}
+
+.mp-merchant-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mp-merchant-label.is-compact .mp-merchant-name {
+  display: none;
+}
+
+.mp-merchant-popup {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 180px;
+  color: var(--mp-text);
+}
+
+.mp-merchant-popup strong {
+  font-size: 13px;
+}
+
+.mp-merchant-popup span,
+.mp-merchant-popup p {
+  margin: 0;
+  color: var(--mp-muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.mp-merchant-add {
+  align-self: flex-start;
+  min-height: 28px;
+  margin-top: 2px;
+  padding: 0 10px;
+  border: 1px solid var(--mp-accent);
+  border-radius: 7px;
+  background: var(--mp-accent-soft);
+  color: var(--mp-accent);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
 
 .mp-marker {
   background: none;
@@ -1534,11 +1635,12 @@ body {
 }
 
 .mp-poi-item {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 2px;
   width: 100%;
-  padding: 7px 9px;
+  padding: 7px 52px 7px 9px;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -1560,6 +1662,19 @@ body {
 .mp-poi-item span {
   color: var(--mp-muted);
   font-size: 11.5px;
+}
+
+.mp-poi-add {
+  position: absolute;
+  top: 50%;
+  right: 9px;
+  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--mp-accent-soft);
+  color: var(--mp-accent) !important;
+  font-size: 11px !important;
+  font-weight: 700;
+  transform: translateY(-50%);
 }
 
 .mp-seg {
@@ -2370,8 +2485,33 @@ body {
   backface-visibility: hidden;
 }
 
+.mp-catpick-grabber {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding-top: 7px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.mp-catpick-grabber span {
+  width: 36px;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mp-muted) 52%, transparent);
+}
+
 .mp-catpick-sheet.is-entering {
   animation: mp-catpick-in var(--dur-base) cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+.mp-catpick-sheet.is-dragging {
+  animation: none;
+  cursor: grabbing;
+  transition: none;
+  will-change: transform;
 }
 
 @keyframes mp-catpick-in {
@@ -2392,6 +2532,12 @@ body {
   flex: none;
   padding: 14px 16px 12px;
   border-bottom: 1px solid var(--mp-border);
+  cursor: grab;
+  touch-action: none;
+}
+
+.mp-catpick-sheet.is-dragging .mp-catpick-head {
+  cursor: grabbing;
 }
 
 .mp-catpick-head h2 {
@@ -2443,5 +2589,15 @@ body {
 
   .mp-catpick-sheet.is-entering {
     animation: none;
+  }
+
+  .mp-owner-pop:not([hidden]) {
+    animation-name: mp-pop-fade-in;
+  }
+
+  .mp-catpick-grabber,
+  .mp-catpick-head {
+    cursor: default;
+    touch-action: auto;
   }
 }

@@ -10,6 +10,7 @@ import hmac
 import ipaddress
 import io
 import json
+import math
 import mimetypes
 import os
 import posixpath
@@ -70,6 +71,10 @@ AMAP_POI_CACHE_TTL = 600
 AMAP_POI_CACHE_LIMIT = 200
 AMAP_POI_CACHE = {}
 AMAP_POI_CACHE_LOCK = threading.Lock()
+AMAP_AROUND_CACHE_TTL = 120
+AMAP_AROUND_TYPES = (
+    "050000|060000|070000|080000|100000|110000|170000"
+)
 XLSX_NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 BOM_REPORT_DIR = DATA_DIR / "bom_reports"
 BOM_WATCH_STATE_PATH = DATA_DIR / "bom_watch_state.json"
@@ -90,6 +95,7 @@ NOTE_IMPORT_FORMATS = {
     "docx": "Word",
     "pdf": "PDF",
 }
+TEXT_NOTE_IMPORT_EXTENSIONS = {".txt", ".md", ".markdown"}
 WORKBENCH_FILE_MAX_BYTES = 30 * 1024 * 1024
 RECOMMEND_IMAGE_MAX_BYTES = 15 * 1024 * 1024
 # 上传走 JSON + base64，体积约为原文件的 1.37 倍：60MB 的音乐大约 80MB 请求体，
@@ -586,7 +592,7 @@ UPLOAD_LIMIT_SCHEMA = (
     {
         "key": "note_import",
         "label": "笔记文档导入",
-        "description": "Word / PDF 导入文档的单个大小。",
+        "description": "Word / PDF / TXT / Markdown 导入文档的单个大小。",
         "count": False,
         "total": False,
         "max_file_bytes": NOTE_IMPORT_MAX_BYTES,
@@ -712,6 +718,182 @@ BOOKMARK_CHECK_STATE = {
 
 def now_text():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+FOOTPRINT_CANDIDATE_TTL = 900
+FOOTPRINT_CATEGORY_RULES = (
+    (
+        "美食",
+        (
+            "餐饮", "中餐", "西餐", "快餐", "小吃", "美食", "饭店", "餐馆",
+            "餐厅", "酒楼", "酒家", "食府", "食堂", "火锅", "烧烤", "烤肉",
+            "炸鸡", "汉堡", "披萨", "咖啡", "奶茶", "甜品", "蛋糕", "面馆",
+            "米线", "米粉", "凉皮", "泡馍", "葫芦头", "肉夹馍", "饺子",
+            "包子", "馄饨", "麻辣烫", "冒菜", "串", "卤味", "鸭脖", "粥",
+        ),
+    ),
+    (
+        "酒店",
+        ("酒店", "宾馆", "民宿", "旅馆", "客栈", "青旅", "住宿", "公寓酒店"),
+    ),
+    (
+        "景点",
+        (
+            "景区", "景点", "公园", "博物馆", "纪念馆", "美术馆", "展览馆",
+            "古镇", "古城", "遗址", "乐园", "动物园", "植物园", "湿地",
+            "寺", "塔", "宫", "观景台", "步行街",
+        ),
+    ),
+    (
+        "停车场",
+        ("停车场", "停车楼", "停车库", "车库", "停车区"),
+    ),
+)
+
+
+def _gcj_transform_lat(x, y):
+    value = (
+        -100.0
+        + 2.0 * x
+        + 3.0 * y
+        + 0.2 * y * y
+        + 0.1 * x * y
+        + 0.2 * math.sqrt(abs(x))
+    )
+    value += (
+        (20.0 * math.sin(6.0 * x * math.pi) + 20.0 * math.sin(2.0 * x * math.pi))
+        * 2.0
+        / 3.0
+    )
+    value += (
+        (20.0 * math.sin(y * math.pi) + 40.0 * math.sin(y / 3.0 * math.pi))
+        * 2.0
+        / 3.0
+    )
+    value += (
+        (160.0 * math.sin(y / 12.0 * math.pi) + 320 * math.sin(y * math.pi / 30.0))
+        * 2.0
+        / 3.0
+    )
+    return value
+
+
+def _gcj_transform_lng(x, y):
+    value = (
+        300.0
+        + x
+        + 2.0 * y
+        + 0.1 * x * x
+        + 0.1 * x * y
+        + 0.1 * math.sqrt(abs(x))
+    )
+    value += (
+        (20.0 * math.sin(6.0 * x * math.pi) + 20.0 * math.sin(2.0 * x * math.pi))
+        * 2.0
+        / 3.0
+    )
+    value += (
+        (20.0 * math.sin(x * math.pi) + 40.0 * math.sin(x / 3.0 * math.pi))
+        * 2.0
+        / 3.0
+    )
+    value += (
+        (150.0 * math.sin(x / 12.0 * math.pi) + 300.0 * math.sin(x / 30.0 * math.pi))
+        * 2.0
+        / 3.0
+    )
+    return value
+
+
+def gcj02_to_wgs84(lat, lng):
+    """把高德 POI 坐标换成站内保存的 WGS84 坐标。"""
+    latitude = float(lat)
+    longitude = float(lng)
+    if not (72.004 <= longitude <= 137.8347 and 0.8293 <= latitude <= 55.8271):
+        return latitude, longitude
+    a = 6378245.0
+    ee = 0.00669342162296594323
+    wgs_lat = latitude
+    wgs_lng = longitude
+    for _ in range(3):
+        d_lat = _gcj_transform_lat(wgs_lng - 105.0, wgs_lat - 35.0)
+        d_lng = _gcj_transform_lng(wgs_lng - 105.0, wgs_lat - 35.0)
+        rad_lat = wgs_lat / 180.0 * math.pi
+        magic = math.sin(rad_lat)
+        magic = 1 - ee * magic * magic
+        sqrt_magic = math.sqrt(magic)
+        d_lat = (d_lat * 180.0) / (
+            (a * (1 - ee)) / (magic * sqrt_magic) * math.pi
+        )
+        d_lng = (d_lng * 180.0) / (
+            a / sqrt_magic * math.cos(rad_lat) * math.pi
+        )
+        converted_lat = wgs_lat + d_lat
+        converted_lng = wgs_lng + d_lng
+        wgs_lat += latitude - converted_lat
+        wgs_lng += longitude - converted_lng
+    return round(wgs_lat, 6), round(wgs_lng, 6)
+
+
+def _footprint_candidate_secret():
+    token = os.environ.get("ERRORJIANG_AGENT_TOKEN", "").strip()
+    if not token:
+        raise ValueError("ErrorJ Agent 内部令牌未配置。")
+    return token.encode("utf-8")
+
+
+def encode_footprint_candidate(candidate):
+    payload = {
+        "version": 1,
+        "expires_at": int(time.time()) + FOOTPRINT_CANDIDATE_TTL,
+        **candidate,
+    }
+    raw = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    signature = hmac.new(
+        _footprint_candidate_secret(),
+        raw,
+        hashlib.sha256,
+    ).digest()[:18]
+    return (
+        base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+        + "."
+        + base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=")
+    )
+
+
+def decode_footprint_candidate(reference):
+    value = str(reference or "").strip()
+    try:
+        raw_text, signature_text = value.split(".", 1)
+        raw = base64.urlsafe_b64decode(
+            raw_text + "=" * (-len(raw_text) % 4)
+        )
+        signature = base64.urlsafe_b64decode(
+            signature_text + "=" * (-len(signature_text) % 4)
+        )
+    except (ValueError, TypeError):
+        raise ValueError("地点候选无效，请重新搜索。") from None
+    expected = hmac.new(
+        _footprint_candidate_secret(),
+        raw,
+        hashlib.sha256,
+    ).digest()[:18]
+    if not hmac.compare_digest(signature, expected):
+        raise ValueError("地点候选校验失败，请重新搜索。")
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise ValueError("地点候选无效，请重新搜索。") from None
+    if not isinstance(payload, dict) or payload.get("version") != 1:
+        raise ValueError("地点候选无效，请重新搜索。")
+    if int(payload.get("expires_at") or 0) < int(time.time()):
+        raise ValueError("地点候选已过期，请重新搜索。")
+    return payload
 
 
 def today_text():
@@ -4445,6 +4627,118 @@ def build_note_export_html(note, image_map):
         "</body>\n"
         "</html>\n"
     )
+
+
+def note_export_filename(note, extension):
+    raw_name = re.sub(
+        r'[\\/:*?"<>|\r\n]+',
+        "_",
+        str(note.get("title") or "笔记"),
+    ).strip(" .")
+    return f"{(raw_name or 'note')[:80]}.{extension.lstrip('.')}"
+
+
+def build_note_export_markdown(note):
+    title = str(note.get("title") or "未命名笔记").strip()
+    content = str(note.get("content") or "")
+    content = re.sub(
+        r"(\]\(|src=[\"'])/site-files/",
+        lambda match: match.group(1) + PUBLIC_SITE_URL + "/site-files/",
+        content,
+    )
+    tags = str(note.get("tags") or "").strip()
+    updated_at = str(note.get("updated_at") or "").strip()
+    metadata = []
+    if tags:
+        metadata.append(f"> 标签：{tags}")
+    if updated_at:
+        metadata.append(f"> 更新：{updated_at}")
+    parts = [f"# {title}"]
+    if metadata:
+        parts.append("\n".join(metadata))
+    if content.strip():
+        parts.append(content.strip())
+    return "\n\n".join(parts).rstrip() + "\n"
+
+
+def build_note_export_text(note):
+    content = str(note.get("content") or "")
+    content = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", content)
+    content = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", content)
+    content = re.sub(r"```[^\n]*\n?(.*?)```", r"\1", content, flags=re.DOTALL)
+    content = re.sub(r"`([^`]+)`", r"\1", content)
+    content = re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", content)
+    content = re.sub(r"(?m)^\s*>\s?", "", content)
+    content = re.sub(r"\*\*([^*]+)\*\*", r"\1", content)
+    content = re.sub(r"__([^_]+)__", r"\1", content)
+    content = re.sub(r"(?<!\*)\*([^*\n]+)\*(?!\*)", r"\1", content)
+    content = re.sub(r"<[^>]+>", "", content)
+    content = re.sub(r"\n{3,}", "\n\n", content).strip()
+    title = str(note.get("title") or "未命名笔记").strip()
+    tags = str(note.get("tags") or "").strip()
+    lines = [title]
+    if tags:
+        lines.extend(("", f"标签：{tags}"))
+    if content:
+        lines.extend(("", content))
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def build_note_export_file(note, export_format="markdown"):
+    value = str(export_format or "markdown").strip().lower()
+    if value in ("markdown", "md"):
+        return (
+            build_note_export_markdown(note).encode("utf-8"),
+            note_export_filename(note, "md"),
+            "text/markdown; charset=utf-8",
+            "markdown",
+        )
+    if value in ("text", "txt"):
+        return (
+            build_note_export_text(note).encode("utf-8"),
+            note_export_filename(note, "txt"),
+            "text/plain; charset=utf-8",
+            "txt",
+        )
+    if value in ("html", "htm"):
+        html = build_note_export_html(
+            note,
+            note_export_image_map(note.get("content") or ""),
+        )
+        return (
+            html.encode("utf-8"),
+            note_export_filename(note, "html"),
+            "text/html; charset=utf-8",
+            "html",
+        )
+    raise ValueError("导出格式只支持 Markdown、TXT 或 HTML。")
+
+
+def decode_note_text_document(raw):
+    for encoding in ("utf-8-sig", "gb18030", "utf-16"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    raise ValueError("文本文件编码无法识别，请另存为 UTF-8 后重试。")
+
+
+def rough_note_markdown(text):
+    value = str(text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not value:
+        return ""
+    lines = []
+    for line in value.splitlines():
+        stripped = line.strip()
+        if re.match(r"^第[一二三四五六七八九十百零〇0-9]+[章节篇部分]", stripped):
+            lines.extend(("", f"## {stripped}", ""))
+        elif re.match(r"^[一二三四五六七八九十]+、", stripped):
+            lines.extend(("", f"### {stripped}", ""))
+        elif stripped.startswith(("•", "·")):
+            lines.append("- " + stripped[1:].lstrip())
+        else:
+            lines.append(line.rstrip())
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
 
 
 def detect_image_type(raw):
@@ -9889,6 +10183,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_recommendations(query)
             elif path == "/api/map/poi-search":
                 self.api_map_poi_search(query)
+            elif path == "/api/map/poi-around":
+                self.api_map_poi_around(query)
             elif path == "/api/map":
                 self.api_map(query)
             elif path == "/api/admin/users":
@@ -9923,7 +10219,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_agent_web_timeline(query)
             elif path == "/api/agent/web/stickers":
                 self.api_agent_web_stickers(query)
-            elif re.fullmatch(r"/api/agent/media/(?:music|book)/\d+", path):
+            elif re.fullmatch(
+                r"/api/agent/media/(?:music|book|note_markdown|note_txt|note_html)/\d+",
+                path,
+            ):
                 self.api_agent_media(path, query)
             elif path == "/api/admin/reports":
                 self.api_admin_reports(query)
@@ -11727,6 +12026,23 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 400, str(exc))
             return
         self.send_json(200, {"image_path": relative})
+
+    def send_download_bytes(self, body, download_name, content_type):
+        body = body or b""
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header(
+                "Content-Disposition",
+                f"attachment; filename*=UTF-8''{quote(os.path.basename(download_name))}",
+            )
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
 
     def send_data_file(
         self,
@@ -14709,6 +15025,79 @@ class InventoryHandler(BaseHTTPRequestHandler):
             AMAP_POI_CACHE[cache_key] = (now, result)
         return result
 
+    def amap_poi_around(self, lat, lng, radius=1500):
+        """读取高德周边商户 POI，供足迹页叠加更密集的地点标注。"""
+        radius = max(300, min(int(radius), 5000))
+        params = {
+            "key": AMAP_WEB_KEY,
+            "location": f"{float(lng):.6f},{float(lat):.6f}",
+            "radius": radius,
+            "types": AMAP_AROUND_TYPES,
+            "offset": 25,
+            "page": 1,
+            "extensions": "base",
+            "sortrule": "distance",
+        }
+        cache_key = json.dumps(params, sort_keys=True, ensure_ascii=False)
+        now = time.time()
+        with AMAP_POI_CACHE_LOCK:
+            cached = AMAP_POI_CACHE.get(cache_key)
+            if cached and now - cached[0] < AMAP_AROUND_CACHE_TTL:
+                return cached[1]
+        url = "https://restapi.amap.com/v3/place/around?" + urlencode(params)
+        request = Request(url, headers={"User-Agent": "ErrorJiang/1.0"})
+        try:
+            with urlopen(request, timeout=8) as response:
+                payload = json.loads(
+                    response.read().decode("utf-8", "replace") or "{}"
+                )
+        except (URLError, socket.timeout, OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"高德周边接口请求失败：{exc}") from exc
+        if str(payload.get("status")) != "1":
+            info = str(payload.get("info") or "未知错误")
+            infocode = str(payload.get("infocode") or "")
+            raise ValueError(f"高德接口返回错误：{info}（{infocode}）")
+        pois = []
+        for item in payload.get("pois") or []:
+            location = str(item.get("location") or "")
+            lng_text, _, lat_text = location.partition(",")
+            try:
+                item_lng = float(lng_text)
+                item_lat = float(lat_text)
+            except ValueError:
+                continue
+            name = str(item.get("name") or "").strip()[:120]
+            if not name:
+                continue
+            distance = item.get("distance")
+            try:
+                distance = int(float(distance))
+            except (TypeError, ValueError):
+                distance = None
+            pois.append(
+                {
+                    "id": str(item.get("id") or "")[:120],
+                    "name": name,
+                    "type": str(item.get("type") or "")[:120],
+                    "typecode": str(item.get("typecode") or "")[:20],
+                    "address": str(item.get("address") or "").strip()[:300],
+                    "lat": item_lat,
+                    "lng": item_lng,
+                    "distance": distance,
+                }
+            )
+        result = {
+            "count": len(pois),
+            "pois": pois,
+            "coord": "gcj02",
+            "radius": radius,
+        }
+        with AMAP_POI_CACHE_LOCK:
+            if len(AMAP_POI_CACHE) >= AMAP_POI_CACHE_LIMIT:
+                AMAP_POI_CACHE.clear()
+            AMAP_POI_CACHE[cache_key] = (now, result)
+        return result
+
     def api_map_poi_search(self, params):
         """按关键字搜索高德 POI，供「添加标记」弹窗直接选用。"""
         if not self.can("map:write"):
@@ -14727,6 +15116,34 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         try:
             data = self.amap_poi_search(keywords, city)
+        except ValueError as exc:
+            api_error(self, 502, str(exc))
+            return
+        self.send_json(200, data)
+
+    def api_map_poi_around(self, params):
+        if not AMAP_WEB_KEY:
+            api_error(
+                self,
+                503,
+                "还没有配置高德 Key，请联系管理员在服务器设置 INVENTORY_AMAP_KEY。",
+            )
+            return
+        try:
+            lat = float((params.get("lat") or [""])[0])
+            lng = float((params.get("lng") or [""])[0])
+            radius = int(float((params.get("radius") or ["1500"])[0]))
+        except (TypeError, ValueError):
+            api_error(self, 400, "周边商户坐标或范围无效。")
+            return
+        if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+            api_error(self, 400, "周边商户坐标超出有效范围。")
+            return
+        if not rate_allow("map_poi_around", self.client_ip(), 40, 60):
+            api_error(self, 429, "周边商户加载太频繁，请稍后再试。")
+            return
+        try:
+            data = self.amap_poi_around(lat, lng, radius)
         except ValueError as exc:
             api_error(self, 502, str(exc))
             return
@@ -16392,8 +16809,49 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def agent_tool_content_send(self, identity, args):
         kind = str(args.get("kind") or "").strip().lower()
+        if kind == "note":
+            if not self.agent_has_permission(identity, "notes:view"):
+                api_error(self, 403, "当前账号没有笔记查看权限。")
+                return
+            try:
+                note_id = int(args.get("id"))
+            except (TypeError, ValueError):
+                api_error(self, 400, "笔记编号不正确。")
+                return
+            note = query_one(
+                """SELECT id, title, content, tags, created_at, updated_at
+                   FROM learning_notes WHERE id = ?""",
+                (note_id,),
+            )
+            if not note:
+                api_error(self, 404, "笔记不存在。")
+                return
+            try:
+                body, file_name, mime_type, export_format = build_note_export_file(
+                    note,
+                    args.get("format") or "markdown",
+                )
+            except ValueError as exc:
+                api_error(self, 400, str(exc))
+                return
+            media_kind = f"note_{export_format}"
+            self.send_json(
+                200,
+                {
+                    "status": "file",
+                    "kind": "note",
+                    "id": note_id,
+                    "title": note.get("title") or "笔记",
+                    "format": export_format,
+                    "file_name": file_name,
+                    "file_size": len(body),
+                    "mime_type": mime_type,
+                    "url": agent_media_url(media_kind, note_id, 1800),
+                },
+            )
+            return
         if kind not in ("music", "book"):
-            api_error(self, 400, "目前只能发送歌曲或电子书文件。")
+            api_error(self, 400, "目前只能发送歌曲、电子书或笔记文件。")
             return
         try:
             item_id = int(args.get("id"))
@@ -16505,6 +16963,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "truncated": len(row.get("content") or "") > 12000,
             },
         )
+
+    def agent_tool_notes_import(self, identity, args):
+        if not self.agent_has_permission(identity, "notes:write"):
+            api_error(self, 403, "当前账号没有导入笔记的权限。")
+            return
+        self.api_note_import(args)
 
     def agent_tool_reviews_list(self, identity, args):
         if not self.agent_has_permission(identity, ADMIN_PERMISSION):
@@ -16840,6 +17304,681 @@ class InventoryHandler(BaseHTTPRequestHandler):
         ]
         self.send_json(200, {"count": len(results), "users": results})
 
+    def agent_map_view_allowed(self, identity):
+        if not identity:
+            return False
+        if identity.get("kind") in ("owner", "admin"):
+            return True
+        if not MAP_PUBLIC:
+            return False
+        user_id = identity.get("user_id")
+        return any(user_has_permission(user_id, item) for item in MAP_VIEW_PERMISSIONS)
+
+    def agent_map_write_allowed(self, identity):
+        return bool(
+            self.agent_map_view_allowed(identity)
+            and self.agent_has_permission(identity, "map:write")
+        )
+
+    @staticmethod
+    def agent_footprint_name_key(value):
+        text = unicodedata.normalize("NFKC", str(value or "")).lower()
+        return re.sub(r"[\s·•・,，。.!！?？:：;；/\\()（）\[\]【】_-]+", "", text)
+
+    def agent_footprint_category_id(self, name, poi_type=""):
+        text = f"{name or ''} {poi_type or ''}"
+        for category_name, keywords in FOOTPRINT_CATEGORY_RULES:
+            if not any(keyword in text for keyword in keywords):
+                continue
+            row = query_one(
+                """SELECT id FROM map_categories
+                   WHERE name = ? AND parent_id IS NULL
+                   ORDER BY id LIMIT 1""",
+                (category_name,),
+            )
+            if row:
+                return int(row["id"])
+        return None
+
+    def agent_footprint_duplicate(self, name, lat, lng):
+        name_key = self.agent_footprint_name_key(name)
+        best = None
+        best_distance = None
+        for row in query(
+            """SELECT id, name, address, lat, lng FROM map_places
+               ORDER BY id"""
+        ):
+            try:
+                distance = self.map_distance_meters(
+                    lat,
+                    lng,
+                    row.get("lat"),
+                    row.get("lng"),
+                )
+            except (TypeError, ValueError):
+                continue
+            same_name = bool(
+                name_key
+                and name_key == self.agent_footprint_name_key(row.get("name"))
+            )
+            if distance > 25 and not (same_name and distance <= 200):
+                continue
+            if best_distance is None or distance < best_distance:
+                best_distance = distance
+                best = {
+                    "id": int(row["id"]),
+                    "name": row.get("name") or "",
+                    "address": row.get("address") or "",
+                    "distance_meters": round(distance, 1),
+                    "url": PUBLIC_SITE_URL + f"/map?place={int(row['id'])}",
+                }
+        return best
+
+    def agent_store_footprint(self, identity, candidate, metadata, source_label):
+        name = str(candidate.get("name") or "").strip()[:120]
+        address = str(candidate.get("address") or "").strip()[:300]
+        poi_type = str(candidate.get("poi_type") or "").strip()[:120]
+        category_id = metadata.get("category_id")
+        if category_id in (None, "", 0, "0"):
+            category_id = self.agent_footprint_category_id(name, poi_type)
+        payload = {
+            "name": name,
+            "address": address,
+            "lat": candidate.get("lat"),
+            "lng": candidate.get("lng"),
+            "category_id": category_id,
+            "status": metadata.get("status", ""),
+            "subtitle": "",
+            "note": "",
+            "signature": "",
+            "tags": "",
+            "rating": 0,
+        }
+        try:
+            values = self.map_place_payload(payload)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+        user_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
+        if user_id is None:
+            raise ValueError("当前账号没有关联的站点身份。")
+        stamp = now_text()
+        place_id = execute(
+            """INSERT INTO map_places
+                   (category_id, name, subtitle, address, note, signature,
+                    tags, lat, lng, status, rating, created_by, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (*values, user_id, stamp, stamp),
+        )
+        author = self.map_creator_name(user_id)
+        link = PUBLIC_SITE_URL + f"/map?place={place_id}"
+        detail = f"{author} 通过 {source_label} 新增了标记点「{name}」"
+        if address:
+            detail += f"（{address}）"
+        if identity.get("kind") not in ("owner", "admin"):
+            notify_async(
+                "place",
+                "Error酱：有新的标记点",
+                f"{detail}\n查看位置：{link}",
+                link,
+            )
+        self.log_activity(
+            "map_place_create",
+            f"新增标记「{name}」" + (f"（{address}）" if address else ""),
+            target_type="map_place",
+            target_id=place_id,
+            actor=identity,
+        )
+        category = None
+        if category_id:
+            category = query_one(
+                "SELECT id, name FROM map_categories WHERE id = ?",
+                (category_id,),
+            )
+        return {
+            "id": int(place_id),
+            "name": name,
+            "address": address,
+            "category_id": category_id,
+            "category_name": (category or {}).get("name") or "",
+            "status": str(metadata.get("status") or ""),
+            "url": link,
+        }
+
+    @staticmethod
+    def map_distance_meters(lat1, lng1, lat2, lng2):
+        radius = 6371000
+        lat1 = math.radians(float(lat1))
+        lat2 = math.radians(float(lat2))
+        delta_lat = lat2 - lat1
+        delta_lng = math.radians(float(lng2) - float(lng1))
+        value = (
+            math.sin(delta_lat / 2) ** 2
+            + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lng / 2) ** 2
+        )
+        return radius * 2 * math.atan2(math.sqrt(value), math.sqrt(1 - value))
+
+    def agent_tool_footprints_search(self, identity, args):
+        if not self.agent_map_view_allowed(identity):
+            api_error(self, 403, "当前账号没有查看足迹的权限。")
+            return
+        search = str(args.get("query") or "").strip()[:200]
+        status = str(args.get("status") or "").strip().lower()
+        if status not in ("", "all", "wish", "visited"):
+            api_error(self, 400, "足迹状态只支持 wish 或 visited。")
+            return
+        if status == "all":
+            status = ""
+        limit = self.agent_limit(args.get("limit"), 8, 20)
+        conditions = ["p.created_by IS NOT NULL"]
+        params = []
+        if search:
+            like = f"%{search}%"
+            conditions.append(
+                """(p.name LIKE ? OR p.subtitle LIKE ? OR p.address LIKE ?
+                    OR p.note LIKE ? OR p.signature LIKE ? OR p.tags LIKE ?
+                    OR c.name LIKE ?)"""
+            )
+            params.extend([like] * 7)
+        if status:
+            conditions.append("p.status = ?")
+            params.append(status)
+        rows = query(
+            """SELECT p.id, p.category_id, p.name, p.subtitle, p.address, p.note,
+                      p.signature, p.tags, p.lat, p.lng, p.status, p.rating,
+                      p.created_by, p.created_at, p.updated_at,
+                      c.name AS category_name, u.username AS created_by_name
+               FROM map_places p
+               LEFT JOIN map_categories c ON c.id = p.category_id
+               LEFT JOIN users u ON u.id = p.created_by
+               WHERE """
+            + " AND ".join(conditions)
+            + """ ORDER BY p.updated_at DESC, p.id DESC LIMIT ?""",
+            (*params, limit),
+        )
+        results = []
+        for row in rows:
+            results.append(
+                {
+                    "id": int(row["id"]),
+                    "name": row.get("name") or "",
+                    "subtitle": row.get("subtitle") or "",
+                    "address": row.get("address") or "",
+                    "note": (row.get("note") or "")[:800],
+                    "signature": row.get("signature") or "",
+                    "tags": row.get("tags") or "",
+                    "category_id": row.get("category_id"),
+                    "category_name": row.get("category_name") or "",
+                    "status": row.get("status") or "",
+                    "rating": int(row.get("rating") or 0),
+                    "lat": row.get("lat"),
+                    "lng": row.get("lng"),
+                    "created_by_name": (
+                        "管理员"
+                        if not row.get("created_by")
+                        else row.get("created_by_name") or "普通用户"
+                    ),
+                    "url": PUBLIC_SITE_URL + f"/map?place={int(row['id'])}",
+                }
+            )
+        self.send_json(
+            200,
+            {
+                "query": search,
+                "status": status,
+                "count": len(results),
+                "results": results,
+            },
+        )
+
+    def agent_tool_footprints_poi_search(self, identity, args):
+        if not self.agent_map_write_allowed(identity):
+            api_error(self, 403, "当前账号没有添加足迹的权限。")
+            return
+        if not AMAP_WEB_KEY:
+            api_error(
+                self,
+                503,
+                "还没有配置高德 Key，请联系管理员设置 INVENTORY_AMAP_KEY。",
+            )
+            return
+        keywords = str(args.get("keywords") or "").strip()[:80]
+        city = str(args.get("city") or "").strip()[:40]
+        if not keywords:
+            api_error(self, 400, "请输入要搜索的地点名称。")
+            return
+        identity_key = f"agent:{identity.get('kind')}:{identity.get('user_id')}"
+        if not rate_allow("agent_amap_search", identity_key, 30, 60):
+            api_error(self, 429, "地点搜索太频繁，请稍后再试。")
+            return
+        try:
+            data = self.amap_poi_search(keywords, city)
+        except ValueError as exc:
+            api_error(self, 502, str(exc))
+            return
+        results = []
+        for poi in (data.get("pois") or [])[:12]:
+            try:
+                lat, lng = gcj02_to_wgs84(poi.get("lat"), poi.get("lng"))
+            except (TypeError, ValueError):
+                continue
+            candidate = {
+                "source": "amap",
+                "poi_id": str(poi.get("id") or "")[:120],
+                "name": str(poi.get("name") or "").strip()[:120],
+                "address": str(poi.get("address") or "").strip()[:300],
+                "poi_type": str(poi.get("type") or "").strip()[:120],
+                "lat": lat,
+                "lng": lng,
+                "coord": "wgs84",
+            }
+            if not candidate["name"]:
+                continue
+            selection_ref = encode_footprint_candidate(candidate)
+            results.append(
+                {
+                    "name": candidate["name"],
+                    "address": candidate["address"],
+                    "type": candidate["poi_type"],
+                    "lat": lat,
+                    "lng": lng,
+                    "selection_ref": selection_ref,
+                }
+            )
+        categories = [
+            {
+                "id": int(row["id"]),
+                "name": row.get("name") or "",
+                "parent_id": row.get("parent_id"),
+            }
+            for row in query(
+                """SELECT id, name, parent_id FROM map_categories
+                   ORDER BY COALESCE(parent_id, id), parent_id IS NOT NULL,
+                            sort_order, id"""
+            )
+        ]
+        self.send_json(
+            200,
+            {
+                "keywords": keywords,
+                "city": city,
+                "count": len(results),
+                "results": results,
+                "categories": categories,
+                "selection_ttl_seconds": FOOTPRINT_CANDIDATE_TTL,
+            },
+        )
+
+    def agent_tool_footprints_add(self, identity, args):
+        if not self.agent_map_write_allowed(identity):
+            api_error(self, 403, "当前账号没有添加足迹的权限。")
+            return
+        if not AMAP_WEB_KEY:
+            api_error(
+                self,
+                503,
+                "还没有配置高德 Key，请联系管理员设置 INVENTORY_AMAP_KEY。",
+            )
+            return
+        keywords = str(args.get("keywords") or "").strip()[:80]
+        city = str(args.get("city") or "").strip()[:40]
+        if not keywords:
+            api_error(self, 400, "请输入要新增的地点名称。")
+            return
+        identity_key = f"agent:{identity.get('kind')}:{identity.get('user_id')}"
+        if not rate_allow("agent_amap_search", identity_key, 30, 60):
+            api_error(self, 429, "地点搜索太频繁，请稍后再试。")
+            return
+        try:
+            data = self.amap_poi_search(keywords, city)
+        except ValueError as exc:
+            api_error(self, 502, str(exc))
+            return
+        candidates = []
+        query_key = self.agent_footprint_name_key(keywords)
+        for index, poi in enumerate(data.get("pois") or []):
+            name = str(poi.get("name") or "").strip()[:120]
+            if not name:
+                continue
+            try:
+                lat, lng = gcj02_to_wgs84(poi.get("lat"), poi.get("lng"))
+            except (TypeError, ValueError):
+                continue
+            candidate_key = self.agent_footprint_name_key(name)
+            if query_key and query_key == candidate_key:
+                score = 0
+            elif query_key and query_key in candidate_key:
+                score = 1
+            elif query_key and candidate_key in query_key:
+                score = 2
+            else:
+                score = 3
+            candidates.append(
+                (
+                    score,
+                    index,
+                    {
+                        "name": name,
+                        "address": str(poi.get("address") or "").strip()[:300],
+                        "poi_type": str(poi.get("type") or "").strip()[:120],
+                        "lat": lat,
+                        "lng": lng,
+                    },
+                )
+            )
+        candidates.sort(key=lambda item: (item[0], item[1]))
+        if not candidates:
+            fallback = PUBLIC_SITE_URL + "/map?" + urlencode(
+                {"add": "1", "name": keywords, "address": city}
+            )
+            self.send_json(
+                200,
+                {
+                    "status": "not_found",
+                    "keywords": keywords,
+                    "message": "高德没有搜索到可用地点。",
+                    "fallback_url": fallback,
+                },
+            )
+            return
+        candidate = candidates[0][2]
+        duplicate = self.agent_footprint_duplicate(
+            candidate["name"],
+            candidate["lat"],
+            candidate["lng"],
+        )
+        if duplicate:
+            self.send_json(
+                200,
+                {
+                    "status": "existing",
+                    "keywords": keywords,
+                    "message": "这个足迹已经存在，没有重复添加。",
+                    "existing": duplicate,
+                },
+            )
+            return
+        metadata = {"status": str(args.get("status") or "")[:20]}
+        try:
+            place = self.agent_store_footprint(
+                identity,
+                candidate,
+                metadata,
+                "ErrorJ Agent 高德自动搜索",
+            )
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        self.send_json(
+            201,
+            {
+                "status": "added",
+                "keywords": keywords,
+                "message": "已自动新增足迹。",
+                "place": place,
+            },
+        )
+
+    def agent_tool_footprints_location_add(self, identity, args):
+        if not self.agent_map_write_allowed(identity):
+            api_error(self, 403, "当前账号没有添加足迹的权限。")
+            return
+        try:
+            lat = float(args.get("lat"))
+            lng = float(args.get("lng"))
+        except (TypeError, ValueError):
+            api_error(self, 400, "位置卡片里的坐标无效。")
+            return
+        if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+            api_error(self, 400, "位置卡片里的坐标超出有效范围。")
+            return
+        coord = str(args.get("coord") or "gcj02").strip().lower()
+        if coord in ("gcj02", "amap", "qq"):
+            lat, lng = gcj02_to_wgs84(lat, lng)
+        title = str(args.get("title") or "").strip()[:120] or "QQ 位置分享"
+        address = str(args.get("address") or "").strip()[:300]
+        duplicate = self.agent_footprint_duplicate(title, lat, lng)
+        if duplicate:
+            self.send_json(
+                200,
+                {
+                    "status": "existing",
+                    "message": "这个位置附近已经有足迹，没有重复添加。",
+                    "existing": duplicate,
+                },
+            )
+            return
+        candidate = {
+            "name": title,
+            "address": address,
+            "poi_type": "",
+            "lat": lat,
+            "lng": lng,
+        }
+        try:
+            place = self.agent_store_footprint(
+                identity,
+                candidate,
+                {"status": ""},
+                "ErrorJ Agent QQ 位置卡片",
+            )
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        self.send_json(
+            201,
+            {
+                "status": "added",
+                "message": "已从位置卡片新增足迹。",
+                "place": place,
+            },
+        )
+
+    def agent_tool_footprints_resolve(self, identity, args):
+        if not self.agent_map_write_allowed(identity):
+            api_error(self, 403, "当前账号没有添加足迹的权限。")
+            return
+        try:
+            candidate = decode_footprint_candidate(
+                args.get("selection_ref")
+            )
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        payload = {
+            "name": candidate.get("name"),
+            "address": candidate.get("address"),
+            "lat": candidate.get("lat"),
+            "lng": candidate.get("lng"),
+            "subtitle": args.get("subtitle", ""),
+            "note": args.get("note", ""),
+            "signature": args.get("signature", ""),
+            "tags": args.get("tags", ""),
+            "status": args.get("status", ""),
+            "rating": args.get("rating", 0),
+            "category_id": args.get("category_id"),
+        }
+        try:
+            values = self.map_place_payload(payload)
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        (
+            category_id,
+            name,
+            subtitle,
+            address,
+            note,
+            signature,
+            tags,
+            lat,
+            lng,
+            status,
+            rating,
+        ) = values
+        category_name = ""
+        if category_id:
+            category = query_one(
+                "SELECT name FROM map_categories WHERE id = ?",
+                (category_id,),
+            )
+            category_name = (category or {}).get("name") or ""
+        duplicates = []
+        for row in query(
+            """SELECT id, name, address, lat, lng,
+                      CASE WHEN created_at IS NULL THEN '' ELSE created_at END
+                          AS created_at
+               FROM map_places"""
+        ):
+            try:
+                distance = self.map_distance_meters(
+                    lat,
+                    lng,
+                    row.get("lat"),
+                    row.get("lng"),
+                )
+            except (TypeError, ValueError):
+                continue
+            if distance <= 80:
+                duplicates.append(
+                    {
+                        "id": int(row["id"]),
+                        "name": row.get("name") or "",
+                        "address": row.get("address") or "",
+                        "distance_meters": round(distance, 1),
+                    }
+                )
+        duplicates.sort(key=lambda item: item["distance_meters"])
+        place = {
+            "name": name,
+            "subtitle": subtitle or "",
+            "address": address or "",
+            "note": note or "",
+            "signature": signature or "",
+            "tags": tags or "",
+            "category_id": category_id,
+            "category_name": category_name,
+            "status": status or "",
+            "rating": rating,
+            "lat": lat,
+            "lng": lng,
+        }
+        self.send_json(
+            200,
+            {
+                "status": "ready",
+                "place": place,
+                "possible_duplicates": duplicates[:5],
+            },
+        )
+
+    def agent_tool_footprints_create(self, identity, args):
+        if not self.agent_map_write_allowed(identity):
+            api_error(self, 403, "当前账号没有添加足迹的权限。")
+            return
+        try:
+            candidate = decode_footprint_candidate(
+                args.get("selection_ref")
+            )
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        payload = {
+            "name": candidate.get("name"),
+            "address": candidate.get("address"),
+            "lat": candidate.get("lat"),
+            "lng": candidate.get("lng"),
+            "subtitle": args.get("subtitle", ""),
+            "note": args.get("note", ""),
+            "signature": args.get("signature", ""),
+            "tags": args.get("tags", ""),
+            "status": args.get("status", ""),
+            "rating": args.get("rating", 0),
+            "category_id": args.get("category_id"),
+        }
+        try:
+            values = self.map_place_payload(payload)
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        user_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
+        if user_id is None:
+            api_error(self, 403, "当前账号没有关联的站点身份。")
+            return
+        stamp = now_text()
+        place_id = execute(
+            """INSERT INTO map_places
+                   (category_id, name, subtitle, address, note, signature,
+                    tags, lat, lng, status, rating, created_by, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (*values, user_id, stamp, stamp),
+        )
+        name = values[1] or "未命名地点"
+        address = values[3] or ""
+        author = self.map_creator_name(user_id)
+        link = PUBLIC_SITE_URL + f"/map?place={place_id}"
+        detail = f"{author} 通过 ErrorJ Agent 新增了标记点「{name}」"
+        if address:
+            detail += f"（{address}）"
+        if identity.get("kind") not in ("owner", "admin"):
+            notify_async(
+                "place",
+                "Error酱：有新的标记点",
+                f"{detail}\n查看位置：{link}",
+                link,
+            )
+        self.log_activity(
+            "map_place_create",
+            f"新增标记「{name}」" + (f"（{address}）" if address else ""),
+            target_type="map_place",
+            target_id=place_id,
+            actor=identity,
+        )
+        self.send_json(
+            201,
+            {
+                "ok": True,
+                "id": int(place_id),
+                "name": name,
+                "address": address,
+                "url": PUBLIC_SITE_URL + f"/map?place={place_id}",
+            },
+        )
+
+    def agent_tool_footprints_map_link(self, identity, args):
+        if not self.agent_map_write_allowed(identity):
+            api_error(self, 403, "当前账号没有添加足迹的权限。")
+            return
+        name = str(args.get("name") or "").strip()[:120]
+        if not name:
+            api_error(self, 400, "选点链接需要先填写地点名称。")
+            return
+        params = {"add": "1", "name": name}
+        for key, limit in (("address", 300), ("note", 2000)):
+            value = str(args.get(key) or "").strip()[:limit]
+            if value:
+                params[key] = value
+        for key in ("lat", "lng"):
+            value = args.get(key)
+            if value in (None, ""):
+                continue
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                api_error(self, 400, "选点坐标无效。")
+                return
+            lower, upper = (-90, 90) if key == "lat" else (-180, 180)
+            if not (lower <= number <= upper):
+                api_error(self, 400, "选点坐标超出有效范围。")
+                return
+            params[key] = f"{number:.6f}"
+        self.send_json(
+            200,
+            {
+                "url": PUBLIC_SITE_URL + "/map?" + urlencode(params),
+                "message": "打开链接后在地图上点选准确位置并保存。",
+            },
+        )
+
     def api_agent_tool(self, payload, identity):
         tool = str((payload or {}).get("tool") or "").strip()
         args = (payload or {}).get("arguments") or {}
@@ -16853,12 +17992,20 @@ class InventoryHandler(BaseHTTPRequestHandler):
             "content.send": self.agent_tool_content_send,
             "notes.search": self.agent_tool_note_search,
             "notes.read": self.agent_tool_note_read,
+            "notes.import": self.agent_tool_notes_import,
             "reviews.list": self.agent_tool_reviews_list,
             "reviews.decide": self.agent_tool_reviews_decide,
             "aa.events.list": self.agent_tool_aa_events_list,
             "aa.event.get": self.agent_tool_aa_event_get,
             "aa.expense.add": self.agent_tool_aa_expense_add,
             "users.resolve": self.agent_tool_users_resolve,
+            "footprints.search": self.agent_tool_footprints_search,
+            "footprints.poi_search": self.agent_tool_footprints_poi_search,
+            "footprints.add": self.agent_tool_footprints_add,
+            "footprints.location_add": self.agent_tool_footprints_location_add,
+            "footprints.resolve": self.agent_tool_footprints_resolve,
+            "footprints.create": self.agent_tool_footprints_create,
+            "footprints.map_link": self.agent_tool_footprints_map_link,
         }
         handler = handlers.get(tool)
         if not handler:
@@ -16889,6 +18036,26 @@ class InventoryHandler(BaseHTTPRequestHandler):
         expected = agent_media_signature(kind, item_id, expires)
         if not hmac.compare_digest(signature, expected):
             api_error(self, 403, "媒体链接无效。")
+            return
+        if kind in ("note_markdown", "note_txt", "note_html"):
+            note = query_one(
+                """SELECT id, title, content, tags, created_at, updated_at
+                   FROM learning_notes WHERE id = ?""",
+                (item_id,),
+            )
+            if not note:
+                api_error(self, 404, "笔记不存在。")
+                return
+            export_format = kind.removeprefix("note_")
+            try:
+                body, file_name, mime_type, _ = build_note_export_file(
+                    note,
+                    export_format,
+                )
+            except ValueError as exc:
+                api_error(self, 400, str(exc))
+                return
+            self.send_download_bytes(body, file_name, mime_type)
             return
         resource = self.download_resource(kind, item_id)
         if not resource:
@@ -17670,8 +18837,58 @@ class InventoryHandler(BaseHTTPRequestHandler):
             )
             return
         extension = Path(original_name).suffix.lower()
-        if extension not in {".doc", ".docx", ".pdf"}:
-            api_error(self, 400, "只支持导入 DOC、DOCX 和 PDF 文档。")
+        if extension not in {".doc", ".docx", ".pdf"} | TEXT_NOTE_IMPORT_EXTENSIONS:
+            api_error(
+                self,
+                400,
+                "只支持导入 DOC、DOCX、PDF、TXT 和 Markdown 文档。",
+            )
+            return
+        if extension in TEXT_NOTE_IMPORT_EXTENSIONS:
+            try:
+                text = decode_note_text_document(raw)
+            except ValueError as exc:
+                api_error(self, 400, str(exc))
+                return
+            if extension.lower() in (".md", ".markdown"):
+                content = str(text or "").strip()
+                doc_format = "markdown"
+                format_label = "Markdown"
+            else:
+                content = rough_note_markdown(text)
+                doc_format = "txt"
+                format_label = "TXT"
+            if not content:
+                api_error(self, 400, "没有从文档中提取到可阅读的正文。")
+                return
+            content = (
+                f"> 导入自 {markdown_escape_text(original_name)} · {today_text()}"
+                f"\n\n{content}\n"
+            )
+            if len(content) > NOTE_CONTENT_MAX_CHARS:
+                api_error(self, 400, "转换后的正文太长了，建议拆分文档后再导入。")
+                return
+            title = Path(original_name).stem.strip()[:120] or f"{format_label} 导入"
+            tags = f"{format_label}导入"
+            stamp = now_text()
+            note_id = execute(
+                """INSERT INTO learning_notes
+                       (title, content, tags, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (title, content, tags, stamp, stamp),
+            )
+            self.send_json(
+                200,
+                {
+                    "id": note_id,
+                    "title": title,
+                    "format": doc_format,
+                    "content_length": len(content),
+                    "image_count": 0,
+                    "image_bytes": 0,
+                    "url": PUBLIC_SITE_URL + f"/notes?note={note_id}",
+                },
+            )
             return
         try:
             import anydoc
@@ -17815,6 +19032,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "content_length": len(content),
                 "image_count": image_count,
                 "image_bytes": image_bytes,
+                "url": PUBLIC_SITE_URL + f"/notes?note={note_id}",
             },
         )
 

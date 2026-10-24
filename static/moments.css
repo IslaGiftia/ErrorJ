@@ -532,7 +532,9 @@ body {
   -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
   box-shadow: 0 12px 32px rgba(24, 31, 45, 0.18);
-  animation: moFilterMenuIn var(--dur-fast) ease;
+  transform-origin: top center;
+  animation: moFilterMenuIn var(--dur-fast)
+    var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1));
 }
 
 .mo-filter-menu[hidden] {
@@ -542,12 +544,18 @@ body {
 @keyframes moFilterMenuIn {
   from {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateY(-4px) scale(0.97);
   }
 
   to {
     opacity: 1;
     transform: none;
+  }
+}
+
+@keyframes moFilterMenuFadeIn {
+  from {
+    opacity: 0;
   }
 }
 
@@ -1190,6 +1198,10 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .mo-filter-menu:not([hidden]) {
+    animation-name: moFilterMenuFadeIn;
+  }
+
   .mo-item.is-fresh,
   .mo-comment-text.is-new-comment,
   .mo-like-btn.is-pop,
@@ -1265,7 +1277,9 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
   animation: none;
   opacity: 0;
   transform: translate(-50%, 8px);
-  transition: opacity var(--dur-fast) ease-in, transform var(--dur-fast) ease-in;
+  transition:
+    opacity var(--dur-fast) var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)),
+    transform var(--dur-fast) var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1));
 }
 
 /* 减少动效：toast 只淡入淡出、不做位移 */
@@ -1276,7 +1290,7 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
 
   .mo-toast.is-leaving {
     transform: translateX(-50%);
-    transition: opacity var(--dur-fast) ease-in;
+    transition: opacity var(--dur-fast) var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1));
   }
 }
 

@@ -16,7 +16,11 @@ from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
 from .errors import AgentError
-from .onebot import MessageEvent
+from .onebot import (
+    MessageEvent,
+    extract_attachment_event,
+    extract_location_event,
+)
 from .onebot_ws import WS_GUID, _masked_frame, _read_frame
 
 
@@ -73,16 +77,7 @@ def parse_qqbot_event(
         message_type = "private"
     if not user_id or not chat_id:
         return None
-    attachments = []
-    for item in payload.get("attachments") or []:
-        if isinstance(item, dict):
-            attachments.append(dict(item))
-    for element in payload.get("msg_elements") or []:
-        if not isinstance(element, dict):
-            continue
-        for item in element.get("attachments") or []:
-            if isinstance(item, dict):
-                attachments.append(dict(item))
+    attachments = extract_attachment_event(payload)
     return MessageEvent(
         self_id=self_id,
         user_id=user_id,
@@ -92,8 +87,9 @@ def parse_qqbot_event(
         text=text,
         to_me=True,
         platform="qqbot",
-        attachments=tuple(attachments),
+        attachments=attachments,
         display_name=str(author.get("username") or "").strip()[:80],
+        location=extract_location_event(payload),
     )
 
 

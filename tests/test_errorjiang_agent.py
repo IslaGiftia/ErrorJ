@@ -1,3 +1,4 @@
+import base64
 import json
 import http.client
 import os
@@ -436,6 +437,275 @@ class AgentStoreTests(unittest.TestCase):
         self.assertEqual(action["kind"], "user")
         self.assertEqual(action["id"], 9)
         self.assertEqual(action["action"], "approve")
+
+    def test_footprint_prepare_uses_bound_site_user_and_confirmation(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.config = SimpleNamespace(
+            errorjiang_base_url="http://agent.test",
+            errorjiang_token="token",
+        )
+
+        class FakeClient:
+            def __init__(self, base_url, token, user_id):
+                self.user_id = user_id
+
+            def tool(self, name, arguments):
+                self.name = name
+                return {
+                    "status": "ready",
+                    "place": {
+                        "name": "山里的咖啡馆",
+                        "address": "测试山路",
+                        "status": "wish",
+                        "category_name": "",
+                    },
+                    "possible_duplicates": [],
+                }
+
+        with patch("errorjiang_agent.service.ErrorJClient", FakeClient):
+            prepared = service.prepare_footprint(
+                {
+                    "selection_ref": "signed-candidate",
+                    "status": "wish",
+                    "note": "周末去",
+                },
+                {
+                    "platform": "qqbot",
+                    "owner_id": "member-openid",
+                    "chat_id": "group-openid",
+                    "target_user_id": "7",
+                    "tools_enabled": "1",
+                },
+            )
+        self.assertEqual(prepared["status"], "pending_confirmation")
+        self.assertIn("山里的咖啡馆", prepared["message"])
+        action = self.store.consume_pending(
+            "qqbot",
+            "member-openid",
+            "group-openid",
+            prepared["code"],
+        )
+        self.assertEqual(action["operation"], "footprint_create")
+        self.assertEqual(action["target_user_id"], 7)
+        self.assertEqual(action["arguments"]["selection_ref"], "signed-candidate")
+        self.assertEqual(action["arguments"]["note"], "周末去")
+
+    def test_footprint_confirmation_creates_as_bound_site_user(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.config = SimpleNamespace(
+            errorjiang_base_url="http://agent.test",
+            errorjiang_token="token",
+        )
+        code, _ = self.store.create_pending(
+            "qqbot",
+            "member-openid",
+            "group-openid",
+            {
+                "operation": "footprint_create",
+                "target_user_id": 7,
+                "arguments": {
+                    "selection_ref": "signed-candidate",
+                    "status": "wish",
+                },
+            },
+        )
+        captured = {}
+
+        class FakeClient:
+            def __init__(self, base_url, token, user_id):
+                captured["user_id"] = user_id
+
+            def tool(self, name, arguments):
+                captured["tool"] = name
+                captured["arguments"] = arguments
+                return {
+                    "ok": True,
+                    "name": "测试地点",
+                    "url": "https://example.com/map?place=42",
+                }
+
+        event = MessageEvent(
+            self_id="bot",
+            user_id="member-openid",
+            message_type="group",
+            chat_id="group-openid",
+            message_id="message-1",
+            text=f"确认 {code}",
+            to_me=True,
+            platform="qqbot",
+        )
+        with patch("errorjiang_agent.service.ErrorJClient", FakeClient):
+            reply = service.confirm_pending(event, code)
+        self.assertIn("已添加足迹「测试地点」", reply)
+        self.assertEqual(captured["user_id"], 7)
+        self.assertEqual(captured["tool"], "footprints.create")
+        self.assertEqual(captured["arguments"]["selection_ref"], "signed-candidate")
+        self.assertIsNone(
+            self.store.consume_pending(
+                "qqbot",
+                "member-openid",
+                "group-openid",
+                code,
+            )
+        )
+
+    def test_web_chat_can_confirm_footprint_action(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.config = SimpleNamespace(
+            errorjiang_base_url="http://agent.test",
+            errorjiang_token="token",
+        )
+        code, _ = self.store.create_pending(
+            "web",
+            "7",
+            "7",
+            {
+                "operation": "footprint_create",
+                "target_user_id": 7,
+                "arguments": {"selection_ref": "signed-candidate"},
+            },
+        )
+
+        class FakeClient:
+            def __init__(self, base_url, token, user_id):
+                pass
+
+            def tool(self, name, arguments):
+                return {"ok": True, "name": "网页测试地点"}
+
+        with patch("errorjiang_agent.service.ErrorJClient", FakeClient):
+            reply = service.web_chat(7, f"确认 {code}")
+        self.assertIn("已添加足迹「网页测试地点」", reply)
+        messages = self.store.get_messages("web", "web:7", 10)
+        self.assertEqual(messages[-1]["role"], "assistant")
+
+    def test_location_card_is_added_before_ai_reply(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.config = SimpleNamespace(
+            errorjiang_base_url="http://agent.test",
+            errorjiang_token="token",
+        )
+        sent = []
+        service.send_reply = lambda event, text: sent.append(text)
+        captured = {}
+
+        class FakeClient:
+            def __init__(self, base_url, token, user_id):
+                captured["user_id"] = user_id
+
+            def tool(self, name, arguments):
+                captured["name"] = name
+                captured["arguments"] = arguments
+                return {
+                    "status": "added",
+                    "place": {
+                        "name": "春发芽葫芦头",
+                        "category_name": "美食",
+                        "url": "https://example.com/map?place=88",
+                    },
+                }
+
+        event = MessageEvent(
+            self_id="bot",
+            user_id="member",
+            message_type="private",
+            chat_id="member",
+            message_id="message-location",
+            text="",
+            to_me=True,
+            platform="qq",
+            location={
+                "lat": 34.3416,
+                "lng": 108.9398,
+                "title": "春发芽葫芦头",
+                "address": "测试路",
+                "coord": "gcj02",
+            },
+        )
+        with patch("errorjiang_agent.service.ErrorJClient", FakeClient):
+            service._process_event(
+                event,
+                target_user_id=7,
+                is_admin=False,
+            )
+        self.assertEqual(captured["user_id"], 7)
+        self.assertEqual(captured["name"], "footprints.location_add")
+        self.assertEqual(captured["arguments"]["title"], "春发芽葫芦头")
+        self.assertIn("已从位置卡片添加足迹", sent[0])
+        self.assertIn("美食", sent[0])
+
+    def test_note_attachments_are_imported_and_replied_with_links(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.config = SimpleNamespace(
+            errorjiang_base_url="http://agent.test",
+            errorjiang_token="token",
+        )
+        sent = []
+        service.send_reply = lambda event, text: sent.append(text)
+        service.download_note_attachment = lambda attachment, allow_private=False: (
+            b"# note"
+        )
+        calls = []
+
+        class FakeClient:
+            def __init__(self, base_url, token, user_id):
+                calls.append(("client", user_id))
+
+            def tool(self, name, arguments):
+                calls.append((name, arguments["file_name"]))
+                return {
+                    "id": 9,
+                    "title": arguments["file_name"].rsplit(".", 1)[0],
+                    "url": "https://example.com/notes?note=9",
+                }
+
+        event = MessageEvent(
+            self_id="bot",
+            user_id="member",
+            message_type="private",
+            chat_id="member",
+            message_id="message-note",
+            text="",
+            to_me=True,
+            platform="qq",
+            attachments=(
+                {
+                    "filename": "会议记录.md",
+                    "url": "https://example.com/meeting.md",
+                    "content_type": "text/markdown",
+                },
+                {
+                    "filename": "学习资料.txt",
+                    "url": "https://example.com/study.txt",
+                    "content_type": "text/plain",
+                },
+            ),
+        )
+        with patch("errorjiang_agent.service.ErrorJClient", FakeClient):
+            handled = service.import_note_attachments(event, target_user_id=7)
+        self.assertTrue(handled)
+        self.assertIn(("notes.import", "会议记录.md"), calls)
+        self.assertIn(("notes.import", "学习资料.txt"), calls)
+        self.assertIn("已导入 2 篇笔记", sent[0])
+        self.assertIn("https://example.com/notes?note=9", sent[0])
+
+    def test_note_attachment_name_uses_mime_when_extension_missing(self):
+        self.assertEqual(
+            AgentService.note_attachment_name(
+                {"filename": "会议记录", "content_type": "text/plain"}
+            ),
+            "会议记录.txt",
+        )
+        self.assertIsNone(
+            AgentService.note_attachment_name(
+                {"filename": "图片.png", "content_type": "image/png"}
+            )
+        )
 
     def test_reminder_is_scheduled(self):
         service = object.__new__(AgentService)
@@ -915,6 +1185,99 @@ class OneBotParserTests(unittest.TestCase):
         self.assertTrue(event.to_me)
         self.assertIn("30001", event_key(event))
 
+    def test_onebot_location_cq_code_is_parsed(self):
+        event = parse_message_event(
+            {
+                "post_type": "message",
+                "message_type": "private",
+                "self_id": 20000,
+                "user_id": 10001,
+                "message_id": 11,
+                "raw_message": (
+                    "[CQ:location,lat=34.3416,lon=108.9398,"
+                    "title=%E6%98%A5%E5%8F%91%E8%8A%BD%E8%91%AB%E8%8A%A6%E5%A4%B4,"
+                    "content=%E8%A5%BF%E5%AE%89%E5%B8%82%E6%B5%8B%E8%AF%95%E8%B7%AF]"
+                ),
+            }
+        )
+        self.assertIsNotNone(event)
+        self.assertEqual(event.location["lat"], 34.3416)
+        self.assertEqual(event.location["lng"], 108.9398)
+        self.assertEqual(event.location["title"], "春发芽葫芦头")
+        self.assertEqual(event.location["address"], "西安市测试路")
+
+    def test_onebot_json_location_card_is_parsed(self):
+        card = json.dumps(
+            {
+                "meta": {
+                    "location": {
+                        "lat": "34.2",
+                        "lng": "108.8",
+                        "title": "JSON 位置",
+                        "address": "测试地址",
+                    }
+                }
+            },
+            ensure_ascii=False,
+        )
+        event = parse_message_event(
+            {
+                "post_type": "message",
+                "message_type": "private",
+                "self_id": 20000,
+                "user_id": 10001,
+                "message_id": 12,
+                "message": [
+                    {"type": "json", "data": {"data": card}},
+                ],
+            }
+        )
+        self.assertIsNotNone(event)
+        self.assertEqual(event.location["title"], "JSON 位置")
+
+    def test_onebot_file_segment_is_parsed(self):
+        event = parse_message_event(
+            {
+                "post_type": "message",
+                "message_type": "private",
+                "self_id": 20000,
+                "user_id": 10001,
+                "message_id": 13,
+                "message": [
+                    {
+                        "type": "file",
+                        "data": {
+                            "name": "测试笔记.md",
+                            "url": "https://example.com/files/note.md",
+                        },
+                    }
+                ],
+            }
+        )
+        self.assertIsNotNone(event)
+        self.assertEqual(event.attachments[0]["filename"], "测试笔记.md")
+        self.assertEqual(
+            event.attachments[0]["url"],
+            "https://example.com/files/note.md",
+        )
+
+    def test_onebot_cq_file_is_parsed(self):
+        event = parse_message_event(
+            {
+                "post_type": "message",
+                "message_type": "private",
+                "self_id": 20000,
+                "user_id": 10001,
+                "message_id": 14,
+                "raw_message": (
+                    "[CQ:file,name=%E6%B5%8B%E8%AF%95.docx,"
+                    "url=https%3A%2F%2Fexample.com%2Ffiles%2Ftest.docx]"
+                ),
+            }
+        )
+        self.assertIsNotNone(event)
+        self.assertEqual(event.attachments[0]["filename"], "测试.docx")
+
     def test_websocket_frame_round_trip(self):
         left, right = socket.socketpair()
         try:
@@ -977,6 +1340,58 @@ class OneBotParserTests(unittest.TestCase):
         self.assertEqual(event.message_type, "private")
         self.assertEqual(event.user_id, "user-openid")
         self.assertEqual(event.chat_id, "user-openid")
+
+    def test_qqbot_location_element_is_parsed(self):
+        event = parse_qqbot_event(
+            "C2C_MESSAGE_CREATE",
+            {
+                "id": "message-location",
+                "content": "",
+                "author": {
+                    "user_openid": "user-openid",
+                    "username": "星星",
+                },
+                "msg_elements": [
+                    {
+                        "type": "location",
+                        "data": {
+                            "lat": 34.1,
+                            "lng": 108.9,
+                            "title": "QQ 位置",
+                            "address": "位置地址",
+                        },
+                    }
+                ],
+            },
+            "bot-qq",
+        )
+        self.assertIsNotNone(event)
+        self.assertEqual(event.location["title"], "QQ 位置")
+        self.assertEqual(event.location["coord"], "gcj02")
+
+    def test_qqbot_file_attachment_is_parsed(self):
+        event = parse_qqbot_event(
+            "C2C_MESSAGE_CREATE",
+            {
+                "id": "message-file",
+                "content": "",
+                "author": {
+                    "user_openid": "user-openid",
+                    "username": "星星",
+                },
+                "attachments": [
+                    {
+                        "filename": "会议记录.txt",
+                        "content_type": "text/plain",
+                        "url": "https://example.com/files/meeting.txt",
+                    }
+                ],
+            },
+            "bot-qq",
+        )
+        self.assertIsNotNone(event)
+        self.assertEqual(event.attachments[0]["filename"], "会议记录.txt")
+        self.assertEqual(event.attachments[0]["content_type"], "text/plain")
 
 
 class FakeDeepSeek:
@@ -1091,6 +1506,115 @@ class AgentBrainTests(unittest.TestCase):
         self.assertEqual(reply, "请确认。")
         self.assertEqual(captured["arguments"]["id"], 3)
         self.assertEqual(captured["context"]["owner_id"], "10001")
+
+    def test_footprint_tools_are_mapped_to_internal_api(self):
+        deepseek = FakeDeepSeek(
+            [
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call-footprints-search",
+                            "type": "function",
+                            "function": {
+                                "name": "errorjiang_footprints_search",
+                                "arguments": json.dumps(
+                                    {"query": "咖啡馆", "status": "visited"}
+                                ),
+                            },
+                        },
+                        {
+                            "id": "call-footprints-poi",
+                            "type": "function",
+                            "function": {
+                                "name": "errorjiang_footprints_poi_search",
+                                "arguments": json.dumps(
+                                    {"keywords": "西湖咖啡馆", "city": "杭州"}
+                                ),
+                            },
+                        },
+                        {
+                            "id": "call-footprints-add",
+                            "type": "function",
+                            "function": {
+                                "name": "errorjiang_footprints_add",
+                                "arguments": json.dumps(
+                                    {"keywords": "春发芽葫芦头", "city": "西安"}
+                                ),
+                            },
+                        },
+                    ],
+                },
+                {"role": "assistant", "content": "查到了。"},
+            ]
+        )
+        errorjiang = FakeErrorJ()
+        brain = AgentBrain(deepseek, errorjiang, lambda args, context: {})
+        self.assertEqual(brain.reply("找一下足迹，再搜一个新地点", []), "查到了。")
+        self.assertEqual(
+            errorjiang.calls,
+            [
+                ("footprints.search", {"query": "咖啡馆", "status": "visited"}),
+                (
+                    "footprints.poi_search",
+                    {"keywords": "西湖咖啡馆", "city": "杭州"},
+                ),
+                (
+                    "footprints.add",
+                    {"keywords": "春发芽葫芦头", "city": "西安"},
+                ),
+            ],
+        )
+
+    def test_footprint_prepare_receives_current_chat_context(self):
+        deepseek = FakeDeepSeek(
+            [
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call-footprint-prepare",
+                            "type": "function",
+                            "function": {
+                                "name": "errorjiang_footprints_prepare",
+                                "arguments": json.dumps(
+                                    {"selection_ref": "candidate-1", "status": "wish"}
+                                ),
+                            },
+                        }
+                    ],
+                },
+                {"role": "assistant", "content": "请确认。"},
+            ]
+        )
+        captured = {}
+
+        def prepare(arguments, context):
+            captured["arguments"] = arguments
+            captured["context"] = context
+            return {"status": "pending_confirmation", "code": "123456"}
+
+        brain = AgentBrain(
+            deepseek,
+            FakeErrorJ(),
+            lambda args, context: {},
+            prepare_footprint=prepare,
+        )
+        reply = brain.reply(
+            "添加第一个",
+            [],
+            {
+                "platform": "qq",
+                "owner_id": "10001",
+                "chat_id": "10001",
+                "target_user_id": "7",
+            },
+        )
+        self.assertEqual(reply, "请确认。")
+        self.assertEqual(captured["arguments"]["selection_ref"], "candidate-1")
+        self.assertEqual(captured["context"]["target_user_id"], "7")
 
     def test_group_member_can_be_limited_to_chat_without_tools(self):
         class CaptureDeepSeek:
@@ -1266,6 +1790,339 @@ class AgentInternalAuthTests(unittest.TestCase):
             handler, 403, "当前账号没有笔记查看权限。"
         )
 
+    def test_footprint_candidate_signature_rejects_tampering(self):
+        with patch.dict(
+            os.environ,
+            {"ERRORJIANG_AGENT_TOKEN": "agent-test-token"},
+            clear=False,
+        ):
+            reference = app.encode_footprint_candidate(
+                {
+                    "source": "amap",
+                    "name": "测试地点",
+                    "address": "测试地址",
+                    "lat": 30.123456,
+                    "lng": 120.654321,
+                }
+            )
+            candidate = app.decode_footprint_candidate(reference)
+            self.assertEqual(candidate["name"], "测试地点")
+            with self.assertRaises(ValueError):
+                app.decode_footprint_candidate(reference[:-2] + "AA")
+
+    def test_amap_gcj_coordinate_is_converted_for_storage(self):
+        lat, lng = app.gcj02_to_wgs84(30.280001, 120.155001)
+        self.assertNotEqual((lat, lng), (30.280001, 120.155001))
+        self.assertAlmostEqual(lat, 30.280001, delta=0.01)
+        self.assertAlmostEqual(lng, 120.155001, delta=0.01)
+        self.assertEqual(app.gcj02_to_wgs84(51.5, -0.12), (51.5, -0.12))
+
+    def test_footprint_search_returns_existing_places(self):
+        handler = self.make_handler({})
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        identity = {"kind": "owner", "user_id": 0}
+        rows = [
+            {
+                "id": 8,
+                "name": "西湖咖啡馆",
+                "address": "湖边",
+                "status": "visited",
+                "rating": 5,
+                "lat": 30.2,
+                "lng": 120.1,
+                "created_by": 0,
+                "created_by_name": None,
+            }
+        ]
+        with patch.object(app, "query", return_value=rows):
+            handler.agent_tool_footprints_search(
+                identity,
+                {"query": "咖啡馆", "status": "visited"},
+            )
+        self.assertEqual(captured["status"], 200)
+        self.assertEqual(captured["payload"]["count"], 1)
+        self.assertEqual(captured["payload"]["results"][0]["name"], "西湖咖啡馆")
+        self.assertTrue(
+            captured["payload"]["results"][0]["url"].endswith("/map?place=8")
+        )
+
+    def test_private_map_blocks_member_footprint_tools(self):
+        handler = self.make_handler({})
+        identity = {"kind": "member", "user_id": 7}
+        with patch.object(app, "MAP_PUBLIC", False), patch.object(
+            app, "user_has_permission", return_value=True
+        ), patch.object(app, "api_error") as api_error:
+            handler.agent_tool_footprints_search(identity, {"query": "咖啡馆"})
+        api_error.assert_called_once_with(
+            handler, 403, "当前账号没有查看足迹的权限。"
+        )
+
+    def test_footprint_poi_search_returns_signed_wgs_candidate(self):
+        handler = self.make_handler({})
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        identity = {"kind": "owner", "user_id": 0}
+        amap_result = {
+            "pois": [
+                {
+                    "id": "poi-1",
+                    "name": "西湖咖啡馆",
+                    "address": "湖边",
+                    "type": "餐饮",
+                    "lat": 30.280001,
+                    "lng": 120.155001,
+                }
+            ]
+        }
+        categories = [{"id": 2, "name": "咖啡馆", "parent_id": None}]
+        with patch.dict(
+            os.environ,
+            {"ERRORJIANG_AGENT_TOKEN": "agent-test-token"},
+            clear=False,
+        ), patch.object(app, "AMAP_WEB_KEY", "test-key"), patch.object(
+            handler, "amap_poi_search", return_value=amap_result
+        ), patch.object(app, "rate_allow", return_value=True), patch.object(
+            app, "query", return_value=categories
+        ):
+            handler.agent_tool_footprints_poi_search(
+                identity,
+                {"keywords": "西湖咖啡馆", "city": "杭州"},
+            )
+            result = captured["payload"]["results"][0]
+            candidate = app.decode_footprint_candidate(result["selection_ref"])
+        self.assertEqual(captured["status"], 200)
+        self.assertEqual(candidate["name"], "西湖咖啡馆")
+        self.assertNotEqual(candidate["lat"], 30.280001)
+        self.assertAlmostEqual(candidate["lat"], 30.280001, delta=0.01)
+        self.assertEqual(captured["payload"]["categories"][0]["id"], 2)
+
+    def test_footprint_category_strong_name_filter(self):
+        handler = self.make_handler({})
+        with patch.object(
+            app, "query_one", return_value={"id": 14}
+        ):
+            category_id = handler.agent_footprint_category_id(
+                "春发芽葫芦头",
+                "",
+            )
+        with patch.object(app, "query_one") as query_one:
+            self.assertIsNone(
+                handler.agent_footprint_category_id("普通地点", "")
+            )
+        self.assertEqual(category_id, 14)
+        query_one.assert_not_called()
+
+    def test_footprint_auto_add_selects_best_amap_result(self):
+        handler = self.make_handler({})
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        handler.amap_poi_search = lambda keywords, city="": {
+            "pois": [
+                {
+                    "name": "春发芽葫芦头（测试店）",
+                    "address": "测试路 1 号",
+                    "type": "餐饮服务;中餐厅",
+                    "lat": 34.3416,
+                    "lng": 108.9398,
+                }
+            ]
+        }
+        stored = {}
+
+        def store(identity, candidate, metadata, source):
+            stored.update(
+                {
+                    "candidate": candidate,
+                    "metadata": metadata,
+                    "source": source,
+                }
+            )
+            return {
+                "id": 91,
+                "name": candidate["name"],
+                "category_name": "美食",
+                "url": "https://example.com/map?place=91",
+            }
+
+        with patch.object(app, "AMAP_WEB_KEY", "test-key"), patch.object(
+            app, "rate_allow", return_value=True
+        ), patch.object(
+            handler, "agent_footprint_duplicate", return_value=None
+        ), patch.object(
+            handler, "agent_store_footprint", side_effect=store
+        ):
+            handler.agent_tool_footprints_add(
+                {"kind": "owner", "user_id": 0},
+                {"keywords": "春发芽葫芦头", "city": "西安"},
+            )
+        self.assertEqual(captured["status"], 201)
+        self.assertEqual(captured["payload"]["status"], "added")
+        self.assertEqual(stored["candidate"]["name"], "春发芽葫芦头（测试店）")
+        self.assertEqual(stored["metadata"]["status"], "")
+        self.assertIn("高德自动搜索", stored["source"])
+
+    def test_footprint_auto_add_returns_selection_link_when_not_found(self):
+        handler = self.make_handler({})
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        handler.amap_poi_search = lambda keywords, city="": {"pois": []}
+        with patch.object(app, "AMAP_WEB_KEY", "test-key"), patch.object(
+            app, "rate_allow", return_value=True
+        ):
+            handler.agent_tool_footprints_add(
+                {"kind": "owner", "user_id": 0},
+                {"keywords": "山里的小店", "city": "西安"},
+            )
+        self.assertEqual(captured["status"], 200)
+        self.assertEqual(captured["payload"]["status"], "not_found")
+        self.assertIn("/map?add=1", captured["payload"]["fallback_url"])
+
+    def test_location_card_uses_gcj_coordinates_and_category(self):
+        handler = self.make_handler({})
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        stored = {}
+
+        def store(identity, candidate, metadata, source):
+            stored["candidate"] = candidate
+            stored["source"] = source
+            return {
+                "id": 92,
+                "name": candidate["name"],
+                "category_name": "美食",
+                "url": "https://example.com/map?place=92",
+            }
+
+        with patch.object(
+            handler, "agent_footprint_duplicate", return_value=None
+        ), patch.object(
+            handler, "agent_store_footprint", side_effect=store
+        ):
+            handler.agent_tool_footprints_location_add(
+                {"kind": "owner", "user_id": 0},
+                {
+                    "lat": 34.3416,
+                    "lng": 108.9398,
+                    "title": "春发芽葫芦头",
+                    "address": "测试路",
+                    "coord": "gcj02",
+                },
+            )
+        self.assertEqual(captured["status"], 201)
+        self.assertNotEqual(stored["candidate"]["lat"], 34.3416)
+        self.assertEqual(stored["candidate"]["name"], "春发芽葫芦头")
+        self.assertIn("位置卡片", stored["source"])
+
+    def test_footprint_create_requires_confirmed_signed_candidate(self):
+        handler = self.make_handler({})
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        handler.log_activity = lambda *args, **kwargs: None
+        identity = {
+            "kind": "member",
+            "user_id": 7,
+            "username": "member",
+            "nickname": "成员",
+        }
+        with patch.dict(
+            os.environ,
+            {"ERRORJIANG_AGENT_TOKEN": "agent-test-token"},
+            clear=False,
+        ):
+            reference = app.encode_footprint_candidate(
+                {
+                    "source": "amap",
+                    "name": "测试地点",
+                    "address": "测试地址",
+                    "lat": 30.2,
+                    "lng": 120.1,
+                }
+            )
+            with patch.object(
+                app, "user_has_permission", return_value=True
+            ), patch.object(
+                app, "query_one", return_value={"nickname": "成员", "username": "member"}
+            ), patch.object(
+                app, "execute", return_value=42
+            ) as execute, patch.object(
+                app, "notify_async"
+            ) as notify_async:
+                handler.agent_tool_footprints_create(
+                    identity,
+                    {
+                        "selection_ref": reference,
+                        "status": "wish",
+                        "note": "周末去",
+                    },
+                )
+        self.assertEqual(captured["status"], 201)
+        self.assertEqual(captured["payload"]["id"], 42)
+        self.assertEqual(captured["payload"]["name"], "测试地点")
+        self.assertIn("INSERT INTO map_places", execute.call_args.args[0])
+        notify_async.assert_called_once()
+
+    def test_footprint_map_link_encodes_fallback_fields(self):
+        handler = self.make_handler({})
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        handler.agent_tool_footprints_map_link(
+            {"kind": "owner", "user_id": 0},
+            {"name": "山里的店", "address": "测试山路", "note": "没有门牌"},
+        )
+        self.assertEqual(captured["status"], 200)
+        url = captured["payload"]["url"]
+        self.assertIn("/map?add=1", url)
+        self.assertIn("%E5%B1%B1%E9%87%8C%E7%9A%84%E5%BA%97", url)
+
+    def test_map_poi_around_returns_merchant_layer_data(self):
+        handler = self.make_handler({})
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        handler.amap_poi_around = lambda lat, lng, radius: {
+            "count": 1,
+            "radius": radius,
+            "coord": "gcj02",
+            "pois": [
+                {
+                    "id": "merchant-1",
+                    "name": "测试咖啡馆",
+                    "type": "餐饮服务;咖啡厅",
+                    "lat": 34.34,
+                    "lng": 108.94,
+                }
+            ],
+        }
+        with patch.object(app, "AMAP_WEB_KEY", "test-key"), patch.object(
+            app, "rate_allow", return_value=True
+        ):
+            handler.api_map_poi_around(
+                {
+                    "lat": ["34.3416"],
+                    "lng": ["108.9398"],
+                    "radius": ["1200"],
+                }
+            )
+        self.assertEqual(captured["status"], 200)
+        self.assertEqual(captured["payload"]["pois"][0]["name"], "测试咖啡馆")
+        self.assertEqual(captured["payload"]["radius"], 1200)
+
     def test_review_decision_approves_pending_user(self):
         handler = self.make_handler({})
         handler.send_json = lambda *args: None
@@ -1418,6 +2275,160 @@ class AgentInternalAuthTests(unittest.TestCase):
         self.assertEqual(payload["status"], "file")
         self.assertIn("/api/agent/media/book/3?", payload["url"])
         self.assertEqual(payload["file_size"], len(b"book-data"))
+
+    def test_note_markdown_and_text_export_preserve_readable_content(self):
+        note = {
+            "id": 5,
+            "title": "测试笔记",
+            "content": (
+                "# 一级标题\n\n**重点**\n\n"
+                "![图](/site-files/note_images/demo.png)\n\n"
+                "- 列表项"
+            ),
+            "tags": "测试,导出",
+            "updated_at": "2026-10-25 10:00:00",
+        }
+        markdown = app.build_note_export_markdown(note)
+        self.assertIn("# 测试笔记", markdown)
+        self.assertIn("标签：测试,导出", markdown)
+        self.assertIn(
+            app.PUBLIC_SITE_URL + "/site-files/note_images/demo.png",
+            markdown,
+        )
+        body, file_name, mime_type, export_format = app.build_note_export_file(
+            note,
+            "txt",
+        )
+        text = body.decode("utf-8")
+        self.assertIn("重点", text)
+        self.assertNotIn("**", text)
+        self.assertNotIn("![", text)
+        self.assertEqual(file_name, "测试笔记.txt")
+        self.assertTrue(mime_type.startswith("text/plain"))
+        self.assertEqual(export_format, "txt")
+
+    def test_agent_note_export_returns_signed_markdown_file(self):
+        handler = self.make_handler({})
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        note = {
+            "id": 5,
+            "title": "测试笔记",
+            "content": "# 正文\n\n内容",
+            "tags": "导出",
+            "created_at": "2026-10-24 10:00:00",
+            "updated_at": "2026-10-25 10:00:00",
+        }
+        with patch.dict(
+            os.environ,
+            {"ERRORJIANG_AGENT_TOKEN": "agent-test-token"},
+            clear=False,
+        ), patch.object(app, "query_one", return_value=note):
+            handler.agent_tool_content_send(
+                {"kind": "owner", "user_id": 0},
+                {"kind": "note", "id": 5, "format": "markdown"},
+            )
+        self.assertEqual(captured["status"], 200)
+        payload = captured["payload"]
+        self.assertEqual(payload["status"], "file")
+        self.assertEqual(payload["kind"], "note")
+        self.assertEqual(payload["file_name"], "测试笔记.md")
+        self.assertIn("/api/agent/media/note_markdown/5?", payload["url"])
+        self.assertGreater(payload["file_size"], 0)
+
+    def test_note_export_media_url_returns_generated_file(self):
+        handler = self.make_handler({})
+        captured = {}
+        handler.send_download_bytes = lambda body, name, mime: captured.update(
+            {"body": body, "name": name, "mime": mime}
+        )
+        note = {
+            "id": 9,
+            "title": "媒体导出",
+            "content": "# 标题\n\n正文",
+            "tags": "",
+            "created_at": "",
+            "updated_at": "",
+        }
+        with patch.dict(
+            os.environ,
+            {"ERRORJIANG_AGENT_TOKEN": "agent-test-token"},
+            clear=False,
+        ):
+            expires = int(time.time()) + 60
+            signature = app.agent_media_signature(
+                "note_markdown",
+                9,
+                expires,
+            )
+            with patch.object(app, "query_one", return_value=note):
+                handler.api_agent_media(
+                    "/api/agent/media/note_markdown/9",
+                    {
+                        "expires": [str(expires)],
+                        "sig": [signature],
+                    },
+                )
+        self.assertEqual(captured["name"], "媒体导出.md")
+        self.assertTrue(captured["mime"].startswith("text/markdown"))
+        self.assertIn("正文".encode("utf-8"), captured["body"])
+
+    def test_agent_note_import_accepts_markdown_attachment(self):
+        handler = self.make_handler({})
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        content = "# 会议记录\n\n- 事项一\n- 事项二"
+        with patch.object(
+            app,
+            "upload_limit",
+            return_value={"max_file_bytes": 20 * 1024 * 1024},
+        ), patch.object(app, "execute", return_value=44) as execute:
+            handler.agent_tool_notes_import(
+                {"kind": "owner", "user_id": 0},
+                {
+                    "file_name": "会议记录.md",
+                    "data_base64": base64.b64encode(
+                        content.encode("utf-8")
+                    ).decode("ascii"),
+                },
+            )
+        self.assertEqual(captured["status"], 200)
+        self.assertEqual(captured["payload"]["id"], 44)
+        self.assertEqual(captured["payload"]["format"], "markdown")
+        self.assertIn("/notes?note=44", captured["payload"]["url"])
+        self.assertEqual(execute.call_args.args[1][0], "会议记录")
+        self.assertIn("# 会议记录", execute.call_args.args[1][1])
+
+    def test_agent_note_import_roughly_formats_txt(self):
+        handler = self.make_handler({})
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        content = "第一章 准备工作\n• 第一项\n• 第二项"
+        with patch.object(
+            app,
+            "upload_limit",
+            return_value={"max_file_bytes": 20 * 1024 * 1024},
+        ), patch.object(app, "execute", return_value=45) as execute:
+            handler.agent_tool_notes_import(
+                {"kind": "owner", "user_id": 0},
+                {
+                    "file_name": "工作清单.txt",
+                    "data_base64": base64.b64encode(
+                        content.encode("utf-8")
+                    ).decode("ascii"),
+                },
+            )
+        self.assertEqual(captured["status"], 200)
+        saved_content = execute.call_args.args[1][1]
+        self.assertIn("## 第一章 准备工作", saved_content)
+        self.assertIn("- 第一项", saved_content)
+        self.assertIn("- 第二项", saved_content)
 
 
 class AgentWebhookTests(unittest.TestCase):

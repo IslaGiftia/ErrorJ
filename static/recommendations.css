@@ -813,7 +813,9 @@ body[data-notify-module="recommendations"] textarea {
   animation: none;
   opacity: 0;
   transform: translate(-50%, 8px);
-  transition: opacity var(--dur-fast) ease-in, transform var(--dur-fast) ease-in;
+  transition:
+    opacity var(--dur-fast) var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)),
+    transform var(--dur-fast) var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1));
 }
 
 .rec-picker {
@@ -1045,7 +1047,7 @@ body[data-notify-module="recommendations"] textarea {
 
   .rec-toast.is-leaving {
     transform: translateX(-50%);
-    transition: opacity var(--dur-fast) ease-in;
+    transition: opacity var(--dur-fast) var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1));
   }
 }
 

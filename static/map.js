@@ -123,6 +123,16 @@
     };
   })();
 
+  var POI_STORAGE_KEY = "errorMapMerchantPois";
+
+  function savedPoiEnabled() {
+    try {
+      return localStorage.getItem(POI_STORAGE_KEY) !== "0";
+    } catch (err) {
+      return true;
+    }
+  }
+
   // ---------- state ----------
   var state = {
     categories: [],
@@ -150,7 +160,13 @@
     searchOpen: false,
     searchBusy: false,
     searchResults: [],
-    searchPick: null
+    searchPick: null,
+    poiEnabled: savedPoiEnabled(),
+    poiBusy: false,
+    poiResults: [],
+    poiLastKey: "",
+    poiTimer: null,
+    poiErrorShown: false
   };
 
   var VIEW_KEY = "errorMapView";
@@ -299,6 +315,8 @@
     "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
     { maxZoom: 16, attribution: "&copy; Esri" }
   );
+  var merchantLayer = L.layerGroup();
+  if (state.poiEnabled) merchantLayer.addTo(map);
 
   var BASE_ORDER = ["amap", "amapSat", "esriDark", "esriSat", "osm"];
   var basePanel = $("mapBasePanel");
@@ -359,6 +377,7 @@
     }
     renderBasePanel();
     renderMarkers();
+    scheduleMerchantPois(0, true);
   }
 
   if (window.MutationObserver) {
@@ -405,7 +424,10 @@
   });
   map.addLayer(cluster);
 
-  map.on("moveend zoomend", saveView);
+  map.on("moveend zoomend", function () {
+    saveView();
+    scheduleMerchantPois(450);
+  });
 
   // ---------- api ----------
   function api(path, options) {
@@ -437,6 +459,158 @@
     toastTimer = setTimeout(function () {
       toastEl.hidden = true;
     }, 2600);
+  }
+
+  function merchantColor(type) {
+    var value = String(type || "");
+    if (value.indexOf("餐饮") >= 0 || value.charAt(0) === "0" && value.charAt(1) === "5") {
+      return "#dc6b4d";
+    }
+    if (value.indexOf("购物") >= 0) return "#d89a31";
+    if (value.indexOf("住宿") >= 0 || value.indexOf("酒店") >= 0) return "#527ac8";
+    if (value.indexOf("风景") >= 0 || value.indexOf("景点") >= 0) return "#4d9671";
+    return "#7b68ee";
+  }
+
+  function merchantRadius() {
+    var zoom = map.getZoom();
+    if (zoom >= 16) return 700;
+    if (zoom >= 15) return 1000;
+    if (zoom >= 14) return 1600;
+    return 3000;
+  }
+
+  function clearMerchantPois() {
+    merchantLayer.clearLayers();
+    state.poiResults = [];
+    state.poiLastKey = "";
+  }
+
+  function renderMerchantPois(pois) {
+    merchantLayer.clearLayers();
+    state.poiResults = pois || [];
+    var compact = map.getZoom() < 15;
+    state.poiResults.forEach(function (poi, index) {
+      var lat = Number(poi.lat);
+      var lng = Number(poi.lng);
+      if (!isFinite(lat) || !isFinite(lng)) return;
+      var point = state.gcj ? [lat, lng] : Geo.fromGcj(lat, lng);
+      var color = merchantColor(poi.type);
+      var icon = L.divIcon({
+        className: "mp-merchant-marker",
+        html:
+          '<span class="mp-merchant-label' +
+          (compact ? " is-compact" : "") +
+          '" style="--merchant-color:' +
+          color +
+          '"><span class="mp-merchant-dot"></span><span class="mp-merchant-name">' +
+          esc(poi.name) +
+          "</span></span>",
+        iconSize: compact ? [14, 14] : [180, 24],
+        iconAnchor: compact ? [7, 7] : [7, 12]
+      });
+      var marker = L.marker(point, {
+        icon: icon,
+        riseOnHover: true,
+        keyboard: false
+      });
+      var type = String(poi.type || "").split(";").filter(Boolean).slice(-1)[0] || "商户";
+      var popup =
+        '<div class="mp-merchant-popup"><strong>' +
+        esc(poi.name) +
+        "</strong><span>" +
+        esc(type) +
+        (poi.distance == null ? "" : " · " + Number(poi.distance) + " 米") +
+        "</span>" +
+        (poi.address ? "<p>" + esc(poi.address) + "</p>" : "") +
+        (state.canAdd
+          ? '<button type="button" class="mp-merchant-add" data-merchant-add="' +
+            index +
+            '">添加为足迹</button>'
+          : "") +
+        "</div>";
+      marker.bindPopup(popup, { autoPan: false, maxWidth: 260 });
+      merchantLayer.addLayer(marker);
+    });
+  }
+
+  function loadMerchantPois(force) {
+    if (!state.poiEnabled || map.getZoom() < 13) {
+      clearMerchantPois();
+      return;
+    }
+    var center = dataLatLng(map.getCenter().lat, map.getCenter().lng);
+    var gcj = Geo.toGcj(center[0], center[1]);
+    var radius = merchantRadius();
+    var key = [
+      gcj[0].toFixed(4),
+      gcj[1].toFixed(4),
+      map.getZoom(),
+      radius
+    ].join(":");
+    if (!force && key === state.poiLastKey) return;
+    state.poiLastKey = key;
+    state.poiBusy = true;
+    api(
+      "/api/map/poi-around?lat=" +
+        encodeURIComponent(gcj[0]) +
+        "&lng=" +
+        encodeURIComponent(gcj[1]) +
+        "&radius=" +
+        radius
+    )
+      .then(function (data) {
+        if (state.poiLastKey !== key) return;
+        renderMerchantPois((data && data.pois) || []);
+      })
+      .catch(function (err) {
+        if (state.poiLastKey !== key) return;
+        clearMerchantPois();
+        if (String(err.message || "").indexOf("高德 Key") >= 0) {
+          state.poiEnabled = false;
+          try {
+            localStorage.setItem(POI_STORAGE_KEY, "0");
+          } catch (storageError) {}
+          syncPoiButton();
+        }
+        if (!state.poiErrorShown) {
+          state.poiErrorShown = true;
+          toast(err.message || "周边商户加载失败");
+        }
+      })
+      .then(function () {
+        state.poiBusy = false;
+      });
+  }
+
+  function scheduleMerchantPois(delay, force) {
+    clearTimeout(state.poiTimer);
+    state.poiTimer = setTimeout(function () {
+      state.poiTimer = null;
+      loadMerchantPois(Boolean(force));
+    }, Math.max(0, Number(delay) || 0));
+  }
+
+  function syncPoiButton() {
+    var button = $("mapPoiBtn");
+    if (!button) return;
+    button.classList.toggle("is-on", state.poiEnabled);
+    button.setAttribute("aria-pressed", state.poiEnabled ? "true" : "false");
+  }
+
+  function addMerchantPoi(index) {
+    if (!state.canAdd) {
+      toast(NO_PERMISSION_TIP);
+      return;
+    }
+    var poi = state.poiResults[index];
+    if (!poi) return;
+    var wgs = Geo.fromGcj(Number(poi.lat), Number(poi.lng));
+    map.closePopup();
+    openPlaceModal(null, wgs, {
+      name: poi.name || "",
+      address: poi.address || ""
+    });
   }
 
   function notifyDockRefresh() {
@@ -1355,6 +1529,202 @@
     list.innerHTML = html;
   }
 
+  var catPickMotionFrame = 0;
+  var catPickDrag = null;
+  var catPickOffset = 0;
+
+  function catPickReducedMotion() {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  function catPickCurrentOffset(sheet) {
+    var transform = window.getComputedStyle(sheet).transform;
+    if (!transform || transform === "none") return 0;
+    try {
+      return new DOMMatrixReadOnly(transform).m42 || 0;
+    } catch (err) {
+      var values = transform.match(/matrix(?:3d)?\(([^)]+)\)/);
+      if (!values) return 0;
+      var parts = values[1].split(",").map(Number);
+      return values[0].indexOf("3d") >= 0 ? parts[13] || 0 : parts[5] || 0;
+    }
+  }
+
+  function stopCatPickMotion() {
+    if (catPickMotionFrame) {
+      window.cancelAnimationFrame(catPickMotionFrame);
+      catPickMotionFrame = 0;
+    }
+  }
+
+  function applyCatPickOffset(offset) {
+    var modal = $("mapCatPickModal");
+    if (!modal) return;
+    var sheet = modal.querySelector(".mp-catpick-sheet");
+    var backdrop = modal.querySelector(".mp-catpick-backdrop");
+    var height = Math.max(1, sheet ? sheet.offsetHeight : 1);
+    catPickOffset = offset;
+    if (sheet) {
+      sheet.style.transform = "translateY(" + Math.round(offset * 10) / 10 + "px)";
+    }
+    if (backdrop) {
+      var progress = Math.max(0, Math.min(1, offset / height));
+      backdrop.style.opacity = String(1 - progress);
+    }
+  }
+
+  function finishCatPickClose() {
+    stopCatPickMotion();
+    var modal = $("mapCatPickModal");
+    if (!modal) return;
+    var sheet = modal.querySelector(".mp-catpick-sheet");
+    var backdrop = modal.querySelector(".mp-catpick-backdrop");
+    modal.hidden = true;
+    catPickOffset = 0;
+    catPickDrag = null;
+    if (sheet) {
+      sheet.classList.remove("is-entering", "is-dragging");
+      sheet.style.transform = "";
+    }
+    if (backdrop) backdrop.style.opacity = "";
+  }
+
+  function settleCatPick(target, velocity, closeAfter) {
+    var modal = $("mapCatPickModal");
+    if (!modal) return;
+    var sheet = modal.querySelector(".mp-catpick-sheet");
+    if (!sheet) return;
+    stopCatPickMotion();
+    if (catPickReducedMotion()) {
+      if (closeAfter) finishCatPickClose();
+      else applyCatPickOffset(0);
+      return;
+    }
+    var from = catPickCurrentOffset(sheet);
+    var current = from;
+    var speed = Number(velocity) || 0;
+    var response = 0.3;
+    var stiffness = Math.pow((Math.PI * 2) / response, 2);
+    var dampingRatio = closeAfter && Math.abs(speed) > 80 ? 0.84 : 1;
+    var damping = 2 * dampingRatio * Math.sqrt(stiffness);
+    var last = performance.now();
+    var started = last;
+    function frame(now) {
+      var elapsed = Math.min(0.032, Math.max(0, (now - last) / 1000));
+      last = now;
+      var steps = 4;
+      var step = elapsed / steps;
+      for (var i = 0; i < steps; i++) {
+        var acceleration = -stiffness * (current - target) - damping * speed;
+        speed += acceleration * step;
+        current += speed * step;
+      }
+      applyCatPickOffset(Math.min(current, sheet.offsetHeight * 1.08));
+      var reachedClose =
+        closeAfter && current >= sheet.offsetHeight - 1 && speed >= 0;
+      var settledOpen =
+        !closeAfter &&
+        Math.abs(current - target) < 0.8 &&
+        Math.abs(speed) < 18;
+      if (reachedClose || settledOpen || now - started > 1100) {
+        catPickMotionFrame = 0;
+        if (closeAfter) finishCatPickClose();
+        else applyCatPickOffset(0);
+        return;
+      }
+      catPickMotionFrame = window.requestAnimationFrame(frame);
+    }
+    catPickMotionFrame = window.requestAnimationFrame(frame);
+  }
+
+  function releaseCatPickDrag(event) {
+    if (!catPickDrag || event.pointerId !== catPickDrag.pointerId) return;
+    var drag = catPickDrag;
+    catPickDrag = null;
+    var modal = $("mapCatPickModal");
+    var sheet = modal && modal.querySelector(".mp-catpick-sheet");
+    if (!sheet) return;
+    sheet.classList.remove("is-dragging");
+    if (sheet.hasPointerCapture && sheet.hasPointerCapture(event.pointerId)) {
+      sheet.releasePointerCapture(event.pointerId);
+    }
+    var now = performance.now();
+    var velocity = drag.velocity || 0;
+    if (drag.samples.length >= 2) {
+      var first = drag.samples[0];
+      var last = drag.samples[drag.samples.length - 1];
+      if (last.time > first.time) {
+        velocity = (last.y - first.y) / (last.time - first.time);
+      }
+    }
+    var height = sheet.offsetHeight || 1;
+    var projected = catPickOffset + velocity * 1000 * 0.499;
+    var shouldClose =
+      velocity > 0.11 ||
+      catPickOffset > height * 0.28 ||
+      projected > height * 0.55;
+    settleCatPick(shouldClose ? height : 0, velocity * 1000, shouldClose);
+  }
+
+  function moveCatPickDrag(event) {
+    if (!catPickDrag || event.pointerId !== catPickDrag.pointerId) return;
+    var dy = event.clientY - catPickDrag.startY;
+    var raw = catPickDrag.startOffset + dy;
+    if (raw < 0) raw *= 0.18;
+    var modal = $("mapCatPickModal");
+    var sheet = modal && modal.querySelector(".mp-catpick-sheet");
+    var height = sheet ? sheet.offsetHeight : 1;
+    raw = Math.min(raw, height * 1.08);
+    applyCatPickOffset(raw);
+    var now = performance.now();
+    catPickDrag.samples.push({ y: raw, time: now });
+    if (catPickDrag.samples.length > 6) catPickDrag.samples.shift();
+    if (catPickDrag.samples.length >= 2) {
+      var first = catPickDrag.samples[0];
+      var last = catPickDrag.samples[catPickDrag.samples.length - 1];
+      if (last.time > first.time) {
+        catPickDrag.velocity = (last.y - first.y) / (last.time - first.time);
+      }
+    }
+    event.preventDefault();
+  }
+
+  function startCatPickDrag(event) {
+    if (catPickDrag) return;
+    if (event.button !== undefined && event.button !== 0) return;
+    if (catPickReducedMotion()) return;
+    var target = event.target;
+    if (target.closest("button, input, select, textarea")) return;
+    if (!target.closest(".mp-catpick-grabber, .mp-catpick-head")) return;
+    var modal = $("mapCatPickModal");
+    var sheet = modal && modal.querySelector(".mp-catpick-sheet");
+    if (!sheet || modal.hidden) return;
+    stopCatPickMotion();
+    var current = catPickCurrentOffset(sheet);
+    sheet.classList.remove("is-entering");
+    sheet.classList.add("is-dragging");
+    applyCatPickOffset(current);
+    catPickDrag = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      startOffset: current,
+      samples: [{ y: current, time: performance.now() }],
+      velocity: 0
+    };
+    if (sheet.setPointerCapture) sheet.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  }
+
+  function bindCatPickDrag() {
+    var modal = $("mapCatPickModal");
+    var sheet = modal && modal.querySelector(".mp-catpick-sheet");
+    if (!sheet) return;
+    sheet.addEventListener("pointerdown", startCatPickDrag);
+    sheet.addEventListener("pointermove", moveCatPickDrag);
+    sheet.addEventListener("pointerup", releaseCatPickDrag);
+    sheet.addEventListener("pointercancel", releaseCatPickDrag);
+  }
+
   function openCatPick(field) {
     // 只在窄屏（和页面其它移动端逻辑同一档断点）用这套面板；PC 走原生 select
     if (!isNarrowMap()) return;
@@ -1363,7 +1733,14 @@
     var modal = $("mapCatPickModal");
     if (!modal) return;
     var sheet = modal.querySelector(".mp-catpick-sheet");
-    if (sheet) sheet.classList.remove("is-entering");
+    var backdrop = modal.querySelector(".mp-catpick-backdrop");
+    stopCatPickMotion();
+    catPickDrag = null;
+    if (sheet) {
+      sheet.classList.remove("is-entering", "is-dragging");
+      sheet.style.transform = "";
+    }
+    if (backdrop) backdrop.style.opacity = "";
     modal.hidden = false;
     /*
      * 下一帧再加 .is-entering 启动进场动画：这一帧画的是「面板还在屏幕外」的状态，
@@ -1378,11 +1755,19 @@
 
   function closeCatPick() {
     var modal = $("mapCatPickModal");
-    if (!modal) return;
+    if (!modal || modal.hidden) return;
     var sheet = modal.querySelector(".mp-catpick-sheet");
-    if (sheet) sheet.classList.remove("is-entering");
-    modal.hidden = true;
+    if (!sheet) {
+      finishCatPickClose();
+      return;
+    }
+    sheet.classList.remove("is-entering");
+    var current = catPickCurrentOffset(sheet);
+    applyCatPickOffset(current);
+    settleCatPick(sheet.offsetHeight || 1, 0, true);
   }
+
+  bindCatPickDrag();
 
   function optionText(select) {
     var opt = select && select.options ? select.options[select.selectedIndex] : null;
@@ -1501,7 +1886,7 @@
     list.classList.remove("is-open");
     if (!state.searchResults.length) {
       list.hidden = true;
-      showMapSearchHint("没有搜到匹配的地点，换个关键词试试。");
+      showMapSearchHint("没有搜到匹配的地点，可在地图上长按选点。");
       return;
     }
     state.searchResults.forEach(function (poi, index) {
@@ -1515,8 +1900,16 @@
       var meta = document.createElement("span");
       meta.textContent =
         [poi.address, poi.type].filter(Boolean).join(" · ") || "高德地图";
+      var addText = document.createElement("span");
+      addText.className = "mp-poi-add";
+      addText.textContent = "添加";
       button.appendChild(title);
       button.appendChild(meta);
+      button.appendChild(addText);
+      button.setAttribute(
+        "aria-label",
+        "添加" + (poi.name || "未命名地点") + "为足迹"
+      );
       item.appendChild(button);
       list.appendChild(item);
     });
@@ -1556,10 +1949,7 @@
       });
   }
 
-  /*
-   * 选中一条结果：搜索框向右收回 → 地图平滑移到该点 → 立刻进中心选点模式，
-   * 水滴就落在地图正中心（也就是这个地点）；确认后弹窗会自动带入它的名称和地址。
-   */
+  /* 选中一条结果：收起搜索并直接打开已预填的添加表单。 */
   function pickMapSearchResult(index) {
     var poi = state.searchResults[index];
     if (!poi) return;
@@ -1579,7 +1969,9 @@
     map.setView(displayLatLng(wgs[0], wgs[1]), Math.max(map.getZoom(), 16), {
       animate: true
     });
-    startPlacing();
+    var preset = state.searchPick;
+    state.searchPick = null;
+    openPlaceModal(null, wgs, preset);
   }
 
   function openPlaceModal(place, coords, preset) {
@@ -1600,7 +1992,9 @@
       : (preset && preset.address) || "";
     $("placeSignature").value = place ? place.signature || "" : "";
     $("placeTags").value = place ? place.tags || "" : "";
-    $("placeNote").value = place ? place.note || "" : "";
+    $("placeNote").value = place
+      ? place.note || ""
+      : (preset && preset.note) || "";
     $("placeLat").value = place ? place.lat : coords[0].toFixed(6);
     $("placeLng").value = place ? place.lng : coords[1].toFixed(6);
     var deleteBtn = $("mapPlaceDelete");
@@ -2321,7 +2715,11 @@
      * 如果用户把地图拖走了（偏离超过 200 米），就当他是另选地方，不预填。
      */
     var preset = state.searchPick;
-    if (preset) {
+    if (
+      preset &&
+      isFinite(Number(preset.lat)) &&
+      isFinite(Number(preset.lng))
+    ) {
       var away = map.distance(
         displayLatLng(preset.lat, preset.lng),
         map.getCenter()
@@ -2698,6 +3096,32 @@
 
   var fitBtn = $("mapFitBtn");
   if (fitBtn) fitBtn.addEventListener("click", fitAll);
+
+  var poiBtn = $("mapPoiBtn");
+  if (poiBtn) {
+    poiBtn.addEventListener("click", function () {
+      state.poiEnabled = !state.poiEnabled;
+      state.poiErrorShown = false;
+      try {
+        localStorage.setItem(POI_STORAGE_KEY, state.poiEnabled ? "1" : "0");
+      } catch (err) {}
+      if (state.poiEnabled) {
+        if (!map.hasLayer(merchantLayer)) map.addLayer(merchantLayer);
+        scheduleMerchantPois(0, true);
+      } else {
+        clearMerchantPois();
+        if (map.hasLayer(merchantLayer)) map.removeLayer(merchantLayer);
+      }
+      syncPoiButton();
+    });
+  }
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest("[data-merchant-add]");
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+    addMerchantPoi(Number(button.getAttribute("data-merchant-add")));
+  });
 
   /*
    * 右上角地点搜索：点按钮展开（输入框向左滑出 + 自动聚焦）；
@@ -3115,12 +3539,54 @@
   if (window.lucide && lucide.createIcons) lucide.createIcons();
   if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);
 
+  function openFootprintAddLink() {
+    var params = new URLSearchParams(window.location.search);
+    if (params.get("add") !== "1") return false;
+    if (!state.canAdd) {
+      toast(NO_PERMISSION_TIP);
+      return true;
+    }
+    var preset = {
+      name: String(params.get("name") || "").slice(0, 120),
+      address: String(params.get("address") || "").slice(0, 300),
+      note: String(params.get("note") || "").slice(0, 2000)
+    };
+    var lat = Number(params.get("lat"));
+    var lng = Number(params.get("lng"));
+    var hasCoords =
+      params.has("lat") &&
+      params.has("lng") &&
+      isFinite(lat) &&
+      isFinite(lng) &&
+      lat >= -90 &&
+      lat <= 90 &&
+      lng >= -180 &&
+      lng <= 180;
+    window.history.replaceState(null, "", window.location.pathname);
+    if (hasCoords) {
+      preset.lat = lat;
+      preset.lng = lng;
+      map.setView(displayLatLng(lat, lng), Math.max(map.getZoom(), 16), {
+        animate: false
+      });
+      openPlaceModal(null, [lat, lng], preset);
+    } else {
+      state.searchPick = preset;
+      startPlacing();
+      toast("请选择准确位置");
+    }
+    return true;
+  }
+
   // 第一帧就按视口把切换按钮的箭头摆正（手机上收起状态是向上箭头），
   // 不用等地图数据回来才纠正，避免先闪一个「向左箭头」
   updateToggleForViewport();
+  syncPoiButton();
 
   loadData(true)
     .then(function () {
+      scheduleMerchantPois(0, true);
+      if (openFootprintAddLink()) return;
       var placeId = Number(
         new URLSearchParams(window.location.search).get("place") || 0
       );

@@ -32,7 +32,13 @@ SYSTEM_PROMPT = """你是“折兮颜”，Error酱的私人 AI 伴侣与助手�
 16. 闲聊像真人即时聊天：通常一到两句，简短自然，不用 Markdown 标题、粗体、客服腔，不空行。闲聊句末通常不加句号，问号和感叹号按语气保留，不要为了语法完整把短句写成书面句。只有查询结果需要结构化时才使用列表。
 17. 如果一句话里确实有多个自然反应或需要停顿，可以用单独一行 [[split]] 拆成最多三条短消息，由系统分条发送；普通回答保持一条，不要为了多发消息而刻意拆分。
 18. 用户询问歌曲、电子书、推荐网页或站内资源时调用 errorjiang_content_search；网页链接可以直接在回复中给出。
-19. 用户要求发送本地歌曲或电子书文件时调用 errorjiang_content_send。工具返回 status=file 后，系统会发送文件，不要提前声称文件已发送。"""
+19. 用户要求发送本地歌曲、电子书或导出笔记文件时调用 errorjiang_content_send。工具返回 status=file 后，系统会发送文件，不要提前声称文件已发送。笔记默认导出 Markdown，用户要求完整排版或包含图片时可导出 HTML。
+20. 用户询问“找一下我标记过的足迹 / 去过的地点 / 想去的点”时，调用 errorjiang_footprints_search；它只搜索已经存在的足迹。
+21. 用户要新增地点时，直接调用 errorjiang_footprints_add 搜索并自动保存，默认不需要再次确认。不要用已有足迹搜索代替高德地点搜索。
+22. errorjiang_footprints_add 返回 added 时直接告诉用户已添加；返回 existing 时说明已存在；返回 not_found 时把 fallback_url 原样给用户作为手动选点入口，不要猜坐标。
+23. 只有用户明确要求先预览、调整分类或备注时，才调用 errorjiang_footprints_prepare。
+24. 私人场所、高德搜不到或用户要求自己选点时，调用 errorjiang_footprints_map_link，把返回的链接给用户。
+25. QQ 位置卡片会由系统在模型调用前自动解析并新增，不需要再调用高德搜索。"""
 
 
 TOOLS = [
@@ -133,14 +139,139 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "errorjiang_content_send",
-            "description": "把库里的本地歌曲或电子书文件发送到当前聊天。",
+            "description": "把库里的本地歌曲、电子书发送到聊天，或导出笔记文件后发送。",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "kind": {"type": "string", "enum": ["music", "book"]},
+                    "kind": {"type": "string", "enum": ["music", "book", "note"]},
                     "id": {"type": "integer"},
+                    "format": {
+                        "type": "string",
+                        "enum": ["markdown", "txt", "html"],
+                        "description": "导出笔记时的格式，默认 markdown",
+                    },
                 },
                 "required": ["kind", "id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "errorjiang_footprints_search",
+            "description": "搜索已经标记的 Error酱足迹点，不用于搜索新地点。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "足迹名称、地址、备注、标签或分类关键词",
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": ["all", "wish", "visited"],
+                        "description": "all 全部，wish 想去，visited 去过",
+                    },
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 20},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "errorjiang_footprints_poi_search",
+            "description": "用高德搜索尚未加入足迹的新地点，返回可选择的候选地点。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keywords": {
+                        "type": "string",
+                        "description": "地点名称、商户名、地标或完整地址",
+                    },
+                    "city": {
+                        "type": "string",
+                        "description": "可选城市名，用于缩小搜索范围",
+                    },
+                },
+                "required": ["keywords"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "errorjiang_footprints_add",
+            "description": "用高德搜索地点、按名称强匹配分类并直接新增足迹，无需二次确认。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keywords": {
+                        "type": "string",
+                        "description": "要新增的完整地点或商户名称",
+                    },
+                    "city": {
+                        "type": "string",
+                        "description": "可选城市名，用于避免同名地点",
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": ["", "wish", "visited"],
+                        "description": "默认留空；用户明确说想去或去过时才传",
+                    },
+                },
+                "required": ["keywords"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "errorjiang_footprints_prepare",
+            "description": "准备把一条高德候选地点加入足迹并生成一次性确认码，不会立即写入。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "selection_ref": {
+                        "type": "string",
+                        "description": "高德搜索工具返回的 selection_ref，原样使用",
+                    },
+                    "category_id": {
+                        "type": "integer",
+                        "description": "可选分类 ID，只能使用工具返回 categories 中的值",
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": ["", "wish", "visited"],
+                        "description": "未标记、想去或去过",
+                    },
+                    "rating": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 5,
+                    },
+                    "note": {"type": "string"},
+                    "subtitle": {"type": "string"},
+                    "signature": {"type": "string"},
+                    "tags": {"type": "string"},
+                },
+                "required": ["selection_ref"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "errorjiang_footprints_map_link",
+            "description": "生成足迹页选点链接，用于高德搜不到或用户需要手动选准确位置的场景。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "地点名称"},
+                    "address": {"type": "string", "description": "已知地址或附近地标"},
+                    "note": {"type": "string", "description": "可选备注"},
+                },
+                "required": ["name"],
             },
         },
     },
@@ -258,6 +389,10 @@ TOOL_NAMES = {
     "errorjiang_aa_events_list": "aa.events.list",
     "errorjiang_aa_event_get": "aa.event.get",
     "errorjiang_aa_expense_add": "aa.expense.add",
+    "errorjiang_footprints_search": "footprints.search",
+    "errorjiang_footprints_poi_search": "footprints.poi_search",
+    "errorjiang_footprints_add": "footprints.add",
+    "errorjiang_footprints_map_link": "footprints.map_link",
 }
 
 
@@ -271,6 +406,7 @@ class AgentBrain:
         prepare_reminder=None,
         prepare_content_send=None,
         max_tool_rounds: int = 4,
+        prepare_footprint=None,
     ):
         self.deepseek = deepseek
         self.errorjiang = errorjiang
@@ -278,6 +414,7 @@ class AgentBrain:
         self.prepare_sticker = prepare_sticker
         self.prepare_reminder = prepare_reminder
         self.prepare_content_send = prepare_content_send
+        self.prepare_footprint = prepare_footprint
         self.max_tool_rounds = max_tool_rounds
 
     def execute_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -358,6 +495,14 @@ class AgentBrain:
                                 result = {"error": "内容发送功能未启用。"}
                             else:
                                 result = self.prepare_content_send(
+                                    arguments,
+                                    tool_context,
+                                )
+                        elif name == "errorjiang_footprints_prepare":
+                            if not self.prepare_footprint:
+                                result = {"error": "足迹新增确认功能未启用。"}
+                            else:
+                                result = self.prepare_footprint(
                                     arguments,
                                     tool_context,
                                 )

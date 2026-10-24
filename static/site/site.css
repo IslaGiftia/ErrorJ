@@ -807,7 +807,9 @@ html[data-theme="dark"] .theme-glyph__moon {
   animation: none;
   opacity: 0;
   transform: translate(-50%, 8px);
-  transition: opacity var(--dur-fast) ease-in, transform var(--dur-fast) ease-in;
+  transition:
+    opacity var(--dur-fast) var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)),
+    transform var(--dur-fast) var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1));
 }
 
 /* 减少动效：toast 只淡入淡出、不做位移 */
@@ -818,7 +820,7 @@ html[data-theme="dark"] .theme-glyph__moon {
 
   .landing-toast.is-leaving {
     transform: translateX(-50%);
-    transition: opacity var(--dur-fast) ease-in;
+    transition: opacity var(--dur-fast) var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1));
   }
 }
 

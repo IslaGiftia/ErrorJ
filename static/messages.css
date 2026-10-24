@@ -492,7 +492,9 @@ body {
   -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
   box-shadow: 0 12px 32px rgba(24, 31, 45, 0.18);
-  animation: mgFilterMenuIn var(--dur-fast) ease;
+  transform-origin: top center;
+  animation: mgFilterMenuIn var(--dur-fast)
+    var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1));
 }
 
 .mg-filter-menu[hidden] {
@@ -502,12 +504,18 @@ body {
 @keyframes mgFilterMenuIn {
   from {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateY(-4px) scale(0.97);
   }
 
   to {
     opacity: 1;
     transform: none;
+  }
+}
+
+@keyframes mgFilterMenuFadeIn {
+  from {
+    opacity: 0;
   }
 }
 
@@ -1142,7 +1150,9 @@ button.mg-file {
   animation: none;
   opacity: 0;
   transform: translate(-50%, 8px);
-  transition: opacity var(--dur-fast) ease-in, transform var(--dur-fast) ease-in;
+  transition:
+    opacity var(--dur-fast) var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1)),
+    transform var(--dur-fast) var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1));
 }
 
 .mg-viewer {
@@ -1515,6 +1525,10 @@ body[data-notify-module="messages"] .site-back-top.is-pending {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .mg-filter-menu:not([hidden]) {
+    animation-name: mgFilterMenuFadeIn;
+  }
+
   body[data-notify-module="messages"] .site-back-top {
     transition: none;
     animation: none;
@@ -1537,6 +1551,6 @@ body[data-notify-module="messages"] .site-back-top.is-pending {
 
   .mg-toast.is-leaving {
     transform: translateX(-50%);
-    transition: opacity var(--dur-fast) ease-in;
+    transition: opacity var(--dur-fast) var(--ease-out-strong, cubic-bezier(0.23, 1, 0.32, 1));
   }
 }

@@ -96,8 +96,12 @@
       <button type="button" id="mapFitBtn" class="mp-tip mp-tip-left" data-tip="显示全部标记" aria-label="显示全部标记">
         <i data-lucide="maximize"></i>
       </button>
+      <button type="button" id="mapPoiBtn" class="mp-tip mp-tip-left" data-tip="周边商户" aria-label="周边商户"
+              aria-pressed="true">
+        <i data-lucide="store"></i>
+      </button>
       <!--
-        第四枚：高德地点搜索。点一下输入框从按钮左侧滑出（自动聚焦），
+        第五枚：高德地点搜索。点一下输入框从按钮左侧滑出（自动聚焦），
         回车或再点一次按钮开始搜索，结果面板在输入框下方展开。
       -->
       <span class="mp-search-slot">
@@ -322,6 +326,7 @@
   <div class="mp-catpick" id="mapCatPickModal" hidden>
     <div class="mp-catpick-backdrop" data-catpick-close></div>
     <div class="mp-catpick-sheet" role="dialog" aria-modal="true" aria-labelledby="mapCatPickTitle">
+      <div class="mp-catpick-grabber" aria-hidden="true"><span></span></div>
       <header class="mp-catpick-head">
         <h2 id="mapCatPickTitle">选择分类</h2>
         <button class="mp-icon-btn" type="button" id="mapCatPickClose" aria-label="关闭" data-catpick-close>
