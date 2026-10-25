@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=4">
   <link rel="stylesheet" href="/static/site/site.css">
   <link rel="stylesheet" href="/static/fonts.css">
-  <link rel="stylesheet" href="/static/agent.css?v=8">
+  <link rel="stylesheet" href="/static/agent.css?v=9">
   <script>
     (function () {
       try {
@@ -261,11 +261,12 @@
             <option value="安慰"></option>
             <option value="庆祝"></option>
           </datalist>
-          <button type="button" id="agentStickerUploadBtn">
+          <label class="agent-sticker-upload" id="agentStickerUploadBtn"
+                 for="agentStickerInput" role="button" tabindex="0">
             <i data-lucide="image-plus"></i>
             <span>上传表情包</span>
-          </button>
-          <input id="agentStickerInput" type="file" multiple hidden
+          </label>
+          <input class="agent-sticker-file" id="agentStickerInput" type="file" multiple
                  accept="image/png,image/jpeg,image/gif,image/webp,image/bmp">
         </div>
         <div class="agent-sticker-grid" id="agentStickerGrid"></div>
@@ -278,6 +279,6 @@
   </dialog>
 
   <script src="/static/vendor/lucide.min.js"></script>
-  <script src="/static/agent.js?v=8"></script>
+  <script src="/static/agent.js?v=9"></script>
 </body>
 </html>

@@ -587,15 +587,11 @@
   }
 
   function uploadStickerFiles(files) {
-    var usage = stickerUsage.value.trim();
+    var usage = stickerUsage.value.trim() || "未分类";
     var list = Array.prototype.slice.call(files || []);
     if (!list.length) return;
-    if (!usage) {
-      settingsStatus.textContent = "请先填写表情包用途";
-      stickerUsage.focus();
-      return;
-    }
-    stickerUploadBtn.disabled = true;
+    stickerUploadBtn.classList.add("is-uploading");
+    stickerUploadBtn.setAttribute("aria-disabled", "true");
     settingsStatus.textContent = "正在上传表情包…";
     list
       .reduce(function (chain, file) {
@@ -614,9 +610,17 @@
                 data_base64: data,
               }),
             }).then(function (response) {
-              return response.json().then(function (body) {
+              return response.text().then(function (raw) {
+                var body = {};
+                try {
+                  body = raw ? JSON.parse(raw) : {};
+                } catch (error) {
+                  body = {};
+                }
                 if (!response.ok) {
-                  throw new Error(body.error || "上传失败");
+                  throw new Error(
+                    body.error || "上传失败（HTTP " + response.status + "）"
+                  );
                 }
                 return body;
               });
@@ -630,10 +634,12 @@
         return loadStickers();
       })
       .catch(function (error) {
-        settingsStatus.textContent = error.message;
+        settingsStatus.textContent =
+          error && error.message ? error.message : "上传失败";
       })
       .then(function () {
-        stickerUploadBtn.disabled = false;
+        stickerUploadBtn.classList.remove("is-uploading");
+        stickerUploadBtn.removeAttribute("aria-disabled");
         stickerInput.value = "";
       });
   }
@@ -688,7 +694,9 @@
     settingsDialog.close();
   });
   document.getElementById("agentSettingsSave").addEventListener("click", saveSettings);
-  stickerUploadBtn.addEventListener("click", function () {
+  stickerUploadBtn.addEventListener("keydown", function (event) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
     stickerInput.click();
   });
   stickerInput.addEventListener("change", function () {

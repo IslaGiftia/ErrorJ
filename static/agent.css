@@ -619,6 +619,8 @@
 
 .agent-settings-dialog {
   width: min(720px, calc(100vw - 24px));
+  height: min(820px, calc(100vh - 32px));
+  height: min(820px, calc(100dvh - 32px));
   max-height: min(820px, calc(100dvh - 32px));
   padding: 0;
   border: 1px solid var(--line);
@@ -629,6 +631,11 @@
   overflow: hidden;
 }
 
+.agent-settings-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
 .agent-settings-dialog::backdrop {
   background: color-mix(in srgb, #111 36%, transparent);
   backdrop-filter: blur(5px);
@@ -637,6 +644,7 @@
 .agent-settings-head,
 .agent-settings-foot {
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
@@ -677,10 +685,32 @@
 
 .agent-settings-body {
   display: grid;
-  max-height: calc(100dvh - 180px);
+  flex: 1 1 auto;
+  min-height: 0;
   gap: 12px;
   padding: 14px 18px 18px;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: color-mix(in srgb, var(--muted) 45%, transparent) transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+.agent-settings-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.agent-settings-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.agent-settings-body::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 45%, transparent);
+  background-clip: padding-box;
 }
 
 .agent-setting-section {
@@ -1148,6 +1178,7 @@
 }
 
 .agent-sticker-tools {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(150px, 1fr) auto;
   gap: 8px;
@@ -1183,9 +1214,10 @@
   font-size: 11px;
 }
 
-.agent-sticker-tools > button {
+.agent-sticker-upload {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   min-height: 38px;
   padding: 0 13px;
@@ -1199,14 +1231,25 @@
   cursor: pointer;
 }
 
-.agent-sticker-tools > button:disabled {
+.agent-sticker-upload.is-uploading {
   cursor: wait;
   opacity: 0.6;
+  pointer-events: none;
 }
 
-.agent-sticker-tools > button svg {
+.agent-sticker-upload svg {
   width: 15px;
   height: 15px;
+}
+
+.agent-sticker-file {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  opacity: 0;
+  pointer-events: none;
 }
 
 .agent-sticker-item {
@@ -1254,11 +1297,22 @@
 }
 
 @media (max-width: 620px) {
+  .agent-settings-dialog {
+    width: calc(100vw - 16px);
+    height: calc(100vh - 16px);
+    height: calc(100dvh - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+
+  .agent-settings-body {
+    padding: 12px 12px 16px;
+  }
+
   .agent-sticker-tools {
     grid-template-columns: 1fr;
   }
 
-  .agent-sticker-tools > button {
+  .agent-sticker-upload {
     justify-content: center;
   }
 }
