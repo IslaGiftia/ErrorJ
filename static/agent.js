@@ -1,17 +1,14 @@
 (function () {
   "use strict";
 
-  var messages = document.getElementById("agentMessages");
-  var form = document.getElementById("agentForm");
-  var input = document.getElementById("agentInput");
-  var send = document.getElementById("agentSend");
-  var suggestions = document.getElementById("agentSuggestions");
   var statusText = document.getElementById("agentStatusText");
   var topStatus = document.getElementById("agentTopStatus");
   var onlineChip = document.getElementById("agentOnlineChip");
-  var settingsDialog = document.getElementById("agentSettingsDialog");
   var settingsStatus = document.getElementById("agentSettingsStatus");
+  var topFeedback = document.getElementById("agentTopFeedback");
+  var settingsSave = document.getElementById("agentSettingsSave");
   var memoryList = document.getElementById("agentMemoryList");
+  var memorySearch = document.getElementById("agentMemorySearch");
   var groupMemberList = document.getElementById("agentGroupMemberList");
   var timelineList = document.getElementById("agentTimelineList");
   var timelineForm = document.getElementById("agentTimelineForm");
@@ -31,7 +28,9 @@
   var stickerCategories = ["未分类"];
   var selectedStickerIds = {};
   var currentStickers = [];
-  var avatarSrc = "/static/site/error-chan-avatar.png?v=1";
+  var settingsDirty = false;
+  var memorySearchTimer = null;
+  var memoryRequestId = 0;
 
   function refreshIcons() {
     if (window.lucide && typeof window.lucide.createIcons === "function") {
@@ -54,130 +53,71 @@
     );
   }
 
-  function messageTime() {
-    return new Date().toLocaleTimeString("zh-CN", {
-      hour: "2-digit",
-      minute: "2-digit",
+  function setSettingsStatus(message, dirty) {
+    settingsDirty = Boolean(dirty);
+    settingsStatus.textContent = message;
+    settingsStatus.classList.toggle("is-dirty", settingsDirty);
+    topFeedback.textContent = message;
+    topFeedback.classList.toggle("is-dirty", settingsDirty);
+  }
+
+  function markSettingsDirty() {
+    if (settingsSave.disabled) return;
+    setSettingsStatus("有未保存的基础设置", true);
+  }
+
+  function readApiResponse(response) {
+    return response.text().then(function (raw) {
+      var body = {};
+      try {
+        body = raw ? JSON.parse(raw) : {};
+      } catch (error) {
+        body = {};
+      }
+      if (!response.ok) {
+        throw new Error(
+          body.error || "请求失败（HTTP " + response.status + "）"
+        );
+      }
+      return body;
     });
-  }
-
-  function assistantAvatar() {
-    var wrap = document.createElement("div");
-    wrap.className = "agent-message-avatar";
-    var image = document.createElement("img");
-    image.src = avatarSrc;
-    image.alt = "";
-    wrap.appendChild(image);
-    return wrap;
-  }
-
-  function copyButton(text) {
-    var button = document.createElement("button");
-    button.type = "button";
-    button.className = "agent-copy";
-    button.title = "复制回复";
-    button.setAttribute("aria-label", "复制回复");
-    button.innerHTML = '<i data-lucide="copy"></i>';
-    button.addEventListener("click", function () {
-      if (!navigator.clipboard) return;
-      navigator.clipboard.writeText(text).then(function () {
-        button.innerHTML = '<i data-lucide="check"></i>';
-        button.title = "已复制";
-        refreshIcons();
-        window.setTimeout(function () {
-          button.innerHTML = '<i data-lucide="copy"></i>';
-          button.title = "复制回复";
-          refreshIcons();
-        }, 1400);
-      });
-    });
-    return button;
-  }
-
-  function addMessage(role, text) {
-    var article = document.createElement("article");
-    article.className = "agent-message " + (role === "user" ? "is-user" : "is-assistant");
-    if (role !== "user") article.appendChild(assistantAvatar());
-    var body = document.createElement("div");
-    body.className = "agent-message-body";
-    var meta = document.createElement("div");
-    meta.className = "agent-message-meta";
-    var author = document.createElement("strong");
-    author.textContent = role === "user" ? "管理员" : "折兮颜";
-    var time = document.createElement("span");
-    time.textContent = messageTime();
-    meta.append(author, time);
-    var bubble = document.createElement("div");
-    bubble.className = "agent-bubble";
-    var paragraph = document.createElement("p");
-    paragraph.textContent = text;
-    bubble.appendChild(paragraph);
-    body.append(meta, bubble);
-    if (role !== "user") body.appendChild(copyButton(text));
-    article.appendChild(body);
-    messages.appendChild(article);
-    messages.scrollTop = messages.scrollHeight;
-    refreshIcons();
-    return { article: article, paragraph: paragraph };
-  }
-
-  function addThinking() {
-    var article = document.createElement("article");
-    article.className = "agent-message is-assistant is-pending";
-    article.appendChild(assistantAvatar());
-    var body = document.createElement("div");
-    body.className = "agent-message-body";
-    var meta = document.createElement("div");
-    meta.className = "agent-message-meta";
-    var author = document.createElement("strong");
-    author.textContent = "折兮颜";
-    var time = document.createElement("span");
-    time.textContent = "正在处理";
-    meta.append(author, time);
-    var bubble = document.createElement("div");
-    bubble.className = "agent-bubble";
-    bubble.innerHTML = '<span class="agent-thinking" aria-label="正在思考"><i></i><i></i><i></i></span>';
-    body.append(meta, bubble);
-    article.appendChild(body);
-    messages.appendChild(article);
-    messages.scrollTop = messages.scrollHeight;
-    return article;
-  }
-
-  function setBusy(busy) {
-    send.disabled = busy;
-    input.disabled = busy;
   }
 
   function setStatus(online, data) {
     document.body.setAttribute("data-agent-online", online ? "1" : "0");
     topStatus.textContent = online ? "在线" : "离线";
-    statusText.textContent = online ? "已连接 Error酱工具" : "Agent 暂时离线";
     onlineChip.classList.toggle("is-online", online);
     onlineChip.querySelector("span").textContent = online ? "在线" : "离线";
+    statusText.textContent = online
+      ? "Agent 工具已连接，配置修改可正常保存"
+      : "Agent 暂时离线，请检查服务连接";
+
     var agent = (data && data.agent) || {};
+    var qqbot = agent.qqbot || {};
     document.getElementById("agentModel").textContent = agent.model || "--";
-    document.getElementById("agentModelPill").textContent = agent.model || "DeepSeek";
-    document.getElementById("agentAdmins").textContent = online
-      ? String(agent.bound_admins || 0) + " 人"
-      : "--";
-    document.getElementById("agentGroups").textContent = online
-      ? (agent.group_ids || []).join("、") || "未配置"
-      : "--";
-    var relationship = agent.relationship || null;
-    var relationshipBox = document.getElementById("agentRelationship");
-    if (relationshipBox && relationship) {
-      relationshipBox.hidden = false;
-      document.getElementById("agentMood").textContent = relationship.mood || "平静";
-      document.getElementById("agentLonging").textContent =
-        "想念 " + (relationship.longing || 0);
-      document.getElementById("agentJealousy").textContent =
-        "吃醋 " + (relationship.jealousy || 0);
+    var qqbotLabel = "未启用";
+    if (qqbot.enabled) {
+      qqbotLabel = qqbot.connected ? "已连接" : "连接中";
     }
+    document.getElementById("agentQQBotStatus").textContent = qqbotLabel;
+    var legacyAdmins = agent.qq_admins;
+    if (legacyAdmins === undefined || legacyAdmins === null) {
+      legacyAdmins = agent.bound_admins || 0;
+    }
+    var admins = Number(legacyAdmins) + Number(agent.qqbot_admins || 0);
+    document.getElementById("agentAdmins").textContent = online
+      ? admins + " 人"
+      : "--";
+    var groups = Array.isArray(agent.group_ids) ? agent.group_ids : [];
+    document.getElementById("agentGroups").textContent = online
+      ? groups.length
+        ? groups.length + " 个"
+        : "未配置"
+      : "--";
   }
 
   function loadStatus() {
-    fetch("/api/agent/web/status", {
+    return fetch("/api/agent/web/status", {
       credentials: "same-origin",
       cache: "no-store",
     })
@@ -206,39 +146,90 @@
       credentials: "same-origin",
       cache: "no-store",
     })
-      .then(function (response) {
-        return response.json().then(function (data) {
-          if (!response.ok) throw new Error(data.error || "设置加载失败");
-          var settings = data.settings || {};
-          settingValue("settingMemoryEnabled", settings.memory_enabled);
-          settingValue(
-            "settingMemoryConsolidationEnabled",
-            settings.memory_consolidation_enabled
-          );
-          settingValue(
-            "settingMemoryConsolidationTime",
-            settings.memory_consolidation_time
-          );
-          settingValue("settingProactiveEnabled", settings.proactive_enabled);
-          settingValue("settingStickerEnabled", settings.sticker_enabled);
-          settingValue("settingProactiveMax", settings.proactive_max_per_day);
-          settingValue("settingMorningTime", settings.morning_time);
-          settingValue("settingNightTime", settings.night_time);
-          settingValue("settingQuietStart", settings.quiet_start);
-          settingValue("settingQuietEnd", settings.quiet_end);
-        });
+      .then(readApiResponse)
+      .then(function (data) {
+        var settings = data.settings || {};
+        settingValue("settingMemoryEnabled", settings.memory_enabled);
+        settingValue(
+          "settingMemoryConsolidationEnabled",
+          settings.memory_consolidation_enabled
+        );
+        settingValue(
+          "settingMemoryConsolidationTime",
+          settings.memory_consolidation_time
+        );
+        settingValue("settingProactiveEnabled", settings.proactive_enabled);
+        settingValue("settingStickerEnabled", settings.sticker_enabled);
+        settingValue("settingProactiveMax", settings.proactive_max_per_day);
+        settingValue("settingMorningTime", settings.morning_time);
+        settingValue("settingNightTime", settings.night_time);
+        settingValue("settingQuietStart", settings.quiet_start);
+        settingValue("settingQuietEnd", settings.quiet_end);
+        settingsSave.disabled = false;
+        setSettingsStatus("基础设置已载入", false);
       })
       .catch(function (error) {
-        settingsStatus.textContent = error.message;
+        settingsSave.disabled = true;
+        setSettingsStatus(error.message, false);
       });
   }
 
+  function saveSettings() {
+    if (settingsSave.disabled) return;
+    settingsSave.disabled = true;
+    setSettingsStatus("正在保存基础设置…", true);
+    var values = {
+      memory_enabled: document.getElementById("settingMemoryEnabled").checked,
+      memory_consolidation_enabled: document.getElementById(
+        "settingMemoryConsolidationEnabled"
+      ).checked,
+      memory_consolidation_time: document.getElementById(
+        "settingMemoryConsolidationTime"
+      ).value,
+      proactive_enabled: document.getElementById(
+        "settingProactiveEnabled"
+      ).checked,
+      sticker_enabled: document.getElementById("settingStickerEnabled").checked,
+      proactive_max_per_day:
+        Number(document.getElementById("settingProactiveMax").value) || 2,
+      morning_time: document.getElementById("settingMorningTime").value,
+      night_time: document.getElementById("settingNightTime").value,
+      quiet_start: document.getElementById("settingQuietStart").value,
+      quiet_end: document.getElementById("settingQuietEnd").value,
+    };
+    fetch("/api/agent/web/settings", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ settings: values }),
+    })
+      .then(readApiResponse)
+      .then(function () {
+        setSettingsStatus("基础设置已保存", false);
+      })
+      .catch(function (error) {
+        setSettingsStatus(error.message, true);
+      })
+      .then(function () {
+        settingsSave.disabled = false;
+      });
+  }
+
+  function platformLabel(platform) {
+    if (platform === "qq") return "QQ 私聊";
+    if (platform === "qqbot") return "QQBot";
+    return "网页对话";
+  }
+
   function loadMemories(query) {
+    var requestId = ++memoryRequestId;
     var url = "/api/agent/web/memories";
-    if (query && query.trim()) url += "?q=" + encodeURIComponent(query.trim());
+    var searchText = String(query || "").trim();
+    if (searchText) url += "?q=" + encodeURIComponent(searchText);
     return fetch(url, { credentials: "same-origin", cache: "no-store" })
-      .then(function (response) { return response.json(); })
+      .then(readApiResponse)
       .then(function (data) {
+        if (requestId !== memoryRequestId) return;
         memoryList.innerHTML = "";
         (data.memories || []).forEach(function (memory) {
           var item = document.createElement("div");
@@ -247,11 +238,8 @@
           var text = document.createElement("p");
           text.textContent = memory.content;
           var meta = document.createElement("small");
-          var platformLabel = memory.platform === "qq"
-            ? "QQ 私聊"
-            : (memory.platform === "qqbot" ? "QQBot" : "网页对话");
           meta.textContent =
-            platformLabel +
+            platformLabel(memory.platform) +
             " · " + memory.kind +
             " · 重要度 " + memory.importance +
             " · 置信度 " + (memory.confidence || 5) +
@@ -267,16 +255,33 @@
               method: "POST",
               credentials: "same-origin",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ id: memory.id, platform: memory.platform }),
-            }).then(function () { loadMemories(document.getElementById("agentMemorySearch").value); });
+              body: JSON.stringify({
+                id: memory.id,
+                platform: memory.platform,
+              }),
+            })
+              .then(readApiResponse)
+              .then(function () {
+                return loadMemories(memorySearch.value);
+              })
+              .catch(function (error) {
+                setSettingsStatus(error.message, settingsDirty);
+              });
           });
           item.append(copy, remove);
           memoryList.appendChild(item);
         });
         if (!(data.memories || []).length) {
-          memoryList.innerHTML = '<div class="agent-memory-item"><p>还没有长期记忆。</p></div>';
+          memoryList.innerHTML =
+            '<div class="agent-memory-item"><p>' +
+            (searchText ? "没有匹配的记忆。" : "还没有长期记忆。") +
+            "</p></div>";
         }
         refreshIcons();
+      })
+      .catch(function (error) {
+        if (requestId !== memoryRequestId) return;
+        setSettingsStatus(error.message, settingsDirty);
       });
   }
 
@@ -285,12 +290,7 @@
       credentials: "same-origin",
       cache: "no-store",
     })
-      .then(function (response) {
-        return response.json().then(function (data) {
-          if (!response.ok) throw new Error(data.error || "群友档案加载失败");
-          return data;
-        });
-      })
+      .then(readApiResponse)
       .then(function (data) {
         var members = data.members || [];
         groupMemberList.innerHTML = "";
@@ -353,14 +353,14 @@
           });
           editor.addEventListener("submit", function (event) {
             event.preventDefault();
-            var data = new FormData(editor);
+            var formData = new FormData(editor);
             var values = {
-              alias: String(data.get("alias") || ""),
-              relationship: String(data.get("relationship") || ""),
-              notes: String(data.get("notes") || ""),
-              allow_chat: data.get("allow_chat") === "on",
-              allow_tools: data.get("allow_tools") === "on",
-              memory_enabled: data.get("memory_enabled") === "on",
+              alias: String(formData.get("alias") || ""),
+              relationship: String(formData.get("relationship") || ""),
+              notes: String(formData.get("notes") || ""),
+              allow_chat: formData.get("allow_chat") === "on",
+              allow_tools: formData.get("allow_tools") === "on",
+              memory_enabled: formData.get("memory_enabled") === "on",
             };
             fetch("/api/agent/web/group-member-update", {
               method: "POST",
@@ -373,17 +373,10 @@
                 values: values,
               }),
             })
-              .then(function (response) {
-                return response.json().then(function (result) {
-                  if (!response.ok) {
-                    throw new Error(result.error || "保存失败");
-                  }
-                  return result;
-                });
-              })
+              .then(readApiResponse)
               .then(loadGroupMembers)
               .catch(function (error) {
-                settingsStatus.textContent = error.message;
+                setSettingsStatus(error.message, settingsDirty);
               });
           });
           item.append(copy, actions, editor);
@@ -396,7 +389,7 @@
         refreshIcons();
       })
       .catch(function (error) {
-        settingsStatus.textContent = error.message;
+        setSettingsStatus(error.message, settingsDirty);
       });
   }
 
@@ -423,7 +416,9 @@
   function timelineTimestamp(value) {
     if (!value) return null;
     var date = new Date(value);
-    return Number.isNaN(date.getTime()) ? null : Math.floor(date.getTime() / 1000);
+    return Number.isNaN(date.getTime())
+      ? null
+      : Math.floor(date.getTime() / 1000);
   }
 
   function loadTimeline() {
@@ -431,12 +426,7 @@
       credentials: "same-origin",
       cache: "no-store",
     })
-      .then(function (response) {
-        return response.json().then(function (data) {
-          if (!response.ok) throw new Error(data.error || "时间线加载失败");
-          return data;
-        });
-      })
+      .then(readApiResponse)
       .then(function (data) {
         timelineList.innerHTML = "";
         var events = data.events || [];
@@ -458,7 +448,6 @@
           var dot = document.createElement("span");
           dot.className = "agent-timeline-dot";
           dot.setAttribute("aria-hidden", "true");
-
           var body = document.createElement("div");
           body.className = "agent-timeline-copy";
           var title = document.createElement("h4");
@@ -467,7 +456,7 @@
           content.textContent = event.content || "没有补充内容";
           var meta = document.createElement("small");
           var metaParts = [
-            event.platform === "qq" ? "QQ 对话" : "网页对话",
+            platformLabel(event.platform),
             timelineTypeLabel(event.event_type),
             "发生 " + timelineDate(event.event_at),
           ];
@@ -498,7 +487,12 @@
                 platform: event.platform,
                 status: event.status === "done" ? "open" : "done",
               }),
-            }).then(loadTimeline);
+            })
+              .then(readApiResponse)
+              .then(loadTimeline)
+              .catch(function (error) {
+                setSettingsStatus(error.message, settingsDirty);
+              });
           });
           var remove = document.createElement("button");
           remove.type = "button";
@@ -514,7 +508,12 @@
                 id: event.id,
                 platform: event.platform,
               }),
-            }).then(loadTimeline);
+            })
+              .then(readApiResponse)
+              .then(loadTimeline)
+              .catch(function (error) {
+                setSettingsStatus(error.message, settingsDirty);
+              });
           });
           actions.append(toggle, remove);
           item.append(dot, body, actions);
@@ -527,7 +526,7 @@
         refreshIcons();
       })
       .catch(function (error) {
-        settingsStatus.textContent = error.message;
+        setSettingsStatus(error.message, settingsDirty);
       });
   }
 
@@ -577,8 +576,9 @@
     document.querySelectorAll("[data-sticker-check]").forEach(function (input) {
       input.checked = Boolean(selectedStickerIds[input.value]);
     });
-    document.querySelectorAll(".agent-sticker-category-group").forEach(
-      function (group) {
+    document
+      .querySelectorAll(".agent-sticker-category-group")
+      .forEach(function (group) {
         var checks = group.querySelectorAll("[data-sticker-check]");
         var allSelected = checks.length > 0;
         checks.forEach(function (input) {
@@ -588,8 +588,7 @@
         if (button) {
           button.textContent = allSelected ? "取消本组" : "全选本组";
         }
-      }
-    );
+      });
   }
 
   function toggleStickerGroup(category) {
@@ -650,7 +649,12 @@
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: sticker.id }),
-      }).then(loadStickers);
+      })
+        .then(readApiResponse)
+        .then(loadStickers)
+        .catch(function (error) {
+          setSettingsStatus(error.message, settingsDirty);
+        });
     });
     item.appendChild(remove);
     return item;
@@ -706,7 +710,7 @@
       credentials: "same-origin",
       cache: "no-store",
     })
-      .then(function (response) { return response.json(); })
+      .then(readApiResponse)
       .then(function (data) {
         currentStickers = data.stickers || [];
         stickerCategories = cleanStickerCategories(data.categories);
@@ -723,25 +727,8 @@
         renderStickerGroups();
       })
       .catch(function (error) {
-        settingsStatus.textContent = error.message;
+        setSettingsStatus(error.message, settingsDirty);
       });
-  }
-
-  function readApiResponse(response) {
-    return response.text().then(function (raw) {
-      var body = {};
-      try {
-        body = raw ? JSON.parse(raw) : {};
-      } catch (error) {
-        body = {};
-      }
-      if (!response.ok) {
-        throw new Error(
-          body.error || "请求失败（HTTP " + response.status + "）"
-        );
-      }
-      return body;
-    });
   }
 
   function fileBase64(file) {
@@ -764,7 +751,7 @@
     if (!list.length) return;
     stickerUploadBtn.classList.add("is-uploading");
     stickerUploadBtn.setAttribute("aria-disabled", "true");
-    settingsStatus.textContent = "正在上传表情包…";
+    setSettingsStatus("正在上传表情包…", settingsDirty);
     list
       .reduce(function (chain, file) {
         return chain.then(function () {
@@ -786,13 +773,17 @@
         });
       }, Promise.resolve())
       .then(function () {
-        settingsStatus.textContent =
-          "表情包已上传到“" + category + "”";
+        setSettingsStatus(
+          "表情包已上传到“" + category + "”",
+          settingsDirty
+        );
         return loadStickers();
       })
       .catch(function (error) {
-        settingsStatus.textContent =
-          error && error.message ? error.message : "上传失败";
+        setSettingsStatus(
+          error && error.message ? error.message : "上传失败",
+          settingsDirty
+        );
       })
       .then(function () {
         stickerUploadBtn.classList.remove("is-uploading");
@@ -804,11 +795,11 @@
   function createStickerCategory() {
     var name = stickerCategoryName.value.trim();
     if (!name) {
-      settingsStatus.textContent = "请填写分类名称";
+      setSettingsStatus("请填写分类名称", settingsDirty);
       stickerCategoryName.focus();
       return;
     }
-    settingsStatus.textContent = "正在创建分类…";
+    setSettingsStatus("正在创建分类…", settingsDirty);
     fetch("/api/agent/web/sticker-category-create", {
       method: "POST",
       credentials: "same-origin",
@@ -821,23 +812,23 @@
         refreshStickerCategoryControls(data.category);
         stickerCategoryForm.hidden = true;
         stickerCategoryName.value = "";
-        settingsStatus.textContent = "分类“" + data.category + "”已创建";
+        setSettingsStatus("分类“" + data.category + "”已创建", settingsDirty);
         return loadStickers();
       })
       .catch(function (error) {
-        settingsStatus.textContent = error.message;
+        setSettingsStatus(error.message, settingsDirty);
       });
   }
 
   function moveSelectedStickers() {
     var ids = Object.keys(selectedStickerIds).map(Number);
     if (!ids.length) {
-      settingsStatus.textContent = "请先选择表情包";
+      setSettingsStatus("请先选择表情包", settingsDirty);
       return;
     }
     var category = stickerBulkCategory.value || "未分类";
     stickerBulkMove.disabled = true;
-    settingsStatus.textContent = "正在移动表情包…";
+    setSettingsStatus("正在移动表情包…", settingsDirty);
     fetch("/api/agent/web/sticker-move", {
       method: "POST",
       credentials: "same-origin",
@@ -847,68 +838,95 @@
       .then(readApiResponse)
       .then(function (data) {
         selectedStickerIds = {};
-        settingsStatus.textContent =
-          "已移动 " + data.moved + " 张到“" + data.category + "”";
+        setSettingsStatus(
+          "已移动 " + data.moved + " 张到“" + data.category + "”",
+          settingsDirty
+        );
         return loadStickers();
       })
       .catch(function (error) {
-        settingsStatus.textContent = error.message;
+        setSettingsStatus(error.message, settingsDirty);
       })
       .then(function () {
         stickerBulkMove.disabled = false;
       });
   }
 
-  function openSettings() {
-    settingsStatus.textContent = "";
-    settingsDialog.showModal();
-    loadSettings();
-    loadMemories("");
-    loadGroupMembers();
-    loadTimeline();
-    loadStickers();
-    refreshIcons();
-  }
-
-  function saveSettings() {
-    settingsStatus.textContent = "正在保存";
-    var values = {
-      memory_enabled: document.getElementById("settingMemoryEnabled").checked,
-      memory_consolidation_enabled: document.getElementById("settingMemoryConsolidationEnabled").checked,
-      memory_consolidation_time: document.getElementById("settingMemoryConsolidationTime").value,
-      proactive_enabled: document.getElementById("settingProactiveEnabled").checked,
-      sticker_enabled: document.getElementById("settingStickerEnabled").checked,
-      proactive_max_per_day: Number(document.getElementById("settingProactiveMax").value) || 2,
-      morning_time: document.getElementById("settingMorningTime").value,
-      night_time: document.getElementById("settingNightTime").value,
-      quiet_start: document.getElementById("settingQuietStart").value,
-      quiet_end: document.getElementById("settingQuietEnd").value,
-    };
-    fetch("/api/agent/web/settings", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ settings: values }),
-    })
-      .then(function (response) {
-        return response.json().then(function (data) {
-          if (!response.ok) throw new Error(data.error || "保存失败");
-          return data;
-        });
-      })
-      .then(function () {
-        settingsStatus.textContent = "已保存";
-      })
-      .catch(function (error) {
-        settingsStatus.textContent = error.message;
+  function setupSectionNavigation() {
+    var links = Array.prototype.slice.call(
+      document.querySelectorAll("[data-section-link]")
+    );
+    var sections = Array.prototype.slice.call(
+      document.querySelectorAll("[data-console-section]")
+    );
+    var nav = document.querySelector(".agent-console-nav");
+    var navigationLockUntil = 0;
+    var framePending = false;
+    var activeSectionId = "";
+    function setActive(sectionId, revealLink) {
+      var changed = activeSectionId !== sectionId;
+      activeSectionId = sectionId;
+      links.forEach(function (link) {
+        var active =
+          link.getAttribute("data-section-link") === sectionId;
+        link.classList.toggle("is-active", active);
+        if (active) link.setAttribute("aria-current", "location");
+        else link.removeAttribute("aria-current");
+        if (active && changed && revealLink && window.innerWidth <= 900) {
+          nav.scrollLeft = Math.max(
+            0,
+            link.offsetLeft - (nav.clientWidth - link.offsetWidth) / 2
+          );
+        }
       });
+    }
+    function syncActiveFromScroll() {
+      framePending = false;
+      if (Date.now() < navigationLockUntil || !sections.length) return;
+      var current = sections[0].id;
+      sections.forEach(function (section) {
+        if (section.getBoundingClientRect().top <= 112) {
+          current = section.id;
+        }
+      });
+      var pageAtBottom =
+        window.scrollY + window.innerHeight >=
+        document.documentElement.scrollHeight - 2;
+      if (pageAtBottom) current = sections[sections.length - 1].id;
+      setActive(current, false);
+    }
+    function requestSync() {
+      if (framePending) return;
+      framePending = true;
+      window.requestAnimationFrame(syncActiveFromScroll);
+    }
+    links.forEach(function (link) {
+      link.addEventListener("click", function () {
+        var sectionId = link.getAttribute("data-section-link");
+        setActive(sectionId, true);
+        navigationLockUntil = Date.now() + 700;
+        window.setTimeout(syncActiveFromScroll, 720);
+      });
+    });
+    window.addEventListener("scroll", requestSync, { passive: true });
+    window.addEventListener("resize", requestSync, { passive: true });
+    requestSync();
   }
 
-  document.getElementById("agentSettingsBtn").addEventListener("click", openSettings);
-  document.getElementById("agentSettingsClose").addEventListener("click", function () {
-    settingsDialog.close();
+  settingsSave.addEventListener("click", saveSettings);
+  document
+    .querySelectorAll(".agent-setting-row input, .agent-setting-grid input")
+    .forEach(function (input) {
+      input.addEventListener("input", markSettingsDirty);
+      input.addEventListener("change", markSettingsDirty);
+    });
+  memorySearch.addEventListener("input", function () {
+    var value = this.value;
+    window.clearTimeout(memorySearchTimer);
+    memorySearchTimer = window.setTimeout(function () {
+      loadMemories(value);
+    }, 180);
   });
-  document.getElementById("agentSettingsSave").addEventListener("click", saveSettings);
   stickerUploadBtn.addEventListener("keydown", function (event) {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
@@ -933,15 +951,12 @@
     createStickerCategory();
   });
   stickerBulkMove.addEventListener("click", moveSelectedStickers);
-  document.getElementById("agentMemorySearch").addEventListener("input", function () {
-    loadMemories(this.value);
-  });
   timelineForm.addEventListener("submit", function (event) {
     event.preventDefault();
     var title = document.getElementById("agentTimelineTitle").value.trim();
     var content = document.getElementById("agentTimelineContent").value.trim();
     if (!title && !content) {
-      settingsStatus.textContent = "请填写事件标题或内容";
+      setSettingsStatus("请填写事件标题或内容", settingsDirty);
       return;
     }
     var addButton = document.getElementById("agentTimelineAdd");
@@ -962,86 +977,27 @@
         ),
       }),
     })
-      .then(function (response) {
-        return response.json().then(function (data) {
-          if (!response.ok) throw new Error(data.error || "添加失败");
-          return data;
-        });
-      })
+      .then(readApiResponse)
       .then(function () {
         timelineForm.reset();
-        settingsStatus.textContent = "已加入时间线";
+        setSettingsStatus("已加入时间线", settingsDirty);
         return loadTimeline();
       })
       .catch(function (error) {
-        settingsStatus.textContent = error.message;
+        setSettingsStatus(error.message, settingsDirty);
       })
-      .finally(function () {
+      .then(function () {
         addButton.disabled = false;
       });
   });
 
-  function submitMessage(text) {
-    var value = String(text || "").trim();
-    if (!value || send.disabled) return;
-    addMessage("user", value);
-    if (suggestions) suggestions.hidden = true;
-    input.value = "";
-    input.style.height = "";
-    setBusy(true);
-    var pending = addThinking();
-    fetch("/api/agent/web/chat", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({ message: value }),
-    })
-      .then(function (response) {
-        return response.json().then(function (data) {
-          if (!response.ok) throw new Error(data.error || "请求失败");
-          return data;
-        });
-      })
-      .then(function (data) {
-        pending.remove();
-        addMessage("assistant", data.reply || "这次没有生成回复。");
-      })
-      .catch(function (error) {
-        pending.remove();
-        addMessage("assistant", error.message || "请求失败，请稍后再试。");
-      })
-      .finally(function () {
-        setBusy(false);
-        input.focus();
-      });
-  }
-
-  form.addEventListener("submit", function (event) {
-    event.preventDefault();
-    submitMessage(input.value);
-  });
-
-  input.addEventListener("keydown", function (event) {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      form.requestSubmit();
-    }
-  });
-
-  input.addEventListener("input", function () {
-    input.style.height = "auto";
-    input.style.height = Math.min(input.scrollHeight, 150) + "px";
-  });
-
-  suggestions.addEventListener("click", function (event) {
-    var button = event.target.closest("[data-agent-prompt]");
-    if (!button) return;
-    submitMessage(button.getAttribute("data-agent-prompt"));
-  });
-
   refreshIcons();
+  setupSectionNavigation();
   loadStatus();
+  loadSettings();
+  loadMemories("");
+  loadGroupMembers();
+  loadTimeline();
+  loadStickers();
+  window.setInterval(loadStatus, 30000);
 })();

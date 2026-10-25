@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#7b68ee">
-  <title>折兮颜</title>
+  <title>折兮颜 · 配置中心</title>
   <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=4">
   <link rel="stylesheet" href="/static/site/site.css">
   <link rel="stylesheet" href="/static/fonts.css">
-  <link rel="stylesheet" href="/static/agent.css?v=10">
+  <link rel="stylesheet" href="/static/agent.css?v=11">
   <script>
     (function () {
       try {
@@ -20,163 +20,156 @@
   </script>
   <script src="/static/site/theme.js"></script>
 </head>
-<body class="agent-page" data-agent-online="0">
-  <header class="agent-topbar">
-    <a class="agent-back" href="/" aria-label="返回首页">
-      <i data-lucide="arrow-left"></i>
-      <span>返回</span>
-    </a>
-    <div class="agent-topbar-title">
-      <span>Error酱工作区</span>
-      <strong>折兮颜</strong>
+<body class="agent-page agent-console-page" data-agent-online="0">
+  <header class="agent-console-topbar">
+    <div class="agent-console-topbar-inner">
+      <a class="agent-back" href="/" aria-label="返回首页">
+        <i data-lucide="arrow-left"></i>
+        <span>返回</span>
+      </a>
+      <div class="agent-console-brand">
+        <img src="/static/site/error-chan-avatar.png?v=1" alt="">
+        <div>
+          <strong>折兮颜</strong>
+          <span>Agent 配置中心</span>
+        </div>
+      </div>
+      <div class="agent-console-actions">
+        <span class="agent-top-status">
+          <i></i>
+          <span id="agentTopStatus">连接中</span>
+        </span>
+        <span class="agent-top-feedback" id="agentTopFeedback" aria-hidden="true"></span>
+        <button type="button" class="agent-primary-action" id="agentSettingsSave" disabled>
+          <i data-lucide="save"></i>
+          <span>保存设置</span>
+        </button>
+      </div>
     </div>
-    <button class="agent-settings-btn" id="agentSettingsBtn" type="button" title="Agent 设置">
-      <i data-lucide="sliders-horizontal"></i>
-      <span>设置</span>
-    </button>
-    <span class="agent-top-status">
-      <i></i>
-      <span id="agentTopStatus">连接中</span>
-    </span>
   </header>
 
-  <main class="agent-shell">
-    <aside class="agent-sidebar">
-      <section class="agent-identity">
-        <div class="agent-portrait">
-          <img src="/static/site/error-chan-avatar.png?v=1" alt="Error酱">
-        </div>
-        <div class="agent-identity-copy">
-          <h1>折兮颜</h1>
-          <p id="agentStatusText">正在连接 Agent</p>
-          <span class="agent-model-pill" id="agentModelPill">DeepSeek</span>
-          <div class="agent-relationship" id="agentRelationship" hidden>
-            <span id="agentMood">平静</span>
-            <span id="agentLonging">想念 0</span>
-            <span id="agentJealousy">吃醋 0</span>
-          </div>
-        </div>
-      </section>
+  <main class="agent-console-shell">
+    <aside class="agent-console-sidebar">
+      <nav class="agent-console-nav" aria-label="折兮颜设置分区">
+        <a class="is-active" href="#settings-basic" data-section-link="settings-basic">
+          <i data-lucide="sliders-horizontal"></i>
+          <span>基础设置</span>
+        </a>
+        <a href="#settings-proactive" data-section-link="settings-proactive">
+          <i data-lucide="send"></i>
+          <span>主动聊天</span>
+        </a>
+        <a href="#settings-members" data-section-link="settings-members">
+          <i data-lucide="users"></i>
+          <span>群友档案</span>
+        </a>
+        <a href="#settings-memories" data-section-link="settings-memories">
+          <i data-lucide="brain"></i>
+          <span>长期记忆</span>
+        </a>
+        <a href="#settings-timeline" data-section-link="settings-timeline">
+          <i data-lucide="calendar-clock"></i>
+          <span>事件时间线</span>
+        </a>
+        <a href="#settings-stickers" data-section-link="settings-stickers">
+          <i data-lucide="images"></i>
+          <span>表情包库</span>
+        </a>
+      </nav>
 
-      <section class="agent-side-section agent-capabilities">
-        <h2>可以做什么</h2>
-        <div class="agent-capability-list">
-          <div><i data-lucide="package-search"></i><span>查询元件库存</span></div>
-          <div><i data-lucide="bookmark"></i><span>搜索收藏网站</span></div>
-          <div><i data-lucide="notebook-tabs"></i><span>读取与总结笔记</span></div>
-          <div><i data-lucide="badge-check"></i><span>整理待审核事项</span></div>
+      <section class="agent-console-runtime">
+        <div class="agent-console-runtime-head">
+          <h2>运行状态</h2>
+          <span class="agent-online-chip" id="agentOnlineChip">
+            <i></i>
+            <span>连接中</span>
+          </span>
         </div>
-      </section>
-
-      <section class="agent-side-section agent-runtime">
-        <h2>运行状态</h2>
         <dl>
           <div><dt>模型</dt><dd id="agentModel">--</dd></div>
+          <div><dt>QQBot</dt><dd id="agentQQBotStatus">--</dd></div>
           <div><dt>管理员</dt><dd id="agentAdmins">--</dd></div>
           <div><dt>通知群</dt><dd id="agentGroups">--</dd></div>
         </dl>
+        <p id="agentStatusText">正在连接 Agent</p>
       </section>
     </aside>
 
-    <section class="agent-workspace">
-      <header class="agent-chat-head">
+    <div class="agent-console-content">
+      <header class="agent-console-intro">
         <div>
-          <h2>对话</h2>
-          <p>直接提问，Agent 会按权限调用 Error酱工具。</p>
+          <span>Error酱 / 折兮颜</span>
+          <h1>机器人设置</h1>
+          <p>管理折兮颜的运行参数、关系档案和内容素材。</p>
         </div>
-        <span class="agent-online-chip" id="agentOnlineChip">
-          <i></i>
-          <span>离线</span>
-        </span>
+        <div class="agent-save-note" id="agentSettingsStatus" aria-live="polite">
+          修改基础设置后点击顶栏保存
+        </div>
       </header>
 
-      <div class="agent-messages" id="agentMessages" aria-live="polite">
-        <article class="agent-message is-assistant">
-          <div class="agent-message-avatar">
-            <img src="/static/site/error-chan-avatar.png?v=1" alt="">
-          </div>
-          <div class="agent-message-body">
-            <div class="agent-message-meta">
-              <strong>折兮颜</strong>
-              <span>现在</span>
-            </div>
-            <div class="agent-bubble">
-              <p>你好，我可以查询库存、书签和笔记，也能整理 Error酱的待审核任务。</p>
-            </div>
-          </div>
-        </article>
-      </div>
-
-      <div class="agent-suggestions" id="agentSuggestions" aria-label="快捷提问">
-        <button type="button" data-agent-prompt="有哪些待审核用户、留言和举报？">
-          <i data-lucide="clipboard-check"></i>
-          <span>查看待审核事项</span>
-        </button>
-        <button type="button" data-agent-prompt="帮我查一下库存里有没有 STM32">
-          <i data-lucide="scan-search"></i>
-          <span>查询元件库存</span>
-        </button>
-        <button type="button" data-agent-prompt="帮我找一下和 Docker 有关的笔记">
-          <i data-lucide="notebook-pen"></i>
-          <span>搜索我的笔记</span>
-        </button>
-      </div>
-
-      <form class="agent-composer" id="agentForm">
-        <textarea id="agentInput" rows="1" maxlength="4000" placeholder="给折兮颜发消息" required></textarea>
-        <div class="agent-composer-bar">
-          <span id="agentComposerHint">Enter 发送 · Shift + Enter 换行</span>
-          <button type="submit" id="agentSend" title="发送消息" aria-label="发送消息">
-            <i data-lucide="arrow-up"></i>
-          </button>
-        </div>
-      </form>
-    </section>
-  </main>
-
-  <dialog class="agent-settings-dialog" id="agentSettingsDialog">
-    <header class="agent-settings-head">
-      <div>
-        <h2>折兮颜设置</h2>
-        <p>群友档案、记忆整理、时间线、主动聊天和表情包</p>
-      </div>
-      <button type="button" id="agentSettingsClose" title="关闭" aria-label="关闭">
-        <i data-lucide="x"></i>
-      </button>
-    </header>
-    <div class="agent-settings-body">
-      <section class="agent-setting-section">
-        <label class="agent-switch-row">
-          <span><strong>长期记忆</strong><small>从私聊和网页对话中记住偏好与约定</small></span>
-          <input type="checkbox" id="settingMemoryEnabled">
-        </label>
-        <label class="agent-switch-row">
-          <span><strong>空闲记忆整理</strong><small>在安静时段合并重复记忆、提炼长期信息</small></span>
-          <input type="checkbox" id="settingMemoryConsolidationEnabled">
-        </label>
-        <label class="agent-switch-row">
-          <span><strong>主动聊天</strong><small>在设定时间通过 QQBot 发管理员私聊</small></span>
-          <input type="checkbox" id="settingProactiveEnabled">
-        </label>
-        <label class="agent-switch-row">
-          <span><strong>表情包</strong><small>允许折兮颜在回复中低频使用表情包</small></span>
-          <input type="checkbox" id="settingStickerEnabled">
-        </label>
-        <div class="agent-setting-row is-disabled">
-          <span><strong>语音</strong><small>云端语音服务暂未启用</small></span>
-          <em>未启用</em>
+      <section class="agent-console-section" id="settings-basic" data-console-section>
+        <header class="agent-section-head">
+          <span class="agent-section-icon"><i data-lucide="sliders-horizontal"></i></span>
+          <div><h2>基础设置</h2><p>控制长期记忆、自动整理和回复中的表情包。</p></div>
+        </header>
+        <div class="agent-setting-list">
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
+              <strong>长期记忆</strong>
+              <small>从私聊和群聊中保存稳定偏好、关系与约定</small>
+            </span>
+            <span class="agent-switch">
+              <input type="checkbox" id="settingMemoryEnabled">
+              <span aria-hidden="true"></span>
+            </span>
+          </label>
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
+              <strong>空闲记忆整理</strong>
+              <small>在安静时段合并重复记忆，保留更稳定的信息</small>
+            </span>
+            <span class="agent-switch">
+              <input type="checkbox" id="settingMemoryConsolidationEnabled">
+              <span aria-hidden="true"></span>
+            </span>
+          </label>
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
+              <strong>整理时间</strong>
+              <small>每天执行一次空闲记忆整理</small>
+            </span>
+            <input class="agent-compact-input" type="time" id="settingMemoryConsolidationTime">
+          </label>
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
+              <strong>回复表情包</strong>
+              <small>情绪合适时低频发送，可按分类和文件名匹配</small>
+            </span>
+            <span class="agent-switch">
+              <input type="checkbox" id="settingStickerEnabled">
+              <span aria-hidden="true"></span>
+            </span>
+          </label>
         </div>
       </section>
 
-      <section class="agent-setting-section">
-        <h3>记忆整理</h3>
-        <div class="agent-setting-grid">
-          <label><span>每日整理时间</span><input type="time" id="settingMemoryConsolidationTime"></label>
+      <section class="agent-console-section" id="settings-proactive" data-console-section>
+        <header class="agent-section-head">
+          <span class="agent-section-icon"><i data-lucide="send"></i></span>
+          <div><h2>主动聊天</h2><p>只发送到管理员 QQBot 私聊，不会主动在群里发言。</p></div>
+        </header>
+        <div class="agent-setting-list">
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
+              <strong>启用主动聊天</strong>
+              <small>在合适的日程、事件或久未联系时主动问候</small>
+            </span>
+            <span class="agent-switch">
+              <input type="checkbox" id="settingProactiveEnabled">
+              <span aria-hidden="true"></span>
+            </span>
+          </label>
         </div>
-      </section>
-
-      <section class="agent-setting-section">
-        <h3>主动聊天</h3>
         <div class="agent-setting-grid">
           <label><span>每日最多</span><input type="number" id="settingProactiveMax" min="1" max="6"></label>
           <label><span>早安时间</span><input type="time" id="settingMorningTime"></label>
@@ -184,29 +177,37 @@
           <label><span>免打扰开始</span><input type="time" id="settingQuietStart"></label>
           <label><span>免打扰结束</span><input type="time" id="settingQuietEnd"></label>
         </div>
+        <p class="agent-section-note">主动消息之间至少间隔 90 分钟；发送失败不会占用当天次数。</p>
       </section>
 
-      <section class="agent-setting-section">
-        <div class="agent-section-title">
-          <h3>群友档案</h3>
-          <span id="agentGroupMemberCount">0 人</span>
-        </div>
-        <div class="agent-memory-list" id="agentGroupMemberList"></div>
+      <section class="agent-console-section" id="settings-members" data-console-section>
+        <header class="agent-section-head">
+          <span class="agent-section-icon"><i data-lucide="users"></i></span>
+          <div><h2>群友档案</h2><p>维护群友别名、关系、备注以及聊天和工具权限。</p></div>
+          <span class="agent-section-count" id="agentGroupMemberCount">0 人</span>
+        </header>
+        <div class="agent-list" id="agentGroupMemberList"></div>
       </section>
 
-      <section class="agent-setting-section">
-        <div class="agent-section-title">
-          <h3>长期记忆</h3>
-          <input type="search" id="agentMemorySearch" placeholder="搜索记忆">
-        </div>
-        <div class="agent-memory-list" id="agentMemoryList"></div>
+      <section class="agent-console-section" id="settings-memories" data-console-section>
+        <header class="agent-section-head">
+          <span class="agent-section-icon"><i data-lucide="brain"></i></span>
+          <div><h2>长期记忆</h2><p>查看和管理折兮颜记住的偏好、事件与约定。</p></div>
+          <label class="agent-section-filter">
+            <i data-lucide="search"></i>
+            <input type="search" id="agentMemorySearch" placeholder="筛选记忆"
+                   aria-label="筛选记忆">
+          </label>
+        </header>
+        <div class="agent-list" id="agentMemoryList"></div>
       </section>
 
-      <section class="agent-setting-section">
-        <div class="agent-section-title">
-          <h3>事件时间线</h3>
-          <span id="agentTimelineCount">0 条</span>
-        </div>
+      <section class="agent-console-section" id="settings-timeline" data-console-section>
+        <header class="agent-section-head">
+          <span class="agent-section-icon"><i data-lucide="calendar-clock"></i></span>
+          <div><h2>事件时间线</h2><p>记录约定、计划和需要后续跟进的事件。</p></div>
+          <span class="agent-section-count" id="agentTimelineCount">0 条</span>
+        </header>
         <form class="agent-timeline-form" id="agentTimelineForm">
           <input type="text" id="agentTimelineTitle" maxlength="120" placeholder="事件标题，例如：周末一起整理房间">
           <textarea id="agentTimelineContent" rows="2" maxlength="1000" placeholder="补充内容，也可以留空"></textarea>
@@ -229,7 +230,7 @@
               <span>跟进时间</span>
               <input type="datetime-local" id="agentTimelineFollowUpAt">
             </label>
-            <button type="submit" id="agentTimelineAdd">
+            <button type="submit" class="agent-inline-primary" id="agentTimelineAdd">
               <i data-lucide="plus"></i>
               <span>加入时间线</span>
             </button>
@@ -238,14 +239,15 @@
         <div class="agent-timeline-list" id="agentTimelineList"></div>
       </section>
 
-      <section class="agent-setting-section">
-        <div class="agent-section-title">
-          <h3>表情包库</h3>
-          <span id="agentStickerCount">0 个</span>
-        </div>
+      <section class="agent-console-section" id="settings-stickers" data-console-section>
+        <header class="agent-section-head">
+          <span class="agent-section-icon"><i data-lucide="images"></i></span>
+          <div><h2>表情包库</h2><p>先选择分类，再批量上传；也可以勾选已有表情统一归类。</p></div>
+          <span class="agent-section-count" id="agentStickerCount">0 个</span>
+        </header>
         <div class="agent-sticker-category-bar">
           <label class="agent-sticker-category">
-            <span>分类</span>
+            <span>上传分类</span>
             <select id="agentStickerCategory"></select>
           </label>
           <button type="button" id="agentStickerCategoryAdd">
@@ -260,9 +262,7 @@
           <button type="button" id="agentStickerCategoryCancel">取消</button>
         </form>
         <div class="agent-sticker-tools">
-          <span class="agent-sticker-upload-target" id="agentStickerUploadTarget">
-            上传到“未分类”
-          </span>
+          <span class="agent-sticker-upload-target" id="agentStickerUploadTarget">上传到“未分类”</span>
           <label class="agent-sticker-upload" id="agentStickerUploadBtn"
                  for="agentStickerInput" role="button" tabindex="0">
             <i data-lucide="image-plus"></i>
@@ -282,13 +282,9 @@
         <div class="agent-sticker-groups" id="agentStickerGrid"></div>
       </section>
     </div>
-    <footer class="agent-settings-foot">
-      <span id="agentSettingsStatus"></span>
-      <button type="button" id="agentSettingsSave">保存设置</button>
-    </footer>
-  </dialog>
+  </main>
 
   <script src="/static/vendor/lucide.min.js"></script>
-  <script src="/static/agent.js?v=11"></script>
+  <script src="/static/agent.js?v=12"></script>
 </body>
 </html>

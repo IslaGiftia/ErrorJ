@@ -2554,6 +2554,7 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
                 self.send_json(403, {"error": "forbidden"})
                 return
             admin_ids = self.service.store.admin_ids("qq")
+            qqbot_admin_ids = self.service.store.admin_ids("qqbot")
             relationship_owner = admin_ids[0] if admin_ids else "0"
             self.send_json(
                 200,
@@ -2563,6 +2564,11 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
                     "group_enabled": self.service.config.group_enabled,
                     "group_ids": sorted(self.service.config.group_ids),
                     "bound_admins": len(admin_ids),
+                    "qq_admins": len(admin_ids),
+                    "qqbot_admins": len(qqbot_admin_ids),
+                    "qqbot_group_ids": sorted(
+                        self.service.config.qqbot_group_ids
+                    ),
                     "qqbot": (
                         self.service.qqbot.status()
                         if self.service.qqbot

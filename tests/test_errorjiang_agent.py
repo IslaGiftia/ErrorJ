@@ -3120,6 +3120,22 @@ class AgentTimelineApiTests(unittest.TestCase):
         self.assertEqual(listing["stickers"][0]["category"], "泪目")
 
 
+class AgentConsoleUiTests(unittest.TestCase):
+    def test_agent_page_is_settings_console_without_chat(self):
+        html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
+        script = (app.STATIC_DIR / "agent.js").read_text(encoding="utf-8")
+        self.assertIn('class="agent-console-shell"', html)
+        self.assertIn('id="settings-stickers"', html)
+        self.assertIn('id="agentSettingsSave" disabled', html)
+        self.assertIn('aria-label="筛选记忆"', html)
+        self.assertEqual(html.count("data-console-section"), 6)
+        self.assertNotIn('id="agentMessages"', html)
+        self.assertNotIn('id="agentForm"', html)
+        self.assertNotIn('id="agentSettingsDialog"', html)
+        self.assertNotIn("/api/agent/web/chat", script)
+        self.assertIn('aria-current", "location"', script)
+
+
 class AgentNotificationTests(unittest.TestCase):
     def make_service(self):
         service = object.__new__(AgentService)
