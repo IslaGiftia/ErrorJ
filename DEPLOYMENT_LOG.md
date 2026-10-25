@@ -6708,6 +6708,72 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 
 备注：线上验证使用公网返回的同版静态页面和脚本，没有改动线上真实业务数据。
 
+## 155. 2026-10-26 01:25:06 折兮颜配置中心重构为纯设置控制台
+
+来源：站长反馈 `/agent` 的聊天区和巨型设置弹窗完全用不到，实际只需要配置机器人；要求参考 GitHub 优秀管理后台重构，并保持 Error酱视觉与交互一致。完成初版后要求使用 Open Code Review 检查并自行修复问题，再执行完整发布。
+
+参考项目：LangBot 的固定侧栏管理后台、Open WebUI 的分组设置行、Dify 与 Flowise 的运行状态和对象配置分离方式。
+
+完成内容（提交 `6e6d5f1 refactor: turn agent into settings console`，8 文件，+1156/−1576）：
+
+- `/agent` 移除网页聊天区、快捷提问、聊天气泡、输入框和设置弹窗，改为纯配置控制台。
+- 桌面端使用固定设置侧栏，手机端使用吸顶横向分区导航；基础设置、主动聊天、群友档案、长期记忆、事件时间线和表情包库均直接在主页面维护。
+- 顶栏常驻保存按钮和可见操作反馈，侧栏展示模型、QQBot、管理员、通知群和在线状态。
+- 滚动时同步高亮当前分区，点击导航平滑定位；为当前分区补充 `aria-current="location"`。
+- 设置加载成功后才启用保存按钮，加载失败时保持禁用，避免空表单覆盖已有配置。
+- 记忆筛选加入请求序号，避免较早的慢请求覆盖新结果；筛选框补充可访问名称并去掉嵌套输入框样式冲突。
+- 导航只在当前分区变化时滚动横向导航，避免滚动过程中反复调用 `scrollIntoView`。
+- 顶部反馈常驻可见，页面内状态保留为供辅助技术读取的 live region。
+
+代码审查：
+```text
+Open Code Review：5 个文件，10 条评论
+严重级别：0 critical / 1 high / 4 medium / 5 low
+修复：全部处理，包括空配置覆盖风险、输入框样式冲突、
+      通知群统计、导航重复滚动、顶部反馈不可见、记忆请求竞态、
+      aria-current、筛选框可访问名称和 HTML 反引号显示
+```
+
+部署步骤：
+```text
+本地：Python 编译检查；node --check static/agent.js；
+      250 项单测通过；changelog-seed JSON 校验；git diff --check 干净
+浏览器：1440×1000 / 390×844 / 360×640 检查通过；
+        6 个设置分区、导航高亮、保存按钮、加载失败禁用、
+        无聊天 DOM、无页面级横向溢出
+提交：6e6d5f1 refactor: turn agent into settings console
+      （fetch → pull --rebase → push；local == origin/main == 6e6d5f1）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 74ac85dd1af7ed1d035aacd0de2a9866cfba117cac5db79aeeafbe8a0f782982
+备份：/data/errorjiang-backup/20261026-012748/
+      （inventory.db、auth.json、changelog-seed.json、
+       完整 agent-data：agent.db + stickers；无 WAL / SHM）
+服务器：systemctl stop errorjiang-agent -> systemctl stop errorjiang
+      cp 备份 -> git pull --ff-only -> 6e6d5f1
+      seed 安装；import_changelog_moments.py --date 2026-10-26 --force
+      -> 新增 3 条、覆盖 0 条、跳过 0 条
+      systemctl start errorjiang -> systemctl start errorjiang-agent
+```
+
+验证结果：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 公网 /api/health = {"ok": true}；
+             Agent 172.17.0.1:8011/health = {"ok": true}
+版本      -> 功能提交 = origin/main = 服务器 HEAD = 6e6d5f1
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+更新日志  -> /api/moments 中 2026-10-26 01:25:06
+             「折兮颜配置中心重构为纯设置控制台」（id 753，kind = log）
+公网页    -> Playwright 使用线上同版 agent.html：
+             6 个设置分区、无聊天 DOM、保存按钮启用、
+             当前导航 aria-current=location、桌面与手机无横向溢出
+静态文件  -> 规范化 CRLF 后，agent.html / agent.css / agent.js / references.html
+             公网与本地 SHA256 全部一致
+本地回归  -> 250 项单测通过；控制台结构回归测试锁住无聊天/无弹窗状态
+```
+
+备注：定时提醒循环仍使用旧 OneBot 通道，QQBot 群提醒的 openid 转数字异常仍存在；不属于本次配置中心重构范围。
+
 ## 154. 2026-10-26 00:39:55 折兮颜支持按表情包文件名自动选图
 
 来源：站长希望上传表情包后，机器人能根据原始文件名自动理解用途，并在聊天内容匹配时优先发送对应图片。
