@@ -631,6 +631,7 @@
       var image = document.createElement("img");
       image.src = "/agent-stickers/" + encodeURIComponent(sticker.ref);
       image.alt = "";
+      image.title = sticker.source_name || sticker.category || "";
       item.appendChild(image);
     } else {
       var face = document.createElement("span");

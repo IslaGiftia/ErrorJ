@@ -71,6 +71,15 @@ MEMORY_CONSOLIDATION_LOOKBACK_SECONDS = 2 * 86400
 STICKER_REQUEST_RE = re.compile(
     r"(?:发|来|整)(?:个|一个|张|一下)?[^，。！？!?]{0,8}(?:表情包|表情)"
 )
+STICKER_FILENAME_SPLIT_RE = re.compile(
+    r"[\s_\-—–()（）\[\]【】{}.,，、/|;；]+"
+)
+STICKER_FILENAME_NOISE_RE = re.compile(
+    r"(?:微[信讯]图片|微[信讯]截图|表情包?|图片|截图|"
+    r"screenshot|sticker|image|img|photo|pic|final|copy|"
+    r"mmexport|wx[_-]?camera)",
+    re.IGNORECASE,
+)
 
 
 class RateLimiter:
@@ -193,21 +202,9 @@ class AgentService:
             stickers = [
                 item for item in stickers if item.get("kind") == "image"
             ]
-        matches = [
-            item
-            for item in stickers
-            if emotion
-            and emotion
-            in (
-                str(item.get("category") or "")
-                + " "
-                + str(item.get("tags") or "")
-            )
-        ]
-        candidates = matches or stickers
-        if not candidates:
+        sticker = self.choose_sticker_for_query(stickers, emotion)
+        if not sticker:
             return {"status": "empty"}
-        sticker = random.choice(candidates)
         if tool_context is not None:
             tool_context["selected_sticker"] = str(sticker["id"])
         return {
@@ -675,6 +672,79 @@ class AgentService:
         return text[:40] or "未分类"
 
     @classmethod
+    def sticker_filename_keywords(cls, source_name: str) -> list[str]:
+        stem = Path(str(source_name or "")).stem.strip()
+        if not stem:
+            return []
+        normalized = STICKER_FILENAME_SPLIT_RE.sub(" ", stem.lower())
+        parts = normalized.split()
+        candidates = [" ".join(parts)] if parts else []
+        candidates.extend(parts)
+        keywords = []
+        for candidate in candidates:
+            compact = STICKER_FILENAME_NOISE_RE.sub("", candidate)
+            compact = re.sub(r"\d+", "", compact).strip()
+            if not re.search(r"[\u4e00-\u9fff]|[a-z]{2,}", compact):
+                continue
+            if compact not in keywords:
+                keywords.append(compact[:40])
+        return keywords[:12]
+
+    @classmethod
+    def sticker_match_score(
+        cls,
+        sticker: dict[str, Any],
+        query: str,
+    ) -> int:
+        value = re.sub(r"\s+", " ", str(query or "")).strip().lower()
+        if not value:
+            return 0
+        score = 0
+        category = str(sticker.get("category") or "").strip().lower()
+        if category and (category in value or value in category):
+            score += 100
+        for tag in re.split(r"[,，、/|;；]+", str(sticker.get("tags") or "")):
+            tag = tag.strip().lower()
+            if tag and (tag in value or value in tag):
+                score += 60
+        source_name = str(sticker.get("source_name") or "")
+        keywords = cls.sticker_filename_keywords(source_name)
+        for keyword in keywords:
+            if keyword and keyword in value:
+                score += 40 + min(len(keyword), 10)
+            elif keyword and value in keyword:
+                score += 20 + min(len(value), 10)
+            elif keyword:
+                longest = 0
+                for start in range(len(keyword)):
+                    for end in range(start + 2, len(keyword) + 1):
+                        fragment = keyword[start:end]
+                        if fragment in value:
+                            longest = max(longest, len(fragment))
+                if longest >= 2:
+                    score += 20 + min(longest * 5, 20)
+        return score
+
+    @classmethod
+    def choose_sticker_for_query(
+        cls,
+        stickers: list[dict[str, Any]],
+        query: str,
+    ) -> dict[str, Any] | None:
+        if not stickers:
+            return None
+        scored = [
+            (cls.sticker_match_score(sticker, query), sticker)
+            for sticker in stickers
+        ]
+        best_score = max(score for score, _ in scored)
+        if best_score <= 0:
+            return random.choice(stickers)
+        return random.choice(
+            [sticker for score, sticker in scored if score == best_score]
+        )
+
+    @classmethod
     def sticker_usage_from_text(cls, text: str) -> str:
         value = str(text or "").strip()
         match = STICKER_SAVE_RE.fullmatch(value)
@@ -715,14 +785,15 @@ class AgentService:
             filename,
             ", ".join(tags),
             resolved_category,
+            Path(str(source_name or "")).name[:180],
         )
         return {
             "id": sticker_id,
             "kind": "image",
             "ref": filename,
             "category": resolved_category,
+            "source_name": Path(str(source_name or "")).name[:180],
             "tags": ", ".join(tags),
-            "source_name": str(source_name or "")[:180],
         }
 
     def save_sticker_upload(
@@ -2293,7 +2364,7 @@ class AgentService:
                 if item.get("kind") == "image"
             ]
             if candidates:
-                sticker = random.choice(candidates)
+                sticker = self.choose_sticker_for_query(candidates, text)
         self.send_reply(
             event,
             reply,

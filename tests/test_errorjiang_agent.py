@@ -102,10 +102,17 @@ class AgentStoreTests(unittest.TestCase):
 
     def test_sticker_usage_updates_for_duplicate_file(self):
         first = self.store.add_sticker("0", "image", "same.png", "QQ图片")
-        second = self.store.add_sticker("0", "image", "same.png", "笑哭, 开心")
+        second = self.store.add_sticker(
+            "0",
+            "image",
+            "same.png",
+            "笑哭, 开心",
+            source_name="晚安_猫猫.png",
+        )
         self.assertEqual(first, second)
         sticker = self.store.list_stickers("0")[0]
         self.assertEqual(sticker["tags"], "笑哭, 开心")
+        self.assertEqual(sticker["source_name"], "晚安_猫猫.png")
 
     def test_existing_sticker_table_migrates_to_category(self):
         path = Path(self.temp.name) / "legacy.db"
@@ -131,6 +138,7 @@ class AgentStoreTests(unittest.TestCase):
         migrated = AgentStore(path)
         sticker = migrated.list_stickers("0")[0]
         self.assertEqual(sticker["category"], "未分类")
+        self.assertEqual(sticker["source_name"], "")
         self.assertEqual(sticker["tags"], "旧标签")
 
     def test_custom_sticker_upload_uses_selected_category(self):
@@ -141,10 +149,12 @@ class AgentStoreTests(unittest.TestCase):
         raw = b"\x89PNG\r\n\x1a\n" + b"sticker-data"
         stored = service.save_sticker_upload("0", raw, "cry.png", "泪目")
         self.assertEqual(stored["category"], "泪目")
+        self.assertEqual(stored["source_name"], "cry.png")
         self.assertEqual(stored["tags"], "泪目")
         self.assertTrue((service.sticker_dir / stored["ref"]).is_file())
         stickers = self.store.list_stickers("0")
         self.assertEqual(stickers[0]["category"], "泪目")
+        self.assertEqual(stickers[0]["source_name"], "cry.png")
         self.assertIn("泪目", self.store.list_sticker_categories("0"))
 
     def test_sticker_categories_support_bulk_move(self):
@@ -183,6 +193,51 @@ class AgentStoreTests(unittest.TestCase):
         self.assertEqual(result["status"], "selected")
         sticker = service.selected_sticker(context)
         self.assertEqual(sticker["ref"], "cry.png")
+
+    def test_sticker_filename_keywords_ignore_generic_names(self):
+        self.assertEqual(
+            AgentService.sticker_filename_keywords(
+                "晚安_猫猫睡大觉.gif"
+            ),
+            ["晚安 猫猫睡大觉", "晚安", "猫猫睡大觉"],
+        )
+        self.assertEqual(
+            AgentService.sticker_filename_keywords("微信图片_20261026.png"),
+            [],
+        )
+
+    def test_sticker_picker_matches_filename_keyword(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        self.store.add_sticker(
+            "0",
+            "image",
+            "sleep.png",
+            category="未分类",
+            source_name="晚安_猫猫睡大觉.png",
+        )
+        self.store.add_sticker(
+            "0",
+            "image",
+            "laugh.png",
+            category="未分类",
+            source_name="笑哭_猫猫.png",
+        )
+        context = {
+            "platform": "qqbot",
+            "owner_id": "admin-openid",
+            "is_admin": "1",
+            "sticker_enabled": "1",
+        }
+        result = service.prepare_sticker({"emotion": "睡大觉"}, context)
+        self.assertEqual(result["status"], "selected")
+        sticker = service.selected_sticker(context)
+        self.assertEqual(sticker["ref"], "sleep.png")
+        explicit = AgentService.choose_sticker_for_query(
+            self.store.list_stickers("0"),
+            "来个睡大觉的表情",
+        )
+        self.assertEqual(explicit["ref"], "sleep.png")
 
     def test_proactive_target_prefers_qqbot_admin(self):
         self.store.bind_admin("qq", "10001")
@@ -3011,7 +3066,7 @@ class AgentTimelineApiTests(unittest.TestCase):
         raw = b"\x89PNG\r\n\x1a\n" + b"upload-data"
         payload = {
             "owner_id": "0",
-            "file_name": "cry.png",
+            "file_name": "泪目_猫猫.png",
             "category": "泪目",
             "data_base64": base64.b64encode(raw).decode("ascii"),
         }
@@ -3036,9 +3091,11 @@ class AgentTimelineApiTests(unittest.TestCase):
             connection.close()
         self.assertEqual(response.status, 200)
         self.assertEqual(result["sticker"]["category"], "泪目")
+        self.assertEqual(result["sticker"]["source_name"], "泪目_猫猫.png")
         self.assertEqual(result["sticker"]["tags"], "泪目")
         sticker = service.store.list_stickers("0")[0]
         self.assertEqual(sticker["category"], "泪目")
+        self.assertEqual(sticker["source_name"], "泪目_猫猫.png")
         self.assertEqual(sticker["tags"], "泪目")
         self.assertTrue((service.sticker_dir / sticker["ref"]).is_file())
         connection = http.client.HTTPConnection(

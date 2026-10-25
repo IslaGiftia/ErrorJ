@@ -109,6 +109,7 @@ class AgentStore:
                     kind TEXT NOT NULL,
                     ref TEXT NOT NULL,
                     category TEXT NOT NULL DEFAULT '未分类',
+                    source_name TEXT NOT NULL DEFAULT '',
                     tags TEXT NOT NULL DEFAULT '',
                     created_at INTEGER NOT NULL,
                     UNIQUE(owner_id, kind, ref)
@@ -273,6 +274,11 @@ class AgentStore:
                 conn.execute(
                     "ALTER TABLE stickers "
                     "ADD COLUMN category TEXT NOT NULL DEFAULT '未分类'"
+                )
+            if "source_name" not in sticker_columns:
+                conn.execute(
+                    "ALTER TABLE stickers "
+                    "ADD COLUMN source_name TEXT NOT NULL DEFAULT ''"
                 )
             conn.execute(
                 "UPDATE stickers SET category = '未分类' "
@@ -829,6 +835,7 @@ class AgentStore:
         ref: str,
         tags: str = "",
         category: str = "未分类",
+        source_name: str = "",
     ) -> int:
         category = str(category or "未分类").strip()[:40] or "未分类"
         with self._lock, self._connection() as conn:
@@ -840,16 +847,23 @@ class AgentStore:
             )
             conn.execute(
                 """INSERT INTO stickers(
-                       owner_id, kind, ref, category, tags, created_at
-                   ) VALUES (?, ?, ?, ?, ?, ?)
+                       owner_id, kind, ref, category, source_name, tags,
+                       created_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(owner_id, kind, ref) DO UPDATE SET
                        category = excluded.category,
+                       source_name = CASE
+                           WHEN excluded.source_name <> ''
+                           THEN excluded.source_name
+                           ELSE stickers.source_name
+                       END,
                        tags = excluded.tags""",
                 (
                     owner_id,
                     kind,
                     ref,
                     category,
+                    str(source_name or "").strip()[:180],
                     tags[:300],
                     int(time.time()),
                 ),
@@ -863,7 +877,8 @@ class AgentStore:
     def list_stickers(self, owner_id: str, limit: int = 100) -> list[dict]:
         with self._connection() as conn:
             rows = conn.execute(
-                """SELECT id, kind, ref, category, tags, created_at FROM stickers
+                """SELECT id, kind, ref, category, source_name, tags, created_at
+                   FROM stickers
                    WHERE owner_id = ? ORDER BY id DESC LIMIT ?""",
                 (owner_id, max(1, min(int(limit), 200))),
             ).fetchall()
