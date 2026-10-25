@@ -6708,6 +6708,63 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 
 备注：线上验证使用公网返回的同版静态页面和脚本，没有改动线上真实业务数据。
 
+## 153. 2026-10-26 00:16:53 折兮颜表情分类与 QQBot 主动消息迁移
+
+来源：站长一次上传 30 多张表情后发现所有图片混在同一标签里，要求改为先建分类、再在分类下上传，并希望已有图片能批量归类；同时确认主动消息一直没有送达，要求从旧 OneBot 迁移到官方 QQBot。
+
+完成内容（提交 `c441cd3 feat: add sticker categories and qqbot proactive chat`，11 文件，+1122/−168）：
+
+- 表情包新增持久化分类表，`stickers` 增加 `category` 字段；旧数据库启动时自动迁移，旧图统一进入“未分类”。
+- `/agent` 支持新增分类、选择分类后批量上传、按分类分组展示、单张勾选、整组全选和批量移动。
+- 全局表情库当前 31 张旧图、旧 QQ 管理员 2 张和 QQBot 管理员 1 张均已保留，未删除或重复生成。
+- 机器人按情绪选图时同时匹配新分类和旧标签，原有表情包自动发送逻辑保持兼容。
+- 主动消息优先使用官方 QQBot 管理员 openid，通过 C2C 主动消息发送；只有 QQBot 不存在时才回退到 OneBot。
+- 主动消息的候选、优先级、免打扰、每日上限和 90 分钟间隔保持原规则；仍然只发管理员私聊，不会主动在群里发言。
+- 主动消息生成和发送成功后才占用当天名额，连接失败或接口失败不会消耗次数。
+
+部署步骤：
+```text
+本地：Python 编译检查；node --check static/agent.js；
+      247 项单测通过；changelog-seed JSON 校验；git diff --check 干净
+浏览器：桌面验证新增分类、分类上传、分组显示和整组移动；
+        390px 手机压测 30 张旧图，全选 30 张、无横向溢出、可滚到底
+提交：c441cd3 feat: add sticker categories and qqbot proactive chat
+      （fetch → pull --rebase → push；local == origin/main == c441cd3）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 0cb7d70b6a561d3cf1cfd70b787d9cf92962435ad307e300da85ee787642a6c6
+备份：/data/errorjiang-backup/20261026-001911/
+      （inventory.db、auth.json、changelog-seed.json、
+       完整 agent-data：agent.db + stickers；无 WAL / SHM）
+服务器：systemctl stop errorjiang-agent -> systemctl stop errorjiang
+      cp 备份 -> git pull --ff-only -> c441cd3
+      app.init_db + AgentStore 迁移；seed 安装；
+      import_changelog_moments.py --date 2026-10-26 --force
+      -> 新增 1 条、覆盖 0 条、跳过 0 条
+      systemctl start errorjiang -> systemctl start errorjiang-agent
+```
+
+验证结果：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 公网 /api/health = {"ok": true}；
+             Agent 172.17.0.1:8011/health = {"ok": true}
+QQBot     -> 已连接 4015320753
+版本      -> 功能提交 = origin/main = 服务器 HEAD = c441cd3
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+数据库    -> stickers.category 字段与 sticker_categories 表迁移成功；
+             全局 31 张、旧 QQ 管理员 2 张、QQBot 管理员 1 张均归入“未分类”
+更新日志  -> /api/moments 中 2026-10-26 00:16:53
+             「折兮颜表情分类与 QQBot 主动消息迁移」（id 748，kind = log）
+静态文件  -> 规范化 CRLF 后，agent.html / agent.css / agent.js / references.html
+             公网与本地 SHA256 全部一致
+公网页    -> Playwright 使用线上同版页面验证：
+             分类分组正常、上传进入所选分类、已有表情可整组移动；
+             主动聊天说明已显示为通过 QQBot 发管理员私聊
+主动日志  -> 重启后 QQBot 已连接，未再出现 OneBot 主动消息 Connection refused
+```
+
+备注：本次迁移范围是主动聊天。定时提醒循环仍使用旧 OneBot 通道，QQBot 群提醒的 openid 转数字异常仍存在，需要单独迁移提醒发送逻辑。
+
 ## 152. 2026-10-25 23:38:06 修复折兮颜设置面板滚动与表情包上传
 
 来源：站长实测发现 Agent 设置页无法继续下滑到表情包库，且上传按钮没有发出请求。
