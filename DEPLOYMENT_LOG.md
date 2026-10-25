@@ -6708,6 +6708,58 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 
 备注：线上验证使用公网返回的同版静态页面和脚本，没有改动线上真实业务数据。
 
+## 154. 2026-10-26 00:39:55 折兮颜支持按表情包文件名自动选图
+
+来源：站长希望上传表情包后，机器人能根据原始文件名自动理解用途，并在聊天内容匹配时优先发送对应图片。
+
+完成内容（提交 `d901149 feat: match stickers by uploaded filename`，8 文件，+174/−23）：
+
+- `stickers` 新增 `source_name` 字段，新上传图片保存原始文件名；旧数据库自动迁移，旧记录保持空值。
+- 文件名会按空格、下划线、横线、括号、标点等拆分为关键词，并保留完整可读名称。
+- 自动忽略“微信图片、微信截图、表情包、图片、截图、screenshot、sticker、IMG、final、copy、mmexport”等噪声和纯数字编号。
+- 中文支持有意义片段命中，例如文件名“猫猫睡大觉”可以用聊天中的“睡大觉”匹配。
+- 选图评分顺序为分类、用途标签、完整文件名关键词、中文公共片段，最后才回退到全库随机。
+- 模型自然调用表情包工具和用户明确要求“来个睡大觉表情”的 QQBot 兜底路径都使用新评分。
+- 工具栏中的表情图片增加原文件名提示；旧图片需要重新上传原文件才能补回文件名，相同图片只更新记录，不产生重复。
+
+部署步骤：
+```text
+本地：Python 编译检查；node --check static/agent.js；
+      249 项单测通过；changelog-seed JSON 校验；git diff --check 干净
+提交：d901149 feat: match stickers by uploaded filename
+      （fetch → pull --rebase → push；local == origin/main == d901149）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = e1c821a5fcff79b0f7fee04ade7a75ea2301ab6a528c80ede05f093a5b11270a
+备份：/data/errorjiang-backup/20261026-004122/
+      （inventory.db、auth.json、changelog-seed.json、
+       完整 agent-data：agent.db + stickers；无 WAL / SHM）
+服务器：systemctl stop errorjiang-agent -> systemctl stop errorjiang
+      cp 备份 -> git pull --ff-only -> d901149
+      AgentStore 迁移；seed 安装；
+      import_changelog_moments.py --date 2026-10-26 --force
+      -> 新增 2 条、覆盖 0 条、跳过 0 条
+      systemctl start errorjiang -> systemctl start errorjiang-agent
+```
+
+验证结果：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 公网 /api/health = {"ok": true}；
+             Agent 172.17.0.1:8011/health = {"ok": true}
+QQBot     -> 已连接 4015320753
+版本      -> 功能提交 = origin/main = 服务器 HEAD = d901149
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+数据库    -> stickers.source_name 字段迁移成功；
+             当前 34 张旧表情全部保留，source_name 为空，等待新上传或原文件重传补全
+更新日志  -> /api/moments 中 2026-10-26 00:39:55
+             「折兮颜支持按表情包文件名自动选图」（id 750，kind = log）
+静态文件  -> agent.js 公网 / 本地 SHA256 =
+             E57B199B52CF0F0C0907C483A089207FE1B4CD2A342DC4B88744A7558A6FDE96；
+             公网 agent.html 已引用 agent.js?v=11
+```
+
+备注：定时提醒循环仍使用旧 OneBot 通道，QQBot 群提醒的 openid 转数字异常仍存在；本次只发布文件名词匹配，未扩大提醒迁移范围。
+
 ## 153. 2026-10-26 00:16:53 折兮颜表情分类与 QQBot 主动消息迁移
 
 来源：站长一次上传 30 多张表情后发现所有图片混在同一标签里，要求改为先建分类、再在分类下上传，并希望已有图片能批量归类；同时确认主动消息一直没有送达，要求从旧 OneBot 迁移到官方 QQBot。
