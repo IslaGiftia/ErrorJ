@@ -6708,6 +6708,63 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 
 备注：线上验证使用公网返回的同版静态页面和脚本，没有改动线上真实业务数据。
 
+## 151. 2026-10-25 22:54:36 折兮颜加入自定义表情包库与群位置接力
+
+来源：站长反馈折兮颜仍无法稳定保存表情包，并希望群内分享位置后不需要在同一条消息里 @，而是先分享、再 @ 机器人添加。
+
+完成内容（提交 `7405922 feat: add agent sticker tags and group location relay`，10 文件，+846/−52）：
+
+- `/agent` 设置页支持填写“笑哭 / 泪目 / 无语”等用途，并多选上传 PNG、JPEG、GIF、WebP 或 BMP 表情包。
+- 管理员上传的表情包进入全局表情库，机器人按用途标签优先选图；同一张图片重复上传会更新标签。
+- 管理员可直接发图并配文“保存表情 笑哭”或“用途：无语”，QQBot 图片按文件头识别格式，不依赖 MIME。
+- 机器人收到群内未 @ 的位置卡片后，按群聊和成员静默缓存十分钟；随后 @ 折兮颜说“添加刚才的标记点”即可消费缓存并添加足迹。
+- 位置缓存按成员隔离且只消费一次；官方 QQBot 未投递未 @ 群事件时，继续使用私聊位置和足迹页选点链接兜底。
+- Agent 数据库新增 `shared_locations` 表，随 Agent 启动自动创建。
+
+部署步骤：
+```text
+本地：Python 编译检查；node --check static/agent.js；changelog-seed JSON 校验；
+      python -m unittest discover -s tests -> 240 passed；git diff --check 干净
+浏览器：Playwright 检查 1440×1000 与 390×844 设置面板，
+        用途输入和上传控件可见、文件多选与格式限制正确、按钮可触发文件选择、
+        无横向溢出或页面脚本异常
+提交：7405922 feat: add agent sticker tags and group location relay
+      （fetch → pull --rebase → push；local == origin/main == 7405922）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 3a08b62ea529610ca9f2bb833aa968d432108d5db7d1f44c2b73c1512d49c429
+备份：/data/errorjiang-backup/20261025-225629/
+      （inventory.db 7.0M、auth.json、changelog-seed.json、
+       完整 agent-data：agent.db 284K + stickers；无 WAL / SHM）
+服务器：systemctl stop errorjiang-agent -> systemctl stop errorjiang
+      cp 备份 -> git pull --ff-only -> 7405922
+      app.init_db + AgentStore 迁移；seed 安装；
+      import_changelog_moments.py --date 2026-10-25 --force
+      -> 新增 2 条、覆盖 0 条、跳过 0 条
+      systemctl start errorjiang -> systemctl start errorjiang-agent
+```
+
+验证结果：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 公网 /api/health = {"ok": true}；
+             Agent 172.17.0.1:8011/health = {"ok": true}
+QQBot     -> 已连接 4015320753
+版本      -> 功能提交 = origin/main = 服务器 HEAD = 7405922
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+数据库    -> Agent DB 已创建 shared_locations 表
+更新日志  -> /api/moments 中 2026-10-25 22:54:36
+             「折兮颜加入自定义表情包库与群位置接力」（id 744，kind = log）
+接口      -> 未登录 POST /api/agent/web/sticker-upload 返回 401
+静态文件  -> 规范化 CRLF 后，agent.html / agent.css / agent.js / references.html
+             公网与本地 SHA256 全部一致
+公网交互  -> 线上同版 Agent 页面设置面板打开正常，
+             表情包用途与上传控件在桌面和手机视口均可用
+本地回归  -> 240 项单测通过；表情包全局库、用途匹配、文件头识别、
+             群位置成员隔离、十分钟缓存、一次性消费和位置添加意图均通过
+```
+
+备注：服务器日志中仍有上一版已记录的既有问题：官方 QQBot 群聊的到期提醒仍按 OneBot 群号发送，会周期性出现 openid 转整数失败的 traceback。它不属于本次功能改动，服务健康与 QQBot 连接正常，本次未扩大范围修改提醒通道。
+
 ## 150. 2026-10-25 06:52:34 折兮颜接入足迹与笔记，地图商户与手感升级
 
 来源：站长连续测试折兮颜足迹、位置卡片、笔记文件与地图清晰度后，要求补齐机器人自动新增、位置解析、笔记导入导出、周边商户层，并在不强行统一动画的前提下优化 Sheet 拖动、Popover 原点与 Toast 退场。
