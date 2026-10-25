@@ -66,6 +66,8 @@ MAX_WEBHOOK_BYTES = 8 * 1024 * 1024
 PROACTIVE_GREETING_WINDOW_MINUTES = 25
 PROACTIVE_MIN_GAP_SECONDS = 90 * 60
 PROACTIVE_MEMORY_COOLDOWN_SECONDS = 3 * 86400
+REMINDER_MAX_ATTEMPTS = 5
+REMINDER_RETRY_DELAYS = (30, 120, 600, 1800)
 CHAT_SPLIT_RE = re.compile(r"\s*\[\[split\]\]\s*", re.IGNORECASE)
 MEMORY_CONSOLIDATION_LOOKBACK_SECONDS = 2 * 86400
 STICKER_REQUEST_RE = re.compile(
@@ -269,25 +271,94 @@ class AgentService:
             )
         return result
 
+    @staticmethod
+    def reminder_retry_ready(reminder: dict[str, Any], now: int) -> bool:
+        if reminder.get("failed_at"):
+            return False
+        attempts = max(0, int(reminder.get("attempt_count") or 0))
+        if attempts <= 0:
+            return True
+        last_attempt_at = int(reminder.get("last_attempt_at") or 0)
+        if last_attempt_at <= 0:
+            return True
+        delay_index = min(attempts - 1, len(REMINDER_RETRY_DELAYS) - 1)
+        return now - last_attempt_at >= REMINDER_RETRY_DELAYS[delay_index]
+
+    def send_reminder_delivery(self, reminder: dict[str, Any]) -> str:
+        text = self.reminder_delivery_text(reminder)
+        platform = str(reminder.get("platform") or "qq")
+        chat_type = str(reminder.get("chat_type") or "private")
+        owner_id = str(reminder.get("owner_id") or "")
+        chat_id = str(reminder.get("chat_id") or "")
+
+        if platform == "qqbot":
+            if not self.qqbot:
+                raise AgentError("QQBot 尚未连接，无法发送提醒。")
+            if chat_type == "group":
+                try:
+                    self.qqbot.send_active_message("group", chat_id, text)
+                    return "group"
+                except Exception as group_error:
+                    try:
+                        self.qqbot.send_active_message(
+                            "private",
+                            owner_id,
+                            text,
+                        )
+                    except Exception as private_error:
+                        raise AgentError(
+                            "QQBot 群提醒和私聊兜底均发送失败："
+                            f"{private_error}"
+                        ) from group_error
+                    print(
+                        "[Reminder] QQBot 群提醒失败，已私聊送达："
+                        f"{group_error}",
+                        flush=True,
+                    )
+                    return "private_fallback"
+            self.qqbot.send_active_message("private", owner_id, text)
+            return "private"
+
+        if chat_type == "group":
+            message = [
+                {
+                    "type": "at",
+                    "data": {"qq": owner_id},
+                },
+                {"type": "text", "data": {"text": " " + text}},
+            ]
+            self.onebot.send_group(int(chat_id), message)
+            return "group"
+        self.onebot.send_private(int(owner_id), text)
+        return "private"
+
     def _reminder_loop(self) -> None:
         while not self._reminder_stop.wait(10):
-            for reminder in self.store.due_reminders(int(time.time())):
+            now = int(time.time())
+            for reminder in self.store.due_reminders(now, limit=100):
+                if not self.reminder_retry_ready(reminder, now):
+                    continue
                 try:
-                    text = self.reminder_delivery_text(reminder)
-                    if reminder.get("chat_type") == "group":
-                        message = [
-                            {
-                                "type": "at",
-                                "data": {"qq": str(reminder["owner_id"])},
-                            },
-                            {"type": "text", "data": {"text": " " + text}},
-                        ]
-                        self.onebot.send_group(int(reminder["chat_id"]), message)
-                    else:
-                        self.onebot.send_private(int(reminder["owner_id"]), text)
+                    self.send_reminder_delivery(reminder)
                     self.store.mark_reminder_sent(int(reminder["id"]))
-                except Exception:
-                    traceback.print_exc()
+                except Exception as exc:
+                    failure = self.store.record_reminder_failure(
+                        int(reminder["id"]),
+                        str(exc),
+                        REMINDER_MAX_ATTEMPTS,
+                    )
+                    attempts = int(
+                        (failure or {}).get("attempt_count")
+                        or int(reminder.get("attempt_count") or 0) + 1
+                    )
+                    terminal = bool((failure or {}).get("failed_at"))
+                    print(
+                        f"[Reminder] id={reminder['id']} "
+                        f"attempt={attempts}/{REMINDER_MAX_ATTEMPTS} "
+                        f"{'failed permanently' if terminal else 'will retry'}: "
+                        f"{exc}",
+                        flush=True,
+                    )
 
     def _memory_consolidation_loop(self) -> None:
         while not self._memory_consolidation_stop.wait(60):

@@ -141,6 +141,40 @@ class AgentStoreTests(unittest.TestCase):
         self.assertEqual(sticker["source_name"], "")
         self.assertEqual(sticker["tags"], "旧标签")
 
+    def test_legacy_reminder_table_migrates_retry_fields(self):
+        path = Path(self.temp.name) / "legacy-reminders.db"
+        connection = sqlite3.connect(path)
+        connection.execute(
+            """CREATE TABLE reminders (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   platform TEXT NOT NULL,
+                   owner_id TEXT NOT NULL,
+                   chat_id TEXT NOT NULL,
+                   chat_type TEXT NOT NULL,
+                   text TEXT NOT NULL,
+                   due_at INTEGER NOT NULL,
+                   created_at INTEGER NOT NULL,
+                   sent_at INTEGER,
+                   cancelled_at INTEGER
+               )"""
+        )
+        connection.execute(
+            """INSERT INTO reminders(
+                   platform, owner_id, chat_id, chat_type, text,
+                   due_at, created_at
+               ) VALUES ('qqbot', 'owner-openid', 'group-openid', 'group',
+                         '旧提醒', 1, 1)"""
+        )
+        connection.commit()
+        connection.close()
+
+        migrated = AgentStore(path)
+        reminder = migrated.due_reminders(2)[0]
+        self.assertEqual(reminder["attempt_count"], 0)
+        self.assertIsNone(reminder["last_attempt_at"])
+        self.assertIsNone(reminder["failed_at"])
+        self.assertEqual(reminder["last_error"], "")
+
     def test_custom_sticker_upload_uses_selected_category(self):
         service = object.__new__(AgentService)
         service.store = self.store
@@ -1062,6 +1096,114 @@ class AgentStoreTests(unittest.TestCase):
         self.assertEqual(
             AgentService.reminder_delivery_text(reminders[0]),
             "提醒星星睡觉",
+        )
+
+    def test_qqbot_group_reminder_uses_active_group_message(self):
+        class FakeQQBot:
+            def __init__(self):
+                self.sent = []
+
+            def send_active_message(self, chat_type, chat_id, text):
+                self.sent.append((chat_type, chat_id, text))
+
+        service = object.__new__(AgentService)
+        service.qqbot = FakeQQBot()
+        service.onebot = SimpleNamespace()
+        channel = service.send_reminder_delivery(
+            {
+                "platform": "qqbot",
+                "owner_id": "member-openid",
+                "chat_id": "group-openid",
+                "chat_type": "group",
+                "text": "该喝水了",
+            }
+        )
+        self.assertEqual(channel, "group")
+        self.assertEqual(
+            service.qqbot.sent,
+            [("group", "group-openid", "该喝水了")],
+        )
+
+    def test_qqbot_group_reminder_falls_back_to_private(self):
+        class FakeQQBot:
+            def __init__(self):
+                self.sent = []
+
+            def send_active_message(self, chat_type, chat_id, text):
+                if chat_type == "group":
+                    raise AgentError("group denied")
+                self.sent.append((chat_type, chat_id, text))
+
+        service = object.__new__(AgentService)
+        service.qqbot = FakeQQBot()
+        service.onebot = SimpleNamespace()
+        channel = service.send_reminder_delivery(
+            {
+                "platform": "qqbot",
+                "owner_id": "member-openid",
+                "chat_id": "group-openid",
+                "chat_type": "group",
+                "text": "该喝水了",
+            }
+        )
+        self.assertEqual(channel, "private_fallback")
+        self.assertEqual(
+            service.qqbot.sent,
+            [("private", "member-openid", "该喝水了")],
+        )
+
+    def test_reminder_failure_backoff_and_terminal_state(self):
+        now = int(time.time())
+        self.assertFalse(
+            AgentService.reminder_retry_ready(
+                {
+                    "attempt_count": 1,
+                    "last_attempt_at": now - 10,
+                    "failed_at": None,
+                },
+                now,
+            )
+        )
+        self.assertTrue(
+            AgentService.reminder_retry_ready(
+                {
+                    "attempt_count": 1,
+                    "last_attempt_at": now - 31,
+                    "failed_at": None,
+                },
+                now,
+            )
+        )
+        reminder_id = self.store.add_reminder(
+            "qqbot",
+            "member-openid",
+            "group-openid",
+            "group",
+            "测试提醒",
+            now - 1,
+        )
+        first = self.store.record_reminder_failure(
+            reminder_id,
+            "first failure",
+            max_attempts=2,
+        )
+        self.assertEqual(first["attempt_count"], 1)
+        self.assertIsNone(first["failed_at"])
+        self.assertEqual(
+            [item["id"] for item in self.store.due_reminders(now)],
+            [reminder_id],
+        )
+        second = self.store.record_reminder_failure(
+            reminder_id,
+            "second failure",
+            max_attempts=2,
+        )
+        self.assertEqual(second["attempt_count"], 2)
+        self.assertIsNotNone(second["failed_at"])
+        self.assertEqual(self.store.due_reminders(now), [])
+        self.assertEqual(
+            self.store.list_reminders("qqbot", "member-openid"),
+            [],
         )
 
     def test_humanize_collapses_chat_blank_lines(self):

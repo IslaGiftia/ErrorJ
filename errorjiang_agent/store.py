@@ -200,7 +200,11 @@ class AgentStore:
                     due_at INTEGER NOT NULL,
                     created_at INTEGER NOT NULL,
                     sent_at INTEGER,
-                    cancelled_at INTEGER
+                    cancelled_at INTEGER,
+                    attempt_count INTEGER NOT NULL DEFAULT 0,
+                    last_attempt_at INTEGER,
+                    last_error TEXT NOT NULL DEFAULT '',
+                    failed_at INTEGER
                 );
 
                 CREATE TABLE IF NOT EXISTS relationship_state (
@@ -280,6 +284,20 @@ class AgentStore:
                     "ALTER TABLE stickers "
                     "ADD COLUMN source_name TEXT NOT NULL DEFAULT ''"
                 )
+            reminder_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(reminders)").fetchall()
+            }
+            for name, definition in (
+                ("attempt_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("last_attempt_at", "INTEGER"),
+                ("last_error", "TEXT NOT NULL DEFAULT ''"),
+                ("failed_at", "INTEGER"),
+            ):
+                if name not in reminder_columns:
+                    conn.execute(
+                        f"ALTER TABLE reminders ADD COLUMN {name} {definition}"
+                    )
             conn.execute(
                 "UPDATE stickers SET category = '未分类' "
                 "WHERE TRIM(category) = ''"
@@ -1127,7 +1145,8 @@ class AgentStore:
         with self._connection() as conn:
             rows = conn.execute(
                 """SELECT * FROM reminders
-                   WHERE sent_at IS NULL AND cancelled_at IS NULL AND due_at <= ?
+                   WHERE sent_at IS NULL AND cancelled_at IS NULL
+                     AND failed_at IS NULL AND due_at <= ?
                    ORDER BY due_at, id LIMIT ?""",
                 (int(now), max(1, min(int(limit), 100))),
             ).fetchall()
@@ -1140,12 +1159,51 @@ class AgentStore:
                 (int(time.time()), int(reminder_id)),
             )
 
+    def record_reminder_failure(
+        self,
+        reminder_id: int,
+        error: str,
+        max_attempts: int = 5,
+    ) -> dict | None:
+        now = int(time.time())
+        with self._lock, self._connection() as conn:
+            row = conn.execute(
+                """SELECT attempt_count FROM reminders
+                   WHERE id = ? AND sent_at IS NULL AND cancelled_at IS NULL""",
+                (int(reminder_id),),
+            ).fetchone()
+            if not row:
+                return None
+            attempts = int(row["attempt_count"] or 0) + 1
+            failed_at = (
+                now if attempts >= max(1, int(max_attempts)) else None
+            )
+            conn.execute(
+                """UPDATE reminders
+                   SET attempt_count = ?, last_attempt_at = ?,
+                       last_error = ?, failed_at = ?
+                   WHERE id = ?""",
+                (
+                    attempts,
+                    now,
+                    str(error or "")[:1000],
+                    failed_at,
+                    int(reminder_id),
+                ),
+            )
+        return {
+            "attempt_count": attempts,
+            "last_attempt_at": now,
+            "failed_at": failed_at,
+        }
+
     def list_reminders(self, platform: str, owner_id: str) -> list[dict]:
         with self._connection() as conn:
             rows = conn.execute(
                 """SELECT id, text, due_at, chat_type FROM reminders
                    WHERE platform = ? AND owner_id = ?
                      AND sent_at IS NULL AND cancelled_at IS NULL
+                     AND failed_at IS NULL
                    ORDER BY due_at, id LIMIT 50""",
                 (platform, owner_id),
             ).fetchall()
