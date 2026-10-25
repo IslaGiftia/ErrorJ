@@ -6708,6 +6708,53 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 
 备注：线上验证使用公网返回的同版静态页面和脚本，没有改动线上真实业务数据。
 
+## 152. 2026-10-25 23:38:06 修复折兮颜设置面板滚动与表情包上传
+
+来源：站长实测发现 Agent 设置页无法继续下滑到表情包库，且上传按钮没有发出请求。
+
+完成内容（提交 `e840f2d fix: repair agent settings scroll and sticker upload`，3 文件，+85/−22）：
+
+- 设置弹窗改为纵向 Flex 布局，内容区独立滚动，支持桌面滚轮、手机触摸、惯性滚动和 `dvh` / `vh` 回退。
+- 表情包内容区增加边界控制、可见滚动条和滚动留白，底部保存栏不再遮挡最后一段内容。
+- 上传入口改为原生 `label + file input`，避免脚本触发隐藏文件框在部分手机 WebView 中被拦截。
+- 用途留空时自动使用“未分类”，不再在前端直接中止；非 JSON 错误响应会显示明确 HTTP 状态。
+- 缓存参数升级到 `agent.css?v=9` 与 `agent.js?v=9`。
+
+部署步骤：
+```text
+本地：node --check static/agent.js；changelog-seed JSON 校验；
+      240 项单测通过；git diff --check 干净
+提交：e840f2d fix: repair agent settings scroll and sticker upload
+      （fetch → pull --rebase → push；local == origin/main == e840f2d）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 776d0c67eb61bcbd2b4f31333e5efa3738694ebc6fd9717fe786ba67c6bf08a7
+备份：/data/errorjiang-backup/20261025-233927/
+      （inventory.db、auth.json、changelog-seed.json；无 WAL / SHM）
+服务器：systemctl stop errorjiang -> cp 备份 -> git pull --ff-only -> e840f2d
+      seed 安装；import_changelog_moments.py --date 2026-10-25 --force
+      -> 新增 3 条、覆盖 0 条、跳过 0 条
+      systemctl start errorjiang
+      未修改 Agent 代码或数据库结构，errorjiang-agent 未重启
+```
+
+验证结果：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 公网 /api/health = {"ok": true}
+版本      -> 功能提交 = origin/main = 服务器 HEAD = e840f2d
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+更新日志  -> /api/moments 中 2026-10-25 23:38:06
+             「修复折兮颜设置面板滚动与表情包上传」（id 747，kind = log）
+静态文件  -> 规范化 CRLF 后，agent.html / agent.css / agent.js
+             公网与本地 SHA256 全部一致
+公网页    -> Playwright 在 390×844 触摸视口实测：
+             滑动后 scrollTop = 495，可到内容底部，表情包区域完整可见，
+             页面背景 scrollY = 0；
+             原生文件选择器可打开，未填用途时请求 usage = "未分类"，
+             图片 base64 正常，文件输入保持 multiple
+本地回归  -> 240 项单测通过；代码与补丁检查干净
+```
+
 ## 151. 2026-10-25 22:54:36 折兮颜加入自定义表情包库与群位置接力
 
 来源：站长反馈折兮颜仍无法稳定保存表情包，并希望群内分享位置后不需要在同一条消息里 @，而是先分享、再 @ 机器人添加。
