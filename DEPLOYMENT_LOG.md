@@ -6708,6 +6708,62 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 
 备注：线上验证使用公网返回的同版静态页面和脚本，没有改动线上真实业务数据。
 
+## 156. 2026-10-26 01:49:46 折兮颜定时提醒迁移 QQBot 并加入失败退避
+
+来源：站长指出定时提醒仍走旧 OneBot，QQBot 群提醒持续出现 openid 转整数异常，要求修复后发布。
+
+完成内容（提交 `d2eefba fix: migrate reminders to qqbot delivery`，6 文件，+295/−18）：
+
+- 提醒发送按 `platform` 分流：QQBot 私聊和群使用 openid 主动消息；旧 QQ/OneBot 私聊和群保持原逻辑。
+- QQBot 路径不再调用 `int(chat_id)` 或 `int(owner_id)`，根治群 openid 转整数异常。
+- QQBot 群主动消息失败时自动改发创建提醒的管理员私聊，尽可能保证提醒送达。
+- `reminders` 表新增 `attempt_count`、`last_attempt_at`、`last_error`、`failed_at`，旧表启动时自动迁移。
+- 发送失败按 30 秒、2 分钟、10 分钟、30 分钟退避重试，最多 5 次；最终失败后停止参与发送。
+- 失败日志改为一行摘要，不再每十秒输出完整 traceback。
+- 成功后才写入 `sent_at`，失败或私聊兜底失败都不会误标为已发送。
+
+部署步骤：
+```text
+本地：Python 编译检查；254 项单测通过；
+      changelog-seed JSON 校验；git diff --check 干净
+提交：d2eefba fix: migrate reminders to qqbot delivery
+      （fetch → pull --rebase → push；local == origin/main == d2eefba）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 0fcacf19778e4dd18141a7643f3e2f6e40eac813b6973e359312f43acc4e4ee9
+备份：/data/errorjiang-backup/20261026-015143/
+      （inventory.db、auth.json、changelog-seed.json、
+       完整 agent-data：agent.db + stickers；无 WAL / SHM）
+服务器：systemctl stop errorjiang-agent -> systemctl stop errorjiang
+      cp 备份 -> git pull --ff-only -> d2eefba
+      AgentStore 迁移；seed 安装；
+      import_changelog_moments.py --date 2026-10-26 --force
+      -> 新增 4 条、覆盖 0 条、跳过 0 条
+      systemctl start errorjiang -> systemctl start errorjiang-agent
+```
+
+验证结果：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 公网 /api/health = {"ok": true}；
+             Agent 172.17.0.1:8011/health = {"ok": true}
+QQBot     -> 已连接 4015320753
+版本      -> 功能提交 = origin/main = 服务器 HEAD = d2eefba
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+数据库    -> reminders 重试字段迁移成功；历史提醒记录保留
+更新日志  -> /api/moments 中 2026-10-26 01:49:46
+             「折兮颜定时提醒迁移 QQBot 并加入失败退避」（id 757，kind = log）
+实发验证  -> 历史 QQBot 群提醒触发：
+             群主动消息返回 HTTP 400“主动消息失败, 无权限”；
+             系统自动转管理员私聊并成功送达，提醒记录写入 sent_at；
+             重启后日志中不再出现 invalid literal for int() 的 openid traceback
+静态文件  -> references.html 公网 / 本地 SHA256 =
+             F4C9633214DB7FE6DF51D680271D2F8CDCB2BEC2E7E9FB7DF3FB37452DF6A42C
+本地回归  -> 254 项单测通过；迁移、私聊/群分流、群失败私聊兜底、
+             退避时间、最多 5 次失败和旧 OneBot 兼容均通过
+```
+
+备注：官方 QQBot 当前没有主动群消息权限，因此实际会稳定走管理员私聊兜底；若后续开通群主动消息权限，同一代码会自动优先发送到原群。
+
 ## 155. 2026-10-26 01:25:06 折兮颜配置中心重构为纯设置控制台
 
 来源：站长反馈 `/agent` 的聊天区和巨型设置弹窗完全用不到，实际只需要配置机器人；要求参考 GitHub 优秀管理后台重构，并保持 Error酱视觉与交互一致。完成初版后要求使用 Open Code Review 检查并自行修复问题，再执行完整发布。
