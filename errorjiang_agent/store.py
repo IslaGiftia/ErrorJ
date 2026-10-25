@@ -113,6 +113,16 @@ class AgentStore:
                     UNIQUE(owner_id, kind, ref)
                 );
 
+                CREATE TABLE IF NOT EXISTS shared_locations (
+                    platform TEXT NOT NULL,
+                    group_id TEXT NOT NULL,
+                    member_id TEXT NOT NULL,
+                    data_json TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    PRIMARY KEY (platform, group_id, member_id)
+                );
+
                 CREATE TABLE IF NOT EXISTS proactive_log (
                     day TEXT NOT NULL,
                     slot TEXT NOT NULL,
@@ -800,8 +810,10 @@ class AgentStore:
     ) -> int:
         with self._lock, self._connection() as conn:
             conn.execute(
-                """INSERT OR IGNORE INTO stickers(owner_id, kind, ref, tags, created_at)
-                   VALUES (?, ?, ?, ?, ?)""",
+                """INSERT INTO stickers(owner_id, kind, ref, tags, created_at)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(owner_id, kind, ref) DO UPDATE SET
+                       tags = excluded.tags""",
                 (owner_id, kind, ref, tags[:300], int(time.time())),
             )
             row = conn.execute(
@@ -818,6 +830,84 @@ class AgentStore:
                 (owner_id, max(1, min(int(limit), 200))),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def save_shared_location(
+        self,
+        platform: str,
+        group_id: str,
+        member_id: str,
+        location: dict,
+        ttl_seconds: int = 600,
+    ) -> None:
+        now = int(time.time())
+        with self._lock, self._connection() as conn:
+            conn.execute("DELETE FROM shared_locations WHERE expires_at < ?", (now,))
+            conn.execute(
+                """INSERT INTO shared_locations
+                       (platform, group_id, member_id, data_json, created_at, expires_at)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(platform, group_id, member_id) DO UPDATE SET
+                       data_json = excluded.data_json,
+                       created_at = excluded.created_at,
+                       expires_at = excluded.expires_at""",
+                (
+                    platform,
+                    group_id,
+                    member_id,
+                    json.dumps(location, ensure_ascii=False),
+                    now,
+                    now + max(60, min(int(ttl_seconds), 3600)),
+                ),
+            )
+
+    def get_shared_location(
+        self,
+        platform: str,
+        group_id: str,
+        member_id: str,
+    ) -> dict | None:
+        now = int(time.time())
+        with self._connection() as conn:
+            row = conn.execute(
+                """SELECT data_json FROM shared_locations
+                   WHERE platform = ? AND group_id = ? AND member_id = ?
+                     AND expires_at >= ?""",
+                (platform, group_id, member_id, now),
+            ).fetchone()
+        if not row:
+            return None
+        try:
+            data = json.loads(row["data_json"])
+        except json.JSONDecodeError:
+            return None
+        return data if isinstance(data, dict) else None
+
+    def consume_shared_location(
+        self,
+        platform: str,
+        group_id: str,
+        member_id: str,
+    ) -> dict | None:
+        now = int(time.time())
+        with self._lock, self._connection() as conn:
+            row = conn.execute(
+                """SELECT data_json FROM shared_locations
+                   WHERE platform = ? AND group_id = ? AND member_id = ?
+                     AND expires_at >= ?""",
+                (platform, group_id, member_id, now),
+            ).fetchone()
+            if not row:
+                return None
+            conn.execute(
+                """DELETE FROM shared_locations
+                   WHERE platform = ? AND group_id = ? AND member_id = ?""",
+                (platform, group_id, member_id),
+            )
+        try:
+            data = json.loads(row["data_json"])
+        except json.JSONDecodeError:
+            return None
+        return data if isinstance(data, dict) else None
 
     def delete_sticker(self, owner_id: str, sticker_id: int) -> dict | None:
         with self._lock, self._connection() as conn:

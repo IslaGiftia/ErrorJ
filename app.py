@@ -10337,6 +10337,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_agent_web_timeline_status(payload)
             elif path == "/api/agent/web/timeline-delete":
                 self.api_agent_web_timeline_delete(payload)
+            elif path == "/api/agent/web/sticker-upload":
+                self.api_agent_web_sticker_upload(payload)
             elif path == "/api/agent/web/sticker-delete":
                 self.api_agent_web_sticker_delete(payload)
             elif path == "/api/login":
@@ -18426,6 +18428,42 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "/internal/sticker/delete",
                 {"owner_id": "0", "id": sticker_id},
                 timeout=10,
+            )
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_sticker_upload(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以管理表情包。")
+            return
+        file_name = os.path.basename(
+            str((payload or {}).get("file_name") or "sticker.png")
+        )[:180]
+        usage = str((payload or {}).get("usage") or "").strip()[:300]
+        data_base64 = str((payload or {}).get("data_base64") or "")
+        if not usage:
+            api_error(self, 400, "请填写表情包用途。")
+            return
+        try:
+            raw = base64.b64decode(data_base64, validate=True)
+        except Exception:
+            api_error(self, 400, "表情包图片数据无效。")
+            return
+        if not raw or len(raw) > 5 * 1024 * 1024:
+            api_error(self, 400, "表情包图片不能超过 5MB。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/sticker/upload",
+                {
+                    "owner_id": "0",
+                    "file_name": file_name,
+                    "usage": usage,
+                    "data_base64": data_base64,
+                },
+                timeout=20,
             )
         except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
             api_error(self, 502, str(exc)[:200])

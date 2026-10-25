@@ -16,6 +16,9 @@
   var timelineList = document.getElementById("agentTimelineList");
   var timelineForm = document.getElementById("agentTimelineForm");
   var stickerGrid = document.getElementById("agentStickerGrid");
+  var stickerUsage = document.getElementById("agentStickerUsage");
+  var stickerInput = document.getElementById("agentStickerInput");
+  var stickerUploadBtn = document.getElementById("agentStickerUploadBtn");
   var avatarSrc = "/static/site/error-chan-avatar.png?v=1";
 
   function refreshIcons() {
@@ -539,6 +542,13 @@
             face.textContent = "表情 " + sticker.ref;
             item.appendChild(face);
           }
+          if (sticker.tags) {
+            var tags = document.createElement("span");
+            tags.className = "agent-sticker-tags";
+            tags.textContent = sticker.tags;
+            tags.title = sticker.tags;
+            item.appendChild(tags);
+          }
           var remove = document.createElement("button");
           remove.type = "button";
           remove.title = "删除表情";
@@ -559,6 +569,72 @@
           stickerGrid.innerHTML = '<div class="agent-sticker-item"><span>暂无</span></div>';
         }
         refreshIcons();
+      });
+  }
+
+  function fileBase64(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        var value = String(reader.result || "");
+        resolve(value.slice(value.indexOf(",") + 1));
+      };
+      reader.onerror = function () {
+        reject(new Error("读取图片失败"));
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function uploadStickerFiles(files) {
+    var usage = stickerUsage.value.trim();
+    var list = Array.prototype.slice.call(files || []);
+    if (!list.length) return;
+    if (!usage) {
+      settingsStatus.textContent = "请先填写表情包用途";
+      stickerUsage.focus();
+      return;
+    }
+    stickerUploadBtn.disabled = true;
+    settingsStatus.textContent = "正在上传表情包…";
+    list
+      .reduce(function (chain, file) {
+        return chain.then(function () {
+          if (file.size > 5 * 1024 * 1024) {
+            throw new Error(file.name + " 超过 5MB");
+          }
+          return fileBase64(file).then(function (data) {
+            return fetch("/api/agent/web/sticker-upload", {
+              method: "POST",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                file_name: file.name,
+                usage: usage,
+                data_base64: data,
+              }),
+            }).then(function (response) {
+              return response.json().then(function (body) {
+                if (!response.ok) {
+                  throw new Error(body.error || "上传失败");
+                }
+                return body;
+              });
+            });
+          });
+        });
+      }, Promise.resolve())
+      .then(function () {
+        settingsStatus.textContent = "表情包已上传";
+        stickerUsage.value = "";
+        return loadStickers();
+      })
+      .catch(function (error) {
+        settingsStatus.textContent = error.message;
+      })
+      .then(function () {
+        stickerUploadBtn.disabled = false;
+        stickerInput.value = "";
       });
   }
 
@@ -612,6 +688,12 @@
     settingsDialog.close();
   });
   document.getElementById("agentSettingsSave").addEventListener("click", saveSettings);
+  stickerUploadBtn.addEventListener("click", function () {
+    stickerInput.click();
+  });
+  stickerInput.addEventListener("change", function () {
+    uploadStickerFiles(this.files);
+  });
   document.getElementById("agentMemorySearch").addEventListener("input", function () {
     loadMemories(this.value);
   });

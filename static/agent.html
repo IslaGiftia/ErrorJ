@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=4">
   <link rel="stylesheet" href="/static/site/site.css">
   <link rel="stylesheet" href="/static/fonts.css">
-  <link rel="stylesheet" href="/static/agent.css?v=7">
+  <link rel="stylesheet" href="/static/agent.css?v=8">
   <script>
     (function () {
       try {
@@ -243,6 +243,31 @@
           <h3>表情包库</h3>
           <span id="agentStickerCount">0 个</span>
         </div>
+        <div class="agent-sticker-tools">
+          <label class="agent-sticker-usage">
+            <span>用途</span>
+            <input id="agentStickerUsage" type="text" maxlength="80"
+                   list="agentStickerUsageOptions" placeholder="例如：笑哭、泪目、无语">
+          </label>
+          <datalist id="agentStickerUsageOptions">
+            <option value="笑哭"></option>
+            <option value="泪目"></option>
+            <option value="无语"></option>
+            <option value="开心"></option>
+            <option value="晚安"></option>
+            <option value="害羞"></option>
+            <option value="生气"></option>
+            <option value="惊讶"></option>
+            <option value="安慰"></option>
+            <option value="庆祝"></option>
+          </datalist>
+          <button type="button" id="agentStickerUploadBtn">
+            <i data-lucide="image-plus"></i>
+            <span>上传表情包</span>
+          </button>
+          <input id="agentStickerInput" type="file" multiple hidden
+                 accept="image/png,image/jpeg,image/gif,image/webp,image/bmp">
+        </div>
         <div class="agent-sticker-grid" id="agentStickerGrid"></div>
       </section>
     </div>
@@ -253,6 +278,6 @@
   </dialog>
 
   <script src="/static/vendor/lucide.min.js"></script>
-  <script src="/static/agent.js?v=7"></script>
+  <script src="/static/agent.js?v=8"></script>
 </body>
 </html>

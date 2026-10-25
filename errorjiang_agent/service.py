@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import datetime
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -41,6 +42,13 @@ NOTE_ATTACHMENT_MIME_EXTENSIONS = {
     "text/markdown": ".md",
     "text/x-markdown": ".md",
 }
+STICKER_SAVE_RE = re.compile(
+    r"^\s*(?:保存|添加|存)(?:一个|一张)?(?:表情包?|图片)?"
+    r"(?:\s*[：:]\s*|\s+)?(?P<usage>.+?)\s*$"
+)
+STICKER_USAGE_PREFIX_RE = re.compile(
+    r"^\s*(?:用途|表情|标签)\s*[：:]\s*"
+)
 
 CONFIRM_RE = re.compile(r"^(?:确认|/confirm)\s+(\d{6})$", re.IGNORECASE)
 BIND_RE = re.compile(r"^(?:绑定|/bind)\s+(\S+)$", re.IGNORECASE)
@@ -171,7 +179,11 @@ class AgentService:
     ) -> dict[str, Any]:
         if not tool_context or tool_context.get("sticker_enabled") != "1":
             return {"status": "disabled"}
-        owner_id = tool_context.get("owner_id") or ""
+        owner_id = (
+            "0"
+            if tool_context.get("is_admin") == "1"
+            else tool_context.get("owner_id") or ""
+        )
         settings = self.store.get_settings(tool_context.get("platform") or "qq", owner_id)
         if not settings.get("sticker_enabled", True):
             return {"status": "disabled"}
@@ -491,9 +503,12 @@ class AgentService:
             sticker_id = int(tool_context["selected_sticker"])
         except (TypeError, ValueError):
             return None
-        for sticker in self.store.list_stickers(
-            tool_context.get("owner_id") or "", 200
-        ):
+        owner_id = (
+            "0"
+            if tool_context.get("is_admin") == "1"
+            else tool_context.get("owner_id") or ""
+        )
+        for sticker in self.store.list_stickers(owner_id, 200):
             if int(sticker["id"]) == sticker_id:
                 return sticker
         return None
@@ -559,6 +574,7 @@ class AgentService:
         self,
         event: MessageEvent,
         payload: dict[str, Any],
+        owner_id: str | None = None,
     ) -> int:
         if event.message_type != "private":
             return 0
@@ -567,6 +583,8 @@ class AgentService:
         ):
             return 0
         saved = 0
+        owner_id = owner_id or str(event.user_id)
+        usage = self.sticker_usage_from_text(event.text)
         message = payload.get("message")
         if not isinstance(message, list):
             return 0
@@ -579,7 +597,10 @@ class AgentService:
                 face_id = str(data.get("id") or "").strip()
                 if face_id.isdigit():
                     self.store.add_sticker(
-                        str(event.user_id), "face", face_id, "qq表情"
+                        owner_id,
+                        "face",
+                        face_id,
+                        ", ".join(filter(None, ("qq表情", usage))),
                     )
                     saved += 1
                 continue
@@ -599,25 +620,15 @@ class AgentService:
                 continue
             if not raw or len(raw) > 5 * 1024 * 1024:
                 continue
-            mime = str(data.get("summary") or "")
-            extension = mimetypes.guess_extension(mime or "") or ".gif"
-            if raw[:6] in (b"GIF87a", b"GIF89a"):
-                extension = ".gif"
-            elif raw[:8] == b"\x89PNG\r\n\x1a\n":
-                extension = ".png"
-            elif raw[:3] == b"\xff\xd8\xff":
-                extension = ".jpg"
-            else:
-                continue
-            digest = hashlib.sha256(raw).hexdigest()[:24]
-            filename = digest + extension
-            (self.sticker_dir / filename).write_bytes(raw)
-            tags = "星星发送"
-            summary = str(data.get("summary") or "").strip()
-            if summary:
-                tags += " " + summary[:100]
-            self.store.add_sticker(str(event.user_id), "image", filename, tags)
-            saved += 1
+            stored = self.save_sticker_image(
+                owner_id,
+                raw,
+                str(data.get("summary") or ""),
+                usage,
+                "星星发送",
+            )
+            if stored:
+                saved += 1
         return saved
 
     @staticmethod
@@ -634,13 +645,106 @@ class AgentService:
             return ".bmp"
         return None
 
-    def save_qqbot_attachments(self, event: MessageEvent) -> int:
+    @staticmethod
+    def normalize_sticker_usage(value: str) -> str:
+        text = STICKER_USAGE_PREFIX_RE.sub("", str(value or "")).strip()
+        text = re.sub(
+            r"^(?:保存|添加|存)(?:一个|一张)?表情包?\s*",
+            "",
+            text,
+        ).strip()
+        tokens = []
+        for item in re.split(r"[,，、/|;；]+", text):
+            token = item.strip()[:20]
+            if token and token not in tokens:
+                tokens.append(token)
+            if len(tokens) >= 8:
+                break
+        return ", ".join(tokens)[:300]
+
+    @classmethod
+    def sticker_usage_from_text(cls, text: str) -> str:
+        value = str(text or "").strip()
+        match = STICKER_SAVE_RE.fullmatch(value)
+        if match:
+            return cls.normalize_sticker_usage(match.group("usage"))
+        if STICKER_USAGE_PREFIX_RE.match(value):
+            return cls.normalize_sticker_usage(value)
+        return ""
+
+    def save_sticker_image(
+        self,
+        owner_id: str,
+        raw: bytes,
+        source_name: str,
+        usage: str,
+        default_tags: str = "",
+    ) -> dict[str, Any] | None:
+        if not raw or len(raw) > 5 * 1024 * 1024:
+            return None
+        extension = self.sticker_extension_from_bytes(raw)
+        if not extension:
+            return None
+        digest = hashlib.sha256(raw).hexdigest()[:24]
+        filename = digest + extension
+        (self.sticker_dir / filename).write_bytes(raw)
+        tags = []
+        for item in (default_tags, self.normalize_sticker_usage(usage)):
+            if item and item not in tags:
+                tags.append(item)
+        sticker_id = self.store.add_sticker(
+            owner_id,
+            "image",
+            filename,
+            ", ".join(tags),
+        )
+        return {
+            "id": sticker_id,
+            "kind": "image",
+            "ref": filename,
+            "tags": ", ".join(tags),
+            "source_name": str(source_name or "")[:180],
+        }
+
+    def save_sticker_upload(
+        self,
+        owner_id: str,
+        raw: bytes,
+        source_name: str,
+        usage: str,
+    ) -> dict[str, Any]:
+        normalized = self.normalize_sticker_usage(usage)
+        if not normalized:
+            raise AgentError("请填写表情包用途，例如：笑哭、泪目、无语。")
+        stored = self.save_sticker_image(
+            owner_id,
+            raw,
+            source_name,
+            normalized,
+        )
+        if not stored:
+            raise AgentError(
+                "只支持 PNG、JPEG、GIF、WebP 或 BMP 图片，且不能超过 5MB。"
+            )
+        return stored
+
+    def save_qqbot_attachments(
+        self,
+        event: MessageEvent,
+        owner_id: str | None = None,
+    ) -> int:
         saved = 0
+        owner_id = owner_id or str(event.user_id)
+        usage = self.sticker_usage_from_text(event.text)
         for attachment in event.attachments[:8]:
             content_type = str(
                 attachment.get("content_type") or ""
             ).lower()
-            if not content_type.startswith("image/"):
+            if content_type in (
+                "application/pdf",
+                "application/msword",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ) or content_type.startswith("text/"):
                 continue
             source = str(attachment.get("url") or "").strip()
             if not source.startswith(("http://", "https://")):
@@ -656,23 +760,15 @@ class AgentService:
                 continue
             if not raw or len(raw) > 5 * 1024 * 1024:
                 continue
-            extension = self.sticker_extension_from_bytes(raw)
-            if not extension:
-                continue
-            digest = hashlib.sha256(raw).hexdigest()[:24]
-            filename = digest + extension
-            (self.sticker_dir / filename).write_bytes(raw)
-            tags = "QQ图片"
-            summary = str(attachment.get("filename") or "").strip()
-            if summary:
-                tags += " " + summary[:100]
-            self.store.add_sticker(
-                str(event.user_id),
-                "image",
-                filename,
-                tags,
+            stored = self.save_sticker_image(
+                owner_id,
+                raw,
+                str(attachment.get("filename") or ""),
+                usage,
+                "QQ图片",
             )
-            saved += 1
+            if stored:
+                saved += 1
         return saved
 
     @staticmethod
@@ -1543,6 +1639,17 @@ class AgentService:
         future = self.executor.submit(self._handle_message_event, event, None, 0)
         future.add_done_callback(self._event_done)
 
+    @staticmethod
+    def group_location_add_requested(text: str) -> bool:
+        value = str(text or "").strip().lower()
+        if not value:
+            return False
+        return (
+            any(word in value for word in ("添加", "加进", "保存", "存进"))
+            and any(word in value for word in ("刚才", "刚刚", "上一个", "这个"))
+            and any(word in value for word in ("位置", "地点", "标记", "足迹"))
+        )
+
     def _handle_message_event(
         self,
         event: MessageEvent,
@@ -1565,6 +1672,14 @@ class AgentService:
                 and self.config.qqbot_group_ids
                 and str(event.chat_id) not in self.config.qqbot_group_ids
             ):
+                return
+            if event.location and not event.to_me:
+                self.store.save_shared_location(
+                    platform,
+                    str(event.chat_id),
+                    str(event.user_id),
+                    event.location,
+                )
                 return
         if event.message_type == "group" and not event.to_me:
             return
@@ -1772,10 +1887,46 @@ class AgentService:
         if not self.rate_limiter.allow(str(event.user_id)):
             self.send_reply(event, "请求太频繁，请稍后再试。")
             return
+        if (
+            event.message_type == "group"
+            and not event.location
+            and self.group_location_add_requested(event.text)
+        ):
+            cached_location = self.store.consume_shared_location(
+                platform,
+                str(event.chat_id),
+                str(event.user_id),
+            )
+            if not cached_location:
+                self.send_reply(
+                    event,
+                    "没有找到刚才分享的位置。请先在群里发一次位置卡片，"
+                    "十分钟内再 @我说“添加刚才的标记点”。",
+                )
+                return
+            event = replace(event, location=cached_location)
+        sticker_owner_id = "0" if is_admin else str(event.user_id)
         if platform == "qq" and payload:
-            saved_stickers = self.save_message_stickers(event, payload)
+            saved_stickers = self.save_message_stickers(
+                event,
+                payload,
+                sticker_owner_id,
+            )
         elif platform == "qqbot" and event.attachments:
-            saved_stickers = self.save_qqbot_attachments(event)
+            saved_stickers = self.save_qqbot_attachments(
+                event,
+                sticker_owner_id,
+            )
+        if saved_stickers and (
+            STICKER_SAVE_RE.fullmatch(event.text.strip())
+            or STICKER_USAGE_PREFIX_RE.match(event.text.strip())
+        ):
+            usage = self.sticker_usage_from_text(event.text)
+            self.send_reply(
+                event,
+                f"表情包已保存，用途：{usage or '未标注'}",
+            )
+            return
         chat_lock = self._chat_locks[f"{platform}:{event.owner_id}"]
         with chat_lock:
             if self.import_note_attachments(event, target_user_id):
@@ -2051,7 +2202,10 @@ class AgentService:
         ):
             candidates = [
                 item
-                for item in self.store.list_stickers(str(event.user_id), 200)
+                for item in self.store.list_stickers(
+                    "0" if context.get("is_admin") == "1" else str(event.user_id),
+                    200,
+                )
                 if item.get("kind") == "image"
             ]
             if candidates:
@@ -2411,6 +2565,7 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
             "/internal/web-chat",
             "/internal/settings",
             "/internal/memory/delete",
+            "/internal/sticker/upload",
             "/internal/sticker/delete",
             "/internal/timeline/create",
             "/internal/timeline/status",
@@ -2451,6 +2606,30 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
                     platform, owner_id, memory_id
                 )
                 self.send_json(200, {"ok": deleted})
+                return
+            if parsed.path == "/internal/sticker/upload":
+                owner_id = str(payload.get("owner_id") or "0")
+                usage = str(payload.get("usage") or "").strip()[:300]
+                file_name = Path(
+                    str(payload.get("file_name") or "sticker.png")
+                ).name[:180]
+                data_base64 = str(payload.get("data_base64") or "")
+                try:
+                    raw = base64.b64decode(data_base64, validate=True)
+                except Exception:
+                    self.send_json(400, {"error": "invalid image data"})
+                    return
+                try:
+                    sticker = self.service.save_sticker_upload(
+                        owner_id,
+                        raw,
+                        file_name,
+                        usage,
+                    )
+                except AgentError as exc:
+                    self.send_json(400, {"error": str(exc)})
+                    return
+                self.send_json(200, {"ok": True, "sticker": sticker})
                 return
             if parsed.path == "/internal/timeline/create":
                 platform = str(payload.get("platform") or "web")

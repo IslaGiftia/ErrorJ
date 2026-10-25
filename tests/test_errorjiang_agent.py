@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,6 +16,7 @@ from unittest.mock import patch
 import app
 from errorjiang_agent.brain import AgentBrain
 from errorjiang_agent.config import Config
+from errorjiang_agent.errors import AgentError
 from errorjiang_agent.onebot import MessageEvent, event_key, parse_message_event
 from errorjiang_agent.onebot_ws import _masked_frame, _read_frame
 from errorjiang_agent.qqbot import QQBotClient, parse_qqbot_event
@@ -96,6 +98,176 @@ class AgentStoreTests(unittest.TestCase):
         )
         self.assertEqual(self.store.list_stickers("10001")[0]["id"], sticker_id)
         self.assertIsNotNone(self.store.delete_sticker("10001", sticker_id))
+
+    def test_sticker_usage_updates_for_duplicate_file(self):
+        first = self.store.add_sticker("0", "image", "same.png", "QQ图片")
+        second = self.store.add_sticker("0", "image", "same.png", "笑哭, 开心")
+        self.assertEqual(first, second)
+        sticker = self.store.list_stickers("0")[0]
+        self.assertEqual(sticker["tags"], "笑哭, 开心")
+
+    def test_custom_sticker_upload_requires_usage_and_stores_global_pack(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.sticker_dir = Path(self.temp.name) / "stickers"
+        service.sticker_dir.mkdir()
+        raw = b"\x89PNG\r\n\x1a\n" + b"sticker-data"
+        with self.assertRaises(AgentError):
+            service.save_sticker_upload("0", raw, "cry.png", "")
+        stored = service.save_sticker_upload("0", raw, "cry.png", "泪目, 无语")
+        self.assertEqual(stored["tags"], "泪目, 无语")
+        self.assertTrue((service.sticker_dir / stored["ref"]).is_file())
+        stickers = self.store.list_stickers("0")
+        self.assertEqual(stickers[0]["tags"], "泪目, 无语")
+
+    def test_admin_sticker_picker_uses_global_pack(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        self.store.add_sticker("0", "image", "cry.png", "泪目")
+        context = {
+            "platform": "qqbot",
+            "owner_id": "admin-openid",
+            "is_admin": "1",
+            "sticker_enabled": "1",
+        }
+        result = service.prepare_sticker({"emotion": "泪目"}, context)
+        self.assertEqual(result["status"], "selected")
+        sticker = service.selected_sticker(context)
+        self.assertEqual(sticker["ref"], "cry.png")
+
+    def test_group_location_cache_is_member_scoped_and_one_time(self):
+        location = {
+            "lat": 34.3416,
+            "lng": 108.9398,
+            "title": "春发芽葫芦头",
+            "address": "测试路",
+            "coord": "gcj02",
+        }
+        self.store.save_shared_location(
+            "qqbot",
+            "group-openid",
+            "member-openid",
+            location,
+        )
+        self.assertIsNone(
+            self.store.consume_shared_location(
+                "qqbot",
+                "group-openid",
+                "other-member",
+            )
+        )
+        self.assertEqual(
+            self.store.consume_shared_location(
+                "qqbot",
+                "group-openid",
+                "member-openid",
+            )["title"],
+            "春发芽葫芦头",
+        )
+        self.assertIsNone(
+            self.store.consume_shared_location(
+                "qqbot",
+                "group-openid",
+                "member-openid",
+            )
+        )
+
+    def test_group_location_add_request_detection(self):
+        self.assertTrue(
+            AgentService.group_location_add_requested("添加刚才的标记点")
+        )
+        self.assertTrue(
+            AgentService.group_location_add_requested("把刚刚的位置存进足迹")
+        )
+        self.assertFalse(
+            AgentService.group_location_add_requested("刚才那个地方好玩吗")
+        )
+
+    def test_unmentioned_group_location_is_cached_silently(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.config = SimpleNamespace(
+            group_enabled=True,
+            group_ids=frozenset(),
+            qqbot_group_ids=frozenset(),
+        )
+        event = MessageEvent(
+            self_id="bot",
+            user_id="member-openid",
+            message_type="group",
+            chat_id="group-openid",
+            message_id="location-share",
+            text="",
+            to_me=False,
+            platform="qqbot",
+            location={
+                "lat": 34.3416,
+                "lng": 108.9398,
+                "title": "春发芽葫芦头",
+                "address": "测试路",
+                "coord": "gcj02",
+            },
+        )
+        service._handle_message_event(event)
+        cached = self.store.consume_shared_location(
+            "qqbot",
+            "group-openid",
+            "member-openid",
+        )
+        self.assertEqual(cached["title"], "春发芽葫芦头")
+
+    def test_group_at_message_can_consume_cached_location(self):
+        self.store.bind_admin("qqbot", "admin-openid")
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.config = SimpleNamespace(
+            admin_qqs=frozenset(),
+            group_enabled=True,
+            group_ids=frozenset(),
+            qqbot_group_ids=frozenset(),
+        )
+        service.rate_limiter = SimpleNamespace(allow=lambda _key: True)
+        service._chat_locks = defaultdict(threading.Lock)
+        captured = {}
+
+        def capture(event, *args, **kwargs):
+            captured["event"] = event
+
+        service._process_event = capture
+        self.store.save_shared_location(
+            "qqbot",
+            "group-openid",
+            "admin-openid",
+            {
+                "lat": 34.3416,
+                "lng": 108.9398,
+                "title": "春发芽葫芦头",
+                "address": "测试路",
+                "coord": "gcj02",
+            },
+        )
+        event = MessageEvent(
+            self_id="bot",
+            user_id="admin-openid",
+            message_type="group",
+            chat_id="group-openid",
+            message_id="at-add-location",
+            text="添加刚才的标记点",
+            to_me=True,
+            platform="qqbot",
+        )
+        service._handle_message_event(event)
+        self.assertEqual(
+            captured["event"].location["title"],
+            "春发芽葫芦头",
+        )
+        self.assertIsNone(
+            self.store.get_shared_location(
+                "qqbot",
+                "group-openid",
+                "admin-openid",
+            )
+        )
 
     def test_memory_context_uses_relevance_and_confidence(self):
         self.store.add_memory(
@@ -1029,6 +1201,49 @@ class AgentStoreTests(unittest.TestCase):
         self.assertEqual(stickers[0]["kind"], "image")
         self.assertTrue(
             (service.sticker_dir / stickers[0]["ref"]).is_file()
+        )
+
+    def test_qqbot_image_without_mime_uses_magic_and_usage(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self, limit):
+                return b"\x89PNG\r\n\x1a\n" + b"sticker-data"
+
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.sticker_dir = Path(self.temp.name) / "stickers"
+        service.sticker_dir.mkdir()
+        event = MessageEvent(
+            self_id="bot",
+            user_id="admin-openid",
+            message_type="private",
+            chat_id="admin-openid",
+            message_id="message-id",
+            text="保存表情 笑哭",
+            to_me=True,
+            platform="qqbot",
+            attachments=(
+                {
+                    "filename": "laugh.png",
+                    "url": "https://example.com/laugh.png",
+                },
+            ),
+        )
+        with patch(
+            "errorjiang_agent.service.urlopen",
+            return_value=FakeResponse(),
+        ):
+            saved = service.save_qqbot_attachments(event, "0")
+        self.assertEqual(saved, 1)
+        sticker = self.store.list_stickers("0")[0]
+        self.assertIn("笑哭", sticker["tags"])
+        self.assertTrue(
+            (service.sticker_dir / sticker["ref"]).is_file()
         )
 
     def test_qqbot_config_is_loaded_when_enabled(self):
@@ -2158,6 +2373,32 @@ class AgentInternalAuthTests(unittest.TestCase):
         self.assertIsNone(app.required_permission("/agent", "GET"))
         self.assertIsNone(app.required_permission("/api/agent/web/chat", "POST"))
 
+    def test_agent_sticker_upload_forwards_usage_to_global_pack(self):
+        handler = self.make_handler({})
+        handler.is_admin = lambda: True
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        raw = b"\x89PNG\r\n\x1a\nsticker"
+        with patch.object(
+            app,
+            "agent_internal_request",
+            return_value={"ok": True, "sticker": {"id": 1}},
+        ) as request:
+            handler.api_agent_web_sticker_upload(
+                {
+                    "file_name": "cry.png",
+                    "usage": "泪目",
+                    "data_base64": base64.b64encode(raw).decode("ascii"),
+                }
+            )
+        self.assertEqual(captured["status"], 200)
+        args = request.call_args.args
+        self.assertEqual(args[0], "/internal/sticker/upload")
+        self.assertEqual(args[1]["owner_id"], "0")
+        self.assertEqual(args[1]["usage"], "泪目")
+
     def test_binding_command_accepts_username(self):
         from errorjiang_agent.service import (
             BIND_USER_RE,
@@ -2582,6 +2823,51 @@ class AgentTimelineApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertTrue(completed["ok"])
+
+    def test_internal_sticker_upload_writes_tagged_global_sticker(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        service = object.__new__(AgentService)
+        service.config = SimpleNamespace(errorjiang_token="internal-token")
+        service.store = AgentStore(Path(temp.name) / "agent.db")
+        service.sticker_dir = Path(temp.name) / "stickers"
+        service.sticker_dir.mkdir()
+        server = AgentHttpServer(("127.0.0.1", 0), service)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        raw = b"\x89PNG\r\n\x1a\n" + b"upload-data"
+        payload = {
+            "owner_id": "0",
+            "file_name": "cry.png",
+            "usage": "泪目",
+            "data_base64": base64.b64encode(raw).decode("ascii"),
+        }
+        connection = http.client.HTTPConnection(
+            "127.0.0.1",
+            server.server_address[1],
+            timeout=5,
+        )
+        try:
+            connection.request(
+                "POST",
+                "/internal/sticker/upload",
+                body=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                headers={
+                    "X-ErrorJ-Agent-Token": "internal-token",
+                    "Content-Type": "application/json",
+                },
+            )
+            response = connection.getresponse()
+            result = json.loads(response.read().decode("utf-8"))
+        finally:
+            connection.close()
+        self.assertEqual(response.status, 200)
+        self.assertEqual(result["sticker"]["tags"], "泪目")
+        sticker = service.store.list_stickers("0")[0]
+        self.assertEqual(sticker["tags"], "泪目")
+        self.assertTrue((service.sticker_dir / sticker["ref"]).is_file())
 
 
 class AgentNotificationTests(unittest.TestCase):
