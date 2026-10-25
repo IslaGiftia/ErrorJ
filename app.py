@@ -10339,6 +10339,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_agent_web_timeline_delete(payload)
             elif path == "/api/agent/web/sticker-upload":
                 self.api_agent_web_sticker_upload(payload)
+            elif path == "/api/agent/web/sticker-category-create":
+                self.api_agent_web_sticker_category_create(payload)
+            elif path == "/api/agent/web/sticker-move":
+                self.api_agent_web_sticker_move(payload)
             elif path == "/api/agent/web/sticker-delete":
                 self.api_agent_web_sticker_delete(payload)
             elif path == "/api/login":
@@ -18434,6 +18438,63 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         self.send_json(200, data)
 
+    def api_agent_web_sticker_category_create(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以管理表情包分类。")
+            return
+        name = str((payload or {}).get("name") or "").strip()[:40]
+        if not name:
+            api_error(self, 400, "请填写分类名称。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/sticker/category-create",
+                {"owner_id": "0", "name": name},
+                timeout=10,
+            )
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_sticker_move(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以管理表情包分类。")
+            return
+        raw_ids = (payload or {}).get("ids")
+        if not isinstance(raw_ids, list):
+            api_error(self, 400, "请选择要移动的表情包。")
+            return
+        sticker_ids = []
+        for raw_id in raw_ids[:200]:
+            try:
+                sticker_id = int(raw_id)
+            except (TypeError, ValueError):
+                continue
+            if sticker_id not in sticker_ids:
+                sticker_ids.append(sticker_id)
+        if not sticker_ids:
+            api_error(self, 400, "请选择要移动的表情包。")
+            return
+        category = str((payload or {}).get("category") or "").strip()[:40]
+        if not category:
+            api_error(self, 400, "请选择目标分类。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/sticker/move",
+                {
+                    "owner_id": "0",
+                    "ids": sticker_ids,
+                    "category": category,
+                },
+                timeout=15,
+            )
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
     def api_agent_web_sticker_upload(self, payload):
         if not self.is_admin():
             api_error(self, 403, "只有管理员可以管理表情包。")
@@ -18441,11 +18502,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
         file_name = os.path.basename(
             str((payload or {}).get("file_name") or "sticker.png")
         )[:180]
-        usage = str((payload or {}).get("usage") or "").strip()[:300]
+        category = str(
+            (payload or {}).get("category")
+            or (payload or {}).get("usage")
+            or ""
+        ).strip()[:40]
         data_base64 = str((payload or {}).get("data_base64") or "")
-        if not usage:
-            api_error(self, 400, "请填写表情包用途。")
-            return
         try:
             raw = base64.b64decode(data_base64, validate=True)
         except Exception:
@@ -18460,7 +18522,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 {
                     "owner_id": "0",
                     "file_name": file_name,
-                    "usage": usage,
+                    "category": category,
                     "data_base64": data_base64,
                 },
                 timeout=20,

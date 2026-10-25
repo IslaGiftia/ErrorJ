@@ -3,6 +3,7 @@ import json
 import http.client
 import os
 import socket
+import sqlite3
 import tempfile
 import threading
 import time
@@ -106,24 +107,72 @@ class AgentStoreTests(unittest.TestCase):
         sticker = self.store.list_stickers("0")[0]
         self.assertEqual(sticker["tags"], "笑哭, 开心")
 
-    def test_custom_sticker_upload_requires_usage_and_stores_global_pack(self):
+    def test_existing_sticker_table_migrates_to_category(self):
+        path = Path(self.temp.name) / "legacy.db"
+        connection = sqlite3.connect(path)
+        connection.execute(
+            """CREATE TABLE stickers (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   owner_id TEXT NOT NULL,
+                   kind TEXT NOT NULL,
+                   ref TEXT NOT NULL,
+                   tags TEXT NOT NULL DEFAULT '',
+                   created_at INTEGER NOT NULL,
+                   UNIQUE(owner_id, kind, ref)
+               )"""
+        )
+        connection.execute(
+            """INSERT INTO stickers(owner_id, kind, ref, tags, created_at)
+               VALUES ('0', 'image', 'legacy.png', '旧标签', 1)"""
+        )
+        connection.commit()
+        connection.close()
+
+        migrated = AgentStore(path)
+        sticker = migrated.list_stickers("0")[0]
+        self.assertEqual(sticker["category"], "未分类")
+        self.assertEqual(sticker["tags"], "旧标签")
+
+    def test_custom_sticker_upload_uses_selected_category(self):
         service = object.__new__(AgentService)
         service.store = self.store
         service.sticker_dir = Path(self.temp.name) / "stickers"
         service.sticker_dir.mkdir()
         raw = b"\x89PNG\r\n\x1a\n" + b"sticker-data"
-        with self.assertRaises(AgentError):
-            service.save_sticker_upload("0", raw, "cry.png", "")
-        stored = service.save_sticker_upload("0", raw, "cry.png", "泪目, 无语")
-        self.assertEqual(stored["tags"], "泪目, 无语")
+        stored = service.save_sticker_upload("0", raw, "cry.png", "泪目")
+        self.assertEqual(stored["category"], "泪目")
+        self.assertEqual(stored["tags"], "泪目")
         self.assertTrue((service.sticker_dir / stored["ref"]).is_file())
         stickers = self.store.list_stickers("0")
-        self.assertEqual(stickers[0]["tags"], "泪目, 无语")
+        self.assertEqual(stickers[0]["category"], "泪目")
+        self.assertIn("泪目", self.store.list_sticker_categories("0"))
+
+    def test_sticker_categories_support_bulk_move(self):
+        first = self.store.add_sticker(
+            "0", "image", "laugh.png", category="笑哭"
+        )
+        second = self.store.add_sticker(
+            "0", "image", "cry.png", category="泪目"
+        )
+        categories = self.store.list_sticker_categories("0")
+        self.assertEqual(categories[0], "未分类")
+        self.assertEqual(set(categories), {"未分类", "笑哭", "泪目"})
+        moved = self.store.move_stickers("0", [first], "常用")
+        self.assertEqual(moved, 1)
+        stickers = {
+            sticker["id"]: sticker
+            for sticker in self.store.list_stickers("0")
+        }
+        self.assertEqual(stickers[first]["category"], "常用")
+        self.assertEqual(stickers[second]["category"], "泪目")
+        self.assertIn("常用", self.store.list_sticker_categories("0"))
 
     def test_admin_sticker_picker_uses_global_pack(self):
         service = object.__new__(AgentService)
         service.store = self.store
-        self.store.add_sticker("0", "image", "cry.png", "泪目")
+        self.store.add_sticker(
+            "0", "image", "cry.png", category="泪目"
+        )
         context = {
             "platform": "qqbot",
             "owner_id": "admin-openid",
@@ -134,6 +183,72 @@ class AgentStoreTests(unittest.TestCase):
         self.assertEqual(result["status"], "selected")
         sticker = service.selected_sticker(context)
         self.assertEqual(sticker["ref"], "cry.png")
+
+    def test_proactive_target_prefers_qqbot_admin(self):
+        self.store.bind_admin("qq", "10001")
+        self.store.bind_admin("qqbot", "admin-openid")
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.qqbot = SimpleNamespace()
+        platform, owners = service.proactive_target()
+        self.assertEqual(platform, "qqbot")
+        self.assertEqual(owners, ["admin-openid"])
+
+    def test_proactive_failure_does_not_claim_daily_slot(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.proactive_message = lambda *args, **kwargs: "晚上好"
+
+        class FailingQQBot:
+            def send_active_message(self, message_type, chat_id, text):
+                raise AgentError("send failed")
+
+        service.qqbot = FailingQQBot()
+        candidate = {"reason": "晚上问候", "slot": "night"}
+        with self.assertRaises(AgentError):
+            service.deliver_proactive_candidate(
+                "2026-10-26",
+                "qqbot",
+                "admin-openid",
+                {},
+                candidate,
+                [],
+            )
+        self.assertEqual(
+            self.store.proactive_count("2026-10-26", "admin-openid"),
+            0,
+        )
+
+    def test_proactive_success_records_slot_and_message(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.proactive_message = lambda *args, **kwargs: "晚上好"
+
+        class FakeQQBot:
+            def __init__(self):
+                self.sent = []
+
+            def send_active_message(self, message_type, chat_id, text):
+                self.sent.append((message_type, chat_id, text))
+
+        service.qqbot = FakeQQBot()
+        delivered = service.deliver_proactive_candidate(
+            "2026-10-26",
+            "qqbot",
+            "admin-openid",
+            {},
+            {"reason": "晚上问候", "slot": "night"},
+            [],
+        )
+        self.assertTrue(delivered)
+        self.assertEqual(
+            service.qqbot.sent,
+            [("private", "admin-openid", "晚上好")],
+        )
+        self.assertEqual(
+            self.store.proactive_count("2026-10-26", "admin-openid"),
+            1,
+        )
 
     def test_group_location_cache_is_member_scoped_and_one_time(self):
         location = {
@@ -991,6 +1106,24 @@ class AgentStoreTests(unittest.TestCase):
                 ("group", "group-openid", "message-id", "早点睡"),
             ],
         )
+
+    def test_qqbot_active_message_has_no_reply_reference(self):
+        client = QQBotClient("app", "secret", "bot", lambda event: None)
+        client._auth_headers = lambda: {"Authorization": "test"}
+        calls = []
+        client._http_json = lambda url, payload=None, headers=None: calls.append(
+            (url, payload, headers)
+        )
+        client.send_active_message(
+            "private",
+            "admin-openid",
+            "晚上好",
+        )
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(
+            calls[0][0].endswith("/v2/users/admin-openid/messages")
+        )
+        self.assertEqual(calls[0][1], {"content": "晚上好", "msg_type": 0})
 
     def test_qqbot_image_upload_uses_file_info_and_media_message(self):
         client = QQBotClient("app", "secret", "bot", lambda event: None)
@@ -2373,7 +2506,7 @@ class AgentInternalAuthTests(unittest.TestCase):
         self.assertIsNone(app.required_permission("/agent", "GET"))
         self.assertIsNone(app.required_permission("/api/agent/web/chat", "POST"))
 
-    def test_agent_sticker_upload_forwards_usage_to_global_pack(self):
+    def test_agent_sticker_upload_forwards_category_to_global_pack(self):
         handler = self.make_handler({})
         handler.is_admin = lambda: True
         captured = {}
@@ -2389,7 +2522,7 @@ class AgentInternalAuthTests(unittest.TestCase):
             handler.api_agent_web_sticker_upload(
                 {
                     "file_name": "cry.png",
-                    "usage": "泪目",
+                    "category": "泪目",
                     "data_base64": base64.b64encode(raw).decode("ascii"),
                 }
             )
@@ -2397,7 +2530,45 @@ class AgentInternalAuthTests(unittest.TestCase):
         args = request.call_args.args
         self.assertEqual(args[0], "/internal/sticker/upload")
         self.assertEqual(args[1]["owner_id"], "0")
-        self.assertEqual(args[1]["usage"], "泪目")
+        self.assertEqual(args[1]["category"], "泪目")
+
+    def test_agent_sticker_category_create_and_move_forward(self):
+        handler = self.make_handler({})
+        handler.is_admin = lambda: True
+        responses = []
+        handler.send_json = lambda status, payload: responses.append(
+            (status, payload)
+        )
+        with patch.object(
+            app,
+            "agent_internal_request",
+            side_effect=[
+                {
+                    "ok": True,
+                    "category": "常用",
+                    "categories": ["未分类", "常用"],
+                },
+                {
+                    "ok": True,
+                    "moved": 2,
+                    "category": "常用",
+                    "categories": ["未分类", "常用"],
+                },
+            ],
+        ) as request:
+            handler.api_agent_web_sticker_category_create({"name": "常用"})
+            handler.api_agent_web_sticker_move(
+                {"ids": [1, "2", 2], "category": "常用"}
+            )
+        self.assertEqual(responses[0][0], 200)
+        self.assertEqual(responses[1][0], 200)
+        create_args = request.call_args_list[0].args
+        move_args = request.call_args_list[1].args
+        self.assertEqual(create_args[0], "/internal/sticker/category-create")
+        self.assertEqual(create_args[1]["name"], "常用")
+        self.assertEqual(move_args[0], "/internal/sticker/move")
+        self.assertEqual(move_args[1]["ids"], [1, 2])
+        self.assertEqual(move_args[1]["category"], "常用")
 
     def test_binding_command_accepts_username(self):
         from errorjiang_agent.service import (
@@ -2841,7 +3012,7 @@ class AgentTimelineApiTests(unittest.TestCase):
         payload = {
             "owner_id": "0",
             "file_name": "cry.png",
-            "usage": "泪目",
+            "category": "泪目",
             "data_base64": base64.b64encode(raw).decode("ascii"),
         }
         connection = http.client.HTTPConnection(
@@ -2864,10 +3035,32 @@ class AgentTimelineApiTests(unittest.TestCase):
         finally:
             connection.close()
         self.assertEqual(response.status, 200)
+        self.assertEqual(result["sticker"]["category"], "泪目")
         self.assertEqual(result["sticker"]["tags"], "泪目")
         sticker = service.store.list_stickers("0")[0]
+        self.assertEqual(sticker["category"], "泪目")
         self.assertEqual(sticker["tags"], "泪目")
         self.assertTrue((service.sticker_dir / sticker["ref"]).is_file())
+        connection = http.client.HTTPConnection(
+            "127.0.0.1",
+            server.server_address[1],
+            timeout=5,
+        )
+        try:
+            connection.request(
+                "GET",
+                "/internal/stickers?owner_id=0",
+                headers={"X-ErrorJ-Agent-Token": "internal-token"},
+            )
+            listing_response = connection.getresponse()
+            listing = json.loads(
+                listing_response.read().decode("utf-8")
+            )
+        finally:
+            connection.close()
+        self.assertEqual(listing_response.status, 200)
+        self.assertIn("泪目", listing["categories"])
+        self.assertEqual(listing["stickers"][0]["category"], "泪目")
 
 
 class AgentNotificationTests(unittest.TestCase):

@@ -108,9 +108,17 @@ class AgentStore:
                     owner_id TEXT NOT NULL,
                     kind TEXT NOT NULL,
                     ref TEXT NOT NULL,
+                    category TEXT NOT NULL DEFAULT '未分类',
                     tags TEXT NOT NULL DEFAULT '',
                     created_at INTEGER NOT NULL,
                     UNIQUE(owner_id, kind, ref)
+                );
+
+                CREATE TABLE IF NOT EXISTS sticker_categories (
+                    owner_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    PRIMARY KEY (owner_id, name)
                 );
 
                 CREATE TABLE IF NOT EXISTS shared_locations (
@@ -257,6 +265,19 @@ class AgentStore:
                     conn.execute(
                         f"ALTER TABLE group_members ADD COLUMN {name} {definition}"
                     )
+            sticker_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(stickers)").fetchall()
+            }
+            if "category" not in sticker_columns:
+                conn.execute(
+                    "ALTER TABLE stickers "
+                    "ADD COLUMN category TEXT NOT NULL DEFAULT '未分类'"
+                )
+            conn.execute(
+                "UPDATE stickers SET category = '未分类' "
+                "WHERE TRIM(category) = ''"
+            )
 
     def seen_event(self, event_key: str) -> bool:
         now = int(time.time())
@@ -807,14 +828,31 @@ class AgentStore:
         kind: str,
         ref: str,
         tags: str = "",
+        category: str = "未分类",
     ) -> int:
+        category = str(category or "未分类").strip()[:40] or "未分类"
         with self._lock, self._connection() as conn:
             conn.execute(
-                """INSERT INTO stickers(owner_id, kind, ref, tags, created_at)
-                   VALUES (?, ?, ?, ?, ?)
+                """INSERT OR IGNORE INTO sticker_categories(
+                       owner_id, name, created_at
+                   ) VALUES (?, ?, ?)""",
+                (owner_id, category, int(time.time())),
+            )
+            conn.execute(
+                """INSERT INTO stickers(
+                       owner_id, kind, ref, category, tags, created_at
+                   ) VALUES (?, ?, ?, ?, ?, ?)
                    ON CONFLICT(owner_id, kind, ref) DO UPDATE SET
+                       category = excluded.category,
                        tags = excluded.tags""",
-                (owner_id, kind, ref, tags[:300], int(time.time())),
+                (
+                    owner_id,
+                    kind,
+                    ref,
+                    category,
+                    tags[:300],
+                    int(time.time()),
+                ),
             )
             row = conn.execute(
                 "SELECT id FROM stickers WHERE owner_id = ? AND kind = ? AND ref = ?",
@@ -825,11 +863,68 @@ class AgentStore:
     def list_stickers(self, owner_id: str, limit: int = 100) -> list[dict]:
         with self._connection() as conn:
             rows = conn.execute(
-                """SELECT id, kind, ref, tags, created_at FROM stickers
+                """SELECT id, kind, ref, category, tags, created_at FROM stickers
                    WHERE owner_id = ? ORDER BY id DESC LIMIT ?""",
                 (owner_id, max(1, min(int(limit), 200))),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def list_sticker_categories(self, owner_id: str) -> list[str]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT name FROM sticker_categories
+                   WHERE owner_id = ? ORDER BY created_at, name""",
+                (owner_id,),
+            ).fetchall()
+        categories = ["未分类"]
+        for row in rows:
+            name = str(row["name"] or "").strip()
+            if name and name not in categories:
+                categories.append(name)
+        return categories
+
+    def ensure_sticker_category(self, owner_id: str, name: str) -> str:
+        category = str(name or "未分类").strip()[:40] or "未分类"
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """INSERT OR IGNORE INTO sticker_categories(
+                       owner_id, name, created_at
+                   ) VALUES (?, ?, ?)""",
+                (owner_id, category, int(time.time())),
+            )
+        return category
+
+    def move_stickers(
+        self,
+        owner_id: str,
+        sticker_ids: list[int],
+        category: str,
+    ) -> int:
+        category = str(category or "未分类").strip()[:40] or "未分类"
+        unique_ids = []
+        for sticker_id in sticker_ids[:200]:
+            try:
+                value = int(sticker_id)
+            except (TypeError, ValueError):
+                continue
+            if value not in unique_ids:
+                unique_ids.append(value)
+        if not unique_ids:
+            return 0
+        placeholders = ",".join("?" for _ in unique_ids)
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """INSERT OR IGNORE INTO sticker_categories(
+                       owner_id, name, created_at
+                   ) VALUES (?, ?, ?)""",
+                (owner_id, category, int(time.time())),
+            )
+            cursor = conn.execute(
+                f"""UPDATE stickers SET category = ?
+                    WHERE owner_id = ? AND id IN ({placeholders})""",
+                (category, owner_id, *unique_ids),
+            )
+        return int(cursor.rowcount or 0)
 
     def save_shared_location(
         self,

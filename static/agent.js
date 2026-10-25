@@ -16,9 +16,21 @@
   var timelineList = document.getElementById("agentTimelineList");
   var timelineForm = document.getElementById("agentTimelineForm");
   var stickerGrid = document.getElementById("agentStickerGrid");
-  var stickerUsage = document.getElementById("agentStickerUsage");
   var stickerInput = document.getElementById("agentStickerInput");
   var stickerUploadBtn = document.getElementById("agentStickerUploadBtn");
+  var stickerCategorySelect = document.getElementById("agentStickerCategory");
+  var stickerCategoryForm = document.getElementById("agentStickerCategoryForm");
+  var stickerCategoryName = document.getElementById("agentStickerCategoryName");
+  var stickerCategoryAdd = document.getElementById("agentStickerCategoryAdd");
+  var stickerCategoryCancel = document.getElementById("agentStickerCategoryCancel");
+  var stickerUploadTarget = document.getElementById("agentStickerUploadTarget");
+  var stickerBulk = document.getElementById("agentStickerBulk");
+  var stickerSelectedCount = document.getElementById("agentStickerSelectedCount");
+  var stickerBulkCategory = document.getElementById("agentStickerBulkCategory");
+  var stickerBulkMove = document.getElementById("agentStickerBulkMove");
+  var stickerCategories = ["未分类"];
+  var selectedStickerIds = {};
+  var currentStickers = [];
   var avatarSrc = "/static/site/error-chan-avatar.png?v=1";
 
   function refreshIcons() {
@@ -519,6 +531,175 @@
       });
   }
 
+  function cleanStickerCategories(categories) {
+    var result = ["未分类"];
+    (categories || []).forEach(function (category) {
+      category = String(category || "").trim();
+      if (category && result.indexOf(category) === -1) result.push(category);
+    });
+    return result;
+  }
+
+  function setStickerCategoryOptions(select, categories, preferred) {
+    var current = preferred == null ? select.value : preferred;
+    select.innerHTML = "";
+    categories.forEach(function (category) {
+      var option = document.createElement("option");
+      option.value = category;
+      option.textContent = category;
+      select.appendChild(option);
+    });
+    select.value =
+      categories.indexOf(current) === -1 ? categories[0] : current;
+  }
+
+  function refreshStickerCategoryControls(preferred) {
+    stickerCategories = cleanStickerCategories(stickerCategories);
+    var bulkCurrent = stickerBulkCategory.value;
+    setStickerCategoryOptions(
+      stickerCategorySelect,
+      stickerCategories,
+      preferred
+    );
+    setStickerCategoryOptions(
+      stickerBulkCategory,
+      stickerCategories,
+      bulkCurrent
+    );
+    stickerUploadTarget.textContent =
+      "上传到“" + stickerCategorySelect.value + "”";
+  }
+
+  function updateStickerSelectionUI() {
+    var count = Object.keys(selectedStickerIds).length;
+    stickerBulk.hidden = count === 0;
+    stickerSelectedCount.textContent = "已选 " + count + " 张";
+    document.querySelectorAll("[data-sticker-check]").forEach(function (input) {
+      input.checked = Boolean(selectedStickerIds[input.value]);
+    });
+    document.querySelectorAll(".agent-sticker-category-group").forEach(
+      function (group) {
+        var checks = group.querySelectorAll("[data-sticker-check]");
+        var allSelected = checks.length > 0;
+        checks.forEach(function (input) {
+          if (!input.checked) allSelected = false;
+        });
+        var button = group.querySelector(".agent-sticker-select-group");
+        if (button) {
+          button.textContent = allSelected ? "取消本组" : "全选本组";
+        }
+      }
+    );
+  }
+
+  function toggleStickerGroup(category) {
+    var stickers = currentStickers.filter(function (sticker) {
+      return (sticker.category || "未分类") === category;
+    });
+    var allSelected =
+      stickers.length > 0 &&
+      stickers.every(function (sticker) {
+        return Boolean(selectedStickerIds[String(sticker.id)]);
+      });
+    stickers.forEach(function (sticker) {
+      if (allSelected) delete selectedStickerIds[String(sticker.id)];
+      else selectedStickerIds[String(sticker.id)] = true;
+    });
+    updateStickerSelectionUI();
+  }
+
+  function createStickerCard(sticker) {
+    var item = document.createElement("div");
+    item.className = "agent-sticker-item";
+    var check = document.createElement("label");
+    check.className = "agent-sticker-check";
+    check.title = "选择这张表情";
+    var checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.value = String(sticker.id);
+    checkbox.setAttribute("data-sticker-check", "");
+    checkbox.checked = Boolean(selectedStickerIds[String(sticker.id)]);
+    checkbox.addEventListener("change", function () {
+      if (checkbox.checked) selectedStickerIds[String(sticker.id)] = true;
+      else delete selectedStickerIds[String(sticker.id)];
+      updateStickerSelectionUI();
+    });
+    check.appendChild(checkbox);
+    item.appendChild(check);
+
+    if (sticker.kind === "image") {
+      var image = document.createElement("img");
+      image.src = "/agent-stickers/" + encodeURIComponent(sticker.ref);
+      image.alt = "";
+      item.appendChild(image);
+    } else {
+      var face = document.createElement("span");
+      face.textContent = "表情 " + sticker.ref;
+      item.appendChild(face);
+    }
+
+    var remove = document.createElement("button");
+    remove.type = "button";
+    remove.title = "删除表情";
+    remove.setAttribute("aria-label", "删除表情");
+    remove.innerHTML = '<i data-lucide="x"></i>';
+    remove.addEventListener("click", function () {
+      fetch("/api/agent/web/sticker-delete", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: sticker.id }),
+      }).then(loadStickers);
+    });
+    item.appendChild(remove);
+    return item;
+  }
+
+  function renderStickerGroups() {
+    stickerGrid.innerHTML = "";
+    var grouped = {};
+    currentStickers.forEach(function (sticker) {
+      var category = String(sticker.category || "未分类");
+      if (!grouped[category]) grouped[category] = [];
+      grouped[category].push(sticker);
+    });
+    stickerCategories.forEach(function (category) {
+      var stickers = grouped[category] || [];
+      if (!stickers.length) return;
+      var group = document.createElement("section");
+      group.className = "agent-sticker-category-group";
+      var head = document.createElement("header");
+      head.className = "agent-sticker-category-head";
+      var title = document.createElement("div");
+      var heading = document.createElement("h4");
+      heading.textContent = category;
+      var count = document.createElement("span");
+      count.textContent = stickers.length + " 张";
+      title.append(heading, count);
+      var selectGroup = document.createElement("button");
+      selectGroup.type = "button";
+      selectGroup.className = "agent-sticker-select-group";
+      selectGroup.textContent = "全选本组";
+      selectGroup.addEventListener("click", function () {
+        toggleStickerGroup(category);
+      });
+      head.append(title, selectGroup);
+      var grid = document.createElement("div");
+      grid.className = "agent-sticker-grid";
+      stickers.forEach(function (sticker) {
+        grid.appendChild(createStickerCard(sticker));
+      });
+      group.append(head, grid);
+      stickerGrid.appendChild(group);
+    });
+    if (!currentStickers.length) {
+      stickerGrid.innerHTML =
+        '<div class="agent-sticker-item"><span>暂无</span></div>';
+    }
+    updateStickerSelectionUI();
+    refreshIcons();
+  }
+
   function loadStickers() {
     return fetch("/api/agent/web/stickers", {
       credentials: "same-origin",
@@ -526,50 +707,40 @@
     })
       .then(function (response) { return response.json(); })
       .then(function (data) {
-        stickerGrid.innerHTML = "";
-        var stickers = data.stickers || [];
-        document.getElementById("agentStickerCount").textContent = stickers.length + " 个";
-        stickers.forEach(function (sticker) {
-          var item = document.createElement("div");
-          item.className = "agent-sticker-item";
-          if (sticker.kind === "image") {
-            var image = document.createElement("img");
-            image.src = "/agent-stickers/" + encodeURIComponent(sticker.ref);
-            image.alt = "";
-            item.appendChild(image);
-          } else {
-            var face = document.createElement("span");
-            face.textContent = "表情 " + sticker.ref;
-            item.appendChild(face);
-          }
-          if (sticker.tags) {
-            var tags = document.createElement("span");
-            tags.className = "agent-sticker-tags";
-            tags.textContent = sticker.tags;
-            tags.title = sticker.tags;
-            item.appendChild(tags);
-          }
-          var remove = document.createElement("button");
-          remove.type = "button";
-          remove.title = "删除表情";
-          remove.setAttribute("aria-label", "删除表情");
-          remove.innerHTML = '<i data-lucide="x"></i>';
-          remove.addEventListener("click", function () {
-            fetch("/api/agent/web/sticker-delete", {
-              method: "POST",
-              credentials: "same-origin",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ id: sticker.id }),
-            }).then(loadStickers);
-          });
-          item.appendChild(remove);
-          stickerGrid.appendChild(item);
+        currentStickers = data.stickers || [];
+        stickerCategories = cleanStickerCategories(data.categories);
+        var validIds = {};
+        currentStickers.forEach(function (sticker) {
+          validIds[String(sticker.id)] = true;
         });
-        if (!stickers.length) {
-          stickerGrid.innerHTML = '<div class="agent-sticker-item"><span>暂无</span></div>';
-        }
-        refreshIcons();
+        Object.keys(selectedStickerIds).forEach(function (stickerId) {
+          if (!validIds[stickerId]) delete selectedStickerIds[stickerId];
+        });
+        document.getElementById("agentStickerCount").textContent =
+          currentStickers.length + " 个";
+        refreshStickerCategoryControls();
+        renderStickerGroups();
+      })
+      .catch(function (error) {
+        settingsStatus.textContent = error.message;
       });
+  }
+
+  function readApiResponse(response) {
+    return response.text().then(function (raw) {
+      var body = {};
+      try {
+        body = raw ? JSON.parse(raw) : {};
+      } catch (error) {
+        body = {};
+      }
+      if (!response.ok) {
+        throw new Error(
+          body.error || "请求失败（HTTP " + response.status + "）"
+        );
+      }
+      return body;
+    });
   }
 
   function fileBase64(file) {
@@ -587,7 +758,7 @@
   }
 
   function uploadStickerFiles(files) {
-    var usage = stickerUsage.value.trim() || "未分类";
+    var category = stickerCategorySelect.value || "未分类";
     var list = Array.prototype.slice.call(files || []);
     if (!list.length) return;
     stickerUploadBtn.classList.add("is-uploading");
@@ -606,31 +777,16 @@
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 file_name: file.name,
-                usage: usage,
+                category: category,
                 data_base64: data,
               }),
-            }).then(function (response) {
-              return response.text().then(function (raw) {
-                var body = {};
-                try {
-                  body = raw ? JSON.parse(raw) : {};
-                } catch (error) {
-                  body = {};
-                }
-                if (!response.ok) {
-                  throw new Error(
-                    body.error || "上传失败（HTTP " + response.status + "）"
-                  );
-                }
-                return body;
-              });
-            });
+            }).then(readApiResponse);
           });
         });
       }, Promise.resolve())
       .then(function () {
-        settingsStatus.textContent = "表情包已上传";
-        stickerUsage.value = "";
+        settingsStatus.textContent =
+          "表情包已上传到“" + category + "”";
         return loadStickers();
       })
       .catch(function (error) {
@@ -641,6 +797,64 @@
         stickerUploadBtn.classList.remove("is-uploading");
         stickerUploadBtn.removeAttribute("aria-disabled");
         stickerInput.value = "";
+      });
+  }
+
+  function createStickerCategory() {
+    var name = stickerCategoryName.value.trim();
+    if (!name) {
+      settingsStatus.textContent = "请填写分类名称";
+      stickerCategoryName.focus();
+      return;
+    }
+    settingsStatus.textContent = "正在创建分类…";
+    fetch("/api/agent/web/sticker-category-create", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name }),
+    })
+      .then(readApiResponse)
+      .then(function (data) {
+        stickerCategories = cleanStickerCategories(data.categories);
+        refreshStickerCategoryControls(data.category);
+        stickerCategoryForm.hidden = true;
+        stickerCategoryName.value = "";
+        settingsStatus.textContent = "分类“" + data.category + "”已创建";
+        return loadStickers();
+      })
+      .catch(function (error) {
+        settingsStatus.textContent = error.message;
+      });
+  }
+
+  function moveSelectedStickers() {
+    var ids = Object.keys(selectedStickerIds).map(Number);
+    if (!ids.length) {
+      settingsStatus.textContent = "请先选择表情包";
+      return;
+    }
+    var category = stickerBulkCategory.value || "未分类";
+    stickerBulkMove.disabled = true;
+    settingsStatus.textContent = "正在移动表情包…";
+    fetch("/api/agent/web/sticker-move", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: ids, category: category }),
+    })
+      .then(readApiResponse)
+      .then(function (data) {
+        selectedStickerIds = {};
+        settingsStatus.textContent =
+          "已移动 " + data.moved + " 张到“" + data.category + "”";
+        return loadStickers();
+      })
+      .catch(function (error) {
+        settingsStatus.textContent = error.message;
+      })
+      .then(function () {
+        stickerBulkMove.disabled = false;
       });
   }
 
@@ -702,6 +916,22 @@
   stickerInput.addEventListener("change", function () {
     uploadStickerFiles(this.files);
   });
+  stickerCategorySelect.addEventListener("change", function () {
+    stickerUploadTarget.textContent = "上传到“" + this.value + "”";
+  });
+  stickerCategoryAdd.addEventListener("click", function () {
+    stickerCategoryForm.hidden = false;
+    stickerCategoryName.focus();
+  });
+  stickerCategoryCancel.addEventListener("click", function () {
+    stickerCategoryForm.hidden = true;
+    stickerCategoryName.value = "";
+  });
+  stickerCategoryForm.addEventListener("submit", function (event) {
+    event.preventDefault();
+    createStickerCategory();
+  });
+  stickerBulkMove.addEventListener("click", moveSelectedStickers);
   document.getElementById("agentMemorySearch").addEventListener("input", function () {
     loadMemories(this.value);
   });

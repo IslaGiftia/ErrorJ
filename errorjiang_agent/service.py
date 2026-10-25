@@ -196,7 +196,13 @@ class AgentService:
         matches = [
             item
             for item in stickers
-            if emotion and emotion in str(item.get("tags") or "")
+            if emotion
+            and emotion
+            in (
+                str(item.get("category") or "")
+                + " "
+                + str(item.get("tags") or "")
+            )
         ]
         candidates = matches or stickers
         if not candidates:
@@ -662,6 +668,12 @@ class AgentService:
                 break
         return ", ".join(tokens)[:300]
 
+    @staticmethod
+    def normalize_sticker_category(value: str) -> str:
+        text = re.sub(r"\s+", " ", str(value or "")).strip()
+        text = text.strip(",，、/|;；")
+        return text[:40] or "未分类"
+
     @classmethod
     def sticker_usage_from_text(cls, text: str) -> str:
         value = str(text or "").strip()
@@ -679,6 +691,7 @@ class AgentService:
         source_name: str,
         usage: str,
         default_tags: str = "",
+        category: str = "",
     ) -> dict[str, Any] | None:
         if not raw or len(raw) > 5 * 1024 * 1024:
             return None
@@ -688,8 +701,12 @@ class AgentService:
         digest = hashlib.sha256(raw).hexdigest()[:24]
         filename = digest + extension
         (self.sticker_dir / filename).write_bytes(raw)
+        normalized_usage = self.normalize_sticker_usage(usage)
+        resolved_category = self.normalize_sticker_category(
+            category or normalized_usage.split(",", 1)[0]
+        )
         tags = []
-        for item in (default_tags, self.normalize_sticker_usage(usage)):
+        for item in (default_tags, normalized_usage):
             if item and item not in tags:
                 tags.append(item)
         sticker_id = self.store.add_sticker(
@@ -697,11 +714,13 @@ class AgentService:
             "image",
             filename,
             ", ".join(tags),
+            resolved_category,
         )
         return {
             "id": sticker_id,
             "kind": "image",
             "ref": filename,
+            "category": resolved_category,
             "tags": ", ".join(tags),
             "source_name": str(source_name or "")[:180],
         }
@@ -711,22 +730,47 @@ class AgentService:
         owner_id: str,
         raw: bytes,
         source_name: str,
-        usage: str,
+        category: str,
     ) -> dict[str, Any]:
-        normalized = self.normalize_sticker_usage(usage)
-        if not normalized:
-            raise AgentError("请填写表情包用途，例如：笑哭、泪目、无语。")
+        normalized = self.normalize_sticker_category(category)
         stored = self.save_sticker_image(
             owner_id,
             raw,
             source_name,
             normalized,
+            category=normalized,
         )
         if not stored:
             raise AgentError(
                 "只支持 PNG、JPEG、GIF、WebP 或 BMP 图片，且不能超过 5MB。"
             )
         return stored
+
+    def create_sticker_category(
+        self,
+        owner_id: str,
+        name: str,
+    ) -> str:
+        category = self.normalize_sticker_category(name)
+        return self.store.ensure_sticker_category(owner_id, category)
+
+    def move_sticker_category(
+        self,
+        owner_id: str,
+        sticker_ids: list[int],
+        category: str,
+    ) -> dict[str, Any]:
+        normalized = self.normalize_sticker_category(category)
+        moved = self.store.move_stickers(
+            owner_id,
+            sticker_ids,
+            normalized,
+        )
+        return {
+            "ok": True,
+            "moved": moved,
+            "category": normalized,
+        }
 
     def save_qqbot_attachments(
         self,
@@ -1257,14 +1301,74 @@ class AgentService:
             return start_time <= current < end_time
         return current >= start_time or current < end_time
 
+    def proactive_target(self) -> tuple[str, list[str]]:
+        if self.qqbot:
+            return "qqbot", self.store.admin_ids("qqbot")
+        return "qq", self.store.admin_ids("qq")
+
+    def send_proactive_message(
+        self,
+        platform: str,
+        owner_id: str,
+        text: str,
+    ) -> None:
+        if platform == "qqbot":
+            if not self.qqbot:
+                raise AgentError("QQBot 尚未连接，无法发送主动消息。")
+            self.qqbot.send_active_message("private", owner_id, text)
+            return
+        self.onebot.send_private(int(owner_id), text)
+
+    def deliver_proactive_candidate(
+        self,
+        day: str,
+        platform: str,
+        owner_id: str,
+        state: dict,
+        candidate: dict,
+        memory_rows: list[dict],
+    ) -> bool:
+        text = self.proactive_message(
+            owner_id,
+            str(candidate["reason"]),
+            state,
+            topic=str(candidate.get("topic") or ""),
+            memories=[
+                str(item.get("content") or "")
+                for item in memory_rows[:8]
+                if item.get("content")
+            ],
+        )
+        if not text:
+            return False
+        self.send_proactive_message(platform, owner_id, text)
+        if not self.store.claim_proactive_slot(
+            day,
+            str(candidate["slot"]),
+            owner_id,
+        ):
+            return False
+        self.store.add_message(platform, owner_id, "assistant", text)
+        if candidate.get("event_id"):
+            self.store.mark_timeline_used(int(candidate["event_id"]))
+        if candidate.get("memory_id"):
+            self.store.mark_memory_used(
+                str(candidate.get("memory_platform") or platform),
+                owner_id
+                if candidate.get("memory_platform") != "web"
+                else "0",
+                int(candidate["memory_id"]),
+            )
+        return True
+
     def _proactive_loop(self) -> None:
         while not self._proactive_stop.wait(30):
             now = datetime.now()
             day = now.strftime("%Y-%m-%d")
             now_timestamp = int(now.timestamp())
-            owners = self.store.admin_ids("qq")
+            platform, owners = self.proactive_target()
             for owner_id in owners:
-                settings = self.store.get_settings("qq", owner_id)
+                settings = self.store.get_settings(platform, owner_id)
                 if not settings.get("proactive_enabled", True):
                     continue
                 if self.in_quiet_hours(
@@ -1283,11 +1387,11 @@ class AgentService:
                     and now_timestamp - last_sent_at < PROACTIVE_MIN_GAP_SECONDS
                 ):
                     continue
-                state = self.relationship_context("qq", owner_id)
-                qq_due_events = self.store.due_timeline_events(
+                state = self.relationship_context(platform, owner_id)
+                platform_due_events = self.store.due_timeline_events(
                     now_timestamp,
                     limit=5,
-                    platform="qq",
+                    platform=platform,
                     owner_id=owner_id,
                 )
                 web_due_events = self.store.due_timeline_events(
@@ -1298,7 +1402,7 @@ class AgentService:
                 )
                 due_events = []
                 seen_events = set()
-                for item in qq_due_events + web_due_events:
+                for item in platform_due_events + web_due_events:
                     key = (
                         str(item.get("title") or ""),
                         str(item.get("content") or ""),
@@ -1310,7 +1414,7 @@ class AgentService:
                 memory_rows = []
                 seen_memories = set()
                 for item in (
-                    self.store.list_memories("qq", owner_id, limit=20)
+                    self.store.list_memories(platform, owner_id, limit=20)
                     + self.store.list_memories("web", "0", limit=20)
                 ):
                     content = str(item.get("content") or "")
@@ -1326,37 +1430,17 @@ class AgentService:
                     memory_rows,
                 )
                 candidate = self.choose_proactive_candidate(candidates)
-                if not candidate or not self.store.claim_proactive_slot(
-                    day, str(candidate["slot"]), owner_id
-                ):
+                if not candidate:
                     continue
                 try:
-                    text = self.proactive_message(
+                    self.deliver_proactive_candidate(
+                        day,
+                        platform,
                         owner_id,
-                        str(candidate["reason"]),
                         state,
-                        topic=str(candidate.get("topic") or ""),
-                        memories=[
-                            str(item.get("content") or "")
-                            for item in memory_rows[:8]
-                            if item.get("content")
-                        ],
+                        candidate,
+                        memory_rows,
                     )
-                    if text:
-                        self.onebot.send_private(int(owner_id), text)
-                        self.store.add_message("qq", owner_id, "assistant", text)
-                        if candidate.get("event_id"):
-                            self.store.mark_timeline_used(
-                                int(candidate["event_id"])
-                            )
-                        if candidate.get("memory_id"):
-                            self.store.mark_memory_used(
-                                str(candidate.get("memory_platform") or "qq"),
-                                owner_id
-                                if candidate.get("memory_platform") != "web"
-                                else "0",
-                                int(candidate["memory_id"]),
-                            )
                 except Exception:
                     traceback.print_exc()
 
@@ -2484,7 +2568,12 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
             owner_id = str((query.get("owner_id") or ["0"])[0])
             self.send_json(
                 200,
-                {"stickers": self.service.store.list_stickers(owner_id, 200)},
+                {
+                    "stickers": self.service.store.list_stickers(owner_id, 200),
+                    "categories": self.service.store.list_sticker_categories(
+                        owner_id
+                    ),
+                },
             )
             return
         if path.startswith("/stickers/"):
@@ -2566,6 +2655,8 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
             "/internal/settings",
             "/internal/memory/delete",
             "/internal/sticker/upload",
+            "/internal/sticker/category-create",
+            "/internal/sticker/move",
             "/internal/sticker/delete",
             "/internal/timeline/create",
             "/internal/timeline/status",
@@ -2609,7 +2700,9 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/internal/sticker/upload":
                 owner_id = str(payload.get("owner_id") or "0")
-                usage = str(payload.get("usage") or "").strip()[:300]
+                category = str(
+                    payload.get("category") or payload.get("usage") or ""
+                ).strip()[:40]
                 file_name = Path(
                     str(payload.get("file_name") or "sticker.png")
                 ).name[:180]
@@ -2624,12 +2717,45 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
                         owner_id,
                         raw,
                         file_name,
-                        usage,
+                        category,
                     )
                 except AgentError as exc:
                     self.send_json(400, {"error": str(exc)})
                     return
                 self.send_json(200, {"ok": True, "sticker": sticker})
+                return
+            if parsed.path == "/internal/sticker/category-create":
+                owner_id = str(payload.get("owner_id") or "0")
+                category = self.service.create_sticker_category(
+                    owner_id,
+                    str(payload.get("name") or ""),
+                )
+                self.send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "category": category,
+                        "categories": self.service.store.list_sticker_categories(
+                            owner_id
+                        ),
+                    },
+                )
+                return
+            if parsed.path == "/internal/sticker/move":
+                owner_id = str(payload.get("owner_id") or "0")
+                raw_ids = payload.get("ids")
+                if not isinstance(raw_ids, list):
+                    self.send_json(400, {"error": "invalid sticker ids"})
+                    return
+                result = self.service.move_sticker_category(
+                    owner_id,
+                    raw_ids,
+                    str(payload.get("category") or ""),
+                )
+                result["categories"] = (
+                    self.service.store.list_sticker_categories(owner_id)
+                )
+                self.send_json(200, result)
                 return
             if parsed.path == "/internal/timeline/create":
                 platform = str(payload.get("platform") or "web")

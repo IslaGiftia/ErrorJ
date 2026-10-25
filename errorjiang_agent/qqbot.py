@@ -405,6 +405,22 @@ class QQBotClient:
             headers=self._auth_headers(),
         )
 
+    def send_active_message(
+        self,
+        message_type: str,
+        chat_id: str,
+        content: str,
+    ) -> None:
+        target = "groups" if message_type == "group" else "users"
+        self._http_json(
+            f"{API_BASE}/v2/{target}/{quote(str(chat_id))}/messages",
+            {
+                "content": str(content or "")[:1800],
+                "msg_type": 0,
+            },
+            headers=self._auth_headers(),
+        )
+
     def upload_image(
         self,
         message_type: str,

@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=4">
   <link rel="stylesheet" href="/static/site/site.css">
   <link rel="stylesheet" href="/static/fonts.css">
-  <link rel="stylesheet" href="/static/agent.css?v=9">
+  <link rel="stylesheet" href="/static/agent.css?v=10">
   <script>
     (function () {
       try {
@@ -155,7 +155,7 @@
           <input type="checkbox" id="settingMemoryConsolidationEnabled">
         </label>
         <label class="agent-switch-row">
-          <span><strong>主动聊天</strong><small>在设定时间主动发 QQ 私聊</small></span>
+          <span><strong>主动聊天</strong><small>在设定时间通过 QQBot 发管理员私聊</small></span>
           <input type="checkbox" id="settingProactiveEnabled">
         </label>
         <label class="agent-switch-row">
@@ -243,24 +243,26 @@
           <h3>表情包库</h3>
           <span id="agentStickerCount">0 个</span>
         </div>
-        <div class="agent-sticker-tools">
-          <label class="agent-sticker-usage">
-            <span>用途</span>
-            <input id="agentStickerUsage" type="text" maxlength="80"
-                   list="agentStickerUsageOptions" placeholder="例如：笑哭、泪目、无语">
+        <div class="agent-sticker-category-bar">
+          <label class="agent-sticker-category">
+            <span>分类</span>
+            <select id="agentStickerCategory"></select>
           </label>
-          <datalist id="agentStickerUsageOptions">
-            <option value="笑哭"></option>
-            <option value="泪目"></option>
-            <option value="无语"></option>
-            <option value="开心"></option>
-            <option value="晚安"></option>
-            <option value="害羞"></option>
-            <option value="生气"></option>
-            <option value="惊讶"></option>
-            <option value="安慰"></option>
-            <option value="庆祝"></option>
-          </datalist>
+          <button type="button" id="agentStickerCategoryAdd">
+            <i data-lucide="folder-plus"></i>
+            <span>新增分类</span>
+          </button>
+        </div>
+        <form class="agent-sticker-category-form" id="agentStickerCategoryForm" hidden>
+          <input id="agentStickerCategoryName" type="text" maxlength="40"
+                 placeholder="分类名称，例如：笑哭" required>
+          <button type="submit">创建</button>
+          <button type="button" id="agentStickerCategoryCancel">取消</button>
+        </form>
+        <div class="agent-sticker-tools">
+          <span class="agent-sticker-upload-target" id="agentStickerUploadTarget">
+            上传到“未分类”
+          </span>
           <label class="agent-sticker-upload" id="agentStickerUploadBtn"
                  for="agentStickerInput" role="button" tabindex="0">
             <i data-lucide="image-plus"></i>
@@ -269,7 +271,15 @@
           <input class="agent-sticker-file" id="agentStickerInput" type="file" multiple
                  accept="image/png,image/jpeg,image/gif,image/webp,image/bmp">
         </div>
-        <div class="agent-sticker-grid" id="agentStickerGrid"></div>
+        <div class="agent-sticker-bulk" id="agentStickerBulk" hidden>
+          <span id="agentStickerSelectedCount">已选 0 张</span>
+          <label>
+            <span>移至</span>
+            <select id="agentStickerBulkCategory"></select>
+          </label>
+          <button type="button" id="agentStickerBulkMove">移动</button>
+        </div>
+        <div class="agent-sticker-groups" id="agentStickerGrid"></div>
       </section>
     </div>
     <footer class="agent-settings-foot">
@@ -279,6 +289,6 @@
   </dialog>
 
   <script src="/static/vendor/lucide.min.js"></script>
-  <script src="/static/agent.js?v=9"></script>
+  <script src="/static/agent.js?v=10"></script>
 </body>
 </html>
