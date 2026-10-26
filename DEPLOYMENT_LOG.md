@@ -6939,6 +6939,62 @@ QQBot     -> 已连接 4015320753
 
 备注：本次迁移范围是主动聊天。定时提醒循环仍使用旧 OneBot 通道，QQBot 群提醒的 openid 转数字异常仍存在，需要单独迁移提醒发送逻辑。
 
+## 153. 2026-10-26 12:42:49 折兮颜增加网页搜索、人格设置与群主动晨报
+
+来源：站长先要求为折兮颜增加网页搜索、人格设置和按文件名选表情包，随后要求增加群晨报，根据成员主动公布的城市发送天气，并补充周末 / 节假日提醒。
+
+完成内容（功能提交 `f67d5b5 feat: add agent search and group briefings`，12 文件，+1435/−29）：
+
+- 表情包选图改为原始文件名优先，分类只作辅助整理；控制台表情卡直接显示原始文件名。
+- 新增冷脸萌、温柔、理性、活力人格预设和最多 1000 字的自定义表达补充。人格只影响语气与措辞，不能覆盖权限、安全、工具或事实规则。
+- 接入 DeepSeek 独立 Search / Fetch 工具，可查询近期新闻、热梗、公开资料和出处；网页结果标记为不可信资料，普通聊天不自动联网。
+- 新增高德城市天气工具，只接受城市名并返回未来三天城市级预报，不根据聊天内容推断精确坐标。
+- 配置中心新增“群主动”分区。群晨报默认关闭，每天最多发送一次，最多汇总 3 个成员城市天气，并追加周五或主要节假日提示。
+- 群成员可发送“设置天气城市 西安”或“清除天气城市”，数据按群和成员隔离；系统只保存城市名，不保存精确位置。
+- 群消息发送失败会转管理员私聊；私聊兜底不会写入群上下文，群消息只有在成功送达后才写入历史并占用当天名额。
+- Agent 数据库新增 `group_weather_locations` 表，随 Agent 启动自动创建。
+
+部署步骤：
+```text
+本地：Python 编译检查；node --check agent.js / books.js / messages.js /
+      moments.js / site/activity.js；changelog-seed JSON 校验；
+      python -m unittest discover -s tests -v -> 267 passed；git diff --check 干净
+提交：f67d5b5 feat: add agent search and group briefings
+      （fetch → pull --rebase → push；local == origin/main == f67d5b5）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 5BF1CD2FCAB348D9D887D1FA9D0930E04D6858515712BE367C9D72DB17B9255B
+备份：/data/errorjiang-backup/20261026-124439/（21M）
+      inventory.db、auth.json、changelog-seed.json、
+      agent-data/agent.db 与 stickers；无 WAL / SHM
+服务器：systemctl stop errorjiang-agent -> systemctl stop errorjiang
+      cp 备份 -> git pull --ff-only -> f67d5b5
+      app.init_db；install 新 seed；
+      import_changelog_moments.py --date 2026-10-26 --force
+      -> 新增 5 条、覆盖 0 条、跳过 0 条
+      systemctl start errorjiang -> systemctl start errorjiang-agent
+```
+
+验证结果：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 公网 /api/health = {"ok":true}；
+             Agent 172.17.0.1:8011/health = {"ok":true}
+QQBot     -> 已连接 4015320753
+版本      -> 功能提交 = origin/main = 服务器功能 HEAD = f67d5b5
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+数据库    -> Agent DB 已创建 group_weather_locations 表
+更新日志  -> /api/moments 中 2026-10-26 12:42:49
+             「折兮颜增加网页搜索、人格设置与群主动晨报」（id 762，kind = log）
+静态文件  -> 规范化 CRLF 后，agent.html / agent.css / agent.js / references.html
+             公网与本地 SHA256 全部一致
+公网交互  -> Playwright 使用线上同版 Agent 页面：
+             1440×1000 与 360×800 下 9 个设置分区齐全、群主动 5 个控件可见；
+             手机横向分区导航可滚动，页面无横向溢出；
+             点击“群主动”可定位到群晨报设置且无脚本异常
+本地回归  -> 267 项单测通过；文件名选图、人格设置、DeepSeek Search / Fetch、
+             高德天气、成员城市隔离、晨报去重、私聊兜底与群上下文隔离均通过
+```
+
 ## 152. 2026-10-25 23:38:06 修复折兮颜设置面板滚动与表情包上传
 
 来源：站长实测发现 Agent 设置页无法继续下滑到表情包库，且上传按钮没有发出请求。
