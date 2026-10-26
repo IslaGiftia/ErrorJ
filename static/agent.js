@@ -160,6 +160,30 @@
         );
         settingValue("settingProactiveEnabled", settings.proactive_enabled);
         settingValue("settingStickerEnabled", settings.sticker_enabled);
+        settingValue("settingPersonaPreset", settings.persona_preset);
+        settingValue(
+          "settingPersonaCustomPrompt",
+          settings.persona_custom_prompt
+        );
+        settingValue("settingWebSearchEnabled", settings.web_search_enabled);
+        settingValue("settingWebSearchCount", settings.web_search_count);
+        settingValue(
+          "settingGroupProactiveEnabled",
+          settings.group_proactive_enabled
+        );
+        settingValue(
+          "settingGroupWeatherEnabled",
+          settings.group_weather_enabled
+        );
+        settingValue(
+          "settingGroupHolidayEnabled",
+          settings.group_holiday_enabled
+        );
+        settingValue("settingGroupWeatherCity", settings.group_weather_city);
+        settingValue(
+          "settingGroupProactiveTime",
+          settings.group_proactive_time
+        );
         settingValue("settingProactiveMax", settings.proactive_max_per_day);
         settingValue("settingMorningTime", settings.morning_time);
         settingValue("settingNightTime", settings.night_time);
@@ -190,6 +214,30 @@
         "settingProactiveEnabled"
       ).checked,
       sticker_enabled: document.getElementById("settingStickerEnabled").checked,
+      persona_preset: document.getElementById("settingPersonaPreset").value,
+      persona_custom_prompt: document.getElementById(
+        "settingPersonaCustomPrompt"
+      ).value,
+      web_search_enabled: document.getElementById(
+        "settingWebSearchEnabled"
+      ).checked,
+      web_search_count:
+        Number(document.getElementById("settingWebSearchCount").value) || 5,
+      group_proactive_enabled: document.getElementById(
+        "settingGroupProactiveEnabled"
+      ).checked,
+      group_weather_enabled: document.getElementById(
+        "settingGroupWeatherEnabled"
+      ).checked,
+      group_holiday_enabled: document.getElementById(
+        "settingGroupHolidayEnabled"
+      ).checked,
+      group_weather_city: document.getElementById(
+        "settingGroupWeatherCity"
+      ).value,
+      group_proactive_time: document.getElementById(
+        "settingGroupProactiveTime"
+      ).value,
       proactive_max_per_day:
         Number(document.getElementById("settingProactiveMax").value) || 2,
       morning_time: document.getElementById("settingMorningTime").value,
@@ -637,6 +685,11 @@
       face.textContent = "表情 " + sticker.ref;
       item.appendChild(face);
     }
+    var fileName = document.createElement("span");
+    fileName.className = "agent-sticker-file-name";
+    fileName.textContent = sticker.source_name || "未记录文件名";
+    fileName.title = sticker.source_name || "未记录文件名";
+    item.appendChild(fileName);
 
     var remove = document.createElement("button");
     remove.type = "button";
@@ -915,7 +968,7 @@
 
   settingsSave.addEventListener("click", saveSettings);
   document
-    .querySelectorAll(".agent-setting-row input, .agent-setting-grid input")
+    .querySelectorAll("[data-setting-input]")
     .forEach(function (input) {
       input.addEventListener("input", markSettingsDirty);
       input.addEventListener("change", markSettingsDirty);

@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=4">
   <link rel="stylesheet" href="/static/site/site.css">
   <link rel="stylesheet" href="/static/fonts.css">
-  <link rel="stylesheet" href="/static/agent.css?v=11">
+  <link rel="stylesheet" href="/static/agent.css?v=12">
   <script>
     (function () {
       try {
@@ -55,9 +55,21 @@
           <i data-lucide="sliders-horizontal"></i>
           <span>基础设置</span>
         </a>
+        <a href="#settings-persona" data-section-link="settings-persona">
+          <i data-lucide="user-round-cog"></i>
+          <span>人格设置</span>
+        </a>
+        <a href="#settings-web-search" data-section-link="settings-web-search">
+          <i data-lucide="search"></i>
+          <span>网页搜索</span>
+        </a>
         <a href="#settings-proactive" data-section-link="settings-proactive">
           <i data-lucide="send"></i>
           <span>主动聊天</span>
+        </a>
+        <a href="#settings-group-proactive" data-section-link="settings-group-proactive">
+          <i data-lucide="message-circle-more"></i>
+          <span>群主动</span>
         </a>
         <a href="#settings-members" data-section-link="settings-members">
           <i data-lucide="users"></i>
@@ -119,7 +131,7 @@
               <small>从私聊和群聊中保存稳定偏好、关系与约定</small>
             </span>
             <span class="agent-switch">
-              <input type="checkbox" id="settingMemoryEnabled">
+              <input type="checkbox" id="settingMemoryEnabled" data-setting-input>
               <span aria-hidden="true"></span>
             </span>
           </label>
@@ -129,7 +141,7 @@
               <small>在安静时段合并重复记忆，保留更稳定的信息</small>
             </span>
             <span class="agent-switch">
-              <input type="checkbox" id="settingMemoryConsolidationEnabled">
+              <input type="checkbox" id="settingMemoryConsolidationEnabled" data-setting-input>
               <span aria-hidden="true"></span>
             </span>
           </label>
@@ -138,7 +150,7 @@
               <strong>整理时间</strong>
               <small>每天执行一次空闲记忆整理</small>
             </span>
-            <input class="agent-compact-input" type="time" id="settingMemoryConsolidationTime">
+            <input class="agent-compact-input" type="time" id="settingMemoryConsolidationTime" data-setting-input>
           </label>
           <label class="agent-setting-row">
             <span class="agent-setting-copy">
@@ -146,11 +158,68 @@
               <small>情绪合适时低频发送，可按分类和文件名匹配</small>
             </span>
             <span class="agent-switch">
-              <input type="checkbox" id="settingStickerEnabled">
+              <input type="checkbox" id="settingStickerEnabled" data-setting-input>
               <span aria-hidden="true"></span>
             </span>
           </label>
         </div>
+      </section>
+
+      <section class="agent-console-section" id="settings-persona" data-console-section>
+        <header class="agent-section-head">
+          <span class="agent-section-icon"><i data-lucide="user-round-cog"></i></span>
+          <div><h2>人格设置</h2><p>选择基础人格，再用自定义补充调整说话方式。</p></div>
+        </header>
+        <div class="agent-setting-grid">
+          <label>
+            <span>人格预设</span>
+            <select id="settingPersonaPreset" data-setting-input>
+              <option value="冷脸萌">冷脸萌</option>
+              <option value="温柔">温柔</option>
+              <option value="理性">理性</option>
+              <option value="活力">活力</option>
+            </select>
+          </label>
+          <label class="agent-setting-wide">
+            <span>自定义补充</span>
+            <textarea id="settingPersonaCustomPrompt" rows="4" maxlength="1000"
+                      data-setting-input
+                      placeholder="例如：少用感叹号，偶尔用“嗯”开头；不要撒娇过度。"></textarea>
+          </label>
+        </div>
+        <p class="agent-section-note">人格只影响称呼、语气和措辞，不会覆盖安全、权限、工具规则或事实判断。</p>
+      </section>
+
+      <section class="agent-console-section" id="settings-web-search" data-console-section>
+        <header class="agent-section-head">
+          <span class="agent-section-icon"><i data-lucide="search"></i></span>
+          <div><h2>网页搜索</h2><p>查询近期新闻、热梗、公开资料和出处，并为回答附上来源。</p></div>
+        </header>
+        <div class="agent-setting-list">
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
+              <strong>启用 DeepSeek 搜索</strong>
+              <small>只在需要实时公开信息时调用 Search，必要时再调用 Fetch</small>
+            </span>
+            <span class="agent-switch">
+              <input type="checkbox" id="settingWebSearchEnabled" data-setting-input>
+              <span aria-hidden="true"></span>
+            </span>
+          </label>
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
+              <strong>每次结果数</strong>
+              <small>返回条数不影响单次搜索价格</small>
+            </span>
+            <select class="agent-compact-input" id="settingWebSearchCount" data-setting-input>
+              <option value="3">3 条</option>
+              <option value="5">5 条</option>
+              <option value="8">8 条</option>
+              <option value="10">10 条</option>
+            </select>
+          </label>
+        </div>
+        <p class="agent-section-note">使用现有 DeepSeek Key；Search 与 Fetch 按成功请求次数计费，普通聊天不会自动联网。</p>
       </section>
 
       <section class="agent-console-section" id="settings-proactive" data-console-section>
@@ -165,19 +234,70 @@
               <small>在合适的日程、事件或久未联系时主动问候</small>
             </span>
             <span class="agent-switch">
-              <input type="checkbox" id="settingProactiveEnabled">
+              <input type="checkbox" id="settingProactiveEnabled" data-setting-input>
               <span aria-hidden="true"></span>
             </span>
           </label>
         </div>
         <div class="agent-setting-grid">
-          <label><span>每日最多</span><input type="number" id="settingProactiveMax" min="1" max="6"></label>
-          <label><span>早安时间</span><input type="time" id="settingMorningTime"></label>
-          <label><span>晚安时间</span><input type="time" id="settingNightTime"></label>
-          <label><span>免打扰开始</span><input type="time" id="settingQuietStart"></label>
-          <label><span>免打扰结束</span><input type="time" id="settingQuietEnd"></label>
+          <label><span>每日最多</span><input type="number" id="settingProactiveMax" min="1" max="6" data-setting-input></label>
+          <label><span>早安时间</span><input type="time" id="settingMorningTime" data-setting-input></label>
+          <label><span>晚安时间</span><input type="time" id="settingNightTime" data-setting-input></label>
+          <label><span>免打扰开始</span><input type="time" id="settingQuietStart" data-setting-input></label>
+          <label><span>免打扰结束</span><input type="time" id="settingQuietEnd" data-setting-input></label>
         </div>
         <p class="agent-section-note">主动消息之间至少间隔 90 分钟；发送失败不会占用当天次数。</p>
+      </section>
+
+      <section class="agent-console-section" id="settings-group-proactive" data-console-section>
+        <header class="agent-section-head">
+          <span class="agent-section-icon"><i data-lucide="message-circle-more"></i></span>
+          <div><h2>群主动</h2><p>每天最多发送一次晨间简报，内容仅包含城市天气和周末/节假日提示。</p></div>
+        </header>
+        <div class="agent-setting-list">
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
+              <strong>启用群晨报</strong>
+              <small>发送到配置中的 QQBot 群；失败时转管理员私聊</small>
+            </span>
+            <span class="agent-switch">
+              <input type="checkbox" id="settingGroupProactiveEnabled" data-setting-input>
+              <span aria-hidden="true"></span>
+            </span>
+          </label>
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
+              <strong>城市天气</strong>
+              <small>读取成员主动设置的城市；未设置时使用下方默认城市</small>
+            </span>
+            <span class="agent-switch">
+              <input type="checkbox" id="settingGroupWeatherEnabled" data-setting-input>
+              <span aria-hidden="true"></span>
+            </span>
+          </label>
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
+              <strong>周末与节假日</strong>
+              <small>周五或主要节假日开始前追加一句提醒</small>
+            </span>
+            <span class="agent-switch">
+              <input type="checkbox" id="settingGroupHolidayEnabled" data-setting-input>
+              <span aria-hidden="true"></span>
+            </span>
+          </label>
+        </div>
+        <div class="agent-setting-grid">
+          <label>
+            <span>默认城市</span>
+            <input type="text" id="settingGroupWeatherCity" maxlength="40"
+                   data-setting-input placeholder="例如：西安">
+          </label>
+          <label>
+            <span>晨报时间</span>
+            <input type="time" id="settingGroupProactiveTime" data-setting-input>
+          </label>
+        </div>
+        <p class="agent-section-note">群成员可 @折兮颜 发送“设置天气城市 西安”或“清除天气城市”；系统只保存城市名，不保存精确坐标。</p>
       </section>
 
       <section class="agent-console-section" id="settings-members" data-console-section>
@@ -242,12 +362,12 @@
       <section class="agent-console-section" id="settings-stickers" data-console-section>
         <header class="agent-section-head">
           <span class="agent-section-icon"><i data-lucide="images"></i></span>
-          <div><h2>表情包库</h2><p>先选择分类，再批量上传；也可以勾选已有表情统一归类。</p></div>
+          <div><h2>表情包库</h2><p>分类可选；新表情优先按原始文件名匹配，也可以批量归类整理。</p></div>
           <span class="agent-section-count" id="agentStickerCount">0 个</span>
         </header>
         <div class="agent-sticker-category-bar">
           <label class="agent-sticker-category">
-            <span>上传分类</span>
+            <span>分类（可选）</span>
             <select id="agentStickerCategory"></select>
           </label>
           <button type="button" id="agentStickerCategoryAdd">
@@ -285,6 +405,6 @@
   </main>
 
   <script src="/static/vendor/lucide.min.js"></script>
-  <script src="/static/agent.js?v=12"></script>
+  <script src="/static/agent.js?v=13"></script>
 </body>
 </html>

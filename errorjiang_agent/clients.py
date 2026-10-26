@@ -93,6 +93,68 @@ class DeepSeekClient:
             raise AgentError("DeepSeek 没有返回有效消息。")
         return choices[0]["message"]
 
+    def web_search(
+        self,
+        query: str,
+        count: int = 5,
+        original_question: str = "",
+    ) -> dict[str, Any]:
+        value = str(query or "").strip()[:128]
+        if not value:
+            raise AgentError("搜索词不能为空。")
+        payload = {
+            "query": value,
+            "count": max(1, min(int(count), 10)),
+            "need_content": False,
+        }
+        question = str(original_question or "").strip()[:128]
+        if question:
+            payload["ori_question"] = question
+        data = post_json(
+            self.base_url + "/tools/search",
+            payload,
+            headers={"Authorization": f"Bearer {self.api_key}"},
+            timeout=40,
+        )
+        results = []
+        for item in (data.get("results") or [])[:10]:
+            if not isinstance(item, dict):
+                continue
+            results.append(
+                {
+                    "title": str(item.get("title") or "")[:300],
+                    "url": str(item.get("url") or "")[:2000],
+                    "snippet": str(item.get("snippet") or "")[:800],
+                    "summary": str(item.get("summary") or "")[:1600],
+                    "site_name": str(item.get("site_name") or "")[:120],
+                    "date": item.get("date"),
+                    "authority": item.get("authority"),
+                    "rerank_score": item.get("rerank_score"),
+                }
+            )
+        return {
+            "query": value,
+            "untrusted": True,
+            "results": results,
+        }
+
+    def web_fetch(self, url: str) -> dict[str, Any]:
+        value = str(url or "").strip()[:8192]
+        if not value.startswith(("http://", "https://")):
+            raise AgentError("网页地址必须是 HTTP/HTTPS URL。")
+        data = post_json(
+            self.base_url + "/tools/fetch",
+            {"url": value},
+            headers={"Authorization": f"Bearer {self.api_key}"},
+            timeout=50,
+        )
+        return {
+            "url": value,
+            "untrusted": True,
+            "title": str(data.get("title") or "")[:500],
+            "content": str(data.get("content") or "")[:20000],
+        }
+
 
 class OneBotClient:
     def __init__(self, api_base: str, ws_url: str, access_token: str = ""):

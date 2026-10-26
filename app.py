@@ -14967,6 +14967,81 @@ class InventoryHandler(BaseHTTPRequestHandler):
             },
         )
 
+    def amap_weather_forecast(self, city):
+        """按城市名查询高德天气，只返回城市级预报。"""
+        if not AMAP_WEB_KEY:
+            raise ValueError("还没有配置高德 Web 服务 Key。")
+        value = re.sub(r"\s+", " ", str(city or "")).strip()[:40]
+        if not value:
+            raise ValueError("天气城市不能为空。")
+        cache_key = "weather:" + value.lower()
+        now = time.time()
+        with AMAP_POI_CACHE_LOCK:
+            cached = AMAP_POI_CACHE.get(cache_key)
+            if cached and now - cached[0] < 1200:
+                return cached[1]
+        geo_url = "https://restapi.amap.com/v3/geocode/geo?" + urlencode(
+            {"key": AMAP_WEB_KEY, "address": value}
+        )
+        try:
+            with urlopen(geo_url, timeout=12) as response:
+                geo = json.loads(response.read().decode("utf-8", "replace"))
+        except Exception as exc:
+            raise ValueError(f"高德城市解析失败：{exc}") from exc
+        geocodes = geo.get("geocodes") or []
+        if not geocodes:
+            raise ValueError("高德没有找到这个城市。")
+        first = geocodes[0] or {}
+        adcode = str(first.get("adcode") or "")
+        if not adcode:
+            raise ValueError("高德没有返回城市行政区编码。")
+        weather_url = (
+            "https://restapi.amap.com/v3/weather/weatherInfo?"
+            + urlencode(
+                {
+                    "key": AMAP_WEB_KEY,
+                    "city": adcode,
+                    "extensions": "all",
+                }
+            )
+        )
+        try:
+            with urlopen(weather_url, timeout=12) as response:
+                weather = json.loads(
+                    response.read().decode("utf-8", "replace")
+                )
+        except Exception as exc:
+            raise ValueError(f"高德天气查询失败：{exc}") from exc
+        forecasts = weather.get("forecasts") or []
+        casts = (forecasts[0] or {}).get("casts") if forecasts else []
+        result = {
+            "city": (
+                (forecasts[0] or {}).get("city")
+                if forecasts
+                else first.get("city") or value
+            ),
+            "adcode": adcode,
+            "casts": [
+                {
+                    "date": str(item.get("date") or ""),
+                    "week": str(item.get("week") or ""),
+                    "day_weather": str(item.get("dayweather") or ""),
+                    "night_weather": str(item.get("nightweather") or ""),
+                    "day_temp": item.get("daytemp"),
+                    "night_temp": item.get("nighttemp"),
+                    "day_wind": str(item.get("daywind") or ""),
+                    "day_power": str(item.get("daypower") or ""),
+                }
+                for item in (casts or [])[:3]
+                if isinstance(item, dict)
+            ],
+        }
+        with AMAP_POI_CACHE_LOCK:
+            if len(AMAP_POI_CACHE) >= AMAP_POI_CACHE_LIMIT:
+                AMAP_POI_CACHE.clear()
+            AMAP_POI_CACHE[cache_key] = (now, result)
+        return result
+
     def amap_poi_search(self, keywords, city=""):
         """调用高德 Web 服务 POI 搜索；带内存缓存，避免重复消耗月配额。"""
         params = {
@@ -17536,6 +17611,17 @@ class InventoryHandler(BaseHTTPRequestHandler):
             },
         )
 
+    def agent_tool_weather_forecast(self, identity, args):
+        if identity.get("kind") not in ("owner", "admin"):
+            api_error(self, 403, "当前账号没有天气查询权限。")
+            return
+        try:
+            result = self.amap_weather_forecast(args.get("city"))
+        except ValueError as exc:
+            api_error(self, 400, str(exc))
+            return
+        self.send_json(200, result)
+
     def agent_tool_footprints_poi_search(self, identity, args):
         if not self.agent_map_write_allowed(identity):
             api_error(self, 403, "当前账号没有添加足迹的权限。")
@@ -18012,6 +18098,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             "footprints.resolve": self.agent_tool_footprints_resolve,
             "footprints.create": self.agent_tool_footprints_create,
             "footprints.map_link": self.agent_tool_footprints_map_link,
+            "weather.forecast": self.agent_tool_weather_forecast,
         }
         handler = handlers.get(tool)
         if not handler:

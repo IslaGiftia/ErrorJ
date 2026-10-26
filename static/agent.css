@@ -568,6 +568,14 @@
   font-size: 9px;
 }
 
+.agent-setting-wide {
+  grid-column: 1 / -1;
+}
+
+.agent-setting-grid textarea {
+  min-height: 96px;
+}
+
 .agent-section-note {
   margin: -6px 0 0;
   color: var(--muted);
@@ -1016,8 +1024,10 @@
 .agent-sticker-item {
   position: relative;
   display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   min-height: 104px;
   place-items: center;
+  row-gap: 4px;
   padding: 8px;
   border: 1px solid var(--line);
   border-radius: var(--agent-radius);
@@ -1034,6 +1044,17 @@
 .agent-sticker-item > span {
   color: var(--muted);
   font-size: 18px;
+}
+
+.agent-sticker-item > .agent-sticker-file-name {
+  width: 100%;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.35;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-sticker-check {

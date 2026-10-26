@@ -181,6 +181,15 @@ class AgentStore:
                 CREATE INDEX IF NOT EXISTS idx_group_messages_group
                     ON group_messages(platform, group_id, id);
 
+                CREATE TABLE IF NOT EXISTS group_weather_locations (
+                    platform TEXT NOT NULL,
+                    group_id TEXT NOT NULL,
+                    member_id TEXT NOT NULL,
+                    city TEXT NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY (platform, group_id, member_id)
+                );
+
                 CREATE TABLE IF NOT EXISTS memory_consolidation_runs (
                     day TEXT NOT NULL,
                     platform TEXT NOT NULL,
@@ -707,6 +716,82 @@ class AgentStore:
                 (platform, str(group_id)),
             )
 
+    def list_known_group_ids(self, platform: str = "qqbot") -> list[str]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT group_id FROM group_members WHERE platform = ?
+                   UNION
+                   SELECT group_id FROM group_messages WHERE platform = ?
+                   UNION
+                   SELECT group_id FROM group_weather_locations
+                   WHERE platform = ?
+                   ORDER BY group_id""",
+                (platform, platform, platform),
+            ).fetchall()
+        return [str(row["group_id"]) for row in rows if row["group_id"]]
+
+    def set_group_weather_city(
+        self,
+        platform: str,
+        group_id: str,
+        member_id: str,
+        city: str,
+    ) -> str:
+        value = re.sub(r"\s+", " ", str(city or "")).strip()[:40]
+        if not value:
+            raise ValueError("天气城市不能为空。")
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """INSERT INTO group_weather_locations
+                       (platform, group_id, member_id, city, updated_at)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(platform, group_id, member_id) DO UPDATE SET
+                       city = excluded.city,
+                       updated_at = excluded.updated_at""",
+                (
+                    platform,
+                    str(group_id),
+                    str(member_id),
+                    value,
+                    int(time.time()),
+                ),
+            )
+        return value
+
+    def clear_group_weather_city(
+        self,
+        platform: str,
+        group_id: str,
+        member_id: str,
+    ) -> bool:
+        with self._lock, self._connection() as conn:
+            cursor = conn.execute(
+                """DELETE FROM group_weather_locations
+                   WHERE platform = ? AND group_id = ? AND member_id = ?""",
+                (platform, str(group_id), str(member_id)),
+            )
+        return cursor.rowcount > 0
+
+    def list_group_weather_cities(
+        self,
+        platform: str,
+        group_id: str,
+        limit: int = 12,
+    ) -> list[dict]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT member_id, city, updated_at
+                   FROM group_weather_locations
+                   WHERE platform = ? AND group_id = ?
+                   ORDER BY updated_at DESC LIMIT ?""",
+                (
+                    platform,
+                    str(group_id),
+                    max(1, min(int(limit), 50)),
+                ),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def recent_group_chats(
         self,
         since: int,
@@ -807,6 +892,15 @@ class AgentStore:
             "morning_time": "09:00",
             "night_time": "21:30",
             "sticker_enabled": True,
+            "persona_preset": "冷脸萌",
+            "persona_custom_prompt": "",
+            "web_search_enabled": True,
+            "web_search_count": 5,
+            "group_proactive_enabled": False,
+            "group_weather_enabled": True,
+            "group_holiday_enabled": True,
+            "group_weather_city": "",
+            "group_proactive_time": "08:30",
             "voice_enabled": False,
             "memory_consolidation_enabled": True,
             "memory_consolidation_time": "03:30",

@@ -4,7 +4,7 @@ import base64
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hmac
@@ -68,6 +68,27 @@ PROACTIVE_MIN_GAP_SECONDS = 90 * 60
 PROACTIVE_MEMORY_COOLDOWN_SECONDS = 3 * 86400
 REMINDER_MAX_ATTEMPTS = 5
 REMINDER_RETRY_DELAYS = (30, 120, 600, 1800)
+PERSONA_PRESETS = {
+    "冷脸萌": "保持冷脸萌和轻微傲娇，关心但不过度黏人，偶尔嘴硬，语气自然克制。",
+    "温柔": "温柔、耐心、体贴，先理解对方感受再回应，不使用命令式或指责式表达。",
+    "理性": "理性、清晰、直接，优先说明事实、判断依据和下一步，不刻意卖萌。",
+    "活力": "活泼、轻快、有行动感，可以适度感叹，但不要刷屏、夸张或过度热情。",
+}
+GROUP_WEATHER_CITY_SET_RE = re.compile(
+    r"^(?:设置|保存|记录)天气城市\s*[:：]?\s*(?P<city>.{1,40})$"
+)
+GROUP_WEATHER_CITY_CLEAR_RE = re.compile(
+    r"^(?:清除|删除)天气城市$"
+)
+CN_HOLIDAY_STARTS = {
+    "2026-01-01": "元旦",
+    "2026-02-15": "春节",
+    "2026-04-04": "清明节",
+    "2026-05-01": "劳动节",
+    "2026-06-19": "端午节",
+    "2026-09-25": "中秋节",
+    "2026-10-01": "国庆节",
+}
 CHAT_SPLIT_RE = re.compile(r"\s*\[\[split\]\]\s*", re.IGNORECASE)
 MEMORY_CONSOLIDATION_LOOKBACK_SECONDS = 2 * 86400
 STICKER_REQUEST_RE = re.compile(
@@ -773,7 +794,7 @@ class AgentService:
         score = 0
         category = str(sticker.get("category") or "").strip().lower()
         if category and (category in value or value in category):
-            score += 100
+            score += 40
         for tag in re.split(r"[,，、/|;；]+", str(sticker.get("tags") or "")):
             tag = tag.strip().lower()
             if tag and (tag in value or value in tag):
@@ -782,9 +803,9 @@ class AgentService:
         keywords = cls.sticker_filename_keywords(source_name)
         for keyword in keywords:
             if keyword and keyword in value:
-                score += 40 + min(len(keyword), 10)
+                score += 130 + min(len(keyword), 10)
             elif keyword and value in keyword:
-                score += 20 + min(len(value), 10)
+                score += 90 + min(len(value), 10)
             elif keyword:
                 longest = 0
                 for start in range(len(keyword)):
@@ -793,7 +814,7 @@ class AgentService:
                         if fragment in value:
                             longest = max(longest, len(fragment))
                 if longest >= 2:
-                    score += 20 + min(longest * 5, 20)
+                    score += 70 + min(longest * 5, 20)
         return score
 
     @classmethod
@@ -1398,6 +1419,7 @@ class AgentService:
         state: dict,
         topic: str = "",
         memories: list[str] | None = None,
+        persona_prompt: str = "",
     ) -> str:
         memory_lines = (
             list(memories or [])
@@ -1406,13 +1428,19 @@ class AgentService:
         )
         prompt = (
             "你是折兮颜，称呼用户为星星。请主动发一条简短自然的消息。"
-            "冷脸萌、轻微傲娇，关心但不过度黏人。只发一到两句，"
+            "只发一到两句，"
             "不要分点、不要空行、闲聊句末通常不加句号，"
             "问号和感叹号按语气保留，不要提这是系统定时任务。"
             "不要假装刚看到消息，也不要用质问或冷暴力的语气。"
             f"\n主动原因：{reason}。"
             f"\n{self.relationship_prompt(state)}"
         )
+        if persona_prompt:
+            prompt += "\n表达人格：" + persona_prompt[:1400]
+        else:
+            prompt += (
+                "\n表达人格：冷脸萌、轻微傲娇，关心但不过度黏人。"
+            )
         if topic:
             prompt += f"\n可以自然带到的话题：{topic}。"
         last_topic = str(state.get("last_topic") or "").strip()
@@ -1443,6 +1471,187 @@ class AgentService:
             return start_time <= current < end_time
         return current >= start_time or current < end_time
 
+    @staticmethod
+    def group_holiday_notice(now: datetime) -> str:
+        tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+        today = now.strftime("%Y-%m-%d")
+        if tomorrow in CN_HOLIDAY_STARTS:
+            return "明天开始" + CN_HOLIDAY_STARTS[tomorrow] + "假期。"
+        if today in CN_HOLIDAY_STARTS:
+            return "今天是" + CN_HOLIDAY_STARTS[today] + "。"
+        if now.weekday() == 4:
+            return "明天就是周末。"
+        return ""
+
+    def send_group_proactive(self, group_id: str, text: str) -> str:
+        if self.qqbot:
+            try:
+                self.qqbot.send_active_message("group", group_id, text)
+                return "group"
+            except Exception as group_error:
+                admins = self.store.admin_ids("qqbot")
+                if not admins:
+                    raise
+                try:
+                    self.qqbot.send_active_message("private", admins[0], text)
+                except Exception as private_error:
+                    raise AgentError(
+                        "QQBot 群晨报和私聊兜底均发送失败："
+                        f"{private_error}"
+                    ) from group_error
+                print(
+                    "[GroupProactive] 群消息失败，已私聊送达："
+                    f"{group_error}",
+                    flush=True,
+                )
+                return "private_fallback"
+        self.onebot.send_group(int(group_id), text)
+        return "group"
+
+    def handle_group_weather_command(self, event: MessageEvent) -> bool:
+        if event.message_type != "group" or event.location:
+            return False
+        text = event.text.strip()
+        city_match = GROUP_WEATHER_CITY_SET_RE.fullmatch(text)
+        if city_match:
+            city = self.store.set_group_weather_city(
+                event.platform,
+                str(event.chat_id),
+                str(event.user_id),
+                city_match.group("city"),
+            )
+            self.send_reply(
+                event,
+                f"天气城市已设为“{city}”。群晨报只使用城市名，"
+                "不会保存精确位置。",
+            )
+            return True
+        if GROUP_WEATHER_CITY_CLEAR_RE.fullmatch(text):
+            removed = self.store.clear_group_weather_city(
+                event.platform,
+                str(event.chat_id),
+                str(event.user_id),
+            )
+            self.send_reply(
+                event,
+                "已清除你的天气城市。"
+                if removed
+                else "你还没有设置天气城市。",
+            )
+            return True
+        return False
+
+    def _group_proactive_tick(self, now: datetime) -> None:
+        platform, owners = self.proactive_target()
+        if platform != "qqbot" or not owners or not self.qqbot:
+            return
+        settings = self.store.get_settings("qqbot", owners[0])
+        if not settings.get("group_proactive_enabled", False):
+            return
+        if self.in_quiet_hours(
+            now,
+            str(settings.get("quiet_start") or "23:30"),
+            str(settings.get("quiet_end") or "08:00"),
+        ):
+            return
+        target_time = str(
+            settings.get("group_proactive_time") or "08:30"
+        )
+        if not self.proactive_time_near(now, target_time):
+            return
+        group_ids = sorted(self.config.qqbot_group_ids) or (
+            self.store.list_known_group_ids("qqbot")
+        )
+        day = now.strftime("%Y-%m-%d")
+        for group_id in group_ids[:20]:
+            slot_owner = f"qqbot-group:{group_id}"
+            if self.store.proactive_count(day, slot_owner) > 0:
+                continue
+            city_rows = self.store.list_group_weather_cities(
+                "qqbot",
+                group_id,
+                20,
+            )
+            cities = []
+            if settings.get("group_weather_enabled", True):
+                for row in city_rows:
+                    city = str(row.get("city") or "").strip()
+                    if city and city not in cities:
+                        cities.append(city)
+                default_city = str(
+                    settings.get("group_weather_city") or ""
+                ).strip()
+                if default_city and default_city not in cities:
+                    cities.append(default_city)
+            weather_lines = []
+            for city in cities[:3]:
+                try:
+                    forecast = self.errorjiang.tool(
+                        "weather.forecast",
+                        {"city": city},
+                    )
+                except Exception as exc:
+                    print(
+                        f"[GroupProactive] 天气查询失败 city={city}: {exc}",
+                        flush=True,
+                    )
+                    continue
+                casts = forecast.get("casts") or []
+                today = casts[0] if casts else {}
+                if not today:
+                    continue
+                weather_lines.append(
+                    f"{forecast.get('city') or city}："
+                    f"{today.get('day_weather') or '天气未知'}，"
+                    f"{today.get('night_temp') or '?'}~"
+                    f"{today.get('day_temp') or '?'}℃"
+                )
+            lines = []
+            if weather_lines:
+                lines.append("早安。")
+                lines.extend(weather_lines)
+            if settings.get("group_holiday_enabled", True):
+                holiday = self.group_holiday_notice(now)
+                if holiday:
+                    lines.append(holiday)
+            if not lines:
+                continue
+            text = "\n".join(lines)[:1500]
+            try:
+                channel = self.send_group_proactive(group_id, text)
+                if not self.store.claim_proactive_slot(
+                    day,
+                    "group-morning-brief",
+                    slot_owner,
+                ):
+                    continue
+                if channel == "private_fallback":
+                    self.store.add_message(
+                        "qqbot",
+                        owners[0],
+                        "assistant",
+                        text,
+                    )
+                    print(
+                        f"[GroupProactive] group={group_id} 已私聊兜底",
+                        flush=True,
+                    )
+                else:
+                    self.store.add_group_message(
+                        "qqbot",
+                        group_id,
+                        "assistant",
+                        "折兮颜",
+                        "assistant",
+                        text,
+                        f"group-proactive:{day}",
+                    )
+            except Exception as exc:
+                print(
+                    f"[GroupProactive] group={group_id} 发送失败：{exc}",
+                    flush=True,
+                )
+
     def proactive_target(self) -> tuple[str, list[str]]:
         if self.qqbot:
             return "qqbot", self.store.admin_ids("qqbot")
@@ -1470,6 +1679,7 @@ class AgentService:
         candidate: dict,
         memory_rows: list[dict],
     ) -> bool:
+        settings = self.store.get_settings(platform, owner_id)
         text = self.proactive_message(
             owner_id,
             str(candidate["reason"]),
@@ -1480,6 +1690,7 @@ class AgentService:
                 for item in memory_rows[:8]
                 if item.get("content")
             ],
+            persona_prompt=self.persona_prompt(settings),
         )
         if not text:
             return False
@@ -1585,6 +1796,7 @@ class AgentService:
                     )
                 except Exception:
                     traceback.print_exc()
+            self._group_proactive_tick(now)
 
     def memory_settings(self, platform: str, owner_id: str) -> dict:
         return self.store.get_settings(platform, owner_id)
@@ -1596,6 +1808,16 @@ class AgentService:
         values: dict[str, Any],
     ) -> dict:
         return self.store.save_settings(platform, owner_id, values)
+
+    @staticmethod
+    def persona_prompt(settings: dict[str, Any]) -> str:
+        preset = str(settings.get("persona_preset") or "冷脸萌")
+        base = PERSONA_PRESETS.get(preset, PERSONA_PRESETS["冷脸萌"])
+        custom = str(settings.get("persona_custom_prompt") or "").strip()
+        custom = re.sub(r"\s+", " ", custom)[:1000]
+        if custom:
+            base += " 用户自定义表达偏好：" + custom
+        return base
 
     def prepare_review(
         self,
@@ -2113,6 +2335,8 @@ class AgentService:
         if not self.rate_limiter.allow(str(event.user_id)):
             self.send_reply(event, "请求太频繁，请稍后再试。")
             return
+        if self.handle_group_weather_command(event):
+            return
         if (
             event.message_type == "group"
             and not event.location
@@ -2359,6 +2583,16 @@ class AgentService:
             "is_admin": "1" if is_admin else "0",
             "target_user_id": str(target_user_id),
             "speaker_name": speaker_name,
+            "persona_prompt": self.persona_prompt(settings),
+            "web_search_enabled": (
+                "1" if settings.get("web_search_enabled", True) else "0"
+            ),
+            "web_search_count": str(
+                max(
+                    1,
+                    min(int(settings.get("web_search_count") or 5), 10),
+                )
+            ),
             "tools_enabled": (
                 "0"
                 if event.message_type == "group"
@@ -2551,6 +2785,16 @@ class AgentService:
             "is_admin": "1" if int(user_id) == self.config.admin_user_id else "0",
             "target_user_id": str(user_id),
             "sticker_enabled": "0",
+            "persona_prompt": self.persona_prompt(settings),
+            "web_search_enabled": (
+                "1" if settings.get("web_search_enabled", True) else "0"
+            ),
+            "web_search_count": str(
+                max(
+                    1,
+                    min(int(settings.get("web_search_count") or 5), 10),
+                )
+            ),
         }
         reply = brain.reply(
             text,

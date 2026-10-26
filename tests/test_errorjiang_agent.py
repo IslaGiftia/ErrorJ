@@ -9,6 +9,7 @@ import threading
 import time
 import unittest
 from collections import defaultdict
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,6 +17,7 @@ from unittest.mock import patch
 
 import app
 from errorjiang_agent.brain import AgentBrain
+from errorjiang_agent.clients import DeepSeekClient
 from errorjiang_agent.config import Config
 from errorjiang_agent.errors import AgentError
 from errorjiang_agent.onebot import MessageEvent, event_key, parse_message_event
@@ -99,6 +101,90 @@ class AgentStoreTests(unittest.TestCase):
         )
         self.assertEqual(self.store.list_stickers("10001")[0]["id"], sticker_id)
         self.assertIsNotNone(self.store.delete_sticker("10001", sticker_id))
+
+    def test_persona_and_web_search_settings_persist(self):
+        settings = self.store.save_settings(
+            "qq",
+            "10001",
+            {
+                "persona_preset": "温柔",
+                "persona_custom_prompt": "少用感叹号，偶尔先说嗯。",
+                "web_search_enabled": False,
+                "web_search_count": 8,
+            },
+        )
+        self.assertEqual(settings["persona_preset"], "温柔")
+        self.assertEqual(settings["web_search_count"], 8)
+        self.assertFalse(settings["web_search_enabled"])
+        prompt = AgentService.persona_prompt(settings)
+        self.assertIn("温柔", prompt)
+        self.assertIn("少用感叹号", prompt)
+
+    def test_group_weather_city_is_member_scoped_and_clearable(self):
+        self.store.set_group_weather_city(
+            "qqbot",
+            "group-openid",
+            "member-a",
+            "西安",
+        )
+        self.store.set_group_weather_city(
+            "qqbot",
+            "group-openid",
+            "member-b",
+            "成都",
+        )
+        cities = self.store.list_group_weather_cities(
+            "qqbot",
+            "group-openid",
+        )
+        self.assertEqual(
+            {item["member_id"]: item["city"] for item in cities},
+            {"member-a": "西安", "member-b": "成都"},
+        )
+        self.assertTrue(
+            self.store.clear_group_weather_city(
+                "qqbot",
+                "group-openid",
+                "member-a",
+            )
+        )
+        cities = self.store.list_group_weather_cities(
+            "qqbot",
+            "group-openid",
+        )
+        self.assertEqual([item["member_id"] for item in cities], ["member-b"])
+
+    def test_group_weather_command_uses_member_and_group_scope(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        replies = []
+        service.send_reply = lambda event, text: replies.append(text)
+        event = MessageEvent(
+            self_id="bot",
+            user_id="member-a",
+            message_type="group",
+            chat_id="group-openid",
+            message_id="message-1",
+            text="设置天气城市 西安",
+            to_me=True,
+            platform="qqbot",
+        )
+        self.assertTrue(service.handle_group_weather_command(event))
+        cities = self.store.list_group_weather_cities(
+            "qqbot",
+            "group-openid",
+        )
+        self.assertEqual(cities[0]["member_id"], "member-a")
+        self.assertEqual(cities[0]["city"], "西安")
+        self.assertIn("不会保存精确位置", replies[0])
+
+        clear_event = replace(event, text="清除天气城市", message_id="message-2")
+        self.assertTrue(service.handle_group_weather_command(clear_event))
+        self.assertEqual(
+            self.store.list_group_weather_cities("qqbot", "group-openid"),
+            [],
+        )
+        self.assertEqual(replies[-1], "已清除你的天气城市。")
 
     def test_sticker_usage_updates_for_duplicate_file(self):
         first = self.store.add_sticker("0", "image", "same.png", "QQ图片")
@@ -257,6 +343,13 @@ class AgentStoreTests(unittest.TestCase):
             category="未分类",
             source_name="笑哭_猫猫.png",
         )
+        self.store.add_sticker(
+            "0",
+            "image",
+            "category-only.png",
+            category="睡大觉",
+            source_name="笑哭_猫猫.png",
+        )
         context = {
             "platform": "qqbot",
             "owner_id": "admin-openid",
@@ -337,6 +430,228 @@ class AgentStoreTests(unittest.TestCase):
         self.assertEqual(
             self.store.proactive_count("2026-10-26", "admin-openid"),
             1,
+        )
+
+    def test_group_proactive_sends_city_weather_brief(self):
+        self.store.bind_admin("qqbot", "admin-openid")
+        self.store.save_settings(
+            "qqbot",
+            "admin-openid",
+            {
+                "group_proactive_enabled": True,
+                "group_weather_enabled": True,
+                "group_holiday_enabled": True,
+                "group_weather_city": "成都",
+                "group_proactive_time": "08:30",
+            },
+        )
+        self.store.set_group_weather_city(
+            "qqbot",
+            "group-openid",
+            "member-openid",
+            "西安",
+        )
+
+        class FakeQQBot:
+            def __init__(self):
+                self.sent = []
+
+            def send_active_message(self, message_type, chat_id, text):
+                self.sent.append((message_type, chat_id, text))
+
+        class FakeErrorJ:
+            def tool(self, name, arguments):
+                self.last = (name, arguments)
+                return {
+                    "city": arguments["city"],
+                    "casts": [
+                        {
+                            "date": "2026-10-28",
+                            "day_weather": "晴",
+                            "night_temp": "10",
+                            "day_temp": "20",
+                        }
+                    ],
+                }
+
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.qqbot = FakeQQBot()
+        service.onebot = SimpleNamespace()
+        service.errorjiang = FakeErrorJ()
+        service.config = SimpleNamespace(
+            qqbot_group_ids=frozenset({"group-openid"})
+        )
+        now = datetime(2026, 10, 28, 8, 30)
+        service._group_proactive_tick(now)
+        self.assertEqual(len(service.qqbot.sent), 1)
+        message_type, group_id, text = service.qqbot.sent[0]
+        self.assertEqual((message_type, group_id), ("group", "group-openid"))
+        self.assertIn("早安", text)
+        self.assertIn("西安", text)
+        self.assertIn("成都", text)
+        self.assertIn("晴", text)
+        self.assertEqual(
+            self.store.proactive_count(
+                "2026-10-28",
+                "qqbot-group:group-openid",
+            ),
+            1,
+        )
+        self.assertEqual(
+            self.store.get_group_messages("qqbot", "group-openid")[-1][
+                "content"
+            ],
+            text,
+        )
+        service._group_proactive_tick(now)
+        self.assertEqual(len(service.qqbot.sent), 1)
+
+    def test_group_proactive_falls_back_to_admin_private(self):
+        self.store.bind_admin("qqbot", "admin-openid")
+        self.store.save_settings(
+            "qqbot",
+            "admin-openid",
+            {
+                "group_proactive_enabled": True,
+                "group_weather_enabled": True,
+                "group_holiday_enabled": True,
+                "group_weather_city": "成都",
+                "group_proactive_time": "08:30",
+            },
+        )
+
+        class FakeQQBot:
+            def __init__(self):
+                self.sent = []
+
+            def send_active_message(self, message_type, chat_id, text):
+                if message_type == "group":
+                    raise AgentError("group denied")
+                self.sent.append((message_type, chat_id, text))
+
+        class FakeErrorJ:
+            def tool(self, name, arguments):
+                return {
+                    "city": arguments["city"],
+                    "casts": [
+                        {
+                            "day_weather": "多云",
+                            "night_temp": "12",
+                            "day_temp": "21",
+                        }
+                    ],
+                }
+
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.qqbot = FakeQQBot()
+        service.onebot = SimpleNamespace()
+        service.errorjiang = FakeErrorJ()
+        service.config = SimpleNamespace(
+            qqbot_group_ids=frozenset({"group-openid"})
+        )
+        service._group_proactive_tick(datetime(2026, 10, 28, 8, 30))
+        self.assertEqual(len(service.qqbot.sent), 1)
+        message_type, owner_id, text = service.qqbot.sent[0]
+        self.assertEqual(
+            (message_type, owner_id),
+            ("private", "admin-openid"),
+        )
+        self.assertIn("成都", text)
+        self.assertEqual(
+            self.store.proactive_count(
+                "2026-10-28",
+                "qqbot-group:group-openid",
+            ),
+            1,
+        )
+        self.assertEqual(
+            self.store.get_group_messages("qqbot", "group-openid"),
+            [],
+        )
+        private_messages = self.store.get_messages(
+            "qqbot",
+            "admin-openid",
+            10,
+        )
+        self.assertEqual(private_messages[-1]["content"], text)
+
+    def test_group_proactive_failure_does_not_claim_slot(self):
+        self.store.bind_admin("qqbot", "admin-openid")
+        self.store.save_settings(
+            "qqbot",
+            "admin-openid",
+            {
+                "group_proactive_enabled": True,
+                "group_weather_enabled": True,
+                "group_holiday_enabled": True,
+                "group_weather_city": "成都",
+                "group_proactive_time": "08:30",
+            },
+        )
+
+        class FakeQQBot:
+            def __init__(self):
+                self.attempts = []
+
+            def send_active_message(self, message_type, chat_id, text):
+                self.attempts.append((message_type, chat_id))
+                raise AgentError(f"{message_type} denied")
+
+        class FakeErrorJ:
+            def tool(self, name, arguments):
+                return {
+                    "city": arguments["city"],
+                    "casts": [
+                        {
+                            "day_weather": "晴",
+                            "night_temp": "10",
+                            "day_temp": "20",
+                        }
+                    ],
+                }
+
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.qqbot = FakeQQBot()
+        service.onebot = SimpleNamespace()
+        service.errorjiang = FakeErrorJ()
+        service.config = SimpleNamespace(
+            qqbot_group_ids=frozenset({"group-openid"})
+        )
+        service._group_proactive_tick(datetime(2026, 10, 28, 8, 30))
+        self.assertEqual(
+            service.qqbot.attempts,
+            [
+                ("group", "group-openid"),
+                ("private", "admin-openid"),
+            ],
+        )
+        self.assertEqual(
+            self.store.proactive_count(
+                "2026-10-28",
+                "qqbot-group:group-openid",
+            ),
+            0,
+        )
+        self.assertEqual(
+            self.store.get_group_messages("qqbot", "group-openid"),
+            [],
+        )
+
+    def test_group_holiday_notice_weekend_and_holiday_eve(self):
+        self.assertEqual(
+            AgentService.group_holiday_notice(
+                datetime(2026, 10, 30, 8, 30)
+            ),
+            "明天就是周末。",
+        )
+        self.assertEqual(
+            AgentService.group_holiday_notice(
+                datetime(2026, 9, 24, 8, 30)
+            ),
+            "明天开始中秋节假期。",
         )
 
     def test_group_location_cache_is_member_scoped_and_one_time(self):
@@ -1322,6 +1637,50 @@ class AgentStoreTests(unittest.TestCase):
         )
         self.assertEqual(calls[0][1], {"content": "晚上好", "msg_type": 0})
 
+    def test_deepseek_web_search_and_fetch_payloads(self):
+        client = DeepSeekClient(
+            "https://api.deepseek.com",
+            "test-key",
+            "deepseek-chat",
+        )
+        with patch(
+            "errorjiang_agent.clients.post_json",
+            side_effect=[
+                {
+                    "results": [
+                        {
+                            "title": "热梗来源",
+                            "url": "https://example.com/meme",
+                            "summary": "近期热梗摘要",
+                            "date": "2026-10-25T00:00:00Z",
+                        }
+                    ]
+                },
+                {
+                    "title": "完整文章",
+                    "content": "# 正文\n热梗来源说明",
+                },
+            ],
+        ) as request:
+            search = client.web_search("最近热梗", 3, "最近有什么热梗")
+            fetched = client.web_fetch("https://example.com/meme")
+        self.assertTrue(search["untrusted"])
+        self.assertEqual(search["results"][0]["title"], "热梗来源")
+        self.assertEqual(fetched["title"], "完整文章")
+        search_call, fetch_call = request.call_args_list
+        self.assertTrue(search_call.args[0].endswith("/tools/search"))
+        self.assertEqual(search_call.args[1]["query"], "最近热梗")
+        self.assertEqual(search_call.args[1]["count"], 3)
+        self.assertEqual(
+            search_call.args[1]["ori_question"],
+            "最近有什么热梗",
+        )
+        self.assertTrue(fetch_call.args[0].endswith("/tools/fetch"))
+        self.assertEqual(
+            fetch_call.args[1]["url"],
+            "https://example.com/meme",
+        )
+
     def test_qqbot_image_upload_uses_file_info_and_media_message(self):
         client = QQBotClient("app", "secret", "bot", lambda event: None)
         client._auth_headers = lambda: {"Authorization": "test"}
@@ -1947,6 +2306,37 @@ class FakeDeepSeek:
         return self.replies.pop(0)
 
 
+class FakeSearchDeepSeek(FakeDeepSeek):
+    def __init__(self, replies):
+        super().__init__(replies)
+        self.search_calls = []
+        self.seen_systems = []
+        self.seen_tools = []
+
+    def chat(self, messages, tools):
+        self.seen_systems.append(str(messages[0].get("content") or ""))
+        self.seen_tools.append(
+            {
+                str(tool.get("function", {}).get("name") or "")
+                for tool in tools
+            }
+        )
+        return super().chat(messages, tools)
+
+    def web_search(self, query, count=5, original_question=""):
+        self.search_calls.append((query, count, original_question))
+        return {
+            "query": query,
+            "untrusted": True,
+            "results": [
+                {
+                    "title": "热梗来源",
+                    "url": "https://example.com/meme",
+                }
+            ],
+        }
+
+
 class FakeErrorJ:
     def __init__(self):
         self.calls = []
@@ -2012,6 +2402,109 @@ class AgentBrainTests(unittest.TestCase):
         brain = AgentBrain(deepseek, errorjiang, lambda args, context: {})
         self.assertEqual(brain.reply("有哪些账目？", []), "账目列表如下。")
         self.assertEqual(errorjiang.calls, [("aa.events.list", {})])
+
+    def test_weather_tool_mapping(self):
+        deepseek = FakeDeepSeek(
+            [
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call-weather",
+                            "type": "function",
+                            "function": {
+                                "name": "errorjiang_weather_forecast",
+                                "arguments": json.dumps({"city": "西安"}),
+                            },
+                        }
+                    ],
+                },
+                {"role": "assistant", "content": "西安今天晴。"},
+            ]
+        )
+        errorjiang = FakeErrorJ()
+        brain = AgentBrain(deepseek, errorjiang, lambda args, context: {})
+        self.assertEqual(
+            brain.reply("西安天气怎么样？", [], {"tools_enabled": "1"}),
+            "西安今天晴。",
+        )
+        self.assertEqual(
+            errorjiang.calls,
+            [("weather.forecast", {"city": "西安"})],
+        )
+
+    def test_web_search_tool_and_persona_context(self):
+        deepseek = FakeSearchDeepSeek(
+            [
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call-search",
+                            "type": "function",
+                            "function": {
+                                "name": "deepseek_web_search",
+                                "arguments": json.dumps(
+                                    {
+                                        "query": "最近热梗",
+                                        "count": 2,
+                                    }
+                                ),
+                            },
+                        }
+                    ],
+                },
+                {
+                    "role": "assistant",
+                    "content": "最近热梗来源：https://example.com/meme",
+                },
+            ]
+        )
+        brain = AgentBrain(
+            deepseek,
+            FakeErrorJ(),
+            lambda args, context: {},
+        )
+        reply = brain.reply(
+            "最近有什么热梗？",
+            [],
+            {
+                "tools_enabled": "1",
+                "web_search_enabled": "1",
+                "web_search_count": "5",
+                "persona_prompt": "温柔，少用感叹号。",
+            },
+        )
+        self.assertIn("example.com/meme", reply)
+        self.assertEqual(
+            deepseek.search_calls,
+            [("最近热梗", 2, "最近有什么热梗？")],
+        )
+        self.assertIn("温柔，少用感叹号", deepseek.seen_systems[0])
+        self.assertIn("deepseek_web_search", deepseek.seen_tools[0])
+
+    def test_web_search_disabled_is_hidden_from_model(self):
+        deepseek = FakeSearchDeepSeek(
+            [{"role": "assistant", "content": "普通回复"}]
+        )
+        brain = AgentBrain(
+            deepseek,
+            FakeErrorJ(),
+            lambda args, context: {},
+        )
+        reply = brain.reply(
+            "最近有什么热梗？",
+            [],
+            {
+                "tools_enabled": "1",
+                "web_search_enabled": "0",
+            },
+        )
+        self.assertEqual(reply, "普通回复")
+        self.assertNotIn("deepseek_web_search", deepseek.seen_tools[0])
+        self.assertNotIn("deepseek_web_fetch", deepseek.seen_tools[0])
 
     def test_review_prepare_receives_current_chat_context(self):
         deepseek = FakeDeepSeek(
@@ -2361,6 +2854,93 @@ class AgentInternalAuthTests(unittest.TestCase):
         self.assertAlmostEqual(lat, 30.280001, delta=0.01)
         self.assertAlmostEqual(lng, 120.155001, delta=0.01)
         self.assertEqual(app.gcj02_to_wgs84(51.5, -0.12), (51.5, -0.12))
+
+    def test_amap_weather_uses_city_adcode_and_returns_forecast(self):
+        class FakeResponse:
+            def __init__(self, payload):
+                self.raw = json.dumps(payload).encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def read(self):
+                return self.raw
+
+        handler = self.make_handler({})
+        responses = [
+            FakeResponse(
+                {
+                    "status": "1",
+                    "geocodes": [
+                        {"city": "西安市", "adcode": "610100"}
+                    ],
+                }
+            ),
+            FakeResponse(
+                {
+                    "status": "1",
+                    "forecasts": [
+                        {
+                            "city": "西安市",
+                            "casts": [
+                                {
+                                    "date": "2026-10-28",
+                                    "week": "3",
+                                    "dayweather": "晴",
+                                    "nightweather": "多云",
+                                    "daytemp": "20",
+                                    "nighttemp": "10",
+                                    "daywind": "东北",
+                                    "daypower": "1-3",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ),
+        ]
+        with patch.object(app, "AMAP_WEB_KEY", "test-key"), patch.object(
+            app,
+            "AMAP_POI_CACHE",
+            {},
+        ), patch.object(app, "urlopen", side_effect=responses):
+            result = handler.amap_weather_forecast("西安")
+        self.assertEqual(result["city"], "西安市")
+        self.assertEqual(result["adcode"], "610100")
+        self.assertEqual(result["casts"][0]["day_weather"], "晴")
+        self.assertEqual(result["casts"][0]["night_temp"], "10")
+
+    def test_weather_tool_is_owner_only_and_returns_city_forecast(self):
+        handler = self.make_handler({})
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        handler.amap_weather_forecast = lambda city: {
+            "city": city,
+            "adcode": "610100",
+            "casts": [{"day_weather": "晴"}],
+        }
+        handler.agent_tool_weather_forecast(
+            {"kind": "owner", "user_id": 0},
+            {"city": "西安"},
+        )
+        self.assertEqual(captured["status"], 200)
+        self.assertEqual(captured["payload"]["city"], "西安")
+
+        with patch.object(app, "api_error") as api_error:
+            handler.agent_tool_weather_forecast(
+                {"kind": "member", "user_id": 7},
+                {"city": "西安"},
+            )
+        api_error.assert_called_once_with(
+            handler,
+            403,
+            "当前账号没有天气查询权限。",
+        )
 
     def test_footprint_search_returns_existing_places(self):
         handler = self.make_handler({})
@@ -3270,7 +3850,14 @@ class AgentConsoleUiTests(unittest.TestCase):
         self.assertIn('id="settings-stickers"', html)
         self.assertIn('id="agentSettingsSave" disabled', html)
         self.assertIn('aria-label="筛选记忆"', html)
-        self.assertEqual(html.count("data-console-section"), 6)
+        self.assertIn('id="settings-persona"', html)
+        self.assertIn('id="settings-web-search"', html)
+        self.assertIn('id="settings-group-proactive"', html)
+        self.assertIn('id="settingPersonaPreset"', html)
+        self.assertIn('id="settingWebSearchEnabled"', html)
+        self.assertIn('id="settingGroupProactiveEnabled"', html)
+        self.assertIn("agent-sticker-file-name", script)
+        self.assertEqual(html.count("data-console-section"), 9)
         self.assertNotIn('id="agentMessages"', html)
         self.assertNotIn('id="agentForm"', html)
         self.assertNotIn('id="agentSettingsDialog"', html)
