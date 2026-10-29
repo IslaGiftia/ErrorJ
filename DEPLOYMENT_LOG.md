@@ -6939,6 +6939,56 @@ QQBot     -> 已连接 4015320753
 
 备注：本次迁移范围是主动聊天。定时提醒循环仍使用旧 OneBot 通道，QQBot 群提醒的 openid 转数字异常仍存在，需要单独迁移提醒发送逻辑。
 
+## 156. 2026-10-29 16:30:56 折兮颜支持群聊免 @ 接话与高德图文卡片
+
+来源：站长确认 QQBot 已开启“接收所有消息”，线上日志也收到全量群消息和 `message_type=3 ark=tuwen` 卡片，但旧逻辑会丢弃未 @ 的普通消息且只解析 `ark_type=map`；站长要求去掉必须 @ 的步骤，只在消息明确找机器人或延续当前对话时回复。
+
+完成内容（功能提交 `3eefcc3 feat: support qq group replies without mentions`，7 文件，+373/−17）：
+
+- QQBot 全量群消息保留 `group_full`、引用消息和提及他人状态；机器人自己发出的消息会被过滤，避免自问自答。
+- 未 @ 消息的接话门槛：明确包含“折兮颜 / Error酱 / 小颜”，引用十分钟内机器人回复，或同一成员延续当前对话时出现“你”、明确追问、连续词或命令。
+- 天气城市、绑定账号、帮助、确认码、表情保存、添加刚才的标记点等明确命令无需 @ 也会执行。
+- 普通群聊、感叹、链接、@ 其他成员和与机器人无关的问题保持沉默，不硬插话。
+- 高德位置分享兼容 ARK `map` 与 `tuwen` 图文卡，并校验高德 URL；`surl.amap.com` 等短链会跟随到最终 URL 解析经纬度。
+- 结构化群消息诊断新增 `ark_name` 和字段名，后续可定位其他高德分享格式。
+
+部署步骤：
+```text
+本地：Python 编译检查；Python 单测 281 项通过；
+      changelog-seed JSON 校验；git diff --check 干净
+提交：3eefcc3 feat: support qq group replies without mentions
+      （fetch → pull --rebase → push；local == origin/main == 3eefcc3）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 738EFD10CC6BFBC706E7936CC1801D16109C679C55B17208C3E790D3E099D5E9
+备份：/data/errorjiang-backup/20261029-163151/（22M）
+      inventory.db、auth.json、changelog-seed.json、
+      agent-data/agent.db 与 stickers；无 WAL / SHM
+服务器：systemctl stop errorjiang-agent -> systemctl stop errorjiang
+      cp 备份 -> git pull --ff-only -> 3eefcc3
+      install 新 seed；
+      import_changelog_moments.py --date 2026-10-29 --force
+      -> 新增 3 条、覆盖 0 条、跳过 0 条
+      systemctl start errorjiang -> systemctl start errorjiang-agent
+```
+
+验证结果：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 公网 /api/health = {"ok":true}；
+             Agent 172.17.0.1:8011/health = {"ok":true}
+QQBot     -> 已连接 4015320753
+版本      -> 功能提交 = origin/main = 服务器功能 HEAD = 3eefcc3
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+更新日志  -> /api/moments 中 2026-10-29 16:30:56
+             「折兮颜支持群聊免 @ 接话与高德图文卡片」（id 770，kind = log）
+静态文件  -> 规范化 CRLF 后，messages / moments / fresh-visibility /
+             sidebar / references 公网与本地 SHA256 全部一致
+本地回归  -> 281 项单测通过；全量群消息、免 @ 门槛、引用续聊、
+             他人 @ 静默、天气 / 位置命令、tuwen 卡片和短链坐标均通过
+```
+
+备注：重启后尚未收到新的群消息，因此本轮没有触发线上 `auto_reply=1` 实例；此前 16:11 已确认平台投递全量群事件，16:13 已确认 tuwen 结构化卡片到达。下一次群内免 @ 对话和位置分享会根据新日志继续观察。
+
 ## 155. 2026-10-29 16:06:44 折兮颜支持三级区域检索并简化新内容提醒
 
 来源：站长确认 QQBot 已开启“接收所有消息”，并要求足迹搜索按省/直辖市、地级市、县/区三级工作，例如检索陕西省宝鸡市千阳县有哪些餐饮点；同时要求新内容提醒不再依赖悬停或点击。
