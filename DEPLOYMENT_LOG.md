@@ -6939,6 +6939,63 @@ QQBot     -> 已连接 4015320753
 
 备注：本次迁移范围是主动聊天。定时提醒循环仍使用旧 OneBot 通道，QQBot 群提醒的 openid 转数字异常仍存在，需要单独迁移提醒发送逻辑。
 
+## 154. 2026-10-29 10:05:54 折兮颜补全群位置卡片、热搜与相对时间
+
+来源：站长实测群内高德地图位置卡片仍无法添加，定时提醒出现过长时间延迟，并希望补充微博 / B站 / 抖音热搜；随后要求动态、留言和左下账户活跃时间统一显示相对时间，悬停时显示精确日期。
+
+完成内容（功能提交 `de12b90 feat: complete agent locations hot search and relative time`，19 文件，+1228/−71）：
+
+- QQBot 支持官方 `GROUP_MESSAGE_CREATE` 全量群消息，识别机器人被 @ 的 mention 文本；普通群消息只做过滤，不进入模型、记忆或群上下文。
+- 支持 QQ ARK `map` 位置卡片，可读取标题、地址、高德链接坐标和 `jump_url`；卡片没有坐标时按地点名自动高德搜索，仍找不到才返回足迹页选点链接。
+- 新增微博、B站、抖音热搜工具，返回当前标题、排名、热度和平台搜索链接；需要事件详情时继续使用 DeepSeek 网页搜索。
+- 定时提醒超过原定时间 2 小时后会取消原内容并发送一次“提醒已错过”说明，避免服务重启后把数天前的提醒当正常通知补发。
+- 留言、动态、评论、更新日志和左下账户活跃时间共用相对时间模块，始终显示分钟 / 小时 / 天前，最多 `999999 天前`。
+- 相对时间支持鼠标悬停和键盘聚焦，浮层显示精确到秒的日期时间，移开或失焦后恢复相对时间；提示颜色跟随明暗主题。
+- 左下账户卡在 20 秒轮询中同步更新活跃时间与精确时间提示。
+
+部署步骤：
+```text
+本地：Python 编译检查；Python 单测 276 项通过；
+      agent.js / books.js / messages.js / moments.js / activity.js /
+      relative-time.js / sidebar.js 语法检查；
+      changelog-seed JSON 校验；git diff --check 干净
+提交：de12b90 feat: complete agent locations hot search and relative time
+      （fetch → pull --rebase → push；local == origin/main == de12b90）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 5ABEF6EE0A6FD8732661B8897CC7C7118C15D78D62750CCCA606C920F514B82F
+备份：/data/errorjiang-backup/20261029-100831/（21M）
+      inventory.db、auth.json、changelog-seed.json、
+      agent-data/agent.db 与 stickers；无 WAL / SHM
+服务器：systemctl stop errorjiang-agent -> systemctl stop errorjiang
+      cp 备份 -> git pull --ff-only -> de12b90
+      install 新 seed；
+      import_changelog_moments.py --date 2026-10-29 --force
+      -> 新增 1 条、覆盖 0 条、跳过 0 条
+      systemctl start errorjiang -> systemctl start errorjiang-agent
+```
+
+验证结果：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 公网 /api/health = {"ok":true}；
+             Agent 172.17.0.1:8011/health = {"ok":true}
+QQBot     -> 已连接 4015320753
+版本      -> 功能提交 = origin/main = 服务器功能 HEAD = de12b90
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+更新日志  -> /api/moments 中 2026-10-29 10:05:54
+             「折兮颜补全群位置卡片、热搜与相对时间」（id 764，kind = log）
+静态文件  -> 规范化 CRLF 后，messages / moments / relative-time /
+             sidebar / references 公网与本地 SHA256 全部一致
+热搜接口  -> 服务器实测微博、B站、抖音均返回当前榜单
+公网交互  -> Playwright 实测留言和动态页：
+             时间显示为相对时间，悬停出现精确时间浮层；
+             浅色与暗色模式浮层配色不同，移开后浮层隐藏
+本地回归  -> 276 项单测通过；群全量消息、ARK 地图卡片、
+             热搜解析、提醒过期保护、共享相对时间均通过
+```
+
+备注：QQ 群位置卡片要在未 @ 机器人时被接收，仍需在 QQ 开放平台为机器人开启“接收所有消息”。代码已支持该事件，开启后日志会显示“群全量消息接收状态：已开启”。
+
 ## 153. 2026-10-26 12:42:49 折兮颜增加网页搜索、人格设置与群主动晨报
 
 来源：站长先要求为折兮颜增加网页搜索、人格设置和按文件名选表情包，随后要求增加群晨报，根据成员主动公布的城市发送天气，并补充周末 / 节假日提醒。
