@@ -52,20 +52,6 @@
         clear(node, targetId);
       });
     }
-    node.addEventListener(
-      "mouseenter",
-      function () {
-        clear(node, targetId);
-      },
-      { once: true }
-    );
-    node.addEventListener(
-      "click",
-      function () {
-        clear(node, targetId);
-      },
-      { once: true }
-    );
   }
 
   function load() {

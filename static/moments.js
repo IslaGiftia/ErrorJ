@@ -537,21 +537,20 @@
     card.classList.add("is-fresh");
     card.dataset.freshKind = kind;
     card.dataset.freshIds = ids.join(",");
-    var clear = function () {
-      card.removeEventListener("mouseenter", clear);
-      card.removeEventListener("touchstart", clear);
-      clearFreshCard(card, ids);
-    };
-    card.addEventListener("mouseenter", clear);
-    card.addEventListener("touchstart", clear, { passive: true });
     if (window.ErrorFreshVisibility) {
-      window.ErrorFreshVisibility.watch(card, function () {
-        clearFreshCard(card, ids);
-      });
+      window.ErrorFreshVisibility.watch(
+        card,
+        function () {
+          clearFreshCard(card, ids);
+        },
+        function () {
+          if (kind === "comment") replayCommentBlink(card);
+        }
+      );
     }
   }
 
-  // 移动端没有 hover：滚到新评论后把正文的闪烁重放一次（CSS 在触摸设备上只闪 3 次）
+  // 新评论进入视口时重放三次闪烁；桌面和移动端规则一致。
   function replayCommentBlink(card) {
     var text = card.querySelector(".mo-comment-text.is-new-comment");
     if (!text) return;

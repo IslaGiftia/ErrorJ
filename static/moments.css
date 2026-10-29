@@ -1137,7 +1137,7 @@ button.mo-share:hover {
 /* ---------- 新互动提醒：和首页模块按钮一样的呼吸 ---------- */
 .mo-item.is-fresh {
   --mo-fresh-base: var(--mo-shadow);
-  animation: moFreshPulse 3.6s ease-in-out infinite;
+  animation: moFreshPulse 1.2s ease-in-out 3;
 }
 
 @keyframes moFreshPulse {
@@ -1154,10 +1154,10 @@ button.mo-share:hover {
   }
 }
 
-/* 新评论：正文变主题色并闪烁；桌面闪到鼠标进入整张卡片，触摸设备只闪 3 次 */
+/* 新评论：正文变主题色，进入视口后统一闪烁 3 次 */
 .mo-comment-text.is-new-comment {
   color: var(--mo-accent);
-  animation: moCommentBlink 1s ease-in-out infinite;
+  animation: moCommentBlink 1s ease-in-out 3;
 }
 
 @keyframes moCommentBlink {
@@ -1168,12 +1168,6 @@ button.mo-share:hover {
 
   50% {
     opacity: 0.35;
-  }
-}
-
-@media (hover: none), (pointer: coarse) {
-  .mo-comment-text.is-new-comment {
-    animation-iteration-count: 3;
   }
 }
 
@@ -1194,7 +1188,7 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
   border-color: color-mix(in srgb, var(--mo-accent) 55%, transparent);
   --mo-fresh-base: 0 6px 20px rgba(24, 31, 45, 0.18);
   color: var(--mo-accent);
-  animation: moFreshPulse 3.6s ease-in-out infinite;
+  animation: moFreshPulse 1.2s ease-in-out 3;
 }
 
 @media (prefers-reduced-motion: reduce) {

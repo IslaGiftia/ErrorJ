@@ -2949,8 +2949,38 @@ class ComplianceWorkflowTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("READ_PULSES = 3", script)
-        self.assertIn("PULSE_MS = 3600", script)
+        self.assertIn("PULSE_MS = 1200", script)
+        self.assertIn("entry.onVisible(entry.node)", script)
         self.assertIn("errorj-recommend-visibility", script)
+        for module, replay in (
+            ("messages", "replayReplyBlink"),
+            ("moments", "replayCommentBlink"),
+        ):
+            page_script = (app.STATIC_DIR / (module + ".js")).read_text(
+                encoding="utf-8"
+            )
+            self.assertNotIn('addEventListener("touchstart", clear', page_script)
+            self.assertNotIn('addEventListener("mouseenter", clear', page_script)
+            self.assertIn(replay, page_script)
+        for stylesheet in ("messages.css", "moments.css"):
+            css = (app.STATIC_DIR / stylesheet).read_text(encoding="utf-8")
+            self.assertIn("1.2s ease-in-out 3", css)
+            self.assertIn("1s ease-in-out 3", css)
+        fresh_cards = (app.STATIC_DIR / "site" / "fresh-cards.js").read_text(
+            encoding="utf-8"
+        )
+        focus_target = (
+            app.STATIC_DIR / "site" / "focus-target.js"
+        ).read_text(encoding="utf-8")
+        for script in (fresh_cards, focus_target):
+            self.assertNotIn('addEventListener("mouseenter"', script)
+            self.assertNotIn('addEventListener("click"', script)
+        fresh_css = (
+            app.STATIC_DIR / "site" / "fresh-cards.css"
+        ).read_text(encoding="utf-8")
+        self.assertIn("1.2s ease-in-out 3", fresh_css)
+        map_css = (app.STATIC_DIR / "map.css").read_text(encoding="utf-8")
+        self.assertIn("mpPinPulse 1.2s ease-in-out 3", map_css)
 
     def test_button_effect_layers_do_not_capture_label_text(self):
         script = (app.STATIC_DIR / "site" / "button-effects.js").read_text(
@@ -3129,6 +3159,8 @@ class ComplianceWorkflowTests(unittest.TestCase):
         )
         self.assertIn(".error-relative-time-tooltip", sidebar_css)
         self.assertIn(':root[data-theme="dark"] .error-relative-time-tooltip', sidebar_css)
+        self.assertNotIn("text-decoration: underline", sidebar_css)
+        self.assertIn("cursor: help;", sidebar_css)
         for filename in ("moments.js", "messages.js"):
             script = (app.STATIC_DIR / filename).read_text(encoding="utf-8")
             self.assertIn("window.ErrorRelativeTime", script)

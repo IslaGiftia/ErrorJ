@@ -1019,7 +1019,7 @@ button.mg-file {
 /* ---------- 新互动提醒：和首页模块按钮一样的呼吸 ---------- */
 .mg-item.is-fresh {
   --mg-fresh-base: var(--mg-shadow);
-  animation: mgFreshPulse 3.6s ease-in-out infinite;
+  animation: mgFreshPulse 1.2s ease-in-out 3;
 }
 
 @keyframes mgFreshPulse {
@@ -1042,13 +1042,10 @@ button.mg-file {
   word-break: break-word;
 }
 
-/*
- * 新回复：正文变主题色并闪烁。桌面端一直闪到鼠标进入整张卡片；
- * 触摸设备只闪 3 次（定位到新回复后重放一次）。
- */
+/* 新回复：正文变主题色，进入视口后统一闪烁 3 次。 */
 .mg-reply-text.is-new-reply {
   color: var(--mg-accent);
-  animation: mgReplyBlink 1s ease-in-out infinite;
+  animation: mgReplyBlink 1s ease-in-out 3;
 }
 
 @keyframes mgReplyBlink {
@@ -1059,12 +1056,6 @@ button.mg-file {
 
   50% {
     opacity: 0.35;
-  }
-}
-
-@media (hover: none), (pointer: coarse) {
-  .mg-reply-text.is-new-reply {
-    animation-iteration-count: 3;
   }
 }
 
@@ -1521,7 +1512,7 @@ body[data-notify-module="messages"] .site-back-top.is-pending {
   border-color: color-mix(in srgb, var(--mg-accent) 55%, transparent);
   --mg-fresh-base: 0 6px 20px rgba(24, 31, 45, 0.18);
   color: var(--mg-accent);
-  animation: mgFreshPulse 3.6s ease-in-out infinite;
+  animation: mgFreshPulse 1.2s ease-in-out 3;
 }
 
 @media (prefers-reduced-motion: reduce) {

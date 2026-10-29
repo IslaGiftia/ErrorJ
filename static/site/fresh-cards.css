@@ -1,16 +1,16 @@
 .mu-row.is-fresh {
   --mu-fresh-base: 0 0 0 rgba(0, 0, 0, 0);
-  animation: muFreshPulse 3.6s ease-in-out infinite;
+  animation: muFreshPulse 1.2s ease-in-out 3;
 }
 
 .bk-card.is-fresh {
   --bk-fresh-base: var(--bk-shadow);
-  animation: bkFreshPulse 3.6s ease-in-out infinite;
+  animation: bkFreshPulse 1.2s ease-in-out 3;
 }
 
 .rec-card.is-fresh {
   --rec-fresh-base: var(--rec-shadow);
-  animation: recFreshPulse 3.6s ease-in-out infinite;
+  animation: recFreshPulse 1.2s ease-in-out 3;
 }
 
 @keyframes muFreshPulse {
@@ -65,7 +65,7 @@
 
 /* 地图页：从更新日志点「新增足迹」跳进来时，那条标记的卡片呼吸 */
 .mp-item.is-fresh {
-  animation: mpFreshPulse 3.6s ease-in-out infinite;
+  animation: mpFreshPulse 1.2s ease-in-out 3;
 }
 
 @keyframes mpFreshPulse {

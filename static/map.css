@@ -1113,7 +1113,7 @@ body {
 }
 
 .mp-marker.is-fresh .mp-pin-head {
-  animation: mpPinPulse 2.4s ease-in-out infinite;
+  animation: mpPinPulse 1.2s ease-in-out 3;
 }
 
 @keyframes mpPinPulse {

@@ -2860,7 +2860,13 @@ class AgentBrainTests(unittest.TestCase):
                             "function": {
                                 "name": "errorjiang_footprints_search",
                                 "arguments": json.dumps(
-                                    {"query": "咖啡馆", "status": "visited"}
+                                    {
+                                        "province": "陕西省",
+                                        "city": "宝鸡市",
+                                        "district": "千阳县",
+                                        "category": "美食",
+                                        "status": "visited",
+                                    }
                                 ),
                             },
                         },
@@ -2895,7 +2901,16 @@ class AgentBrainTests(unittest.TestCase):
         self.assertEqual(
             errorjiang.calls,
             [
-                ("footprints.search", {"query": "咖啡馆", "status": "visited"}),
+                (
+                    "footprints.search",
+                    {
+                        "province": "陕西省",
+                        "city": "宝鸡市",
+                        "district": "千阳县",
+                        "category": "美食",
+                        "status": "visited",
+                    },
+                ),
                 (
                     "footprints.poi_search",
                     {"keywords": "西湖咖啡馆", "city": "杭州"},
@@ -3274,6 +3289,86 @@ class AgentInternalAuthTests(unittest.TestCase):
         self.assertEqual(captured["payload"]["results"][0]["name"], "西湖咖啡馆")
         self.assertTrue(
             captured["payload"]["results"][0]["url"].endswith("/map?place=8")
+        )
+
+    def test_footprint_area_terms_remove_generic_suffixes(self):
+        handler = self.make_handler({})
+        self.assertEqual(
+            handler.agent_footprint_area_terms("西安市区"),
+            ["西安市区", "西安"],
+        )
+        self.assertEqual(
+            handler.agent_footprint_area_terms("雁塔区"),
+            ["雁塔区", "雁塔"],
+        )
+        self.assertEqual(
+            handler.agent_footprint_area_terms("西安市"),
+            ["西安市", "西安"],
+        )
+        self.assertEqual(
+            handler.agent_footprint_area_terms("陕西省"),
+            ["陕西省", "陕西"],
+        )
+        region = handler.agent_footprint_region("陕西省宝鸡市千阳县")
+        self.assertEqual(region["province"], "陕西省")
+        self.assertEqual(region["city"], "宝鸡市")
+        self.assertEqual(region["district"], "千阳县")
+
+    def test_footprint_search_matches_county_by_anchor_and_category(self):
+        handler = self.make_handler({})
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        candidates = [
+            {
+                "id": 9,
+                "name": "千阳小馆",
+                "address": None,
+                "category_name": "美食",
+                "parent_category_name": None,
+                "status": "",
+                "rating": 0,
+                "lat": 34.641,
+                "lng": 107.391,
+                "created_by": 0,
+                "created_by_name": None,
+            }
+        ]
+        anchors = [{"lat": 34.640, "lng": 107.390}]
+        with patch.object(
+            app,
+            "query",
+            side_effect=[candidates, anchors],
+        ) as query_mock:
+            handler.agent_tool_footprints_search(
+                {"kind": "owner", "user_id": 0},
+                {
+                    "province": "陕西省",
+                    "city": "宝鸡市",
+                    "district": "千阳县",
+                    "category": "美食",
+                    "limit": 8,
+                },
+            )
+        candidate_sql, candidate_params = query_mock.call_args_list[0].args
+        anchor_sql, anchor_params = query_mock.call_args_list[1].args
+        self.assertIn("c.name LIKE ?", candidate_sql)
+        self.assertIn("%美食%", candidate_params)
+        self.assertIn("%串串%", candidate_params)
+        self.assertIn("%特色小吃%", candidate_params)
+        self.assertIn("%千阳县%", anchor_params)
+        self.assertIn("%千阳%", anchor_params)
+        self.assertIn("p.address LIKE ?", anchor_sql)
+        self.assertEqual(captured["status"], 200)
+        self.assertEqual(captured["payload"]["province"], "陕西省")
+        self.assertEqual(captured["payload"]["city"], "宝鸡市")
+        self.assertEqual(captured["payload"]["district"], "千阳县")
+        self.assertEqual(captured["payload"]["region_level"], "district")
+        self.assertEqual(captured["payload"]["region_radius_km"], 20.0)
+        self.assertEqual(captured["payload"]["count"], 1)
+        self.assertIsNotNone(
+            captured["payload"]["results"][0]["distance_meters"]
         )
 
     def test_private_map_blocks_member_footprint_tools(self):

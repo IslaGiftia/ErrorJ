@@ -50,8 +50,6 @@
 /* 动态 / 留言 / 侧栏共用的相对时间与精确时间浮层 */
 .relative-time {
   cursor: help;
-  text-decoration: underline dotted color-mix(in srgb, currentColor 42%, transparent);
-  text-underline-offset: 2px;
 }
 
 .relative-time:focus-visible {

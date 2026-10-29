@@ -17538,18 +17538,129 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )
         return radius * 2 * math.atan2(math.sqrt(value), math.sqrt(1 - value))
 
+    @staticmethod
+    def agent_footprint_area_terms(area):
+        value = re.sub(r"\s+", " ", str(area or "")).strip()[:80]
+        if not value:
+            return []
+        variants = [value]
+        normalized = value
+        suffixes = (
+            "市中心",
+            "特别行政区",
+            "自治区",
+            "自治州",
+            "城区",
+            "市区",
+            "地区",
+            "一带",
+            "附近",
+            "周边",
+        )
+        changed = True
+        while changed:
+            changed = False
+            for suffix in suffixes:
+                if normalized.endswith(suffix) and len(normalized) > len(suffix) + 1:
+                    normalized = normalized[: -len(suffix)].strip()
+                    variants.append(normalized)
+                    changed = True
+                    break
+        if len(normalized) > 2 and normalized[-1:] in (
+            "省",
+            "市",
+            "区",
+            "县",
+            "镇",
+            "旗",
+            "盟",
+        ):
+            normalized = normalized[:-1].strip()
+            variants.append(normalized)
+        return list(dict.fromkeys(item for item in variants if item))
+
+    @staticmethod
+    def agent_footprint_region(area, province="", city="", district=""):
+        values = {
+            "province": re.sub(r"\s+", " ", str(province or "")).strip()[:40],
+            "city": re.sub(r"\s+", " ", str(city or "")).strip()[:40],
+            "district": re.sub(r"\s+", " ", str(district or "")).strip()[:40],
+        }
+        raw_area = re.sub(r"\s+", " ", str(area or "")).strip()[:100]
+        if raw_area and not any(values.values()):
+            province_match = re.search(
+                r"[\u4e00-\u9fff]{2,12}(?:省|自治区|特别行政区)",
+                raw_area,
+            )
+            cursor = 0
+            if province_match:
+                values["province"] = province_match.group(0)
+                cursor = province_match.end()
+            city_match = re.search(
+                r"[\u4e00-\u9fff]{2,12}(?:市|自治州|地区|盟)",
+                raw_area[cursor:],
+            )
+            if city_match:
+                values["city"] = city_match.group(0)
+                cursor += city_match.end()
+            district_match = re.search(
+                r"[\u4e00-\u9fff]{2,12}(?:县|区|旗)",
+                raw_area[cursor:],
+            )
+            if district_match:
+                values["district"] = district_match.group(0)
+            if not any(values.values()):
+                values["area"] = raw_area
+        elif raw_area:
+            values["area"] = raw_area
+        for key in ("province", "city", "district"):
+            if values[key]:
+                values[key + "_terms"] = InventoryHandler.agent_footprint_area_terms(
+                    values[key]
+                )
+        if values.get("area"):
+            values["area_terms"] = InventoryHandler.agent_footprint_area_terms(
+                values["area"]
+            )
+        return values
+
+    @staticmethod
+    def agent_footprint_region_radius(level):
+        return {
+            "district": 20_000,
+            "city": 80_000,
+            "province": 500_000,
+            "area": 80_000,
+        }.get(level, 80_000)
+
     def agent_tool_footprints_search(self, identity, args):
         if not self.agent_map_view_allowed(identity):
             api_error(self, 403, "当前账号没有查看足迹的权限。")
             return
         search = str(args.get("query") or "").strip()[:200]
+        area = str(args.get("area") or "").strip()[:80]
+        region = self.agent_footprint_region(
+            area,
+            args.get("province"),
+            args.get("city"),
+            args.get("district"),
+        )
+        has_region = any(
+            region.get(key)
+            for key in ("province", "city", "district", "area")
+        )
+        category = str(args.get("category") or "").strip()[:40]
         status = str(args.get("status") or "").strip().lower()
         if status not in ("", "all", "wish", "visited"):
             api_error(self, 400, "足迹状态只支持 wish 或 visited。")
             return
         if status == "all":
             status = ""
-        limit = self.agent_limit(args.get("limit"), 8, 20)
+        limit = self.agent_limit(
+            args.get("limit"),
+            20 if has_region else 8,
+            20,
+        )
         conditions = ["p.created_by IS NOT NULL"]
         params = []
         if search:
@@ -17560,6 +17671,43 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     OR c.name LIKE ?)"""
             )
             params.extend([like] * 7)
+        if category:
+            if category in ("美食", "餐饮", "吃的", "食物", "小吃"):
+                category_hints = (
+                    "美食",
+                    "餐饮",
+                    "面食",
+                    "小吃",
+                    "餐厅",
+                    "饭店",
+                    "火锅",
+                    "烧烤",
+                    "串串",
+                    "烤肉",
+                    "咖啡",
+                    "甜品",
+                    "夜市",
+                    "早市",
+                    "早餐",
+                    "家常菜",
+                    "特色小吃",
+                    "泡馍",
+                    "小炒",
+                    "凉皮",
+                    "凉粉",
+                    "麻辣烫",
+                )
+            else:
+                category_hints = (category,)
+            category_clauses = []
+            for hint in category_hints:
+                category_clauses.append(
+                    """(c.name LIKE ? OR pc.name LIKE ? OR p.name LIKE ?
+                        OR p.tags LIKE ?)"""
+                )
+                like = f"%{hint}%"
+                params.extend([like] * 4)
+            conditions.append("(" + " OR ".join(category_clauses) + ")")
         if status:
             conditions.append("p.status = ?")
             params.append(status)
@@ -17567,17 +17715,129 @@ class InventoryHandler(BaseHTTPRequestHandler):
             """SELECT p.id, p.category_id, p.name, p.subtitle, p.address, p.note,
                       p.signature, p.tags, p.lat, p.lng, p.status, p.rating,
                       p.created_by, p.created_at, p.updated_at,
-                      c.name AS category_name, u.username AS created_by_name
+                      c.name AS category_name, pc.name AS parent_category_name,
+                      u.username AS created_by_name
                FROM map_places p
                LEFT JOIN map_categories c ON c.id = p.category_id
+               LEFT JOIN map_categories pc ON pc.id = c.parent_id
                LEFT JOIN users u ON u.id = p.created_by
                WHERE """
             + " AND ".join(conditions)
-            + """ ORDER BY p.updated_at DESC, p.id DESC LIMIT ?""",
-            (*params, limit),
+            + """ ORDER BY p.updated_at DESC, p.id DESC LIMIT 1000""",
+            tuple(params),
         )
+        region_groups = []
+        for level in ("district", "city", "province", "area"):
+            terms = region.get(level + "_terms") or []
+            if terms:
+                region_groups.append((level, terms))
+        primary_level = region_groups[0][0] if region_groups else ""
+        primary_terms = region_groups[0][1] if region_groups else []
+        radius_m = self.agent_footprint_region_radius(primary_level)
+        anchors = []
+        if primary_terms:
+            anchor_clauses = []
+            anchor_params = []
+            for term in primary_terms:
+                like = f"%{term}%"
+                anchor_clauses.append(
+                    """(p.name LIKE ? OR p.subtitle LIKE ? OR p.address LIKE ?
+                        OR p.tags LIKE ?)"""
+                )
+                anchor_params.extend([like] * 4)
+            anchors = query(
+                """SELECT p.lat, p.lng
+                   FROM map_places p
+                   WHERE p.created_by IS NOT NULL
+                     AND ("""
+                + " OR ".join(anchor_clauses)
+                + """) LIMIT 100""",
+                tuple(anchor_params),
+            )
+        center = None
+        anchor_coords = []
+        for anchor in anchors:
+            try:
+                anchor_coords.append(
+                    (float(anchor.get("lat")), float(anchor.get("lng")))
+                )
+            except (TypeError, ValueError):
+                continue
+        if anchor_coords:
+            center = (
+                sum(item[0] for item in anchor_coords) / len(anchor_coords),
+                sum(item[1] for item in anchor_coords) / len(anchor_coords),
+            )
+        scored_rows = []
+        for index, row in enumerate(rows):
+            row_text = " ".join(
+                str(row.get(key) or "")
+                for key in (
+                    "name",
+                    "subtitle",
+                    "address",
+                    "tags",
+                    "category_name",
+                    "parent_category_name",
+                )
+            ).lower()
+            primary_match = any(
+                term.lower() in row_text for term in primary_terms
+            )
+            distance_m = None
+            if center:
+                try:
+                    distance_m = self.map_distance_meters(
+                        center[0],
+                        center[1],
+                        row.get("lat"),
+                        row.get("lng"),
+                    )
+                except (TypeError, ValueError):
+                    distance_m = None
+            near_match = distance_m is not None and distance_m <= radius_m
+            if primary_terms and not primary_match and not near_match:
+                continue
+            score = 0
+            weighted_levels = {
+                "district": 100,
+                "city": 60,
+                "province": 30,
+                "area": 60,
+            }
+            for level, terms in region_groups:
+                if any(term.lower() in row_text for term in terms):
+                    score += weighted_levels.get(level, 20)
+            if near_match:
+                score += 50 + round(30 * (1 - distance_m / radius_m))
+            scored_rows.append((score, index, distance_m, row))
+        scored_rows.sort(
+            key=lambda item: (
+                -item[0],
+                item[2] if item[2] is not None else float("inf"),
+                item[1],
+            )
+        )
+        unique_rows = []
+        seen_places = set()
+        for item in scored_rows:
+            row = item[3]
+            try:
+                place_key = (
+                    str(row.get("name") or "").strip().lower(),
+                    round(float(row.get("lat")), 5),
+                    round(float(row.get("lng")), 5),
+                )
+            except (TypeError, ValueError):
+                place_key = (str(row.get("id") or item[1]), "", "")
+            if place_key in seen_places:
+                continue
+            seen_places.add(place_key)
+            unique_rows.append(item)
+            if len(unique_rows) >= limit:
+                break
         results = []
-        for row in rows:
+        for _, _, distance_m, row in unique_rows:
             results.append(
                 {
                     "id": int(row["id"]),
@@ -17589,10 +17849,16 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "tags": row.get("tags") or "",
                     "category_id": row.get("category_id"),
                     "category_name": row.get("category_name") or "",
+                    "parent_category_name": (
+                        row.get("parent_category_name") or ""
+                    ),
                     "status": row.get("status") or "",
                     "rating": int(row.get("rating") or 0),
                     "lat": row.get("lat"),
                     "lng": row.get("lng"),
+                    "distance_meters": (
+                        round(distance_m) if distance_m is not None else None
+                    ),
                     "created_by_name": (
                         "管理员"
                         if not row.get("created_by")
@@ -17605,8 +17871,20 @@ class InventoryHandler(BaseHTTPRequestHandler):
             200,
             {
                 "query": search,
+                "area": area,
+                "province": region.get("province") or "",
+                "city": region.get("city") or "",
+                "district": region.get("district") or "",
+                "category": category,
+                "region_level": primary_level,
+                "region_radius_km": round(radius_m / 1000, 1),
                 "status": status,
                 "count": len(results),
+                "message": (
+                    "该区域没有匹配的已标记足迹。"
+                    if not results
+                    else ""
+                ),
                 "results": results,
             },
         )

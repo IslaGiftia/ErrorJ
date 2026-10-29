@@ -297,6 +297,7 @@ class QQBotClient:
         heartbeat_due = time.monotonic() + heartbeat_interval
         last_sequence: int | None = None
         identified = False
+        saw_full_group_event = False
         sock.settimeout(None)
         try:
             while not self._stop.is_set():
@@ -386,6 +387,27 @@ class QQBotClient:
                     continue
                 if not identified:
                     continue
+                if event_type == "GROUP_MESSAGE_CREATE":
+                    if not saw_full_group_event:
+                        saw_full_group_event = True
+                        print(
+                            "[QQBot] 已收到全量群消息事件。",
+                            flush=True,
+                        )
+                    ark_data = event_payload.get("ark_data") or {}
+                    try:
+                        message_type = int(
+                            event_payload.get("message_type") or 0
+                        )
+                    except (TypeError, ValueError):
+                        message_type = 0
+                    if ark_data or message_type == 3:
+                        print(
+                            "[QQBot] 群结构化消息 "
+                            f"type={message_type} "
+                            f"ark={str((ark_data or {}).get('ark_type') or '')}",
+                            flush=True,
+                        )
                 event = parse_qqbot_event(
                     event_type,
                     event_payload,

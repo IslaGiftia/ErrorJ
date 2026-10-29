@@ -4,7 +4,7 @@
   if (window.ErrorFreshVisibility) return;
 
   var READ_PULSES = 3;
-  var PULSE_MS = 3600;
+  var PULSE_MS = 1200;
   var reducedMotion = window.matchMedia
     ? window.matchMedia("(prefers-reduced-motion: reduce)")
     : { matches: false };
@@ -51,6 +51,9 @@
     entry.node.classList.remove("is-fresh");
     void entry.node.offsetWidth;
     entry.node.classList.add("is-fresh");
+    if (typeof entry.onVisible === "function") {
+      entry.onVisible(entry.node);
+    }
     var delay = reducedMotion.matches ? 900 : READ_PULSES * PULSE_MS + 80;
     entry.timer = window.setTimeout(function () {
       entry.timer = 0;
@@ -85,7 +88,6 @@
           entry.visible =
             record.isIntersecting && isVisible(record.target);
           if (active && pageVisible && entry.visible) startRead(entry);
-          else stopRead(entry);
         });
       },
       { threshold: 0, rootMargin: "0px 0px -80px 0px" }
@@ -96,7 +98,6 @@
     entries.forEach(function (entry) {
       entry.visible = isVisible(entry.node);
       if (active && pageVisible && entry.visible) startRead(entry);
-      else stopRead(entry);
     });
   }
 
@@ -112,16 +113,18 @@
     });
   }
 
-  function watch(node, onRead) {
+  function watch(node, onRead, onVisible) {
     if (!node || typeof onRead !== "function") return;
     var entry = entries.get(node);
     if (entry) {
       entry.onRead = onRead;
+      entry.onVisible = onVisible;
       return;
     }
     entry = {
       node: node,
       onRead: onRead,
+      onVisible: onVisible,
       visible: isVisible(node),
       timer: 0,
       done: false,

@@ -10,7 +10,7 @@
  *   1. 读地址栏的 ?focus=<id>（地图页是 ?place=<id>，页面自己传 id 进来）；
  *   2. 也接受推荐页外壳发来的 postMessage（{type:"errorj-focus", id}），
  *      这样在推荐页原地切标签时不用重新加载 iframe；
- *   3. 找到卡片后给它打上 .is-fresh（呼吸闪烁，鼠标移入或点击后清除），
+ *   3. 找到卡片后给它打上 .is-fresh（进入视口后呼吸三次自动清除），
  *      并把右下角「顶部」按钮切成「↓ 更新」+ 呼吸，点它平滑滚到这条内容。
  */
 (function () {
@@ -71,8 +71,11 @@
       node.classList.remove("is-fresh");
       clearPending();
     }
-    node.addEventListener("mouseenter", clear, { once: true });
-    node.addEventListener("click", clear, { once: true });
+    if (window.ErrorFreshVisibility) {
+      window.ErrorFreshVisibility.watch(node, clear);
+    } else {
+      window.setTimeout(clear, 3700);
+    }
 
     var api = window.ErrorBackToTop;
     if (api && api.setPending) {
