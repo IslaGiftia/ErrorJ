@@ -36,6 +36,9 @@ class MessageEvent:
     attachments: tuple[dict[str, Any], ...] = ()
     display_name: str = ""
     location: dict[str, Any] | None = None
+    group_full: bool = False
+    referenced: bool = False
+    mentions_other: bool = False
 
     @property
     def owner_id(self) -> str:
@@ -161,11 +164,27 @@ def _location_from_url(value: Any) -> dict[str, Any] | None:
 def _normalize_ark_map(mapping: Any) -> dict[str, Any] | None:
     if not isinstance(mapping, dict):
         return None
-    if str(mapping.get("ark_type") or "").strip().lower() != "map":
-        return None
+    ark_type = str(mapping.get("ark_type") or "").strip().lower()
     fields = mapping.get("fields")
     if not isinstance(fields, dict):
         fields = {}
+    url_values = []
+    for key in LOCATION_URL_KEYS:
+        value = _first_text(fields, (key,)) or _first_text(mapping, (key,))
+        if value:
+            url_values.append(value)
+    amap_url = any(
+        (urlsplit(unquote(value)).hostname or "")
+        .lower()
+        .endswith(("amap.com", "gaode.com"))
+        for value in url_values
+        if "://" in value
+    )
+    ark_name = str(mapping.get("ark_name") or "").strip().lower()
+    if ark_type != "map" and not (
+        amap_url or any(word in ark_name for word in ("地图", "位置", "高德"))
+    ):
+        return None
     title = _first_text(fields, LOCATION_TITLE_KEYS)
     address = _first_text(fields, LOCATION_ADDRESS_KEYS)
     city = _first_text(fields, LOCATION_CITY_KEYS)
@@ -188,10 +207,7 @@ def _normalize_ark_map(mapping: Any) -> dict[str, Any] | None:
             }
         )
     else:
-        for key in LOCATION_URL_KEYS:
-            url = _first_text(fields, (key,)) or _first_text(mapping, (key,))
-            if not url:
-                continue
+        for url in url_values:
             from_url = _location_from_url(url)
             if from_url:
                 result.update(

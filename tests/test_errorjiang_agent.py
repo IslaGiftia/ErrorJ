@@ -702,6 +702,142 @@ class AgentStoreTests(unittest.TestCase):
             AgentService.group_location_add_requested("刚才那个地方好玩吗")
         )
 
+    def test_group_auto_reply_requires_name_or_recent_conversation(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+
+        def event(
+            text,
+            referenced=False,
+            mentions_other=False,
+            user_id="member-openid",
+        ):
+            return MessageEvent(
+                self_id="bot",
+                user_id=user_id,
+                message_type="group",
+                chat_id="group-openid",
+                message_id=f"message-{abs(hash((text, referenced)))}",
+                text=text,
+                to_me=False,
+                platform="qqbot",
+                group_full=True,
+                referenced=referenced,
+                mentions_other=mentions_other,
+            )
+
+        self.assertTrue(
+            service.group_message_wants_reply(
+                event("折兮颜，帮我查一下千阳县美食")
+            )
+        )
+        self.assertFalse(
+            service.group_message_wants_reply(
+                event("今天中午大家准备吃什么")
+            )
+        )
+        self.assertTrue(
+            service.group_message_wants_reply(
+                event("设置天气城市 西安")
+            )
+        )
+        self.assertTrue(
+            service.group_message_wants_reply(
+                event("添加刚才的标记点")
+            )
+        )
+        self.store.add_group_message(
+            "qqbot",
+            "group-openid",
+            "member-openid",
+            "星星",
+            "user",
+            "帮我查千阳县。",
+            "group-auto-user-1",
+        )
+        self.store.add_group_message(
+            "qqbot",
+            "group-openid",
+            "assistant",
+            "折兮颜",
+            "assistant",
+            "我刚才查了千阳县。",
+            "group-auto-assistant-1",
+        )
+        self.assertTrue(
+            service.group_message_wants_reply(
+                event("那附近还有别的吗？")
+            )
+        )
+        self.assertTrue(
+            service.group_message_wants_reply(
+                event("接着说", referenced=True)
+            )
+        )
+        self.assertFalse(
+            service.group_message_wants_reply(event("哈哈哈哈"))
+        )
+        self.assertFalse(
+            service.group_message_wants_reply(
+                event("你在说啥", user_id="other-member")
+            )
+        )
+        self.assertFalse(
+            service.group_message_wants_reply(
+                event("你帮我看下这个", mentions_other=True)
+            )
+        )
+
+        submitted = []
+
+        class FakeFuture:
+            def add_done_callback(self, callback):
+                return None
+
+        service.executor = SimpleNamespace(
+            submit=lambda fn, *args: submitted.append((fn, args))
+            or FakeFuture()
+        )
+        service._event_done = lambda future: None
+        service.schedule_qqbot_event(
+            event("Error酱，在吗")
+        )
+        self.assertEqual(len(submitted), 1)
+        self.assertTrue(submitted[0][1][0].to_me)
+        service.schedule_qqbot_event(event("今天食堂排队好长"))
+        self.assertEqual(len(submitted), 1)
+
+    def test_amap_share_url_resolves_to_coordinates(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def geturl(self):
+                return (
+                    "https://uri.amap.com/marker?"
+                    "position=107.110015,34.644625&name=test"
+                )
+
+            def read(self, limit):
+                return b""
+
+        service = object.__new__(AgentService)
+        with patch(
+            "errorjiang_agent.service.urlopen",
+            return_value=FakeResponse(),
+        ):
+            location = service.resolve_amap_share_location(
+                {
+                    "title": "千阳县位置",
+                    "jump_url": "https://surl.amap.com/example",
+                }
+            )
+        self.assertAlmostEqual(location["lat"], 34.644625)
+        self.assertAlmostEqual(location["lng"], 107.110015)
+
     def test_unmentioned_group_location_is_cached_silently(self):
         service = object.__new__(AgentService)
         service.store = self.store
@@ -2399,11 +2535,17 @@ class OneBotParserTests(unittest.TestCase):
                         "bot": True,
                     }
                 ],
+                "message_scene": {
+                    "source": "default",
+                    "ext": ["ref_msg_idx=REFIDX-1"],
+                },
             },
             "bot-qq",
         )
         self.assertIsNotNone(event)
         self.assertTrue(event.to_me)
+        self.assertTrue(event.group_full)
+        self.assertTrue(event.referenced)
         self.assertEqual(event.message_type, "group")
         self.assertEqual(event.text, "添加刚才的标记点")
 
@@ -2433,6 +2575,39 @@ class OneBotParserTests(unittest.TestCase):
         self.assertEqual(event.location["title"], "山里的咖啡店")
         self.assertEqual(event.location["address"], "西安市长安区测试路")
         self.assertNotIn("lat", event.location)
+
+    def test_qqbot_tuwen_amap_card_is_parsed_as_location(self):
+        event = parse_qqbot_event(
+            "GROUP_MESSAGE_CREATE",
+            {
+                "id": "message-amap-tuwen",
+                "content": " ",
+                "group_openid": "group-openid",
+                "author": {
+                    "member_openid": "member-openid",
+                    "username": "星星",
+                },
+                "message_type": 3,
+                "ark_data": {
+                    "ark_type": "tuwen",
+                    "ark_name": "高德地图",
+                    "fields": {
+                        "title": "千阳县人民政府",
+                        "desc": "陕西省宝鸡市千阳县",
+                        "jump_url": (
+                            "https://uri.amap.com/marker?"
+                            "position=107.110015,34.644625"
+                        ),
+                    },
+                },
+            },
+            "bot-qq",
+        )
+        self.assertIsNotNone(event)
+        self.assertTrue(event.group_full)
+        self.assertEqual(event.location["title"], "千阳县人民政府")
+        self.assertAlmostEqual(event.location["lat"], 34.644625)
+        self.assertAlmostEqual(event.location["lng"], 107.110015)
 
     def test_qqbot_file_attachment_is_parsed(self):
         event = parse_qqbot_event(

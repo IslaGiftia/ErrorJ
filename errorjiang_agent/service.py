@@ -32,7 +32,12 @@ from .clients import (
 )
 from .config import Config
 from .errors import AgentError
-from .onebot import MessageEvent, event_key, parse_message_event
+from .onebot import (
+    MessageEvent,
+    event_key,
+    extract_location_event,
+    parse_message_event,
+)
 from .qqbot import QQBotClient
 from .store import AgentStore
 
@@ -85,6 +90,16 @@ GROUP_WEATHER_CITY_SET_RE = re.compile(
 )
 GROUP_WEATHER_CITY_CLEAR_RE = re.compile(
     r"^(?:清除|删除)天气城市$"
+)
+GROUP_BOT_ALIASES = ("折兮颜", "error酱", "错误酱", "小颜")
+GROUP_FOLLOWUP_START_RE = re.compile(
+    r"^(?:那|所以|然后|还有|继续|刚才|刚刚|这个|那个|"
+    r"帮我|请问|查一下|查询|搜索|添加|提醒|记住)"
+)
+GROUP_DIRECT_COMMAND_RE = re.compile(
+    r"^(?:/|帮助$|重置对话$|群友档案$|绑定账号\s+|解绑用户\s+|"
+    r"设置天气城市\s+|清除天气城市$|删除天气城市$|确认\s+\d{6}$|"
+    r"保存(?:一个|一张)?(?:表情包?|图片)|添加(?:一个|一张)?(?:表情包?|图片))"
 )
 CN_HOLIDAY_STARTS = {
     "2026-01-01": "元旦",
@@ -2109,16 +2124,21 @@ class AgentService:
         self._handle_message_event(event, payload)
 
     def schedule_qqbot_event(self, event: MessageEvent) -> None:
+        auto_reply = False
         if (
             event.message_type == "group"
             and not event.to_me
             and not event.location
         ):
-            return
+            if not event.group_full or not self.group_message_wants_reply(event):
+                return
+            event = replace(event, to_me=True)
+            auto_reply = True
         print(
             f"[QQBot] 接收 {event.message_type} "
             f"user={event.user_id} chat={event.chat_id}"
-            + (" location=1" if event.location else ""),
+            + (" location=1" if event.location else "")
+            + (" auto_reply=1" if auto_reply else ""),
             flush=True,
         )
         if "绑定" in event.text:
@@ -2139,6 +2159,56 @@ class AgentService:
             and any(word in value for word in ("刚才", "刚刚", "上一个", "这个"))
             and any(word in value for word in ("位置", "地点", "标记", "足迹"))
         )
+
+    def recent_group_assistant_reply(self, event: MessageEvent) -> str:
+        rows = self.store.get_group_messages(
+            event.platform,
+            str(event.chat_id),
+            12,
+        )
+        cutoff = int(time.time()) - 10 * 60
+        for index in range(len(rows) - 1, -1, -1):
+            row = rows[index]
+            if row.get("role") != "assistant":
+                continue
+            try:
+                if int(row.get("created_at") or 0) < cutoff:
+                    return ""
+            except (TypeError, ValueError):
+                return ""
+            for previous in reversed(rows[:index]):
+                if previous.get("role") == "user":
+                    return str(previous.get("member_id") or "")
+            return ""
+        return ""
+
+    def group_message_wants_reply(self, event: MessageEvent) -> bool:
+        text = " ".join(event.text.split()).strip()
+        if not text:
+            return False
+        lowered = text.lower()
+        if any(alias in lowered for alias in GROUP_BOT_ALIASES):
+            return True
+        if event.mentions_other:
+            return False
+        if (
+            GROUP_DIRECT_COMMAND_RE.match(text)
+            or self.group_location_add_requested(text)
+        ):
+            return True
+        recent_member = self.recent_group_assistant_reply(event)
+        recent = bool(recent_member)
+        if event.referenced and recent:
+            return True
+        if not recent or len(text) < 3:
+            return False
+        if recent_member != str(event.user_id):
+            return False
+        if "你" in text:
+            return True
+        if GROUP_FOLLOWUP_START_RE.match(text):
+            return True
+        return text.endswith(("?", "？", "吗", "呢", "么"))
 
     def _handle_message_event(
         self,
@@ -2437,6 +2507,73 @@ class AgentService:
                 is_admin=is_admin,
             )
 
+    def resolve_amap_share_location(
+        self,
+        location: dict[str, Any],
+    ) -> dict[str, Any]:
+        value = dict(location or {})
+        try:
+            float(value.get("lat"))
+            float(value.get("lng"))
+            return value
+        except (TypeError, ValueError):
+            pass
+        share_url = str(value.get("jump_url") or "").strip()
+        if not share_url.startswith(("http://", "https://")):
+            return value
+        try:
+            host = (urlsplit(share_url).hostname or "").lower()
+        except ValueError:
+            return value
+        if not host.endswith(("amap.com", "gaode.com")):
+            return value
+        try:
+            request = Request(
+                share_url,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Linux; Android 13) "
+                        "AppleWebKit/537.36 Chrome/131 Mobile Safari/537.36"
+                    )
+                },
+            )
+            with urlopen(request, timeout=12) as response:
+                final_url = response.geturl()
+                response.read(512 * 1024)
+        except Exception as exc:
+            print(
+                f"[QQBot] 高德分享链接解析失败：{exc}",
+                flush=True,
+            )
+            return value
+        resolved = extract_location_event(
+            {
+                "ark_data": {
+                    "ark_type": "map",
+                    "fields": {"jump_url": final_url},
+                }
+            }
+        )
+        if not resolved:
+            return value
+        try:
+            float(resolved.get("lat"))
+            float(resolved.get("lng"))
+        except (TypeError, ValueError):
+            return value
+        value.update(
+            {
+                "lat": resolved["lat"],
+                "lng": resolved["lng"],
+                "coord": resolved.get("coord") or "gcj02",
+            }
+        )
+        if not value.get("title"):
+            value["title"] = resolved.get("title") or ""
+        if not value.get("address"):
+            value["address"] = resolved.get("address") or ""
+        return value
+
     def add_shared_location(
         self,
         event: MessageEvent,
@@ -2444,19 +2581,20 @@ class AgentService:
     ) -> dict[str, Any]:
         if not event.location:
             raise AgentError("没有从消息里解析到位置。")
+        location = self.resolve_amap_share_location(event.location)
         client = ErrorJClient(
             self.config.errorjiang_base_url,
             self.config.errorjiang_token,
             target_user_id,
         )
         try:
-            lat = float(event.location.get("lat"))
-            lng = float(event.location.get("lng"))
+            lat = float(location.get("lat"))
+            lng = float(location.get("lng"))
         except (TypeError, ValueError):
             lat = lng = None
         if lat is None or lng is None:
-            title = str(event.location.get("title") or "").strip()
-            address = str(event.location.get("address") or "").strip()
+            title = str(location.get("title") or "").strip()
+            address = str(location.get("address") or "").strip()
             keywords = (
                 title
                 if title and title not in ("QQ 位置分享", "位置分享")
@@ -2468,11 +2606,11 @@ class AgentService:
                     "请直接把地点名 @我重新发送。"
                 )
             arguments = {"keywords": keywords[:80]}
-            city = str(event.location.get("city") or "").strip()
+            city = str(location.get("city") or "").strip()
             if city:
                 arguments["city"] = city[:40]
             return client.tool("footprints.add", arguments)
-        return client.tool("footprints.location_add", event.location)
+        return client.tool("footprints.location_add", location)
 
     def _process_event(
         self,
