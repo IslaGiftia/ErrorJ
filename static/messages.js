@@ -98,6 +98,9 @@
   }
 
   function formatTime(text) {
+    if (window.ErrorRelativeTime) {
+      return window.ErrorRelativeTime.format(text);
+    }
     var value = String(text || "");
     var match = value.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
     if (!match) return value;
@@ -109,13 +112,21 @@
       Number(match[5])
     );
     var seconds = Math.max(0, Math.round((Date.now() - then.getTime()) / 1000));
-    var stamp =
-      match[1] + "-" + match[2] + "-" + match[3] + " " + match[4] + ":" + match[5];
     if (seconds < 60) return "刚刚";
     if (seconds < 3600) return Math.round(seconds / 60) + " 分钟前";
     if (seconds < 86400) return Math.round(seconds / 3600) + " 小时前";
-    if (seconds < 86400 * 7) return Math.round(seconds / 86400) + " 天前";
-    return stamp;
+    var days = Math.max(1, Math.floor(seconds / 86400));
+    return Math.min(999999, days) + " 天前";
+  }
+
+  function timeNode(className, text) {
+    var node = el("span", className);
+    if (window.ErrorRelativeTime) {
+      window.ErrorRelativeTime.render(node, text);
+    } else {
+      node.textContent = formatTime(text);
+    }
+    return node;
   }
 
   function refreshIcons() {
@@ -1017,7 +1028,7 @@
     var item = el("article", "mg-item " + (message.can_save ? "can-save" : "no-save"));
     var head = el("div", "mg-item-head");
     head.appendChild(el("span", "mg-nick", message.nickname || "匿名"));
-    head.appendChild(el("span", "mg-time", formatTime(message.created_at)));
+    head.appendChild(timeNode("mg-time", message.created_at));
     // 设备信息（自动识别成「来自 Windows / macOS / Linux / 鸿蒙 / Android / iOS / ChromeOS」，
     // 认不出记「来自 Web」；有 site:device_name 权限的账号也可以自定义名称）
     if (message.device_info) {
@@ -1084,7 +1095,7 @@
           el("span", "mg-reply-to", "回复 @" + (reply.reply_to || "某人"))
         );
       }
-      replyHead.appendChild(el("span", "mg-time", formatTime(reply.created_at)));
+      replyHead.appendChild(timeNode("mg-time", reply.created_at));
       if (reply.region) {
         replyHead.appendChild(el("span", "mg-region", reply.region));
       }

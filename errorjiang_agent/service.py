@@ -24,7 +24,12 @@ from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 
 from .brain import AgentBrain
-from .clients import DeepSeekClient, ErrorJClient, OneBotClient
+from .clients import (
+    DeepSeekClient,
+    ErrorJClient,
+    HotSearchClient,
+    OneBotClient,
+)
 from .config import Config
 from .errors import AgentError
 from .onebot import MessageEvent, event_key, parse_message_event
@@ -68,6 +73,7 @@ PROACTIVE_MIN_GAP_SECONDS = 90 * 60
 PROACTIVE_MEMORY_COOLDOWN_SECONDS = 3 * 86400
 REMINDER_MAX_ATTEMPTS = 5
 REMINDER_RETRY_DELAYS = (30, 120, 600, 1800)
+REMINDER_MAX_LATE_SECONDS = 2 * 3600
 PERSONA_PRESETS = {
     "冷脸萌": "保持冷脸萌和轻微傲娇，关心但不过度黏人，偶尔嘴硬，语气自然克制。",
     "温柔": "温柔、耐心、体贴，先理解对方感受再回应，不使用命令式或指责式表达。",
@@ -144,6 +150,7 @@ class AgentService:
             config.errorjiang_token,
             config.admin_user_id,
         )
+        self.hot_search = HotSearchClient()
         self.brain = AgentBrain(
             self.deepseek,
             self.errorjiang,
@@ -153,6 +160,7 @@ class AgentService:
             self.prepare_content_send,
             max_tool_rounds=config.max_tool_rounds,
             prepare_footprint=self.prepare_footprint,
+            hot_search=self.hot_search,
         )
         self.rate_limiter = RateLimiter()
         self.executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="agent")
@@ -356,6 +364,33 @@ class AgentService:
     def _reminder_loop(self) -> None:
         while not self._reminder_stop.wait(10):
             now = int(time.time())
+            stale_reminders = self.store.expire_stale_reminders(
+                now,
+                REMINDER_MAX_LATE_SECONDS,
+                "提醒已超过 2 小时补发时限，取消发送。",
+            )
+            for reminder in stale_reminders:
+                due_text = datetime.fromtimestamp(
+                    int(reminder.get("due_at") or 0)
+                ).strftime("%m-%d %H:%M")
+                notice = dict(reminder)
+                notice["text"] = (
+                    f"提醒已错过：{str(reminder.get('text') or '').strip()}"
+                    f"（原定 {due_text}）"
+                )[:500]
+                try:
+                    self.send_reminder_delivery(notice)
+                except Exception as exc:
+                    print(
+                        f"[Reminder] id={reminder['id']} "
+                        f"过期通知发送失败：{exc}",
+                        flush=True,
+                    )
+                print(
+                    f"[Reminder] id={reminder['id']} "
+                    f"超过补发时限，已取消原提醒。",
+                    flush=True,
+                )
             for reminder in self.store.due_reminders(now, limit=100):
                 if not self.reminder_retry_ready(reminder, now):
                     continue
@@ -2074,9 +2109,16 @@ class AgentService:
         self._handle_message_event(event, payload)
 
     def schedule_qqbot_event(self, event: MessageEvent) -> None:
+        if (
+            event.message_type == "group"
+            and not event.to_me
+            and not event.location
+        ):
+            return
         print(
             f"[QQBot] 接收 {event.message_type} "
-            f"user={event.user_id} chat={event.chat_id}",
+            f"user={event.user_id} chat={event.chat_id}"
+            + (" location=1" if event.location else ""),
             flush=True,
         )
         if "绑定" in event.text:
@@ -2105,6 +2147,12 @@ class AgentService:
         saved_stickers: int = 0,
     ) -> None:
         platform = event.platform
+        if (
+            event.message_type == "group"
+            and not event.to_me
+            and not event.location
+        ):
+            return
         if self.store.seen_event(event_key(event)):
             return
         if event.message_type == "group":
@@ -2350,8 +2398,9 @@ class AgentService:
             if not cached_location:
                 self.send_reply(
                     event,
-                    "没有找到刚才分享的位置。请先在群里发一次位置卡片，"
-                    "十分钟内再 @我说“添加刚才的标记点”。",
+                    "没有找到刚才分享的位置。管理员需在 QQ 开放平台开启"
+                    "“接收所有消息”；也可以直接 @我发送地点名，"
+                    "我会用高德搜索后添加。",
                 )
                 return
             event = replace(event, location=cached_location)
@@ -2400,6 +2449,29 @@ class AgentService:
             self.config.errorjiang_token,
             target_user_id,
         )
+        try:
+            lat = float(event.location.get("lat"))
+            lng = float(event.location.get("lng"))
+        except (TypeError, ValueError):
+            lat = lng = None
+        if lat is None or lng is None:
+            title = str(event.location.get("title") or "").strip()
+            address = str(event.location.get("address") or "").strip()
+            keywords = (
+                title
+                if title and title not in ("QQ 位置分享", "位置分享")
+                else address or title
+            )
+            if not keywords:
+                raise AgentError(
+                    "位置卡片里没有可搜索的地点名称，"
+                    "请直接把地点名 @我重新发送。"
+                )
+            arguments = {"keywords": keywords[:80]}
+            city = str(event.location.get("city") or "").strip()
+            if city:
+                arguments["city"] = city[:40]
+            return client.tool("footprints.add", arguments)
         return client.tool("footprints.location_add", event.location)
 
     def _process_event(
@@ -2498,6 +2570,12 @@ class AgentService:
                 )
                 if existing.get("url"):
                     reply += f"\n{existing['url']}"
+            elif result.get("status") == "not_found":
+                reply = str(
+                    result.get("message") or "高德没有搜索到这张位置卡片。"
+                )
+                if result.get("fallback_url"):
+                    reply += f"\n{result['fallback_url']}"
             else:
                 reply = str(result.get("message") or "位置卡片没有添加成功。")
             self.send_reply(event, reply)

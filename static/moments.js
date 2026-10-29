@@ -88,24 +88,29 @@
   }
 
   function formatTime(text) {
+    if (window.ErrorRelativeTime) {
+      return window.ErrorRelativeTime.format(text);
+    }
     var value = String(text || "");
     var match = value.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
     if (!match) return value;
     var then = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]));
     var seconds = Math.max(0, Math.round((Date.now() - then.getTime()) / 1000));
-    var stamp = match[1] + "-" + match[2] + "-" + match[3] + " " + match[4] + ":" + match[5];
     if (seconds < 60) return "刚刚";
     if (seconds < 3600) return Math.round(seconds / 60) + " 分钟前";
     if (seconds < 86400) return Math.round(seconds / 3600) + " 小时前";
-    if (seconds < 86400 * 7) return Math.round(seconds / 86400) + " 天前";
-    return stamp;
+    var days = Math.max(1, Math.floor(seconds / 86400));
+    return Math.min(999999, days) + " 天前";
   }
 
-  function formatStamp(text) {
-    var match = String(text || "").match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
-    return match
-      ? match[1] + "-" + match[2] + "-" + match[3] + " " + match[4] + ":" + match[5]
-      : String(text || "");
+  function timeNode(className, text) {
+    var node = el("span", className);
+    if (window.ErrorRelativeTime) {
+      window.ErrorRelativeTime.render(node, text);
+    } else {
+      node.textContent = formatTime(text);
+    }
+    return node;
   }
 
   function hasTag(moment, tag) {
@@ -961,7 +966,7 @@
         el("span", "mo-comment-reply-to", "回复 @" + (parent.actor || "匿名"))
       );
     }
-    head.appendChild(el("span", "mo-comment-time", formatTime(comment.created_at)));
+    head.appendChild(timeNode("mo-comment-time", comment.created_at));
     row.appendChild(head);
     var text = el("p", "mo-comment-text", comment.content);
     // 新评论：正文变主题色并闪烁（不再给评论行加方框呼吸）
@@ -1085,13 +1090,7 @@
     var head = el("div", "mo-item-head");
     head.appendChild(el("span", "mo-nick", "Error酱"));
     if (moment.pinned) head.appendChild(el("span", "mo-pin-badge", "置顶"));
-    head.appendChild(
-      el(
-        "span",
-        "mo-time",
-        hasTag(moment, "更新日志") ? formatStamp(moment.created_at) : formatTime(moment.created_at)
-      )
-    );
+    head.appendChild(timeNode("mo-time", moment.created_at));
     // 顺序和留言页保持一致：时间 -> 设备信息 -> IP 属地
     // （「·」由 .mo-device::before 提供，正好落在时间和设备之间）
     if (moment.device_info) {

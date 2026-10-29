@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import select
 import socket
 import ssl
@@ -60,14 +61,22 @@ def parse_qqbot_event(
     payload: dict[str, Any],
     self_id: int | str,
 ) -> MessageEvent | None:
-    if event_type not in ("GROUP_AT_MESSAGE_CREATE", "C2C_MESSAGE_CREATE"):
+    if event_type not in (
+        "GROUP_AT_MESSAGE_CREATE",
+        "GROUP_MESSAGE_CREATE",
+        "C2C_MESSAGE_CREATE",
+    ):
         return None
     author = payload.get("author") or {}
     message_id = str(payload.get("id") or "").strip()
     if not message_id:
         return None
-    text = str(payload.get("content") or "").strip()
-    if event_type == "GROUP_AT_MESSAGE_CREATE":
+    text = re.sub(
+        r"<@(?:all|[^>]+)>",
+        "",
+        str(payload.get("content") or ""),
+    ).strip()
+    if event_type in ("GROUP_AT_MESSAGE_CREATE", "GROUP_MESSAGE_CREATE"):
         user_id = str(author.get("member_openid") or "").strip()
         chat_id = str(payload.get("group_openid") or "").strip()
         message_type = "group"
@@ -78,6 +87,11 @@ def parse_qqbot_event(
     if not user_id or not chat_id:
         return None
     attachments = extract_attachment_event(payload)
+    mentions = payload.get("mentions") or []
+    mentioned_bot = any(
+        isinstance(item, dict) and bool(item.get("bot"))
+        for item in mentions
+    )
     return MessageEvent(
         self_id=self_id,
         user_id=user_id,
@@ -85,7 +99,10 @@ def parse_qqbot_event(
         chat_id=chat_id,
         message_id=message_id,
         text=text,
-        to_me=True,
+        to_me=(
+            event_type == "GROUP_AT_MESSAGE_CREATE"
+            or mentioned_bot
+        ),
         platform="qqbot",
         attachments=attachments,
         display_name=str(author.get("username") or "").strip()[:80],
@@ -353,6 +370,17 @@ class QQBotClient:
                     self.last_error = ""
                     print(
                         f"[QQBot] 已连接：{self.bot_qq or self.app_id}",
+                        flush=True,
+                    )
+                    continue
+                if event_type in ("GROUP_MSG_RECEIVE", "GROUP_MSG_REJECT"):
+                    print(
+                        "[QQBot] 群全量消息接收状态："
+                        + (
+                            "已开启"
+                            if event_type == "GROUP_MSG_RECEIVE"
+                            else "已关闭"
+                        ),
                         flush=True,
                     )
                     continue

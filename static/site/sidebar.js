@@ -142,6 +142,9 @@
   }
 
   function relTime(value) {
+    if (window.ErrorRelativeTime) {
+      return window.ErrorRelativeTime.format(value);
+    }
     var text = String(value || "");
     var match = text.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
     if (!match) return text;
@@ -156,8 +159,8 @@
     if (seconds < 60) return "刚刚";
     if (seconds < 3600) return Math.round(seconds / 60) + " 分钟前";
     if (seconds < 86400) return Math.round(seconds / 3600) + " 小时前";
-    if (seconds < 86400 * 7) return Math.round(seconds / 86400) + " 天前";
-    return match[1] + "-" + match[2] + "-" + match[3] + " " + match[4] + ":" + match[5];
+    var days = Math.max(1, Math.floor(seconds / 86400));
+    return Math.min(999999, days) + " 天前";
   }
 
   /*
@@ -169,6 +172,15 @@
    * 更晚的那个：人在站内就是「刚刚活跃 / N 分钟前活跃」。访问日志没开或记录已被清理时
    * last_view_at 为空，自动退回原来的「…前登录」。
    */
+  function activityTimestamp(item) {
+    var lastView = String((item && item.last_view_at) || "");
+    var lastLogin = String((item && item.last_login_at) || "");
+    if (lastView && (!lastLogin || lastView >= lastLogin)) {
+      return lastView;
+    }
+    return lastLogin;
+  }
+
   function activityText(item) {
     var lastView = String((item && item.last_view_at) || "");
     var lastLogin = String((item && item.last_login_at) || "");
@@ -177,6 +189,19 @@
     }
     if (lastLogin) return relTime(lastLogin) + "登录";
     return "还没登录过";
+  }
+
+  function attachActivityTime(node, item) {
+    if (!node) return;
+    var value = activityTimestamp(item);
+    if (value && window.ErrorRelativeTime) {
+      window.ErrorRelativeTime.attach(node, value);
+      return;
+    }
+    node.classList.remove("relative-time");
+    delete node.dataset.exactTime;
+    node.removeAttribute("tabindex");
+    node.removeAttribute("aria-label");
   }
 
   function card(title, metaText, bottom) {
@@ -509,13 +534,27 @@
    * 最近登录」里更晚的那个）。普通账号连自己那行也不显示，游客那边后端压根不下发这几个字段，
    * 所以这里拿不到数据就整行不渲染。
    */
-  function userSubText(item) {
-    if (item.masked) return "";
-    if (!item.registered_days && !item.last_view_at && !item.last_login_at) return "";
-    var pieces = [];
-    if (item.registered_days) pieces.push("注册 " + item.registered_days + " 天");
-    pieces.push(activityText(item));
-    return pieces.join(" · ");
+  function hasUserSub(item) {
+    return Boolean(
+      !item.masked &&
+      (item.registered_days || item.last_view_at || item.last_login_at)
+    );
+  }
+
+  function updateUserSub(node, item) {
+    if (!node) return false;
+    node.textContent = "";
+    if (!hasUserSub(item)) return false;
+    if (item.registered_days) {
+      node.appendChild(
+        document.createTextNode("注册 " + item.registered_days + " 天")
+      );
+      node.appendChild(document.createTextNode(" · "));
+    }
+    var activity = el("span", "", activityText(item));
+    attachActivityTime(activity, item);
+    node.appendChild(activity);
+    return true;
   }
 
   function buildUsers(data) {
@@ -547,10 +586,10 @@
         nameRow.appendChild(chip);
       }
       main.appendChild(nameRow);
-      var sub = userSubText(item);
       var subNode = null;
-      if (sub) {
-        subNode = el("div", "sb-user-row__sub", sub);
+      if (hasUserSub(item)) {
+        subNode = el("div", "sb-user-row__sub");
+        updateUserSub(subNode, item);
         main.appendChild(subNode);
       }
       userRows.push({ chip: chip, sub: subNode, main: main });
@@ -850,11 +889,16 @@
         var row = userRows[index];
         if (!row) return;
         patchPresence(row.chip, item.presence);
-        var sub = userSubText(item);
-        if (row.sub) {
-          if (row.sub.textContent !== sub) row.sub.textContent = sub;
-        } else if (sub && row.main) {
-          row.sub = el("div", "sb-user-row__sub", sub);
+        if (!hasUserSub(item)) {
+          if (row.sub) {
+            row.sub.remove();
+            row.sub = null;
+          }
+        } else if (row.sub) {
+          updateUserSub(row.sub, item);
+        } else if (row.main) {
+          row.sub = el("div", "sb-user-row__sub");
+          updateUserSub(row.sub, item);
           row.main.appendChild(row.sub);
         }
       });

@@ -5,16 +5,22 @@ import hashlib
 import json
 import re
 from typing import Any
-from urllib.parse import unquote
+from urllib.parse import parse_qs, unquote, urlsplit
 
 
 CQ_CODE_RE = re.compile(r"\[CQ:[^\]]+\]")
 LOCATION_LAT_KEYS = ("lat", "latitude")
 LOCATION_LNG_KEYS = ("lon", "lng", "longitude")
-LOCATION_TITLE_KEYS = ("title", "name", "poi_name", "location_name")
+LOCATION_TITLE_KEYS = ("title", "name", "poi_name", "location_name", "desc")
 LOCATION_ADDRESS_KEYS = ("address", "addr", "poi_address", "content")
+LOCATION_CITY_KEYS = ("city", "cityname", "pname")
+LOCATION_URL_KEYS = ("jump_url", "url", "link", "scheme")
 ATTACHMENT_NAME_KEYS = ("filename", "file_name", "name", "file")
 ATTACHMENT_URL_KEYS = ("url", "file_url", "download_url", "file")
+COORD_PAIR_RE = re.compile(
+    r"(?<![\d.])(-?\d{1,3}(?:\.\d+)?)\s*[,，]\s*"
+    r"(-?\d{1,3}(?:\.\d+)?)(?![\d.])"
+)
 
 
 @dataclass(frozen=True)
@@ -67,6 +73,7 @@ def _normalize_location(mapping: Any) -> dict[str, Any] | None:
         return None
     title = _first_text(mapping, LOCATION_TITLE_KEYS)
     address = _first_text(mapping, LOCATION_ADDRESS_KEYS)
+    city = _first_text(mapping, LOCATION_CITY_KEYS)
     if not title and not address:
         title = "QQ 位置分享"
     return {
@@ -74,8 +81,138 @@ def _normalize_location(mapping: Any) -> dict[str, Any] | None:
         "lng": lng,
         "title": title[:120],
         "address": address[:300],
+        "city": city[:60],
         "coord": "gcj02",
     }
+
+
+def _query_first(query: dict[str, list[str]], *keys: str) -> str:
+    for key in keys:
+        values = query.get(key) or []
+        if values:
+            return str(values[0] or "").strip()
+    return ""
+
+
+def _coords_from_pair(
+    first: str,
+    second: str,
+    reverse: bool = False,
+) -> tuple[float, float] | None:
+    try:
+        left = float(first)
+        right = float(second)
+    except (TypeError, ValueError):
+        return None
+    lat, lng = (right, left) if reverse else (left, right)
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        return None
+    return lat, lng
+
+
+def _location_from_url(value: Any) -> dict[str, Any] | None:
+    raw = unquote(str(value or "").strip())
+    if not raw:
+        return None
+    try:
+        parsed = urlsplit(raw)
+    except ValueError:
+        return None
+    query = parse_qs(parsed.query)
+    coords = None
+    lat_text = _query_first(query, "lat", "latitude")
+    lng_text = _query_first(query, "lng", "lon", "longitude")
+    if lat_text and lng_text:
+        coords = _coords_from_pair(lat_text, lng_text)
+    for key, reverse in (
+        ("position", True),
+        ("location", True),
+        ("center", True),
+        ("lnglat", True),
+        ("latlng", False),
+    ):
+        if coords:
+            break
+        pair = _query_first(query, key)
+        if not pair:
+            continue
+        match = COORD_PAIR_RE.search(pair)
+        if match:
+            coords = _coords_from_pair(
+                match.group(1),
+                match.group(2),
+                reverse=reverse,
+            )
+    if not coords:
+        return None
+    lat, lng = coords
+    title = _query_first(query, "name", "title", "poi_name")
+    address = _query_first(query, "address", "addr")
+    return {
+        "lat": lat,
+        "lng": lng,
+        "title": title[:120],
+        "address": address[:300],
+        "city": "",
+        "coord": "gcj02",
+    }
+
+
+def _normalize_ark_map(mapping: Any) -> dict[str, Any] | None:
+    if not isinstance(mapping, dict):
+        return None
+    if str(mapping.get("ark_type") or "").strip().lower() != "map":
+        return None
+    fields = mapping.get("fields")
+    if not isinstance(fields, dict):
+        fields = {}
+    title = _first_text(fields, LOCATION_TITLE_KEYS)
+    address = _first_text(fields, LOCATION_ADDRESS_KEYS)
+    city = _first_text(fields, LOCATION_CITY_KEYS)
+    result: dict[str, Any] = {
+        "source": "qq_ark_map",
+        "title": title[:120],
+        "address": address[:300],
+        "city": city[:60],
+        "coord": "gcj02",
+    }
+    direct = _normalize_location(fields)
+    if direct:
+        result.update(
+            {
+                "lat": direct["lat"],
+                "lng": direct["lng"],
+                "title": direct.get("title") or result["title"],
+                "address": direct.get("address") or result["address"],
+                "city": direct.get("city") or result["city"],
+            }
+        )
+    else:
+        for key in LOCATION_URL_KEYS:
+            url = _first_text(fields, (key,)) or _first_text(mapping, (key,))
+            if not url:
+                continue
+            from_url = _location_from_url(url)
+            if from_url:
+                result.update(
+                    {
+                        "lat": from_url["lat"],
+                        "lng": from_url["lng"],
+                        "coord": from_url["coord"],
+                        "title": result["title"] or from_url.get("title") or "",
+                        "address": (
+                            result["address"]
+                            or from_url.get("address")
+                            or ""
+                        ),
+                        "city": result["city"] or from_url.get("city") or "",
+                    }
+                )
+                break
+            result.setdefault("jump_url", url[:2000])
+    if not result["title"] and not result["address"] and not result.get("jump_url"):
+        return None
+    return result
 
 
 def _parse_cq_location(value: Any) -> dict[str, Any] | None:
@@ -130,9 +267,42 @@ def _find_location(value: Any, depth: int = 0) -> dict[str, Any] | None:
     return None
 
 
+def _find_ark_map(value: Any, depth: int = 0) -> dict[str, Any] | None:
+    if depth > 7:
+        return None
+    if isinstance(value, dict):
+        location = _normalize_ark_map(value)
+        if location:
+            return location
+        for item in value.values():
+            location = _find_ark_map(item, depth + 1)
+            if location:
+                return location
+        return None
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            location = _find_ark_map(item, depth + 1)
+            if location:
+                return location
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if text.startswith(("{", "[")):
+            try:
+                return _find_ark_map(json.loads(text), depth + 1)
+            except (json.JSONDecodeError, TypeError):
+                return None
+    return None
+
+
 def extract_location_event(payload: dict[str, Any]) -> dict[str, Any] | None:
-    for key in ("message", "raw_message", "attachments", "msg_elements"):
+    keys = ("message", "raw_message", "attachments", "msg_elements", "ark_data")
+    for key in keys:
         location = _find_location(payload.get(key))
+        if location:
+            return location
+    for key in keys:
+        location = _find_ark_map(payload.get(key))
         if location:
             return location
     return None

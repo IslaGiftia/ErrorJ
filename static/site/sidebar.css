@@ -47,6 +47,40 @@
   color-scheme: dark;
 }
 
+/* 动态 / 留言 / 侧栏共用的相对时间与精确时间浮层 */
+.relative-time {
+  cursor: help;
+  text-decoration: underline dotted color-mix(in srgb, currentColor 42%, transparent);
+  text-underline-offset: 2px;
+}
+
+.relative-time:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid var(--sb-accent);
+  outline-offset: 2px;
+}
+
+.error-relative-time-tooltip {
+  position: fixed;
+  z-index: 130;
+  max-width: calc(100vw - 16px);
+  padding: 5px 8px;
+  border: 1px solid var(--sb-border);
+  border-radius: 6px;
+  background: var(--sb-text);
+  color: var(--sb-surface);
+  box-shadow: 0 5px 18px rgba(15, 23, 42, 0.2);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+:root[data-theme="dark"] .error-relative-time-tooltip {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.42);
+}
+
 /*
  * 大屏分档放大：2K / 4K 上三栏宽度、间距、字号一起长一档，
  * 比例保持不变（不再是一条被大片留白围住的小岛）。

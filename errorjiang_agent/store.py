@@ -1246,6 +1246,31 @@ class AgentStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def expire_stale_reminders(
+        self,
+        now: int,
+        max_age_seconds: int,
+        reason: str,
+    ) -> list[dict]:
+        cutoff = int(now) - max(60, int(max_age_seconds))
+        with self._lock, self._connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM reminders
+                   WHERE sent_at IS NULL AND cancelled_at IS NULL
+                     AND failed_at IS NULL AND due_at <= ?
+                   ORDER BY due_at, id""",
+                (cutoff,),
+            ).fetchall()
+            if rows:
+                conn.execute(
+                    """UPDATE reminders
+                       SET failed_at = ?, last_error = ?
+                       WHERE sent_at IS NULL AND cancelled_at IS NULL
+                         AND failed_at IS NULL AND due_at <= ?""",
+                    (int(now), str(reason or "")[:1000], cutoff),
+                )
+        return [dict(row) for row in rows]
+
     def mark_reminder_sent(self, reminder_id: int) -> None:
         with self._lock, self._connection() as conn:
             conn.execute(

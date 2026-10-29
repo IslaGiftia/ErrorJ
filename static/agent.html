@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=4">
   <link rel="stylesheet" href="/static/site/site.css">
   <link rel="stylesheet" href="/static/fonts.css">
-  <link rel="stylesheet" href="/static/agent.css?v=12">
+  <link rel="stylesheet" href="/static/agent.css?v=13">
   <script>
     (function () {
       try {
@@ -61,7 +61,7 @@
         </a>
         <a href="#settings-web-search" data-section-link="settings-web-search">
           <i data-lucide="search"></i>
-          <span>网页搜索</span>
+          <span>网页与热搜</span>
         </a>
         <a href="#settings-proactive" data-section-link="settings-proactive">
           <i data-lucide="send"></i>
@@ -193,13 +193,13 @@
       <section class="agent-console-section" id="settings-web-search" data-console-section>
         <header class="agent-section-head">
           <span class="agent-section-icon"><i data-lucide="search"></i></span>
-          <div><h2>网页搜索</h2><p>查询近期新闻、热梗、公开资料和出处，并为回答附上来源。</p></div>
+          <div><h2>网页与热搜</h2><p>查询近期新闻、热梗、公开资料，以及微博、B站、抖音热搜。</p></div>
         </header>
         <div class="agent-setting-list">
           <label class="agent-setting-row">
             <span class="agent-setting-copy">
-              <strong>启用 DeepSeek 搜索</strong>
-              <small>只在需要实时公开信息时调用 Search，必要时再调用 Fetch</small>
+              <strong>启用网页搜索与热搜</strong>
+              <small>实时公开信息使用 Search；平台热搜使用固定热搜接口</small>
             </span>
             <span class="agent-switch">
               <input type="checkbox" id="settingWebSearchEnabled" data-setting-input>
@@ -219,7 +219,7 @@
             </select>
           </label>
         </div>
-        <p class="agent-section-note">使用现有 DeepSeek Key；Search 与 Fetch 按成功请求次数计费，普通聊天不会自动联网。</p>
+        <p class="agent-section-note">支持微博、B站、抖音热搜；Search 与 Fetch 使用现有 DeepSeek Key 并按成功请求次数计费，普通聊天不会自动联网。</p>
       </section>
 
       <section class="agent-console-section" id="settings-proactive" data-console-section>
@@ -405,6 +405,6 @@
   </main>
 
   <script src="/static/vendor/lucide.min.js"></script>
-  <script src="/static/agent.js?v=13"></script>
+  <script src="/static/agent.js?v=14"></script>
 </body>
 </html>

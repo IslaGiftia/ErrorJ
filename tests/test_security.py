@@ -3114,6 +3114,38 @@ class ComplianceWorkflowTests(unittest.TestCase):
         self.assertIn(".mo-comment-submit", css)
         self.assertIn("scrollIntoView", script)
 
+    def test_relative_time_is_shared_with_exact_time_tooltip(self):
+        relative = (app.STATIC_DIR / "site" / "relative-time.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("var MAX_DAYS = 999999;", relative)
+        self.assertIn(
+            'tooltip.className = "error-relative-time-tooltip";',
+            relative,
+        )
+        self.assertIn('node.dataset.exactTime = exact;', relative)
+        sidebar_css = (app.STATIC_DIR / "site" / "sidebar.css").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(".error-relative-time-tooltip", sidebar_css)
+        self.assertIn(':root[data-theme="dark"] .error-relative-time-tooltip', sidebar_css)
+        for filename in ("moments.js", "messages.js"):
+            script = (app.STATIC_DIR / filename).read_text(encoding="utf-8")
+            self.assertIn("window.ErrorRelativeTime", script)
+            self.assertIn("timeNode(", script)
+            html = (app.STATIC_DIR / filename.replace(".js", ".html")).read_text(
+                encoding="utf-8"
+            )
+            self.assertLess(
+                html.index("/static/site/relative-time.js"),
+                html.index("/static/" + filename),
+            )
+        sidebar = (app.STATIC_DIR / "site" / "sidebar.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("attachActivityTime", sidebar)
+        self.assertIn("window.ErrorRelativeTime.attach", sidebar)
+
 
 class RegistrationLimitTests(unittest.TestCase):
     def test_rate_allow_survives_large_key_space(self):

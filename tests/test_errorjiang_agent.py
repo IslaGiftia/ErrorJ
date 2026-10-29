@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 import app
 from errorjiang_agent.brain import AgentBrain
-from errorjiang_agent.clients import DeepSeekClient
+from errorjiang_agent.clients import DeepSeekClient, HotSearchClient
 from errorjiang_agent.config import Config
 from errorjiang_agent.errors import AgentError
 from errorjiang_agent.onebot import MessageEvent, event_key, parse_message_event
@@ -734,6 +734,59 @@ class AgentStoreTests(unittest.TestCase):
             "member-openid",
         )
         self.assertEqual(cached["title"], "春发芽葫芦头")
+
+    def test_location_card_without_coordinates_falls_back_to_amap_search(self):
+        calls = []
+
+        class FakeClient:
+            def __init__(self, base_url, token, user_id):
+                calls.append(("init", base_url, token, user_id))
+
+            def tool(self, name, arguments):
+                calls.append(("tool", name, arguments))
+                return {
+                    "status": "added",
+                    "place": {"name": arguments["keywords"]},
+                }
+
+        service = object.__new__(AgentService)
+        service.config = SimpleNamespace(
+            errorjiang_base_url="https://example.com",
+            errorjiang_token="token",
+        )
+        event = MessageEvent(
+            self_id="bot",
+            user_id="member-openid",
+            message_type="group",
+            chat_id="group-openid",
+            message_id="location-search",
+            text="",
+            to_me=True,
+            platform="qqbot",
+            location={
+                "title": "山里的咖啡店",
+                "address": "西安市长安区测试路",
+                "city": "西安",
+                "coord": "gcj02",
+            },
+        )
+        with patch(
+            "errorjiang_agent.service.ErrorJClient",
+            FakeClient,
+        ):
+            result = service.add_shared_location(event, 7)
+        self.assertEqual(result["status"], "added")
+        self.assertEqual(
+            calls[-1],
+            (
+                "tool",
+                "footprints.add",
+                {
+                    "keywords": "山里的咖啡店",
+                    "city": "西安",
+                },
+            ),
+        )
 
     def test_group_at_message_can_consume_cached_location(self):
         self.store.bind_admin("qqbot", "admin-openid")
@@ -1521,6 +1574,28 @@ class AgentStoreTests(unittest.TestCase):
             [],
         )
 
+    def test_stale_reminder_is_cancelled_instead_of_delivered_late(self):
+        now = int(time.time())
+        reminder_id = self.store.add_reminder(
+            "qqbot",
+            "member-openid",
+            "group-openid",
+            "group",
+            "旧提醒",
+            now - 3 * 3600,
+        )
+        stale = self.store.expire_stale_reminders(
+            now,
+            2 * 3600,
+            "超过补发时限",
+        )
+        self.assertEqual([item["id"] for item in stale], [reminder_id])
+        self.assertEqual(self.store.due_reminders(now), [])
+        self.assertEqual(
+            self.store.list_reminders("qqbot", "member-openid"),
+            [],
+        )
+
     def test_humanize_collapses_chat_blank_lines(self):
         text = "嗯，就一个句号。\n\n我收好了，你还想说什么？"
         self.assertEqual(
@@ -2273,6 +2348,92 @@ class OneBotParserTests(unittest.TestCase):
         self.assertEqual(event.location["title"], "QQ 位置")
         self.assertEqual(event.location["coord"], "gcj02")
 
+    def test_qqbot_full_group_map_ark_card_is_parsed(self):
+        event = parse_qqbot_event(
+            "GROUP_MESSAGE_CREATE",
+            {
+                "id": "message-map-ark",
+                "content": " ",
+                "group_openid": "group-openid",
+                "author": {
+                    "member_openid": "member-openid",
+                    "username": "星星",
+                },
+                "ark_data": {
+                    "ark_type": "map",
+                    "fields": {
+                        "title": "春发芽葫芦头",
+                        "address": "西安市雁塔区测试路",
+                        "jump_url": (
+                            "https://uri.amap.com/marker?"
+                            "position=108.9398,34.3416&name=test"
+                        ),
+                    },
+                },
+            },
+            "bot-qq",
+        )
+        self.assertIsNotNone(event)
+        self.assertFalse(event.to_me)
+        self.assertEqual(event.message_type, "group")
+        self.assertEqual(event.location["title"], "春发芽葫芦头")
+        self.assertAlmostEqual(event.location["lat"], 34.3416)
+        self.assertAlmostEqual(event.location["lng"], 108.9398)
+
+    def test_qqbot_full_group_message_detects_bot_mention(self):
+        event = parse_qqbot_event(
+            "GROUP_MESSAGE_CREATE",
+            {
+                "id": "message-full-at",
+                "content": "<@bot-openid> 添加刚才的标记点",
+                "group_openid": "group-openid",
+                "author": {
+                    "member_openid": "member-openid",
+                    "username": "星星",
+                },
+                "mentions": [
+                    {
+                        "id": "bot-openid",
+                        "member_openid": "bot-openid",
+                        "username": "折兮颜",
+                        "bot": True,
+                    }
+                ],
+            },
+            "bot-qq",
+        )
+        self.assertIsNotNone(event)
+        self.assertTrue(event.to_me)
+        self.assertEqual(event.message_type, "group")
+        self.assertEqual(event.text, "添加刚才的标记点")
+
+    def test_qqbot_map_ark_without_coordinates_keeps_search_fields(self):
+        event = parse_qqbot_event(
+            "GROUP_MESSAGE_CREATE",
+            {
+                "id": "message-map-search",
+                "content": " ",
+                "group_openid": "group-openid",
+                "author": {
+                    "member_openid": "member-openid",
+                    "username": "星星",
+                },
+                "ark_data": {
+                    "ark_type": "map",
+                    "fields": {
+                        "title": "山里的咖啡店",
+                        "address": "西安市长安区测试路",
+                        "jump_url": "https://surl.amap.com/abc123",
+                    },
+                },
+            },
+            "bot-qq",
+        )
+        self.assertIsNotNone(event)
+        self.assertEqual(event.location["title"], "山里的咖啡店")
+        self.assertEqual(event.location["address"], "西安市长安区测试路")
+        self.assertNotIn("lat", event.location)
+
     def test_qqbot_file_attachment_is_parsed(self):
         event = parse_qqbot_event(
             "C2C_MESSAGE_CREATE",
@@ -2296,6 +2457,87 @@ class OneBotParserTests(unittest.TestCase):
         self.assertIsNotNone(event)
         self.assertEqual(event.attachments[0]["filename"], "会议记录.txt")
         self.assertEqual(event.attachments[0]["content_type"], "text/plain")
+
+
+class HotSearchClientTests(unittest.TestCase):
+    def test_fetches_weibo_bilibili_and_douyin_lists(self):
+        responses = [
+            {
+                "ok": 1,
+                "data": {
+                    "realtime": [
+                        {
+                            "word": "微博测试",
+                            "word_scheme": "#微博测试#",
+                            "num": 123,
+                            "realpos": 1,
+                        }
+                    ]
+                },
+            },
+            {
+                "code": 0,
+                "data": {
+                    "trending": {
+                        "list": [
+                            {
+                                "keyword": "B站测试",
+                                "heat_score": 456,
+                            }
+                        ]
+                    }
+                },
+            },
+            {
+                "data": {
+                    "word_list": [
+                        {
+                            "word": "抖音测试",
+                            "hot_value": 789,
+                            "position": 1,
+                        }
+                    ]
+                }
+            },
+        ]
+        client = HotSearchClient()
+        with patch(
+            "errorjiang_agent.clients.get_json",
+            side_effect=responses,
+        ) as get_json:
+            result = client.fetch("all", 2)
+        self.assertTrue(result["untrusted"])
+        self.assertEqual(
+            [item["label"] for item in result["lists"]],
+            ["微博热搜", "B站热搜", "抖音热搜"],
+        )
+        self.assertEqual(
+            [item["items"][0]["title"] for item in result["lists"]],
+            ["微博测试", "B站测试", "抖音测试"],
+        )
+        self.assertEqual(get_json.call_count, 3)
+
+    def test_weibo_item_has_search_link_and_heat(self):
+        client = HotSearchClient()
+        with patch(
+            "errorjiang_agent.clients.get_json",
+            return_value={
+                "ok": 1,
+                "data": {
+                    "realtime": [
+                        {
+                            "word": "测试热搜",
+                            "word_scheme": "#测试热搜#",
+                            "num": 999,
+                        }
+                    ]
+                },
+            },
+        ):
+            result = client.fetch("weibo", 1)
+        item = result["lists"][0]["items"][0]
+        self.assertEqual(item["heat"], 999)
+        self.assertIn("s.weibo.com", item["url"])
 
 
 class FakeDeepSeek:
@@ -2344,6 +2586,25 @@ class FakeErrorJ:
     def tool(self, name, arguments):
         self.calls.append((name, arguments))
         return {"count": 1, "results": [{"part_number": "STM32F103C8T6"}]}
+
+
+class FakeHotSearch:
+    def __init__(self):
+        self.calls = []
+
+    def fetch(self, source="all", limit=10):
+        self.calls.append((source, limit))
+        return {
+            "source": source,
+            "untrusted": True,
+            "lists": [
+                {
+                    "source": "weibo",
+                    "label": "微博热搜",
+                    "items": [{"rank": 1, "title": "测试热搜"}],
+                }
+            ],
+        }
 
 
 class AgentBrainTests(unittest.TestCase):
@@ -2434,6 +2695,46 @@ class AgentBrainTests(unittest.TestCase):
             [("weather.forecast", {"city": "西安"})],
         )
 
+    def test_hot_search_tool_mapping(self):
+        deepseek = FakeDeepSeek(
+            [
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call-hot",
+                            "type": "function",
+                            "function": {
+                                "name": "web_hot_search",
+                                "arguments": json.dumps(
+                                    {"source": "weibo", "limit": 3}
+                                ),
+                            },
+                        }
+                    ],
+                },
+                {"role": "assistant", "content": "微博热搜第一是测试热搜。"},
+            ]
+        )
+        hot_search = FakeHotSearch()
+        brain = AgentBrain(
+            deepseek,
+            FakeErrorJ(),
+            lambda args, context: {},
+            hot_search=hot_search,
+        )
+        reply = brain.reply(
+            "微博热搜是什么？",
+            [],
+            {
+                "tools_enabled": "1",
+                "web_search_enabled": "1",
+            },
+        )
+        self.assertIn("测试热搜", reply)
+        self.assertEqual(hot_search.calls, [("weibo", 3)])
+
     def test_web_search_tool_and_persona_context(self):
         deepseek = FakeSearchDeepSeek(
             [
@@ -2505,6 +2806,7 @@ class AgentBrainTests(unittest.TestCase):
         self.assertEqual(reply, "普通回复")
         self.assertNotIn("deepseek_web_search", deepseek.seen_tools[0])
         self.assertNotIn("deepseek_web_fetch", deepseek.seen_tools[0])
+        self.assertNotIn("web_hot_search", deepseek.seen_tools[0])
 
     def test_review_prepare_receives_current_chat_context(self):
         deepseek = FakeDeepSeek(
@@ -3853,6 +4155,7 @@ class AgentConsoleUiTests(unittest.TestCase):
         self.assertIn('id="settings-persona"', html)
         self.assertIn('id="settings-web-search"', html)
         self.assertIn('id="settings-group-proactive"', html)
+        self.assertIn("网页与热搜", html)
         self.assertIn('id="settingPersonaPreset"', html)
         self.assertIn('id="settingWebSearchEnabled"', html)
         self.assertIn('id="settingGroupProactiveEnabled"', html)
