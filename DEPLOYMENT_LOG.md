@@ -6939,6 +6939,66 @@ QQBot     -> 已连接 4015320753
 
 备注：本次迁移范围是主动聊天。定时提醒循环仍使用旧 OneBot 通道，QQBot 群提醒的 openid 转数字异常仍存在，需要单独迁移提醒发送逻辑。
 
+## 155. 2026-10-29 16:06:44 折兮颜支持三级区域检索并简化新内容提醒
+
+来源：站长确认 QQBot 已开启“接收所有消息”，并要求足迹搜索按省/直辖市、地级市、县/区三级工作，例如检索陕西省宝鸡市千阳县有哪些餐饮点；同时要求新内容提醒不再依赖悬停或点击。
+
+完成内容（功能提交 `4820a0e feat: add hierarchical footprint search and simplify fresh alerts`，18 文件，+513/−88）：
+
+- 足迹搜索新增 `province`、`city`、`district`、`category` 参数，并保留 `area` 作为无法拆分时的兜底。
+- 区域搜索会从已有标记中找到区域锚点，按县/区 20 公里、地级市 80 公里、省级 500 公里做离线坐标检索；商家地址没有写全行政区也能命中。
+- “美食”会匹配餐饮、面食、特色小吃、早餐、烤肉、火锅、麻辣烫、凉皮凉粉等分类和名称；结果会去重并按距离排序，区域查询默认最多 20 条。
+- 千阳县线上实测：以“千阳县人民政府”为锚点，20 公里范围内返回 10 个唯一餐饮点，最近为“走街串巷”432 米。
+- 新内容提醒进入当前视口后统一 `1.2s × 3` 呼吸并自动标为已读；移除了鼠标悬停、点击和手机触摸清除逻辑。内容不在当前页或尚未进入视口时继续保持未读。
+- 相对时间去掉下方虚线，保留 `help` 悬停光标和精确到秒的提示浮层。
+- QQBot 增加首个全量群消息、`message_type` 和 `ark_type` 诊断日志，用于确认平台是否真正投递群位置卡片。
+
+部署步骤：
+```text
+本地：Python 编译检查；Python 单测 278 项通过；
+      messages.js / moments.js / fresh-visibility.js /
+      fresh-cards.js / focus-target.js 语法检查；
+      changelog-seed JSON 校验；git diff --check 干净
+提交：4820a0e feat: add hierarchical footprint search and simplify fresh alerts
+      （fetch → pull --rebase → push；local == origin/main == 4820a0e）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 962A8A4E2F0914D9C5BA3E4709DF8E295E28AF02BFE64127803CCC7344428018
+备份：/data/errorjiang-backup/20261029-160846/（22M）
+      inventory.db、auth.json、changelog-seed.json、
+      agent-data/agent.db 与 stickers；无 WAL / SHM
+服务器：systemctl stop errorjiang-agent -> systemctl stop errorjiang
+      cp 备份 -> git pull --ff-only -> 4820a0e
+      install 新 seed；
+      import_changelog_moments.py --date 2026-10-29 --force
+      -> 新增 2 条、覆盖 0 条、跳过 0 条
+      systemctl start errorjiang -> systemctl start errorjiang-agent
+```
+
+验证结果：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 公网 /api/health = {"ok":true}；
+             Agent 172.17.0.1:8011/health = {"ok":true}
+QQBot     -> 已连接 4015320753
+版本      -> 功能提交 = origin/main = 服务器功能 HEAD = 4820a0e
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+更新日志  -> /api/moments 中 2026-10-29 16:06:44，
+             「折兮颜支持三级区域检索并简化新内容提醒」（id 767，kind = log）
+静态文件  -> 规范化 CRLF 后，messages / moments / map / fresh-visibility /
+             fresh-cards / focus-target / sidebar / references
+             公网与本地 SHA256 全部一致
+区域检索  -> 线上 internal tool 实测“陕西省 / 宝鸡市 / 千阳县 / 美食”
+             返回 10 条，region_level=district，半径 20km，按距离升序
+公网交互  -> Playwright 390×844 触摸设备实测：
+             时间无下划线、悬停光标和精确时间浮层正常；
+             新内容在视口下方保持未读，滚入后 1.2s×3 自动停止，
+             无需点击或触摸
+本地回归  -> 278 项单测通过；三级区域、县域锚点、餐饮分类、
+             群全量 ARK 卡片解析、共享提醒可见性均通过
+```
+
+备注：QQ 群位置卡片的平台权限已经开启；新诊断版本启动后尚未收到新的群位置卡片事件，因此本轮只验证了 ARK 卡片解析和缓存链路，实际群内投递需在下一次分享后根据诊断日志确认。
+
 ## 154. 2026-10-29 10:05:54 折兮颜补全群位置卡片、热搜与相对时间
 
 来源：站长实测群内高德地图位置卡片仍无法添加，定时提醒出现过长时间延迟，并希望补充微博 / B站 / 抖音热搜；随后要求动态、留言和左下账户活跃时间统一显示相对时间，悬停时显示精确日期。
