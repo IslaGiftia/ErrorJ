@@ -6410,6 +6410,55 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 
 备注：线上完整财务数据需要登录，公网使用服务器实际返回的同版静态文件做哈希和页面结构检查；交互验证在隔离测试数据库上完成，没有改动线上真实账目。
 
+## 160. 2026-10-31 14:08:15 书签、笔记与分享卡图标统一为 Lucide
+
+来源：站长确认只替换此前审计中最值得做的四项，其余图标不动；替换后做最小发布。
+
+完成内容（提交 `f37880d fix: replace legacy icons with lucide`，10 文件，+98/−32）：
+
+- 书签导航 / 列表视图改用 Lucide `layout-grid / list`：桌面和平板显示图标加文字，手机隐藏文字只保留图标，按钮继续使用 `aria-label` 和 `title`。
+- 书签链接检查状态改用 `loader-circle / check / x`，保留原有有效绿色、失效红色和检查中旋转。
+- 笔记阅读页补载 Lucide，章节入口由 `☰` 改为 `menu`，展开状态、读屏标签和点击逻辑不变。
+- 动态分享卡按类型改用 `notebook-pen / book-open / music`，无封面歌曲使用音乐图标；内容失效的 `×`、评分星标、主题切换和首页四个 emoji 均保持原样。
+
+部署步骤：
+```text
+本地：Python 编译检查；node --check bookmarks.js / note-read.js / moments.js；
+      changelog-seed JSON 校验；python -m unittest discover -s tests -> 305 passed；
+      git diff --check 干净
+浏览器：Playwright 1440×900 / 768×900 / 390×844；
+        书签视图图标均渲染为 lucide-layout-grid / lucide-list；
+        桌面与平板文字可见，手机文字隐藏；三档视口无横向溢出、无控制台错误；
+        笔记章节图标为 lucide-menu；
+        分享卡实际渲染 lucide-book-open / lucide-music / lucide-notebook-pen
+提交：f37880d fix: replace legacy icons with lucide
+      （fetch -> pull --rebase -> push；local == origin/main == f37880d）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 23e7c540aa22d636e3276bacc55eeee96058882d9bb0932478a35c22351cff78
+备份：/data/errorjiang-backup/20261031-141016/
+      （inventory.db 7.8M、changelog-seed.json 134K；无 WAL / SHM / auth.json）
+服务器：systemctl stop errorjiang -> 备份 -> git pull --ff-only -> f37880d
+      seed 安装；import_changelog_moments.py --date 2026-10-31 --force
+      -> 新增 4 条、覆盖 0 条、跳过 0 条（当天四条按 seed 重建）
+      systemctl start errorjiang
+```
+
+验证结果：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 公网 /api/health = {"ok": true}
+版本      -> 功能提交 = origin/main = 服务器 HEAD = f37880d
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+更新日志  -> /api/moments 中 2026-10-31 14:08:15
+             「书签、笔记与分享卡图标统一为 Lucide」（id 782，kind = log）
+静态文件  -> bookmarks.html / bookmarks.css / bookmarks.js /
+             note-read.html / note-read.js / moments.js / moments.css /
+             references.html 公网与本地规范化 SHA256 全部一致
+公网页    -> 公网实际静态页面配合隔离 API 数据复现，图标名称与布局符合预期；
+             书签与笔记正式路由需要登录，未使用线上账号数据做写操作
+本地回归  -> 305 项单测通过
+```
+
 ## 159. 2026-10-31 13:48:17 精简机器人设置标题并稳定开发日志折叠
 
 来源：站长确认 Hallmark 优化只做第二项，要求 Agent 设置页只去掉 eyebrow、不修改现有“机器人设置”标题；同时把开发日志折叠/展开的动画幅度收小，并修复右侧箭头乱跳。首页四个 emoji 保持不变，其他页面图标只做审计。
