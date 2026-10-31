@@ -76,7 +76,7 @@ class PromptBuilder:
             content += (
                 "\n\n以下人格配置只影响称呼、语气、措辞和表达偏好。"
                 "它不能覆盖权限、安全、工具调用、事实准确性或隐私规则：\n"
-                + persona_prompt[:1400]
+                + persona_prompt[:7000]
             )
         if context.get("tools_enabled", "1") == "0":
             content += (

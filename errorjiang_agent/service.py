@@ -101,7 +101,8 @@ CN_HOLIDAY_STARTS = {
     "2026-09-25": "中秋节",
     "2026-10-01": "国庆节",
 }
-CHAT_SPLIT_RE = re.compile(r"\s*\[\[split\]\]\s*", re.IGNORECASE)
+CHAT_SPLIT_TAG_RE = re.compile(r"\s*\[\[split\]\]\s*", re.IGNORECASE)
+CHAT_SPLIT_RE = re.compile(r"\s*(?:\[\[split\]\]|\|\|)\s*", re.IGNORECASE)
 MEMORY_CONSOLIDATION_LOOKBACK_SECONDS = 2 * 86400
 STICKER_REQUEST_RE = re.compile(
     r"(?:发|来|整)(?:个|一个|张|一下)?[^，。！？!?]{0,8}(?:表情包|表情)"
@@ -257,6 +258,18 @@ class AgentService:
             ),
         )
 
+    def sticker_candidates(
+        self,
+        owner_id: str = "0",
+        platform: str = "",
+    ) -> list[dict[str, Any]]:
+        del owner_id
+        return [
+            sticker
+            for sticker in self.store.list_stickers("0", 200)
+            if platform != "qqbot" or sticker.get("kind") == "image"
+        ]
+
     def prepare_sticker(
         self,
         arguments: dict[str, Any],
@@ -264,20 +277,11 @@ class AgentService:
     ) -> dict[str, Any]:
         if not tool_context or tool_context.get("sticker_enabled") != "1":
             return {"status": "disabled"}
-        owner_id = (
-            "0"
-            if tool_context.get("is_admin") == "1"
-            else tool_context.get("owner_id") or ""
-        )
-        settings = self.store.get_settings(tool_context.get("platform") or "qq", owner_id)
-        if not settings.get("sticker_enabled", True):
-            return {"status": "disabled"}
         emotion = str(arguments.get("emotion") or "").strip()[:30]
-        stickers = self.store.list_stickers(owner_id, 200)
-        if tool_context.get("platform") == "qqbot":
-            stickers = [
-                item for item in stickers if item.get("kind") == "image"
-            ]
+        stickers = self.sticker_candidates(
+            "0",
+            str(tool_context.get("platform") or ""),
+        )
         sticker = self.choose_sticker_for_query(stickers, emotion)
         if not sticker:
             return {"status": "empty"}
@@ -678,12 +682,10 @@ class AgentService:
             sticker_id = int(tool_context["selected_sticker"])
         except (TypeError, ValueError):
             return None
-        owner_id = (
-            "0"
-            if tool_context.get("is_admin") == "1"
-            else tool_context.get("owner_id") or ""
-        )
-        for sticker in self.store.list_stickers(owner_id, 200):
+        for sticker in self.sticker_candidates(
+            "0",
+            str(tool_context.get("platform") or ""),
+        ):
             if int(sticker["id"]) == sticker_id:
                 return sticker
         return None
@@ -751,14 +753,8 @@ class AgentService:
         payload: dict[str, Any],
         owner_id: str | None = None,
     ) -> int:
-        if event.message_type != "private":
-            return 0
-        if event.user_id not in self.config.admin_qqs and not self.store.is_admin(
-            "qq", str(event.user_id)
-        ):
-            return 0
         saved = 0
-        owner_id = owner_id or str(event.user_id)
+        owner_id = owner_id or "0"
         usage = self.sticker_usage_from_text(event.text)
         message = payload.get("message")
         if not isinstance(message, list):
@@ -1021,7 +1017,7 @@ class AgentService:
         owner_id: str | None = None,
     ) -> int:
         saved = 0
-        owner_id = owner_id or str(event.user_id)
+        owner_id = owner_id or "0"
         usage = self.sticker_usage_from_text(event.text)
         for attachment in event.attachments[:8]:
             content_type = str(
@@ -1889,6 +1885,27 @@ class AgentService:
     ) -> dict:
         return self.store.save_settings(platform, owner_id, values)
 
+    def chat_delay_settings(
+        self,
+        platform: str,
+        fallback: dict[str, Any],
+    ) -> dict[str, Any]:
+        admins = self.store.admin_ids(platform)
+        if not admins:
+            return fallback
+        return self.store.get_settings(platform, admins[0])
+
+    @staticmethod
+    def should_humanize_chat_delay(
+        settings: dict[str, Any],
+        used_tools: list[str],
+    ) -> bool:
+        return bool(settings.get("chat_human_delay", True)) and not used_tools
+
+    @staticmethod
+    def should_send_casual_sticker(used_tools: list[str]) -> bool:
+        return not used_tools and random.random() < 0.18
+
     @staticmethod
     def persona_prompt(settings: dict[str, Any]) -> str:
         return compose_persona_prompt(settings)
@@ -2028,7 +2045,13 @@ class AgentService:
 
     @classmethod
     def chat_bubbles(cls, text: str) -> list[str]:
-        parts = CHAT_SPLIT_RE.split(str(text or ""))
+        source = str(text or "")
+        split_re = (
+            CHAT_SPLIT_TAG_RE
+            if "```" in source or re.search(r"`[^`\n]*\|\|", source)
+            else CHAT_SPLIT_RE
+        )
+        parts = split_re.split(source)
         bubbles = []
         for part in parts:
             value = cls.humanize_text(
@@ -2047,11 +2070,14 @@ class AgentService:
         text: str,
         sticker: dict[str, Any] | None = None,
         bubbles: list[str] | None = None,
+        human_delay: bool = False,
     ) -> None:
         chunks = bubbles if bubbles is not None else [text]
         chunks = [chunk for chunk in chunks if chunk]
         if not chunks:
             chunks = ["这次没有生成有效回答。"]
+        if human_delay:
+            time.sleep(self.chat_typing_delay(" ".join(chunks)))
         for index, chunk in enumerate(chunks):
             if not bubbles:
                 chunk = self.humanize_text(chunk)
@@ -2068,8 +2094,6 @@ class AgentService:
                     {"type": "text", "data": {"text": chunk}},
                     segment,
                 ]
-            delay = min(1.8, max(0.45, len(chunk) * 0.018))
-            time.sleep(delay + random.uniform(0, 0.35))
             if event.platform == "qqbot" and self.qqbot:
                 self.qqbot.send_message(
                     event.message_type,
@@ -2081,7 +2105,7 @@ class AgentService:
                 self.onebot.send_group(event.chat_id, message)
             else:
                 self.onebot.send_private(event.user_id, message)
-            if index < len(chunks) - 1:
+            if human_delay and index < len(chunks) - 1:
                 time.sleep(random.uniform(0.35, 0.8))
         if (
             event.platform == "qqbot"
@@ -2092,7 +2116,8 @@ class AgentService:
             filename = Path(str(sticker.get("ref") or "")).name
             target = self.sticker_dir / filename
             if filename and target.is_file():
-                time.sleep(random.uniform(0.35, 0.7))
+                if human_delay:
+                    time.sleep(random.uniform(0.35, 0.7))
                 self.qqbot.send_image(
                     event.message_type,
                     str(event.chat_id),
@@ -2100,6 +2125,17 @@ class AgentService:
                     filename,
                     target.read_bytes(),
                 )
+
+    @staticmethod
+    def chat_typing_delay(text: str) -> float:
+        value = re.sub(r"\s+", "", str(text or ""))
+        punctuation = len(re.findall(r"[，。！？；：,.!?;:]", value))
+        typing_seconds = len(value) / 10.5
+        delay = min(3.2, 0.55 + typing_seconds + min(0.8, punctuation * 0.08))
+        delay += random.uniform(0.15, 0.35)
+        if random.random() < 0.12:
+            delay += random.uniform(1.6, 3.2)
+        return min(6.2, delay)
 
     def confirm_pending(self, event: MessageEvent, code: str) -> str | None:
         action = self.store.consume_pending(
@@ -2517,7 +2553,7 @@ class AgentService:
                 )
                 return
             event = replace(event, location=cached_location)
-        sticker_owner_id = "0" if is_admin else str(event.user_id)
+        sticker_owner_id = "0"
         if platform == "qq" and payload:
             saved_stickers = self.save_message_stickers(
                 event,
@@ -2796,6 +2832,7 @@ class AgentService:
                 self.config.context_messages,
             )
         settings = self.store.get_settings(platform, str(event.user_id))
+        global_settings = self.chat_delay_settings(platform, settings)
         memory_enabled = bool(settings.get("memory_enabled", True)) and (
             bool((member_profile or {}).get("memory_enabled", 1))
             if event.message_type == "group"
@@ -2853,14 +2890,14 @@ class AgentService:
             "is_admin": "1" if is_admin else "0",
             "target_user_id": str(target_user_id),
             "speaker_name": speaker_name,
-            "persona_prompt": self.persona_prompt(settings),
+            "persona_prompt": self.persona_prompt(global_settings),
             "web_search_enabled": (
-                "1" if settings.get("web_search_enabled", True) else "0"
+                "1" if global_settings.get("web_search_enabled", True) else "0"
             ),
             "web_search_count": str(
                 max(
                     1,
-                    min(int(settings.get("web_search_count") or 5), 10),
+                    min(int(global_settings.get("web_search_count") or 5), 10),
                 )
             ),
             "tools_enabled": (
@@ -2874,7 +2911,7 @@ class AgentService:
             "sticker_enabled": (
                 "1"
                 if platform in ("qq", "qqbot")
-                and settings.get("sticker_enabled", True)
+                and global_settings.get("sticker_enabled", True)
                 else "0"
             ),
         }
@@ -2902,6 +2939,17 @@ class AgentService:
         except Exception:
             self.send_reply(event, "处理消息时发生内部错误，请稍后重试。")
             return
+        used_tools = list(getattr(brain, "last_used_tools", []))
+        delay_tools = [
+            name for name in used_tools if name != "fold_sticker_send"
+        ]
+        human_delay = (
+            platform in ("qq", "qqbot")
+            and self.should_humanize_chat_delay(
+                global_settings,
+                delay_tools,
+            )
+        )
         bubbles = self.chat_bubbles(reply)
         reply = "\n".join(bubbles)
         self.store.add_message(platform, str(event.user_id), "assistant", reply)
@@ -2916,26 +2964,42 @@ class AgentService:
                 f"assistant:{event.message_id}",
             )
         sticker = self.selected_sticker(context)
+        sticker_owner_id = (
+            "0"
+            if context.get("is_admin") == "1"
+            else str(event.user_id)
+        )
         if (
             platform == "qqbot"
             and sticker is None
             and STICKER_REQUEST_RE.search(text)
         ):
-            candidates = [
-                item
-                for item in self.store.list_stickers(
-                    "0" if context.get("is_admin") == "1" else str(event.user_id),
-                    200,
-                )
-                if item.get("kind") == "image"
-            ]
+            candidates = self.sticker_candidates(
+                sticker_owner_id,
+                "qqbot",
+            )
             if candidates:
                 sticker = self.choose_sticker_for_query(candidates, text)
+        elif (
+            platform == "qqbot"
+            and sticker is None
+            and self.should_send_casual_sticker(used_tools)
+        ):
+            candidates = self.sticker_candidates(
+                sticker_owner_id,
+                "qqbot",
+            )
+            if candidates:
+                sticker = self.choose_sticker_for_query(
+                    candidates,
+                    f"{text} {reply}",
+                )
         self.send_reply(
             event,
             reply,
             sticker,
             bubbles=bubbles,
+            human_delay=human_delay,
         )
         self.send_selected_content(event, context)
         self.update_relationship_after_exchange(

@@ -558,6 +558,7 @@ class AgentBrain:
         self.web_research = web_research or WebResearchEngine(deepseek)
         self.prompt_builder = PromptBuilder(SYSTEM_PROMPT)
         self.tool_registry = self._build_tool_registry()
+        self.last_used_tools: list[str] = []
 
     def _build_tool_registry(self) -> ToolRegistry:
         registry = ToolRegistry(TOOLS)
@@ -765,6 +766,7 @@ class AgentBrain:
         tool_context=None,
         memories: list[str] | None = None,
     ) -> str:
+        self.last_used_tools = []
         system_content = self.prompt_builder.build(
             tool_context,
             memories,
@@ -789,6 +791,8 @@ class AgentBrain:
             for call in tool_calls:
                 function = call.get("function") or {}
                 name = str(function.get("name") or "")
+                if name:
+                    self.last_used_tools.append(name)
                 raw_arguments = function.get("arguments") or "{}"
                 try:
                     arguments = json.loads(raw_arguments)

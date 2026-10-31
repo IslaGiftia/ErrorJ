@@ -160,6 +160,7 @@
         );
         settingValue("settingProactiveEnabled", settings.proactive_enabled);
         settingValue("settingStickerEnabled", settings.sticker_enabled);
+        settingValue("settingChatHumanDelay", settings.chat_human_delay);
         settingValue("settingPersonaPreset", settings.persona_preset);
         settingValue(
           "settingPersonaCustomPrompt",
@@ -214,6 +215,7 @@
         "settingProactiveEnabled"
       ).checked,
       sticker_enabled: document.getElementById("settingStickerEnabled").checked,
+      chat_human_delay: document.getElementById("settingChatHumanDelay").checked,
       persona_preset: document.getElementById("settingPersonaPreset").value,
       persona_custom_prompt: document.getElementById(
         "settingPersonaCustomPrompt"

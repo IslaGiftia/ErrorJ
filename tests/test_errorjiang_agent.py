@@ -145,6 +145,51 @@ class AgentStoreTests(unittest.TestCase):
         self.assertIn("温柔", prompt)
         self.assertIn("少用感叹号", prompt)
 
+    def test_long_persona_prompt_preserves_format_and_trigger_words(self):
+        custom = (
+            "# 身份\n"
+            "你是「鲸鲸」，一条住在 QQ 里的蓝色鲸鱼娘。\n"
+            "别人叫你“大肥鱼”你会炸毛反驳“才不是大肥鱼！”。\n\n"
+            "# 说话\n"
+            + "- 日常短句，遇到明显转折时才拆成两条。\n" * 80
+        )
+        self.assertGreater(len(custom), 1000)
+        settings = self.store.save_settings(
+            "qqbot",
+            "admin-openid",
+            {"persona_custom_prompt": custom},
+        )
+        self.assertEqual(settings["persona_custom_prompt"], custom)
+        prompt = compose_persona_prompt(settings)
+        self.assertIn("# 身份\n", prompt)
+        self.assertIn("别人叫你“大肥鱼”", prompt)
+        self.assertIn("遇到明显转折时才拆成两条", prompt)
+
+    def test_chat_human_delay_defaults_true_and_persists(self):
+        settings = self.store.get_settings("qqbot", "admin-openid")
+        self.assertTrue(settings["chat_human_delay"])
+        updated = self.store.save_settings(
+            "qqbot",
+            "admin-openid",
+            {"chat_human_delay": False},
+        )
+        self.assertFalse(updated["chat_human_delay"])
+
+    def test_chat_delay_setting_uses_the_platform_admin(self):
+        self.store.bind_admin("qqbot", "admin-openid")
+        self.store.save_settings(
+            "qqbot",
+            "admin-openid",
+            {"chat_human_delay": False},
+        )
+        service = object.__new__(AgentService)
+        service.store = self.store
+        resolved = service.chat_delay_settings(
+            "qqbot",
+            {"chat_human_delay": True},
+        )
+        self.assertFalse(resolved["chat_human_delay"])
+
     def test_legacy_persona_identity_is_migrated_to_jingjing(self):
         legacy = (
             "你是「大肥鱼」，一条蓝色鲸鱼娘。"
@@ -158,9 +203,11 @@ class AgentStoreTests(unittest.TestCase):
         )
         settings = self.store.get_settings("qqbot", "10001")
         custom = settings["persona_custom_prompt"]
+        self.assertIn("你是「鲸鲸」", custom)
         self.assertIn("鲸鲸", custom)
-        self.assertIn("胖鲸", custom)
-        for legacy_name in ("大肥鱼", "折兮颜", "小颜"):
+        self.assertIn("大肥鱼", custom)
+        self.assertNotIn("胖鲸", custom)
+        for legacy_name in ("折兮颜", "小颜"):
             self.assertNotIn(legacy_name, custom)
         conn = sqlite3.connect(self.store.path)
         try:
@@ -299,6 +346,23 @@ class AgentStoreTests(unittest.TestCase):
         self.assertEqual(sticker["source_name"], "")
         self.assertEqual(sticker["tags"], "旧标签")
 
+    def test_member_sticker_packs_migrate_to_global_library(self):
+        self.store.add_sticker(
+            "member-openid",
+            "image",
+            "member-sticker.png",
+            category="笑哭",
+        )
+        self.store.ensure_sticker_category("member-openid", "专属")
+        migrated = AgentStore(self.store.path)
+        stickers = migrated.list_stickers("0")
+        self.assertEqual(
+            [sticker["ref"] for sticker in stickers],
+            ["member-sticker.png"],
+        )
+        self.assertEqual(migrated.list_stickers("member-openid"), [])
+        self.assertIn("专属", migrated.list_sticker_categories("0"))
+
     def test_legacy_reminder_table_migrates_retry_fields(self):
         path = Path(self.temp.name) / "legacy-reminders.db"
         connection = sqlite3.connect(path)
@@ -385,6 +449,21 @@ class AgentStoreTests(unittest.TestCase):
         self.assertEqual(result["status"], "selected")
         sticker = service.selected_sticker(context)
         self.assertEqual(sticker["ref"], "cry.png")
+
+    def test_member_sticker_picker_falls_back_to_global_pack(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        self.store.add_sticker("0", "image", "global-cry.png", category="泪目")
+        context = {
+            "platform": "qqbot",
+            "owner_id": "member-openid",
+            "is_admin": "0",
+            "sticker_enabled": "1",
+        }
+        result = service.prepare_sticker({"emotion": "泪目"}, context)
+        self.assertEqual(result["status"], "selected")
+        sticker = service.selected_sticker(context)
+        self.assertEqual(sticker["ref"], "global-cry.png")
 
     def test_sticker_filename_keywords_ignore_generic_names(self):
         self.assertEqual(
@@ -1910,6 +1989,14 @@ class AgentStoreTests(unittest.TestCase):
             ),
             ["一", "二", "三 四"],
         )
+        self.assertEqual(
+            AgentService.chat_bubbles("emmm 等我吃完这口 || 好啦发来"),
+            ["emmm 等我吃完这口", "好啦发来"],
+        )
+        self.assertEqual(
+            AgentService.chat_bubbles("```js\nconst next = a || b;\n```"),
+            ["```js\nconst next = a || b;\n```"],
+        )
 
     def test_explicit_sticker_requests_are_detected(self):
         from errorjiang_agent.service import STICKER_REQUEST_RE
@@ -1962,6 +2049,75 @@ class AgentStoreTests(unittest.TestCase):
                 ("group", "group-openid", "message-id", "早点睡"),
             ],
         )
+
+    def test_chat_reply_delay_is_casual_only_and_occasionally_slower(self):
+        settings = {"chat_human_delay": True}
+        self.assertTrue(AgentService.should_humanize_chat_delay(settings, []))
+        self.assertFalse(
+            AgentService.should_humanize_chat_delay(
+                settings,
+                ["errorjiang_footprints_search"],
+            )
+        )
+        self.assertFalse(
+            AgentService.should_humanize_chat_delay(
+                {"chat_human_delay": False},
+                [],
+            )
+        )
+        with patch("errorjiang_agent.service.random.uniform", return_value=0.2), patch(
+            "errorjiang_agent.service.random.random",
+            return_value=0.99,
+        ):
+            normal = AgentService.chat_typing_delay("今天有点累，不太想说话。")
+        with patch("errorjiang_agent.service.random.uniform", return_value=0.2), patch(
+            "errorjiang_agent.service.random.random",
+            return_value=0.01,
+        ):
+            occasional = AgentService.chat_typing_delay("今天有点累，不太想说话。")
+        self.assertGreaterEqual(normal, 0.7)
+        self.assertLessEqual(normal, 3.55)
+        self.assertGreater(occasional, normal)
+        self.assertLessEqual(occasional, 6.2)
+        with patch("errorjiang_agent.service.random.random", return_value=0.1):
+            self.assertTrue(AgentService.should_send_casual_sticker([]))
+        with patch("errorjiang_agent.service.random.random", return_value=0.1):
+            self.assertFalse(
+                AgentService.should_send_casual_sticker(
+                    ["errorjiang_footprints_search"],
+                )
+            )
+
+    def test_send_reply_only_sleeps_for_human_delay(self):
+        sent = []
+        service = object.__new__(AgentService)
+        service.qqbot = SimpleNamespace(
+            send_message=lambda *args: sent.append(args),
+        )
+        service.onebot = SimpleNamespace()
+        service.sticker_segment = lambda sticker: None
+        event = MessageEvent(
+            self_id="bot",
+            user_id="member-openid",
+            message_type="group",
+            chat_id="group-openid",
+            message_id="message-id",
+            text="你好",
+            to_me=True,
+            platform="qqbot",
+        )
+        with patch("errorjiang_agent.service.time.sleep") as sleep:
+            service.send_reply(event, "即时回复")
+        sleep.assert_not_called()
+        with patch.object(
+            service,
+            "chat_typing_delay",
+            return_value=1.25,
+        ) as typing_delay, patch("errorjiang_agent.service.time.sleep") as sleep:
+            service.send_reply(event, "闲聊回复", human_delay=True)
+        typing_delay.assert_called_once_with("闲聊回复")
+        sleep.assert_called_once_with(1.25)
+        self.assertEqual(len(sent), 2)
 
     def test_qqbot_active_message_has_no_reply_reference(self):
         client = QQBotClient("app", "secret", "bot", lambda event: None)
@@ -2229,7 +2385,7 @@ class AgentStoreTests(unittest.TestCase):
         ):
             saved = service.save_qqbot_attachments(event)
         self.assertEqual(saved, 1)
-        stickers = self.store.list_stickers("member-openid")
+        stickers = self.store.list_stickers("0")
         self.assertEqual(len(stickers), 1)
         self.assertEqual(stickers[0]["kind"], "image")
         self.assertTrue(
@@ -3380,6 +3536,7 @@ class AgentBrainTests(unittest.TestCase):
             errorjiang.calls,
             [("inventory.search", {"query": "STM32F103C8T6"})],
         )
+        self.assertEqual(brain.last_used_tools, ["errorjiang_inventory_search"])
 
     def test_calculator_tool_mapping(self):
         deepseek = FakeDeepSeek(
@@ -5072,6 +5229,43 @@ class AgentTimelineApiTests(unittest.TestCase):
 
 
 class AgentConsoleUiTests(unittest.TestCase):
+    def test_agent_sidebar_uses_consistent_compact_spacing(self):
+        css = (app.STATIC_DIR / "agent.css").read_text(encoding="utf-8")
+        self.assertIn(".agent-console-nav {\n  display: grid;\n  gap: 4px;", css)
+        self.assertIn(
+            "min-height: 44px;\n  align-items: center;\n  gap: 9px;\n  padding: 0 12px;",
+            css,
+        )
+        self.assertIn("border-radius: var(--agent-radius);", css)
+        self.assertIn("font-size: 12px;\n  line-height: 1.3;", css)
+        self.assertIn("margin-top: 20px;\n  padding: 12px;", css)
+        self.assertIn(
+            "min-height: 42px;\n    padding: 0 12px;\n    font-size: 12px;",
+            css,
+        )
+        self.assertIn("scroll-margin-top: 128px;", css)
+
+    def test_agent_persona_prompt_allows_long_formatted_templates(self):
+        html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
+        self.assertIn(
+            'id="settingPersonaCustomPrompt" rows="4" maxlength="6000"',
+            html,
+        )
+
+    def test_agent_exposes_chat_human_delay_switch(self):
+        html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
+        script = (app.STATIC_DIR / "agent.js").read_text(encoding="utf-8")
+        self.assertIn('id="settingChatHumanDelay"', html)
+        self.assertIn("闲聊拟人延迟", html)
+        self.assertIn(
+            'settingValue("settingChatHumanDelay", settings.chat_human_delay)',
+            script,
+        )
+        self.assertIn(
+            'chat_human_delay: document.getElementById("settingChatHumanDelay").checked',
+            script,
+        )
+
     def test_agent_settings_intro_has_no_eyebrow(self):
         html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
         self.assertIn("<h1>机器人设置</h1>", html)

@@ -5,6 +5,7 @@ from typing import Any
 
 
 AGENT_NAME = "鲸鲸"
+MAX_PERSONA_CUSTOM_PROMPT = 6000
 
 
 PERSONA_PRESETS = {
@@ -22,16 +23,8 @@ def normalize_persona_custom_prompt(value: Any) -> str:
             "你是「大肥鱼」",
             f"你是「{AGENT_NAME}」",
         ),
-        (
-            "别人叫你“大肥鱼”你会炸毛反驳“才不是大肥鱼！”",
-            "别人叫你“胖鲸”你会炸毛反驳“才不是胖鲸！”",
-        ),
-        ("被叫“大肥鱼”", "被叫“胖鲸”"),
-        ("用户：你这条大肥鱼", "用户：你这条胖鲸"),
-        ("你：才不是大肥鱼！", "你：才不是胖鲸！"),
         ("折兮颜", AGENT_NAME),
         ("小颜", AGENT_NAME),
-        ("大肥鱼", AGENT_NAME),
     )
     for old, new in replacements:
         text = text.replace(old, new)
@@ -44,7 +37,7 @@ def compose_persona_prompt(settings: dict[str, Any]) -> str:
     custom = normalize_persona_custom_prompt(
         settings.get("persona_custom_prompt")
     ).strip()
-    custom = re.sub(r"\s+", " ", custom)[:1000]
+    custom = custom[:MAX_PERSONA_CUSTOM_PROMPT]
     if custom:
         base += " 用户自定义表达偏好：" + custom
     return base

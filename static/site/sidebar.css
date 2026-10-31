@@ -15,6 +15,7 @@
 
 :root {
   --sb-gap: 24px;
+  --sb-pad: 12px;
   --sb-side-width: 260px;
   /* 中间内容列的宽度：三栏一起放大时按档位覆盖（页面里的「顶部」按钮也读这个变量定位） */
   --sb-center-width: 760px;
@@ -202,7 +203,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 11px 14px;
+  padding: 11px var(--sb-pad);
 }
 
 .sb-card__title {
@@ -219,7 +220,7 @@
 .sb-card__body {
   flex: 1 1 auto;
   min-height: 0;
-  padding: 10px 12px;
+  padding: 10px var(--sb-pad);
 }
 
 /*
@@ -231,7 +232,7 @@
   flex-direction: column;
   justify-content: space-evenly;
   /* 上下内边距清零，三段留白完全交给 space-evenly（否则上下会各多出 10px） */
-  padding: 0 12px;
+  padding: 0 var(--sb-pad);
 }
 
 .sb-card__body--flush {
@@ -437,7 +438,15 @@
 
 /* 只有站长那一颗是可点的按钮，其它身份是纯展示的 span */
 button.sb-presence {
+  position: relative;
   cursor: pointer;
+}
+
+button.sb-presence::after {
+  content: "";
+  position: absolute;
+  inset: -6px -4px;
+  border-radius: inherit;
 }
 
 button.sb-presence:hover {
@@ -612,7 +621,7 @@ button.sb-presence:focus-visible {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 8px 12px;
+  padding: 8px var(--sb-pad);
   /* 左对齐，不要行与行之间的横线 */
   text-align: left;
 }
@@ -715,7 +724,8 @@ button.sb-presence:focus-visible {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 12px;
+  min-height: 40px;
+  padding: 8px var(--sb-pad);
   color: inherit;
   text-decoration: none;
 }

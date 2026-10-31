@@ -345,6 +345,24 @@ class AgentStore:
                 "UPDATE stickers SET category = '未分类' "
                 "WHERE TRIM(category) = ''"
             )
+            conn.execute(
+                """INSERT OR IGNORE INTO stickers(
+                       owner_id, kind, ref, category, source_name, tags, created_at
+                   )
+                   SELECT '0', kind, ref, category, source_name, tags, created_at
+                   FROM stickers WHERE owner_id <> '0'"""
+            )
+            conn.execute("DELETE FROM stickers WHERE owner_id <> '0'")
+            conn.execute(
+                """INSERT OR IGNORE INTO sticker_categories(
+                       owner_id, name, created_at
+                   )
+                   SELECT '0', name, created_at
+                   FROM sticker_categories WHERE owner_id <> '0'"""
+            )
+            conn.execute(
+                "DELETE FROM sticker_categories WHERE owner_id <> '0'"
+            )
 
     def seen_event(self, event_key: str) -> bool:
         now = int(time.time())
@@ -926,6 +944,7 @@ class AgentStore:
             "morning_time": "09:00",
             "night_time": "21:30",
             "sticker_enabled": True,
+            "chat_human_delay": True,
             "persona_preset": "冷脸萌",
             "persona_custom_prompt": "",
             "web_search_enabled": True,

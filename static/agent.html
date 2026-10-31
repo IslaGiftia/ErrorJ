@@ -121,7 +121,7 @@
       <section class="agent-console-section" id="settings-basic" data-console-section>
         <header class="agent-section-head">
           <span class="agent-section-icon"><i data-lucide="sliders-horizontal"></i></span>
-          <div><h2>基础设置</h2><p>控制长期记忆、自动整理和回复中的表情包。</p></div>
+          <div><h2>基础设置</h2><p>控制长期记忆、自动整理、闲聊回复节奏和表情包。</p></div>
         </header>
         <div class="agent-setting-list">
           <label class="agent-setting-row">
@@ -161,6 +161,16 @@
               <span aria-hidden="true"></span>
             </span>
           </label>
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
+              <strong>闲聊拟人延迟</strong>
+              <small>按较快打字速度等待，偶尔额外慢回；搜索和操作不延迟</small>
+            </span>
+            <span class="agent-switch">
+              <input type="checkbox" id="settingChatHumanDelay" data-setting-input>
+              <span aria-hidden="true"></span>
+            </span>
+          </label>
         </div>
       </section>
 
@@ -181,7 +191,7 @@
           </label>
           <label class="agent-setting-wide">
             <span>自定义补充</span>
-            <textarea id="settingPersonaCustomPrompt" rows="4" maxlength="1000"
+            <textarea id="settingPersonaCustomPrompt" rows="4" maxlength="6000"
                       data-setting-input
                       placeholder="例如：少用感叹号，偶尔用“嗯”开头；不要撒娇过度。"></textarea>
           </label>

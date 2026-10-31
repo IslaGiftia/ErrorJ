@@ -2380,6 +2380,34 @@ class UploadLimitTests(unittest.TestCase):
 
 
 class ComplianceWorkflowTests(unittest.TestCase):
+    def test_shared_sidebars_and_workbench_nav_keep_consistent_padding(self):
+        sidebar_css = (app.STATIC_DIR / "site" / "sidebar.css").read_text(
+            encoding="utf-8"
+        )
+        workbench_css = (app.STATIC_DIR / "workbench.css").read_text(
+            encoding="utf-8"
+        )
+        workbench_html = (app.STATIC_DIR / "workbench.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("--sb-pad: 12px;", sidebar_css)
+        self.assertIn("padding: 11px var(--sb-pad);", sidebar_css)
+        self.assertIn("padding: 10px var(--sb-pad);", sidebar_css)
+        self.assertIn("padding: 0 var(--sb-pad);", sidebar_css)
+        self.assertIn("padding: 8px var(--sb-pad);", sidebar_css)
+        self.assertIn("min-height: 40px;", sidebar_css)
+        self.assertIn("button.sb-presence::after", sidebar_css)
+        self.assertIn("inset: -6px -4px;", sidebar_css)
+        self.assertIn("height: 40px;", workbench_css)
+
+        nav = workbench_html.split('<nav class="wb-nav">', 1)[1].split(
+            "</nav>",
+            1,
+        )[0]
+        self.assertEqual(nav.count('aria-label="'), 10)
+        self.assertEqual(nav.count('title="'), 10)
+
     def test_recommended_legacy_icons_use_lucide(self):
         note_html = (app.STATIC_DIR / "note-read.html").read_text(encoding="utf-8")
         note_script = (app.STATIC_DIR / "note-read.js").read_text(encoding="utf-8")
