@@ -6410,6 +6410,51 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 
 备注：线上完整财务数据需要登录，公网使用服务器实际返回的同版静态文件做哈希和页面结构检查；交互验证在隔离测试数据库上完成，没有改动线上真实账目。
 
+## 162. 2026-10-31 15:17:21 修复鲸鲸人格模板在 QQBot 群聊不生效
+
+来源：站长实测群聊中叫“大肥鱼”时没有出现自定义人格要求的炸毛反应。检查线上 Agent DB 后发现，人格模板在 `web/0` 和 `qq/0` 中均为完整 837 字，但 QQBot 群消息读取的是 `qqbot/管理员 OpenID`，其中模板为空。
+
+完成内容（提交 `c478050 fix: sync jingjing persona across chat platforms`，6 文件，+66/−11）：
+
+- Agent 设置读取和保存新增 `qqbot/0` 全局配置位，网页端保存时同步写入 `web/0`、`qq/0`、`qqbot/0`。
+- QQBot 运行设置改为合并成员回退值、平台管理员记录、`web/0`、`qq/0` 和 `qqbot/0`。
+- 旧平台记录中的空人格不会覆盖已有的有效模板；其他布尔值和数值设置仍按全局记录正常覆盖。
+- README 和参考项目同步说明全局人格跨平台读取规则。
+
+部署步骤：
+```text
+本地：Python 编译检查；人格平台合并定向测试通过；
+      python -m unittest discover -s tests -> 316 passed；
+      changelog-seed JSON 校验；git diff --check 干净
+提交：c478050 fix: sync jingjing persona across chat platforms
+      （fetch -> pull --rebase -> push；local == origin/main == c478050）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 52cb987c0e446db320145588894e634f68284f017a39d59255fdcc04dc44b3b2
+备份：/data/errorjiang-backup/20261031-151820/
+      （inventory.db 7.8M、changelog-seed.json 135K、
+       errorjiang_agent/data 完整备份 14M；无 WAL / SHM / auth.json）
+服务器：systemctl stop errorjiang-agent -> systemctl stop errorjiang
+      备份 -> git pull --ff-only -> c478050
+      seed 安装；import_changelog_moments.py --date 2026-10-31 --force
+      -> 新增 6 条、覆盖 0 条、跳过 0 条（当天六条按 seed 重建）
+      systemctl start errorjiang -> systemctl start errorjiang-agent
+```
+
+验证结果：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 公网 /api/health = {"ok": true}；Agent /health = {"ok": true}
+版本      -> 功能提交 = origin/main = 服务器 HEAD = c478050
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+更新日志  -> /api/moments 中 2026-10-31 15:17:21
+             「修复鲸鲸人格模板在 QQBot 群聊不生效」（id 793，kind = log）
+线上人格  -> 使用服务器现有 Agent DB 直接运行全局设置解析：
+             persona_length = 837、has_fat_fish_trigger = true、
+             newlines_preserved = true、composed_has_trigger = true
+静态文件  -> references.html 公网与本地规范化 SHA256 一致
+本地回归  -> 316 项单测通过
+```
+
 ## 161. 2026-10-31 15:03:35 完善鲸鲸群聊人格、表情与侧栏体验
 
 来源：站长连续测试鲸鲸回复速度、群聊表情包、人格模板保存和各模块侧栏后，要求完成最推荐的侧栏优化并执行完整发布，同时更新参考项目和 GitHub README。
