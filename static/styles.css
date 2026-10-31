@@ -1223,6 +1223,45 @@ body.head-hidden .location-panel {
   display: none;
 }
 
+/*
+ * Modal 只在打开时补一段短入场：遮罩淡入，面板轻微上移并缩放。
+ * 关闭仍沿用现有 hidden 切换，不引入新的退场状态机。
+ */
+.modal-overlay:not([hidden]) {
+  animation: modal-overlay-in var(--dur-base) var(--ease-out-strong);
+}
+
+.modal-overlay:not([hidden]) .modal {
+  animation: modal-panel-in var(--dur-base) var(--ease-out-strong);
+}
+
+@keyframes modal-overlay-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes modal-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+  }
+}
+
+/* 减弱动效时只保留淡入，去掉缩放和位移。 */
+@media (prefers-reduced-motion: reduce) {
+  .modal-overlay:not([hidden]),
+  .modal-overlay:not([hidden]) .modal {
+    animation: modal-overlay-fade-in var(--dur-fast) ease;
+  }
+}
+
+@keyframes modal-overlay-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
 .modal {
   width: min(680px, 100%);
   max-height: min(90vh, 760px);

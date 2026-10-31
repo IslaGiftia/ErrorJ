@@ -113,8 +113,50 @@ def _coords_from_pair(
     return lat, lng
 
 
+def _location_from_amap_nested(value: Any) -> dict[str, Any] | None:
+    text = unquote(str(value or "").strip())
+    if "?" not in text:
+        return None
+    query = parse_qs(text.split("?", 1)[1], keep_blank_values=True)
+    for key in ("p", "q"):
+        raw = _query_first(query, key)
+        if not raw:
+            continue
+        parts = [unquote(item).strip() for item in raw.split(",")]
+        coords = None
+        title = ""
+        address = ""
+        for index in range(len(parts) - 1):
+            if index > 2:
+                break
+            candidate = _coords_from_pair(parts[index], parts[index + 1])
+            if not candidate:
+                continue
+            coords = candidate
+            remaining = parts[index + 2 :]
+            remaining = [item for item in remaining if item]
+            if remaining:
+                title = remaining[0]
+            if len(remaining) > 1:
+                address = remaining[1]
+            break
+        if not coords:
+            continue
+        lat, lng = coords
+        title = _query_first(query, "title", "name") or title
+        return {
+            "lat": lat,
+            "lng": lng,
+            "title": title[:120],
+            "address": address[:300],
+            "city": "",
+            "coord": "gcj02",
+        }
+    return None
+
+
 def _location_from_url(value: Any) -> dict[str, Any] | None:
-    raw = unquote(str(value or "").strip())
+    raw = str(value or "").strip()
     if not raw:
         return None
     try:
@@ -122,6 +164,12 @@ def _location_from_url(value: Any) -> dict[str, Any] | None:
     except ValueError:
         return None
     query = parse_qs(parsed.query)
+    for key in ("android", "ios", "wp", "mo"):
+        nested = _query_first(query, key)
+        if nested:
+            location = _location_from_amap_nested(nested)
+            if location:
+                return location
     coords = None
     lat_text = _query_first(query, "lat", "latitude")
     lng_text = _query_first(query, "lng", "lon", "longitude")

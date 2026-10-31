@@ -14,17 +14,41 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from urllib.parse import urlencode
 
 import app
-from errorjiang_agent.brain import AgentBrain
+from errorjiang_agent.adapters import (
+    AdapterRegistry,
+    OneBotAdapter,
+    QQBotAdapter,
+)
+from errorjiang_agent.brain import TOOLS, AgentBrain
 from errorjiang_agent.clients import DeepSeekClient, HotSearchClient
 from errorjiang_agent.config import Config
+from errorjiang_agent.context import ContextWindow
 from errorjiang_agent.errors import AgentError
-from errorjiang_agent.onebot import MessageEvent, event_key, parse_message_event
+from errorjiang_agent.onebot import (
+    MessageEvent,
+    event_key,
+    extract_location_event,
+    parse_message_event,
+)
 from errorjiang_agent.onebot_ws import _masked_frame, _read_frame
+from errorjiang_agent.persona import compose_persona_prompt
 from errorjiang_agent.qqbot import QQBotClient, parse_qqbot_event
+from errorjiang_agent.providers import (
+    FallbackLLMProvider,
+    OpenAICompatibleProvider,
+    ProviderRegistry,
+)
+from errorjiang_agent.routing import (
+    EventState,
+    GroupConversationPolicy,
+    build_group_event_pipeline,
+)
 from errorjiang_agent.service import AgentHttpServer, AgentService
 from errorjiang_agent.store import AgentStore
+from errorjiang_agent.tools import ToolRegistry
 
 
 class AgentStoreTests(unittest.TestCase):
@@ -816,9 +840,12 @@ class AgentStoreTests(unittest.TestCase):
                 return False
 
             def geturl(self):
-                return (
-                    "https://uri.amap.com/marker?"
-                    "position=107.110015,34.644625&name=test"
+                nested = (
+                    "androidamap?action=shorturl&p=B0HG3CD2JX,"
+                    "34.644625,107.110015,千阳县位置,测试路"
+                )
+                return "https://m.amap.com/callAPP?" + urlencode(
+                    {"android": nested}
                 )
 
             def read(self, limit):
@@ -838,7 +865,7 @@ class AgentStoreTests(unittest.TestCase):
         self.assertAlmostEqual(location["lat"], 34.644625)
         self.assertAlmostEqual(location["lng"], 107.110015)
 
-    def test_unmentioned_group_location_is_cached_silently(self):
+    def test_unbound_group_location_is_cached_and_explains_binding(self):
         service = object.__new__(AgentService)
         service.store = self.store
         service.config = SimpleNamespace(
@@ -846,6 +873,8 @@ class AgentStoreTests(unittest.TestCase):
             group_ids=frozenset(),
             qqbot_group_ids=frozenset(),
         )
+        replies = []
+        service.send_reply = lambda event, text: replies.append(text)
         event = MessageEvent(
             self_id="bot",
             user_id="member-openid",
@@ -864,12 +893,68 @@ class AgentStoreTests(unittest.TestCase):
             },
         )
         service._handle_message_event(event)
+        self.assertIn("还没有绑定", replies[0])
         cached = self.store.consume_shared_location(
             "qqbot",
             "group-openid",
             "member-openid",
         )
         self.assertEqual(cached["title"], "春发芽葫芦头")
+
+    def test_admin_group_location_is_added_automatically(self):
+        self.store.bind_admin("qqbot", "admin-openid")
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.config = SimpleNamespace(
+            group_enabled=True,
+            group_ids=frozenset(),
+            qqbot_group_ids=frozenset(),
+            admin_qqs=frozenset(),
+        )
+        replies = []
+        service.send_reply = lambda event, text: replies.append(text)
+        added = []
+
+        def add_location(event, target_user_id):
+            added.append((event.location["title"], target_user_id))
+            return {
+                "status": "added",
+                "place": {
+                    "name": event.location["title"],
+                    "category_name": "美食",
+                    "url": "https://example.com/map?place=99",
+                },
+            }
+
+        service.add_shared_location = add_location
+        event = MessageEvent(
+            self_id="bot",
+            user_id="admin-openid",
+            message_type="group",
+            chat_id="group-openid",
+            message_id="location-share-admin",
+            text="",
+            to_me=False,
+            platform="qqbot",
+            group_full=True,
+            location={
+                "lat": 34.3416,
+                "lng": 108.9398,
+                "title": "春发芽葫芦头",
+                "address": "测试路",
+                "coord": "gcj02",
+            },
+        )
+        service._handle_message_event(event)
+        self.assertEqual(added, [("春发芽葫芦头", 0)])
+        self.assertIn("已从位置卡片添加足迹", replies[0])
+        self.assertIsNone(
+            self.store.get_shared_location(
+                "qqbot",
+                "group-openid",
+                "admin-openid",
+            )
+        )
 
     def test_location_card_without_coordinates_falls_back_to_amap_search(self):
         calls = []
@@ -2174,6 +2259,30 @@ class AgentStoreTests(unittest.TestCase):
         )
         self.assertTrue(config.qqbot_auto_bind_first_admin)
 
+    def test_llm_provider_and_fallback_config_are_loaded(self):
+        with patch.dict(
+            os.environ,
+            {
+                "LLM_PROVIDER": "openai-compatible",
+                "LLM_BASE_URL": "https://llm.example/v1",
+                "LLM_API_KEY": "primary-key",
+                "LLM_MODEL": "primary-model",
+                "LLM_FALLBACK_PROVIDER": "deepseek",
+                "LLM_FALLBACK_BASE_URL": "https://api.deepseek.com",
+                "LLM_FALLBACK_API_KEY": "fallback-key",
+                "LLM_FALLBACK_MODEL": "deepseek-chat",
+                "ERRORJIANG_AGENT_CONTEXT_CHAR_LIMIT": "24000",
+            },
+            clear=False,
+        ):
+            config = Config.load(Path(self.temp.name))
+        self.assertEqual(config.llm_provider, "openai-compatible")
+        self.assertEqual(config.llm_api_key, "primary-key")
+        self.assertEqual(config.llm_model, "primary-model")
+        self.assertEqual(config.llm_fallback_provider, "deepseek")
+        self.assertEqual(config.llm_fallback_api_key, "fallback-key")
+        self.assertEqual(config.context_char_limit, 24000)
+
     def test_qqbot_identity_bind_code_is_one_time(self):
         code, expires_at = self.store.create_identity_bind_code(
             "qqbot",
@@ -2609,6 +2718,30 @@ class OneBotParserTests(unittest.TestCase):
         self.assertAlmostEqual(event.location["lat"], 34.644625)
         self.assertAlmostEqual(event.location["lng"], 107.110015)
 
+    def test_amap_callapp_nested_payload_is_parsed(self):
+        nested = (
+            "androidamap?action=shorturl&p=B0HG3CD2JX,"
+            "34.25213848901167,108.95823955535886,"
+            "朱秀英梆梆肉葫芦头(下马陵店),下马陵六号"
+        )
+        final_url = "https://m.amap.com/callAPP?" + urlencode(
+            {"android": nested}
+        )
+        location = extract_location_event(
+            {
+                "ark_data": {
+                    "ark_type": "tuwen",
+                    "ark_name": "图文H5",
+                    "fields": {"jump_url": final_url},
+                }
+            }
+        )
+        self.assertIsNotNone(location)
+        self.assertEqual(location["title"], "朱秀英梆梆肉葫芦头(下马陵店)")
+        self.assertEqual(location["address"], "下马陵六号")
+        self.assertAlmostEqual(location["lat"], 34.25213848901167)
+        self.assertAlmostEqual(location["lng"], 108.95823955535886)
+
     def test_qqbot_file_attachment_is_parsed(self):
         event = parse_qqbot_event(
             "C2C_MESSAGE_CREATE",
@@ -2780,6 +2913,242 @@ class FakeHotSearch:
                 }
             ],
         }
+
+
+class AgentInfrastructureTests(unittest.TestCase):
+    def test_adapter_registry_parses_onebot_and_qqbot(self):
+        registry = AdapterRegistry([OneBotAdapter(), QQBotAdapter()])
+        onebot = registry.parse(
+            "qq",
+            "message",
+            {
+                "post_type": "message",
+                "message_type": "private",
+                "self_id": 1,
+                "user_id": 2,
+                "message_id": 3,
+                "raw_message": "你好",
+            },
+            "1",
+        )
+        self.assertIsNotNone(onebot)
+        self.assertEqual(onebot.platform, "qq")
+        self.assertEqual(onebot.text, "你好")
+
+        qqbot = registry.parse(
+            "qqbot",
+            "C2C_MESSAGE_CREATE",
+            {
+                "id": "qq-message",
+                "content": "在吗",
+                "author": {
+                    "user_openid": "user-openid",
+                    "username": "星星",
+                },
+            },
+            "bot",
+        )
+        self.assertIsNotNone(qqbot)
+        self.assertEqual(qqbot.platform, "qqbot")
+        self.assertEqual(qqbot.user_id, "user-openid")
+
+    def test_provider_registry_and_fallback_chain(self):
+        class FailingProvider:
+            name = "primary"
+
+            def chat(self, messages, tools):
+                raise AgentError("primary unavailable")
+
+        class WorkingProvider:
+            name = "backup"
+
+            def chat(self, messages, tools):
+                return {"role": "assistant", "content": "backup reply"}
+
+            def web_search(self, query, count=5, original_question=""):
+                return {"query": query, "untrusted": True, "results": []}
+
+        chain = FallbackLLMProvider(
+            [FailingProvider(), WorkingProvider()]
+        )
+        self.assertEqual(
+            chain.chat([], [])["content"],
+            "backup reply",
+        )
+        self.assertEqual(chain.web_search("test")["query"], "test")
+
+        registry = ProviderRegistry()
+        registry.register(
+            "fake",
+            lambda base_url, api_key, model: WorkingProvider(),
+        )
+        provider = registry.create("fake", "", "", "")
+        self.assertEqual(provider.name, "backup")
+
+    def test_openai_compatible_provider_uses_standard_chat_payload(self):
+        provider = OpenAICompatibleProvider(
+            "https://llm.example/v1/",
+            "token",
+            "model-a",
+        )
+        with patch(
+            "errorjiang_agent.providers.post_json",
+            return_value={
+                "choices": [
+                    {"message": {"role": "assistant", "content": "ok"}}
+                ]
+            },
+        ) as post:
+            result = provider.chat(
+                [{"role": "user", "content": "hi"}],
+                [],
+            )
+        self.assertEqual(result["content"], "ok")
+        self.assertEqual(
+            post.call_args.args[0],
+            "https://llm.example/v1/chat/completions",
+        )
+        self.assertEqual(post.call_args.args[1]["model"], "model-a")
+
+    def test_context_window_is_budgeted_and_keeps_latest_messages(self):
+        history = [
+            {"role": "user", "content": "old message"},
+            {"role": "assistant", "content": "old reply"},
+            {"role": "user", "content": "newest message"},
+        ]
+        compacted = ContextWindow(
+            max_messages=2,
+            max_chars=8,
+            max_message_chars=20,
+        ).compact(history)
+        self.assertEqual(len(compacted), 1)
+        self.assertTrue(compacted[-1]["content"].endswith("message"))
+        self.assertNotIn("old message", [item["content"] for item in compacted])
+
+    def test_tool_registry_filters_search_admin_and_disabled_tools(self):
+        definitions = [
+            {"type": "function", "function": {"name": "normal"}},
+            {"type": "function", "function": {"name": "web"}},
+            {"type": "function", "function": {"name": "admin"}},
+        ]
+        registry = ToolRegistry(definitions)
+        registry.register(
+            "normal",
+            lambda arguments, context, text: {"ok": True},
+        )
+        registry.register(
+            "web",
+            lambda arguments, context, text: {"ok": True},
+            requires_web_search=True,
+        )
+        registry.register(
+            "admin",
+            lambda arguments, context, text: {"ok": True},
+            admin_only=True,
+        )
+        names = [
+            item["function"]["name"]
+            for item in registry.available(
+                {
+                    "tools_enabled": "1",
+                    "web_search_enabled": "0",
+                    "is_admin": "0",
+                }
+            )
+        ]
+        self.assertEqual(names, ["normal"])
+        self.assertEqual(
+            registry.available({"tools_enabled": "0"}),
+            [],
+        )
+        with self.assertRaises(AgentError):
+            registry.execute(
+                "admin",
+                {},
+                {"is_admin": "0"},
+                "",
+            )
+
+    def test_every_model_tool_has_a_registered_handler(self):
+        brain = AgentBrain(
+            object(),
+            object(),
+            lambda arguments, context: {},
+        )
+        defined = {
+            item["function"]["name"]
+            for item in TOOLS
+        }
+        self.assertEqual(set(brain.tool_registry.names()), defined)
+
+    def test_group_event_pipeline_auto_mentions_and_bypasses_for_location(self):
+        class EmptyStore:
+            @staticmethod
+            def get_group_messages(platform, chat_id, limit):
+                return []
+
+        policy = GroupConversationPolicy(EmptyStore())
+        config = SimpleNamespace(
+            group_enabled=True,
+            group_ids=frozenset(),
+            qqbot_group_ids=frozenset(),
+        )
+        pipeline = build_group_event_pipeline(policy, config)
+        event = MessageEvent(
+            self_id="bot",
+            user_id="member",
+            message_type="group",
+            chat_id="group",
+            message_id="message",
+            text="Error酱，在吗",
+            to_me=False,
+            platform="qqbot",
+            group_full=True,
+        )
+        routed, state = pipeline.run(event)
+        self.assertIsNotNone(routed)
+        self.assertTrue(routed.to_me)
+        self.assertTrue(state.auto_reply)
+
+        location_event = replace(
+            event,
+            text="",
+            location={"title": "测试地点"},
+        )
+        routed_location, _ = pipeline.run(location_event, EventState())
+        self.assertIsNotNone(routed_location)
+        self.assertFalse(routed_location.to_me)
+
+        unrelated = replace(event, text="今天中午吃什么")
+        routed_unrelated, _ = pipeline.run(unrelated, EventState())
+        self.assertIsNone(routed_unrelated)
+
+    def test_persona_prompt_composes_preset_and_custom_preference(self):
+        prompt = compose_persona_prompt(
+            {
+                "persona_preset": "理性",
+                "persona_custom_prompt": "少用感叹号",
+            }
+        )
+        self.assertIn("理性", prompt)
+        self.assertIn("少用感叹号", prompt)
+
+    def test_service_brain_factory_keeps_hot_search_connected(self):
+        service = object.__new__(AgentService)
+        service.config = SimpleNamespace(
+            max_tool_rounds=4,
+            context_messages=8,
+            context_char_limit=16000,
+        )
+        service.deepseek = object()
+        service.hot_search = object()
+        service.prepare_review = lambda arguments, context: {}
+        service.prepare_sticker = lambda arguments, context: {}
+        service.prepare_reminder = lambda arguments, context: {}
+        service.prepare_content_send = lambda arguments, context: {}
+        service.prepare_footprint = lambda arguments, context: {}
+        brain = service.build_brain(FakeErrorJ())
+        self.assertIs(brain.hot_search, service.hot_search)
 
 
 class AgentBrainTests(unittest.TestCase):
@@ -2982,6 +3351,54 @@ class AgentBrainTests(unittest.TestCase):
         self.assertNotIn("deepseek_web_search", deepseek.seen_tools[0])
         self.assertNotIn("deepseek_web_fetch", deepseek.seen_tools[0])
         self.assertNotIn("web_hot_search", deepseek.seen_tools[0])
+
+    def test_search_tool_reports_provider_without_search_support(self):
+        class ChatOnlyProvider:
+            name = "chat-only"
+
+            def __init__(self):
+                self.calls = 0
+                self.messages = []
+
+            def chat(self, messages, tools):
+                self.calls += 1
+                self.messages = messages
+                if self.calls == 1:
+                    return {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call-search",
+                                "type": "function",
+                                "function": {
+                                    "name": "deepseek_web_search",
+                                    "arguments": json.dumps(
+                                        {"query": "测试"}
+                                    ),
+                                },
+                            }
+                        ],
+                    }
+                return {"role": "assistant", "content": "暂时不能搜索。"}
+
+        provider = ChatOnlyProvider()
+        brain = AgentBrain(
+            provider,
+            FakeErrorJ(),
+            lambda arguments, context: {},
+        )
+        reply = brain.reply(
+            "搜一下测试",
+            [],
+            {
+                "tools_enabled": "1",
+                "web_search_enabled": "1",
+            },
+        )
+        self.assertEqual(reply, "暂时不能搜索。")
+        tool_result = provider.messages[-1]["content"]
+        self.assertIn("不支持网页搜索", tool_result)
 
     def test_review_prepare_receives_current_chat_context(self):
         deepseek = FakeDeepSeek(

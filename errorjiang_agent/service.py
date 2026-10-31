@@ -23,22 +23,29 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 
+from .adapters import AdapterRegistry, OneBotAdapter, QQBotAdapter
 from .brain import AgentBrain
 from .clients import (
-    DeepSeekClient,
     ErrorJClient,
     HotSearchClient,
     OneBotClient,
 )
 from .config import Config
+from .context import ContextWindow
 from .errors import AgentError
 from .onebot import (
     MessageEvent,
     event_key,
     extract_location_event,
-    parse_message_event,
 )
+from .persona import compose_persona_prompt
+from .providers import FallbackLLMProvider, default_provider_registry
 from .qqbot import QQBotClient
+from .routing import (
+    EventState,
+    GroupConversationPolicy,
+    build_group_event_pipeline,
+)
 from .store import AgentStore
 
 
@@ -79,27 +86,11 @@ PROACTIVE_MEMORY_COOLDOWN_SECONDS = 3 * 86400
 REMINDER_MAX_ATTEMPTS = 5
 REMINDER_RETRY_DELAYS = (30, 120, 600, 1800)
 REMINDER_MAX_LATE_SECONDS = 2 * 3600
-PERSONA_PRESETS = {
-    "冷脸萌": "保持冷脸萌和轻微傲娇，关心但不过度黏人，偶尔嘴硬，语气自然克制。",
-    "温柔": "温柔、耐心、体贴，先理解对方感受再回应，不使用命令式或指责式表达。",
-    "理性": "理性、清晰、直接，优先说明事实、判断依据和下一步，不刻意卖萌。",
-    "活力": "活泼、轻快、有行动感，可以适度感叹，但不要刷屏、夸张或过度热情。",
-}
 GROUP_WEATHER_CITY_SET_RE = re.compile(
     r"^(?:设置|保存|记录)天气城市\s*[:：]?\s*(?P<city>.{1,40})$"
 )
 GROUP_WEATHER_CITY_CLEAR_RE = re.compile(
     r"^(?:清除|删除)天气城市$"
-)
-GROUP_BOT_ALIASES = ("折兮颜", "error酱", "错误酱", "小颜")
-GROUP_FOLLOWUP_START_RE = re.compile(
-    r"^(?:那|所以|然后|还有|继续|刚才|刚刚|这个|那个|"
-    r"帮我|请问|查一下|查询|搜索|添加|提醒|记住)"
-)
-GROUP_DIRECT_COMMAND_RE = re.compile(
-    r"^(?:/|帮助$|重置对话$|群友档案$|绑定账号\s+|解绑用户\s+|"
-    r"设置天气城市\s+|清除天气城市$|删除天气城市$|确认\s+\d{6}$|"
-    r"保存(?:一个|一张)?(?:表情包?|图片)|添加(?:一个|一张)?(?:表情包?|图片))"
 )
 CN_HOLIDAY_STARTS = {
     "2026-01-01": "元旦",
@@ -150,15 +141,41 @@ class AgentService:
         config.validate()
         self.config = config
         self.store = AgentStore(config.db_path)
+        self.adapters = AdapterRegistry(
+            [OneBotAdapter(), QQBotAdapter()]
+        )
+        self.group_policy = GroupConversationPolicy(self.store)
+        self.event_pipeline = build_group_event_pipeline(
+            self.group_policy,
+            config,
+        )
         self.onebot = OneBotClient(
             config.onebot_api_base,
             config.onebot_ws_url,
             config.onebot_access_token,
         )
-        self.deepseek = DeepSeekClient(
-            config.deepseek_base_url,
-            config.deepseek_api_key,
-            config.deepseek_model,
+        provider_registry = default_provider_registry()
+        providers = [
+            provider_registry.create(
+                config.llm_provider,
+                config.llm_base_url,
+                config.llm_api_key,
+                config.llm_model,
+            )
+        ]
+        if config.llm_fallback_provider:
+            providers.append(
+                provider_registry.create(
+                    config.llm_fallback_provider,
+                    config.llm_fallback_base_url,
+                    config.llm_fallback_api_key,
+                    config.llm_fallback_model,
+                )
+            )
+        self.deepseek = (
+            FallbackLLMProvider(providers)
+            if len(providers) > 1
+            else providers[0]
         )
         self.errorjiang = ErrorJClient(
             config.errorjiang_base_url,
@@ -166,17 +183,7 @@ class AgentService:
             config.admin_user_id,
         )
         self.hot_search = HotSearchClient()
-        self.brain = AgentBrain(
-            self.deepseek,
-            self.errorjiang,
-            self.prepare_review,
-            self.prepare_sticker,
-            self.prepare_reminder,
-            self.prepare_content_send,
-            max_tool_rounds=config.max_tool_rounds,
-            prepare_footprint=self.prepare_footprint,
-            hot_search=self.hot_search,
-        )
+        self.brain = self.build_brain(self.errorjiang)
         self.rate_limiter = RateLimiter()
         self.executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="agent")
         self.qqbot = (
@@ -185,6 +192,7 @@ class AgentService:
                 config.qqbot_app_secret,
                 config.qqbot_bot_qq,
                 self.schedule_qqbot_event,
+                event_parser=self.adapters.get("qqbot").parse,
             )
             if config.qqbot_enabled
             else None
@@ -226,6 +234,28 @@ class AgentService:
         self._memory_consolidation_thread.start()
         if self._qqbot_thread:
             self._qqbot_thread.start()
+
+    def build_brain(
+        self,
+        errorjiang: ErrorJClient,
+        *,
+        sticker_enabled: bool = True,
+    ) -> AgentBrain:
+        return AgentBrain(
+            self.deepseek,
+            errorjiang,
+            self.prepare_review,
+            self.prepare_sticker if sticker_enabled else None,
+            self.prepare_reminder,
+            self.prepare_content_send,
+            max_tool_rounds=self.config.max_tool_rounds,
+            prepare_footprint=self.prepare_footprint,
+            hot_search=self.hot_search,
+            context_window=ContextWindow(
+                max_messages=self.config.context_messages,
+                max_chars=self.config.context_char_limit,
+            ),
+        )
 
     def prepare_sticker(
         self,
@@ -1861,13 +1891,7 @@ class AgentService:
 
     @staticmethod
     def persona_prompt(settings: dict[str, Any]) -> str:
-        preset = str(settings.get("persona_preset") or "冷脸萌")
-        base = PERSONA_PRESETS.get(preset, PERSONA_PRESETS["冷脸萌"])
-        custom = str(settings.get("persona_custom_prompt") or "").strip()
-        custom = re.sub(r"\s+", " ", custom)[:1000]
-        if custom:
-            base += " 用户自定义表达偏好：" + custom
-        return base
+        return compose_persona_prompt(settings)
 
     def prepare_review(
         self,
@@ -2118,22 +2142,40 @@ class AgentService:
         return f"{labels.get((kind, action_name), '审核已完成')} #{item_id}。{result.get('ok') and ''}".strip()
 
     def handle_event(self, payload: dict[str, Any]) -> None:
-        event = parse_message_event(payload)
+        event = self.adapters.parse(
+            "qq",
+            "message",
+            payload,
+            "onebot",
+        )
+        if not event:
+            return
+        event, _ = self.event_pipeline.run(event)
         if not event:
             return
         self._handle_message_event(event, payload)
 
     def schedule_qqbot_event(self, event: MessageEvent) -> None:
-        auto_reply = False
-        if (
-            event.message_type == "group"
-            and not event.to_me
-            and not event.location
-        ):
-            if not event.group_full or not self.group_message_wants_reply(event):
-                return
-            event = replace(event, to_me=True)
-            auto_reply = True
+        pipeline = getattr(self, "event_pipeline", None)
+        if pipeline:
+            event, state = pipeline.run(event)
+        else:
+            state = EventState()
+            if (
+                event.message_type == "group"
+                and not event.to_me
+                and not event.location
+            ):
+                if (
+                    not event.group_full
+                    or not self.group_message_wants_reply(event)
+                ):
+                    return
+                event = replace(event, to_me=True)
+                state.auto_reply = True
+        if not event:
+            return
+        auto_reply = state.auto_reply
         print(
             f"[QQBot] 接收 {event.message_type} "
             f"user={event.user_id} chat={event.chat_id}"
@@ -2151,64 +2193,19 @@ class AgentService:
 
     @staticmethod
     def group_location_add_requested(text: str) -> bool:
-        value = str(text or "").strip().lower()
-        if not value:
-            return False
-        return (
-            any(word in value for word in ("添加", "加进", "保存", "存进"))
-            and any(word in value for word in ("刚才", "刚刚", "上一个", "这个"))
-            and any(word in value for word in ("位置", "地点", "标记", "足迹"))
-        )
+        return GroupConversationPolicy.location_add_requested(text)
 
     def recent_group_assistant_reply(self, event: MessageEvent) -> str:
-        rows = self.store.get_group_messages(
-            event.platform,
-            str(event.chat_id),
-            12,
-        )
-        cutoff = int(time.time()) - 10 * 60
-        for index in range(len(rows) - 1, -1, -1):
-            row = rows[index]
-            if row.get("role") != "assistant":
-                continue
-            try:
-                if int(row.get("created_at") or 0) < cutoff:
-                    return ""
-            except (TypeError, ValueError):
-                return ""
-            for previous in reversed(rows[:index]):
-                if previous.get("role") == "user":
-                    return str(previous.get("member_id") or "")
-            return ""
-        return ""
+        policy = getattr(self, "group_policy", None)
+        if not policy:
+            policy = GroupConversationPolicy(self.store)
+        return policy.recent_assistant_member(event)
 
     def group_message_wants_reply(self, event: MessageEvent) -> bool:
-        text = " ".join(event.text.split()).strip()
-        if not text:
-            return False
-        lowered = text.lower()
-        if any(alias in lowered for alias in GROUP_BOT_ALIASES):
-            return True
-        if event.mentions_other:
-            return False
-        if (
-            GROUP_DIRECT_COMMAND_RE.match(text)
-            or self.group_location_add_requested(text)
-        ):
-            return True
-        recent_member = self.recent_group_assistant_reply(event)
-        recent = bool(recent_member)
-        if event.referenced and recent:
-            return True
-        if not recent or len(text) < 3:
-            return False
-        if recent_member != str(event.user_id):
-            return False
-        if "你" in text:
-            return True
-        if GROUP_FOLLOWUP_START_RE.match(text):
-            return True
-        return text.endswith(("?", "？", "吗", "呢", "么"))
+        policy = getattr(self, "group_policy", None)
+        if not policy:
+            policy = GroupConversationPolicy(self.store)
+        return policy.wants_reply(event)
 
     def _handle_message_event(
         self,
@@ -2226,6 +2223,13 @@ class AgentService:
         if self.store.seen_event(event_key(event)):
             return
         if event.message_type == "group":
+            self.store.remember_group_member(
+                platform,
+                str(event.chat_id),
+                str(event.user_id),
+                event.display_name,
+                event.text,
+            )
             if platform == "qq" and not self.config.group_enabled:
                 return
             if (
@@ -2246,17 +2250,56 @@ class AgentService:
                     str(event.user_id),
                     event.location,
                 )
+                member_profile = self.store.get_group_member(
+                    platform,
+                    str(event.chat_id),
+                    str(event.user_id),
+                )
+                if (
+                    member_profile
+                    and not int(member_profile.get("allow_tools", 1))
+                ):
+                    self.send_reply(
+                        event,
+                        "管理员暂时关闭了你在群里使用工具，位置已暂存。",
+                    )
+                    return
+                sender_is_admin = (
+                    platform == "qq"
+                    and event.user_id in self.config.admin_qqs
+                ) or self.store.is_admin(platform, str(event.user_id))
+                target_user_id = (
+                    0
+                    if sender_is_admin
+                    else self.store.linked_user_id(
+                        platform,
+                        str(event.user_id),
+                    )
+                )
+                if target_user_id is None:
+                    self.send_reply(
+                        event,
+                        "位置卡片已收到，但当前 QQ 账号还没有绑定 Error酱 账号。"
+                        "绑定后重新分享即可自动添加。",
+                    )
+                    return
+                try:
+                    result = self.add_shared_location(event, target_user_id)
+                except AgentError as exc:
+                    self.send_reply(event, f"位置卡片添加失败：{exc}")
+                    return
+                self.store.consume_shared_location(
+                    platform,
+                    str(event.chat_id),
+                    str(event.user_id),
+                )
+                self.send_reply(
+                    event,
+                    self.location_result_reply(result),
+                )
                 return
         if event.message_type == "group" and not event.to_me:
             return
-        if event.message_type == "group":
-            self.store.remember_group_member(
-                platform,
-                str(event.chat_id),
-                str(event.user_id),
-                event.display_name,
-                event.text,
-            )
         redeem_match = REDEEM_IDENTITY_BIND_CODE_RE.fullmatch(
             event.text.strip()
         )
@@ -2574,6 +2617,37 @@ class AgentService:
             value["address"] = resolved.get("address") or ""
         return value
 
+    @staticmethod
+    def location_result_reply(result: dict[str, Any]) -> str:
+        if result.get("status") == "added":
+            place = result.get("place") or {}
+            reply = (
+                f"已从位置卡片添加足迹"
+                f"「{place.get('name') or '共享位置'}」。"
+            )
+            if place.get("category_name"):
+                reply += f"\n分类：{place['category_name']}"
+            if place.get("url"):
+                reply += f"\n{place['url']}"
+            return reply
+        if result.get("status") == "existing":
+            existing = result.get("existing") or {}
+            reply = (
+                f"这个位置附近已经有足迹"
+                f"「{existing.get('name') or '未命名'}」，没有重复添加。"
+            )
+            if existing.get("url"):
+                reply += f"\n{existing['url']}"
+            return reply
+        if result.get("status") == "not_found":
+            reply = str(
+                result.get("message") or "高德没有搜索到这张位置卡片。"
+            )
+            if result.get("fallback_url"):
+                reply += f"\n{result['fallback_url']}"
+            return reply
+        return str(result.get("message") or "位置卡片没有添加成功。")
+
     def add_shared_location(
         self,
         event: MessageEvent,
@@ -2693,30 +2767,10 @@ class AgentService:
             except AgentError as exc:
                 self.send_reply(event, f"位置卡片添加失败：{exc}")
                 return
-            if result.get("status") == "added":
-                place = result.get("place") or {}
-                reply = f"已从位置卡片添加足迹「{place.get('name') or '共享位置'}」。"
-                if place.get("category_name"):
-                    reply += f"\n分类：{place['category_name']}"
-                if place.get("url"):
-                    reply += f"\n{place['url']}"
-            elif result.get("status") == "existing":
-                existing = result.get("existing") or {}
-                reply = (
-                    f"这个位置附近已经有足迹「{existing.get('name') or '未命名'}」，"
-                    "没有重复添加。"
-                )
-                if existing.get("url"):
-                    reply += f"\n{existing['url']}"
-            elif result.get("status") == "not_found":
-                reply = str(
-                    result.get("message") or "高德没有搜索到这张位置卡片。"
-                )
-                if result.get("fallback_url"):
-                    reply += f"\n{result['fallback_url']}"
-            else:
-                reply = str(result.get("message") or "位置卡片没有添加成功。")
-            self.send_reply(event, reply)
+            self.send_reply(
+                event,
+                self.location_result_reply(result),
+            )
             return
         if event.message_type == "group":
             history = []
@@ -2829,16 +2883,7 @@ class AgentService:
             self.config.errorjiang_token,
             target_user_id,
         )
-        brain = AgentBrain(
-            self.deepseek,
-            errorjiang,
-            self.prepare_review,
-            self.prepare_sticker,
-            self.prepare_reminder,
-            self.prepare_content_send,
-            max_tool_rounds=self.config.max_tool_rounds,
-            prepare_footprint=self.prepare_footprint,
-        )
+        brain = self.build_brain(errorjiang)
         brain_text = (
             f"{speaker_name}：{text}"
             if event.message_type == "group"
@@ -2984,16 +3029,7 @@ class AgentService:
             self.config.errorjiang_token,
             int(user_id),
         )
-        brain = AgentBrain(
-            self.deepseek,
-            errorjiang,
-            self.prepare_review,
-            None,
-            self.prepare_reminder,
-            self.prepare_content_send,
-            max_tool_rounds=self.config.max_tool_rounds,
-            prepare_footprint=self.prepare_footprint,
-        )
+        brain = self.build_brain(errorjiang, sticker_enabled=False)
         context = {
             "platform": "web",
             "owner_id": str(user_id),

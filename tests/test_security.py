@@ -3002,6 +3002,20 @@ class ComplianceWorkflowTests(unittest.TestCase):
         css = (app.STATIC_DIR / "site" / "report.css").read_text(encoding="utf-8")
         self.assertIn(".er-report-overlay[hidden]", css)
 
+    def test_global_modals_use_short_entry_motion(self):
+        css = (app.STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+        self.assertIn(
+            ".modal-overlay:not([hidden]) .modal",
+            css,
+        )
+        self.assertIn(
+            "animation: modal-panel-in var(--dur-base) var(--ease-out-strong)",
+            css,
+        )
+        self.assertIn("transform: translateY(4px) scale(0.97)", css)
+        self.assertIn("@media (prefers-reduced-motion: reduce)", css)
+        self.assertIn("modal-overlay-fade-in var(--dur-fast) ease", css)
+
     def test_routed_pages_do_not_use_native_dialogs(self):
         files = (
             "messages.js",

@@ -43,6 +43,14 @@ class Config:
     deepseek_api_key: str
     deepseek_base_url: str
     deepseek_model: str
+    llm_provider: str
+    llm_base_url: str
+    llm_api_key: str
+    llm_model: str
+    llm_fallback_provider: str
+    llm_fallback_base_url: str
+    llm_fallback_api_key: str
+    llm_fallback_model: str
     errorjiang_base_url: str
     errorjiang_token: str
     admin_qqs: frozenset[int]
@@ -62,6 +70,7 @@ class Config:
     group_enabled: bool
     group_ids: frozenset[int]
     context_messages: int
+    context_char_limit: int
     max_tool_rounds: int
 
     @classmethod
@@ -91,6 +100,26 @@ class Config:
         secret = os.environ.get("ONEBOT_WEBHOOK_SECRET", "").strip()
         if not secret:
             secret = os.environ.get("ERRORJIANG_AGENT_TOKEN", "").strip()
+        deepseek_api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+        deepseek_base_url = os.environ.get(
+            "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
+        ).rstrip("/")
+        deepseek_model = os.environ.get(
+            "DEEPSEEK_MODEL", "deepseek-chat"
+        ).strip()
+        llm_provider = os.environ.get("LLM_PROVIDER", "deepseek").strip().lower()
+        llm_base_url = os.environ.get("LLM_BASE_URL", "").strip().rstrip("/")
+        if not llm_base_url:
+            llm_base_url = deepseek_base_url
+        llm_api_key = os.environ.get("LLM_API_KEY", "").strip()
+        if not llm_api_key:
+            llm_api_key = deepseek_api_key
+        llm_model = os.environ.get("LLM_MODEL", "").strip()
+        if not llm_model:
+            llm_model = deepseek_model
+        llm_fallback_provider = (
+            os.environ.get("LLM_FALLBACK_PROVIDER", "").strip().lower()
+        )
         return cls(
             host=os.environ.get("ERRORJIANG_AGENT_HOST", "127.0.0.1").strip(),
             port=env_int("ERRORJIANG_AGENT_PORT", 8011),
@@ -100,11 +129,23 @@ class Config:
                     str(root / "data" / "agent.db"),
                 )
             ),
-            deepseek_api_key=os.environ.get("DEEPSEEK_API_KEY", "").strip(),
-            deepseek_base_url=os.environ.get(
-                "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
-            ).rstrip("/"),
-            deepseek_model=os.environ.get("DEEPSEEK_MODEL", "deepseek-chat").strip(),
+            deepseek_api_key=deepseek_api_key,
+            deepseek_base_url=deepseek_base_url,
+            deepseek_model=deepseek_model,
+            llm_provider=llm_provider,
+            llm_base_url=llm_base_url,
+            llm_api_key=llm_api_key,
+            llm_model=llm_model,
+            llm_fallback_provider=llm_fallback_provider,
+            llm_fallback_base_url=os.environ.get(
+                "LLM_FALLBACK_BASE_URL", ""
+            ).strip().rstrip("/"),
+            llm_fallback_api_key=os.environ.get(
+                "LLM_FALLBACK_API_KEY", ""
+            ).strip(),
+            llm_fallback_model=os.environ.get(
+                "LLM_FALLBACK_MODEL", ""
+            ).strip(),
             errorjiang_base_url=os.environ.get(
                 "ERRORJIANG_BASE_URL", "http://127.0.0.1:8000"
             ).rstrip("/"),
@@ -138,6 +179,13 @@ class Config:
             context_messages=max(
                 2, min(env_int("ERRORJIANG_AGENT_CONTEXT_MESSAGES", 8), 20)
             ),
+            context_char_limit=max(
+                4000,
+                min(
+                    env_int("ERRORJIANG_AGENT_CONTEXT_CHAR_LIMIT", 16000),
+                    100000,
+                ),
+            ),
             max_tool_rounds=max(
                 1, min(env_int("ERRORJIANG_AGENT_MAX_TOOL_ROUNDS", 4), 8)
             ),
@@ -145,8 +193,19 @@ class Config:
 
     def validate(self) -> None:
         missing = []
-        if not self.deepseek_api_key:
-            missing.append("DEEPSEEK_API_KEY")
+        if not self.llm_api_key and not self.deepseek_api_key:
+            missing.append("LLM_API_KEY/DEEPSEEK_API_KEY")
+        if not self.llm_base_url:
+            missing.append("LLM_BASE_URL")
+        if not self.llm_model:
+            missing.append("LLM_MODEL")
+        if self.llm_fallback_provider:
+            if not self.llm_fallback_base_url:
+                missing.append("LLM_FALLBACK_BASE_URL")
+            if not self.llm_fallback_api_key:
+                missing.append("LLM_FALLBACK_API_KEY")
+            if not self.llm_fallback_model:
+                missing.append("LLM_FALLBACK_MODEL")
         if not self.errorjiang_token:
             missing.append("ERRORJIANG_AGENT_TOKEN")
         if not self.admin_qqs and not self.bind_code:

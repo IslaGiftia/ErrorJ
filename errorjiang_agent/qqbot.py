@@ -130,11 +130,17 @@ class QQBotClient:
         app_secret: str,
         bot_qq: str,
         on_event: Callable[[MessageEvent], None],
+        event_parser: Callable[
+            [str, dict[str, Any], str | int],
+            MessageEvent | None,
+        ]
+        | None = None,
     ):
         self.app_id = app_id
         self.app_secret = app_secret
         self.bot_qq = bot_qq
         self.on_event = on_event
+        self.event_parser = event_parser or parse_qqbot_event
         self._stop = threading.Event()
         self._token_lock = threading.Lock()
         self._access_token = ""
@@ -429,7 +435,7 @@ class QQBotClient:
                             f"fields={','.join(sorted(ark_fields))}",
                             flush=True,
                         )
-                event = parse_qqbot_event(
+                event = self.event_parser(
                     event_type,
                     event_payload,
                     self.bot_qq or self.app_id,
