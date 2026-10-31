@@ -6410,6 +6410,50 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 
 备注：线上完整财务数据需要登录，公网使用服务器实际返回的同版静态文件做哈希和页面结构检查；交互验证在隔离测试数据库上完成，没有改动线上真实账目。
 
+## 163. 2026-10-31 15:38:59 优化鲸鲸空 @ 与空表情回应
+
+来源：站长直接 @ 鲸鲸但不输入文字时，机器人回复“请直接告诉我你想查询什么”，观感过于客服化，要求改成更自然的短句。
+
+完成内容（提交 `cd47976 feat: humanize empty agent mentions`，4 文件，+48/−3）：
+
+- 空 @ 不再命令用户描述查询，而是在“怎么啦，只戳我不说话 / 嗯？在呢 / 戳我一下就跑？ / 人呢，找我干嘛”中随机回应。
+- 只发送一个表情且成功保存时，在“表情收下了 / 就这么丢个表情过来？ / 收到，想说什么”中随机回应。
+- 位置卡片、文件附件和正常文字消息继续走原有处理，不受影响。
+- README 和参考项目同步记录新的空消息反馈。
+
+部署步骤：
+```text
+本地：Python 编译检查；空 @ 定向测试通过；
+      python -m unittest discover -s tests -> 317 passed；
+      changelog-seed JSON 校验；git diff --check 干净
+提交：cd47976 feat: humanize empty agent mentions
+      （fetch -> pull --rebase -> push；local == origin/main == cd47976）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 98fcfb963f676d8e7223148bf448e147d87d7ea7ea2a27f51d6c9d82402efa40
+备份：/data/errorjiang-backup/20261031-153958/
+      （inventory.db 7.8M、changelog-seed.json 136K、
+       errorjiang_agent/data 完整备份 14M；无 WAL / SHM / auth.json）
+服务器：systemctl stop errorjiang-agent -> systemctl stop errorjiang
+      备份 -> git pull --ff-only -> cd47976
+      seed 安装；import_changelog_moments.py --date 2026-10-31 --force
+      -> 新增 7 条、覆盖 0 条、跳过 0 条（当天七条按 seed 重建）
+      systemctl start errorjiang -> systemctl start errorjiang-agent
+```
+
+验证结果：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 公网 /api/health = {"ok": true}；Agent /health = {"ok": true}
+版本      -> 功能提交 = origin/main = 服务器 HEAD = cd47976
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+更新日志  -> /api/moments 中 2026-10-31 15:38:59
+             「优化鲸鲸空 @ 与空表情回应」（id 800，kind = log）
+线上空 @  -> 直接运行部署后的 Agent 分支，实际回复“戳我一下就跑？”；
+             is_natural_variant = true、old_query_prompt_removed = true
+静态文件  -> references.html 公网与本地规范化 SHA256 一致
+本地回归  -> 317 项单测通过
+```
+
 ## 162. 2026-10-31 15:17:21 修复鲸鲸人格模板在 QQBot 群聊不生效
 
 来源：站长实测群聊中叫“大肥鱼”时没有出现自定义人格要求的炸毛反应。检查线上 Agent DB 后发现，人格模板在 `web/0` 和 `qq/0` 中均为完整 837 字，但 QQBot 群消息读取的是 `qqbot/管理员 OpenID`，其中模板为空。
