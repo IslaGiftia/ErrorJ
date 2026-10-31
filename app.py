@@ -2007,6 +2007,41 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
         ):
             if column not in moment_columns:
                 conn.execute(ddl)
+        for old_name, new_name in (
+            ("折兮颜", "鲸鲸"),
+            ("小颜", "鲸鲸"),
+            ("大肥鱼", "鲸鲸"),
+            ("ErrorJ Agent", "鲸鲸"),
+        ):
+            conn.execute(
+                """UPDATE moments SET content = REPLACE(content, ?, ?)
+                   WHERE kind = 'log' AND content LIKE ?""",
+                (old_name, new_name, f"%{old_name}%"),
+            )
+            conn.execute(
+                """UPDATE activity_log
+                   SET summary = REPLACE(summary, ?, ?),
+                       actor_name = REPLACE(actor_name, ?, ?)
+                   WHERE summary LIKE ? OR actor_name LIKE ?""",
+                (
+                    old_name,
+                    new_name,
+                    old_name,
+                    new_name,
+                    f"%{old_name}%",
+                    f"%{old_name}%",
+                ),
+            )
+            conn.execute(
+                """UPDATE access_log SET actor_name = REPLACE(actor_name, ?, ?)
+                   WHERE actor_name LIKE ?""",
+                (old_name, new_name, f"%{old_name}%"),
+            )
+            conn.execute(
+                """UPDATE user_notifications SET text = REPLACE(text, ?, ?)
+                   WHERE text LIKE ?""",
+                (old_name, new_name, f"%{old_name}%"),
+            )
         activity_log_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(activity_log)").fetchall()
         }
