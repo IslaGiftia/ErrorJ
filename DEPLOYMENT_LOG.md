@@ -6442,6 +6442,12 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
       seed 安装；import_changelog_moments.py --date 2026-10-31 --force
       → 新增 2 条、覆盖 0 条、跳过 0 条
       安装新版 systemd unit → daemon-reload → 重启 errorjiang-agent
+追加迁移：1841145 fix: migrate legacy agent names
+      （备份 /data/errorjiang-backup/20261031-123722/，
+       seed SHA256 = ec2bae19b385c6a8cb307503b385803cd9be22705976c414297583662ac9a5bb）
+      app.init_db 执行历史名称迁移；
+      import_changelog_moments.py --date 2026-10-31 --force
+      → 新增 2 条、覆盖 0 条、跳过 0 条
 ```
 
 验证结果：
@@ -6451,10 +6457,11 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
              Agent 172.17.0.1:8011/health = {"ok": true}
 QQBot     -> 已连接 4015320753
 systemd   -> errorjiang-agent Description = 鲸鲸
-版本      -> 功能提交 = origin/main = 服务器 HEAD = d4e0b5a
+版本      -> 功能提交 = d4e0b5a；历史名称迁移 = 1841145；
+             origin/main 与服务器 HEAD 同步到包含本记录的文档收尾提交
              服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
 更新日志  -> /api/moments 中 2026-10-31 12:25:49
-             「Agent 正式更名为鲸鲸，搜索与人格模板同步升级」（id 773，kind = log）
+             「Agent 正式更名为鲸鲸，搜索与人格模板同步升级」（id 775，kind = log）
 静态文件  -> 规范化 CRLF 后，agent.html / agent.js / site.html / references.html
              公网、服务器与本机 SHA256 全部一致
 公网页    -> 标签页「鲸鲸 · 配置中心」，品牌为鲸鲸 / 配置中心；
@@ -6463,6 +6470,8 @@ systemd   -> errorjiang-agent Description = 鲸鲸
 人格模板  -> qq 与 web 管理员设置均迁移为鲸鲸，长度 835；
              “蓝色鲸鱼娘”和模板末尾“那别动了 躺着吧”均进入最终系统提示；
              旧名字命中 = false
+历史数据  -> moments / activity_log / access_log / user_notifications /
+             group_messages / persona_settings 中旧 Agent 名称命中全部为 0
 深度搜索  -> 线上真实调用成功：2 组查询、4 条来源、1 个网页抓取、
              抓取正文 1556 字；说明查询规划、并行搜索、去重和正文抓取均生效
 本地回归  -> 302 项单测通过；身份迁移、旧群消息署名、人格模板、深度搜索同义词、
