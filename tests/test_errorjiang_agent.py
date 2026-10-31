@@ -5072,6 +5072,23 @@ class AgentTimelineApiTests(unittest.TestCase):
 
 
 class AgentConsoleUiTests(unittest.TestCase):
+    def test_agent_settings_intro_has_no_eyebrow(self):
+        html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
+        self.assertIn("<h1>机器人设置</h1>", html)
+        self.assertNotIn("<span>Error酱 / 鲸鲸</span>", html)
+
+    def test_moment_log_toggle_has_stable_arrow_and_smaller_motion(self):
+        css = (app.STATIC_DIR / "moments.css").read_text(encoding="utf-8")
+        self.assertIn("transform-box: fill-box", css)
+        self.assertIn("transform-origin: center", css)
+        self.assertIn(".mo-log-head .mo-log-caret", css)
+        self.assertIn("position: absolute", css)
+        keyframes_start = css.index("@keyframes mo-log-open")
+        keyframes_end = css.index("}", keyframes_start) + 1
+        keyframes = css[keyframes_start:keyframes_end]
+        self.assertIn("transform: translateY(-2px)", keyframes)
+        self.assertNotIn("translateY(-4px)", keyframes)
+
     def test_agent_page_is_settings_console_without_chat(self):
         html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
         script = (app.STATIC_DIR / "agent.js").read_text(encoding="utf-8")

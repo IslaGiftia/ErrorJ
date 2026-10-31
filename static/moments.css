@@ -1695,10 +1695,6 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
   color: var(--mo-faint);
 }
 
-.mo-log-month .mo-log-caret {
-  margin-left: auto;
-}
-
 .mo-log-month-group.is-open .mo-log-month .mo-log-caret svg {
   transform: rotate(180deg);
 }
@@ -1797,13 +1793,35 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
 .mo-log-caret {
   flex: 0 0 auto;
   display: inline-flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
   color: var(--mo-faint);
 }
 
 .mo-log-caret svg {
+  display: block;
   width: 14px;
   height: 14px;
+  transform-box: fill-box;
+  transform-origin: center;
   transition: transform var(--dur-fast) ease-out;
+}
+
+.mo-log-month,
+.mo-log-head {
+  position: relative;
+  padding-right: 24px;
+}
+
+.mo-log-month .mo-log-caret,
+.mo-log-head .mo-log-caret {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  margin-left: 0;
+  transform: translateY(-50%);
 }
 
 .mo-log-row.is-open .mo-log-caret svg {
@@ -1827,7 +1845,7 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
 @keyframes mo-log-open {
   from {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateY(-2px);
   }
 }
 
