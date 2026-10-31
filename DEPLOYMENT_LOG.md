@@ -6410,6 +6410,54 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 
 备注：线上完整财务数据需要登录，公网使用服务器实际返回的同版静态文件做哈希和页面结构检查；交互验证在隔离测试数据库上完成，没有改动线上真实账目。
 
+## 159. 2026-10-31 13:48:17 精简机器人设置标题并稳定开发日志折叠
+
+来源：站长确认 Hallmark 优化只做第二项，要求 Agent 设置页只去掉 eyebrow、不修改现有“机器人设置”标题；同时把开发日志折叠/展开的动画幅度收小，并修复右侧箭头乱跳。首页四个 emoji 保持不变，其他页面图标只做审计。
+
+完成内容（提交 `d068d4c fix: tidy agent heading and log motion`，5 文件，+43/−8）：
+
+- Agent 设置页移除标题上方的 `Error酱 / 鲸鲸` eyebrow，H1 继续显示“机器人设置”。
+- 开发日志的月份标题和单条日志标题改为固定右侧箭头位置；箭头容器与 SVG 旋转中心固定，不再受标题截断、展开内容和录制宽度变化影响。
+- 开发日志展开动画从 `translateY(-4px)` 收敛到 `translateY(-2px)`，保留轻微淡入和系统减少动效规则。
+- 图标审计未做批量替换：首页四个入口 emoji 按站长要求保留；书签状态、视图切换、评分星标等候选涉及状态和填充语义，不适合塞进本次最小发布。
+
+部署步骤：
+```text
+本地：Python 编译检查；node --check static/agent.js / static/moments.js；
+      changelog-seed JSON 校验；python -m unittest discover -s tests -> 304 passed；
+      git diff --check 干净
+浏览器：本地 Playwright 1440×900 与 390×844；
+        Agent 页 eyebrow 数量 0、H1 为“机器人设置”；
+        日志展开关键帧为 opacity 0 + translateY(-2px)；
+        月份箭头最大横向漂移 desktop 0.26px / mobile 0.16px
+提交：d068d4c fix: tidy agent heading and log motion
+      （fetch -> pull --rebase -> push；local == origin/main == d068d4c）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 0e5acae44a0139529c573775371651ae2bb610a8c99451142b352d14f72191bf
+备份：/data/errorjiang-backup/20261031-135030/
+      （inventory.db 7.8M、changelog-seed.json 133K；无 WAL / SHM / auth.json）
+服务器：systemctl stop errorjiang -> 备份 -> git pull --ff-only -> d068d4c
+      seed 安装；import_changelog_moments.py --date 2026-10-31 --force
+      -> 新增 3 条、覆盖 0 条、跳过 0 条（当天三条按 seed 重建）
+      systemctl start errorjiang
+```
+
+验证结果：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 公网 /api/health = {"ok": true}
+版本      -> 功能提交 = origin/main = 服务器 HEAD = d068d4c
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+更新日志  -> /api/moments 中 2026-10-31 13:48:17
+             「精简机器人设置标题并稳定开发日志折叠」（id 778，kind = log）
+静态文件  -> agent.html / moments.css 公网与本地规范化 SHA256 全部一致
+公网页    -> agent.html 无 eyebrow、保留 H1「机器人设置」
+公网交互  -> Playwright 线上 1440×900 与 390×844：
+             日志展开关键帧为 translateY(-2px)；
+             月份箭头最大横向漂移 desktop 0.26px / mobile 0.16px
+本地回归  -> 304 项单测通过
+```
+
 ## 158. 2026-10-31 12:25:49 Agent 更名为鲸鲸、人格模板迁移与自动深度搜索
 
 来源：站长要求把 Agent 在所有当前可见位置统一更名为“鲸鲸”，包括配置中心和浏览器标签页；同时检查自定义人格提示词模板是否真正生效，并在确认后执行完整发布。
