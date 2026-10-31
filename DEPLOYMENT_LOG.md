@@ -6450,7 +6450,8 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 健康      -> 网站 /api/health = {"ok": true}；
              Agent 172.17.0.1:8011/health = {"ok": true}
 QQBot     -> 已连接 4015320753
-版本      -> 功能提交 = origin/main = 服务器 HEAD = e815b10
+版本      -> 功能提交 = e815b10；发布完成后 origin/main 与服务器 HEAD
+             同步到包含本记录的文档收尾提交
              服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
 更新日志  -> /api/moments 中 2026-10-31 11:26:20
              「折兮颜架构升级、群位置卡片自动添加与 Modal 入场」（id 771，kind = log）
