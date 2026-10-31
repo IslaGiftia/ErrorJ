@@ -18529,8 +18529,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
             qq_data = agent_internal_request(
                 "/internal/settings?platform=qq&owner_id=0", timeout=10
             )
+            qqbot_data = agent_internal_request(
+                "/internal/settings?platform=qqbot&owner_id=0", timeout=10
+            )
             merged = dict(data.get("settings") or {})
             merged.update(qq_data.get("settings") or {})
+            if qqbot_data.get("settings"):
+                merged.update(qqbot_data.get("settings") or {})
             data["settings"] = merged
         except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
             api_error(self, 502, str(exc)[:200])
@@ -18559,6 +18564,15 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "/internal/settings",
                 {
                     "platform": "qq",
+                    "owner_id": "0",
+                    "settings": values,
+                },
+                timeout=10,
+            )
+            agent_internal_request(
+                "/internal/settings",
+                {
+                    "platform": "qqbot",
                     "owner_id": "0",
                     "settings": values,
                 },

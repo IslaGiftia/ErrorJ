@@ -1885,15 +1885,32 @@ class AgentService:
     ) -> dict:
         return self.store.save_settings(platform, owner_id, values)
 
-    def chat_delay_settings(
+    def bot_global_settings(
         self,
         platform: str,
         fallback: dict[str, Any],
     ) -> dict[str, Any]:
+        values = dict(fallback)
+
+        def merge(saved: dict[str, Any]) -> None:
+            for key, value in saved.items():
+                if (
+                    key == "persona_custom_prompt"
+                    and not str(value or "").strip()
+                    and str(values.get(key) or "").strip()
+                ):
+                    continue
+                values[key] = value
+
         admins = self.store.admin_ids(platform)
-        if not admins:
-            return fallback
-        return self.store.get_settings(platform, admins[0])
+        if admins:
+            merge(
+                self.store.get_saved_settings(platform, admins[0])
+            )
+        for global_platform in ("web", "qq"):
+            merge(self.store.get_saved_settings(global_platform, "0"))
+        merge(self.store.get_saved_settings(platform, "0"))
+        return values
 
     @staticmethod
     def should_humanize_chat_delay(
@@ -2832,7 +2849,7 @@ class AgentService:
                 self.config.context_messages,
             )
         settings = self.store.get_settings(platform, str(event.user_id))
-        global_settings = self.chat_delay_settings(platform, settings)
+        global_settings = self.bot_global_settings(platform, settings)
         memory_enabled = bool(settings.get("memory_enabled", True)) and (
             bool((member_profile or {}).get("memory_enabled", 1))
             if event.message_type == "group"

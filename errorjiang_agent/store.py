@@ -996,6 +996,20 @@ class AgentStore:
                         )
         return defaults
 
+    def get_saved_settings(self, platform: str, owner_id: str) -> dict:
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT value_json FROM settings WHERE platform = ? AND owner_id = ?",
+                (platform, owner_id),
+            ).fetchone()
+        if not row:
+            return {}
+        try:
+            saved = json.loads(row["value_json"])
+        except (TypeError, json.JSONDecodeError):
+            return {}
+        return saved if isinstance(saved, dict) else {}
+
     def save_settings(self, platform: str, owner_id: str, values: dict) -> dict:
         current = self.get_settings(platform, owner_id)
         for key in current:

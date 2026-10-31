@@ -175,20 +175,28 @@ class AgentStoreTests(unittest.TestCase):
         )
         self.assertFalse(updated["chat_human_delay"])
 
-    def test_chat_delay_setting_uses_the_platform_admin(self):
-        self.store.bind_admin("qqbot", "admin-openid")
+    def test_bot_global_settings_merge_agent_page_platforms(self):
         self.store.save_settings(
-            "qqbot",
-            "admin-openid",
+            "web",
+            "0",
+            {"persona_custom_prompt": "被叫大肥鱼会炸毛"},
+        )
+        self.store.save_settings(
+            "qq",
+            "0",
             {"chat_human_delay": False},
         )
         service = object.__new__(AgentService)
         service.store = self.store
-        resolved = service.chat_delay_settings(
+        resolved = service.bot_global_settings(
             "qqbot",
-            {"chat_human_delay": True},
+            {
+                "chat_human_delay": True,
+                "persona_custom_prompt": "",
+            },
         )
         self.assertFalse(resolved["chat_human_delay"])
+        self.assertIn("大肥鱼", resolved["persona_custom_prompt"])
 
     def test_legacy_persona_identity_is_migrated_to_jingjing(self):
         legacy = (
