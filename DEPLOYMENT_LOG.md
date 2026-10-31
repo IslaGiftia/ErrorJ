@@ -6424,12 +6424,48 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 
 部署步骤：
 ```text
-待执行。
+本地：Python 编译检查；node --check static/agent.js / books.js / messages.js /
+      moments.js / site/activity.js；changelog-seed JSON 校验；
+      python -m unittest discover -s tests -> 302 passed；git diff --check 干净
+浏览器：1440×900 与 390×844 验证 Agent 页标题、鲸鲸品牌、
+        首页入口提示和简介文案，均无横向溢出
+提交：d4e0b5a feat: rename agent to Jingjing and add deep search
+      （fetch → pull --rebase → push；local == origin/main == d4e0b5a）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 4bcf7b5262b5b224b77742c1d49445127812ce3bd5abe01d7732c8ac7c44048b
+备份：/data/errorjiang-backup/20261031-123035/
+      （inventory.db 7.8M、auth.json、changelog-seed.json、
+       完整 agent-data：agent.db + stickers、旧 systemd unit；无 WAL / SHM）
+服务器：systemctl stop errorjiang-agent → systemctl stop errorjiang
+      cp 备份 → git pull --ff-only → d4e0b5a
+      seed 安装；import_changelog_moments.py --date 2026-10-31 --force
+      → 新增 2 条、覆盖 0 条、跳过 0 条
+      安装新版 systemd unit → daemon-reload → 重启 errorjiang-agent
 ```
 
 验证结果：
 ```text
-待部署后补齐。
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 网站 /api/health = {"ok": true}；
+             Agent 172.17.0.1:8011/health = {"ok": true}
+QQBot     -> 已连接 4015320753
+systemd   -> errorjiang-agent Description = 鲸鲸
+版本      -> 功能提交 = origin/main = 服务器 HEAD = d4e0b5a
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+更新日志  -> /api/moments 中 2026-10-31 12:25:49
+             「Agent 正式更名为鲸鲸，搜索与人格模板同步升级」（id 773，kind = log）
+静态文件  -> 规范化 CRLF 后，agent.html / agent.js / site.html / references.html
+             公网、服务器与本机 SHA256 全部一致
+公网页    -> 标签页「鲸鲸 · 配置中心」，品牌为鲸鲸 / 配置中心；
+             首页 Agent 入口 title=鲸鲸、aria-label=打开鲸鲸；
+             首页简介为新版持续学习与迭代表述
+人格模板  -> qq 与 web 管理员设置均迁移为鲸鲸，长度 835；
+             “蓝色鲸鱼娘”和模板末尾“那别动了 躺着吧”均进入最终系统提示；
+             旧名字命中 = false
+深度搜索  -> 线上真实调用成功：2 组查询、4 条来源、1 个网页抓取、
+             抓取正文 1556 字；说明查询规划、并行搜索、去重和正文抓取均生效
+本地回归  -> 302 项单测通过；身份迁移、旧群消息署名、人格模板、深度搜索同义词、
+             页面标题和入口文案均通过
 ```
 
 ## 157. 2026-10-31 11:26:20 Agent 架构升级、群位置卡片自动添加与 Modal 入场
