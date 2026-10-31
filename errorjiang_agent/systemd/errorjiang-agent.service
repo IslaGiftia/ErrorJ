@@ -1,5 +1,5 @@
 [Unit]
-Description=ErrorJ Agent
+Description=鲸鲸
 After=network.target errorjiang.service
 Wants=errorjiang.service
 

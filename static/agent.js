@@ -89,8 +89,8 @@
     onlineChip.classList.toggle("is-online", online);
     onlineChip.querySelector("span").textContent = online ? "在线" : "离线";
     statusText.textContent = online
-      ? "Agent 工具已连接，配置修改可正常保存"
-      : "Agent 暂时离线，请检查服务连接";
+      ? "鲸鲸工具已连接，配置修改可正常保存"
+      : "鲸鲸暂时离线，请检查服务连接";
 
     var agent = (data && data.agent) || {};
     var qqbot = agent.qqbot || {};
@@ -432,7 +432,7 @@
         });
         if (!members.length) {
           groupMemberList.innerHTML =
-            '<div class="agent-memory-item"><p>还没有群友主动 @ 过折兮颜。</p></div>';
+            '<div class="agent-memory-item"><p>还没有群友主动 @ 过鲸鲸。</p></div>';
         }
         refreshIcons();
       })

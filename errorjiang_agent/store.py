@@ -9,6 +9,8 @@ import sqlite3
 import threading
 import time
 
+from .persona import normalize_persona_custom_prompt
+
 
 class AgentStore:
     def __init__(self, path: Path):
@@ -248,6 +250,38 @@ class AgentStore:
                     );
                 """
             )
+            conn.execute(
+                """UPDATE group_messages SET display_name = ?
+                   WHERE role = 'assistant'
+                     AND display_name IN ('折兮颜', '小颜', '大肥鱼',
+                                          'ErrorJ Agent')""",
+                ("鲸鲸",),
+            )
+            settings_rows = conn.execute(
+                "SELECT platform, owner_id, value_json FROM settings"
+            ).fetchall()
+            for settings_row in settings_rows:
+                try:
+                    saved = json.loads(settings_row["value_json"])
+                except (TypeError, json.JSONDecodeError):
+                    continue
+                if not isinstance(saved, dict):
+                    continue
+                original = str(saved.get("persona_custom_prompt") or "")
+                normalized = normalize_persona_custom_prompt(original)
+                if normalized == original:
+                    continue
+                saved["persona_custom_prompt"] = normalized
+                conn.execute(
+                    """UPDATE settings SET value_json = ?, updated_at = ?
+                       WHERE platform = ? AND owner_id = ?""",
+                    (
+                        json.dumps(saved, ensure_ascii=False),
+                        int(time.time()),
+                        settings_row["platform"],
+                        settings_row["owner_id"],
+                    ),
+                )
             memory_columns = {
                 row["name"]
                 for row in conn.execute("PRAGMA table_info(memories)").fetchall()
@@ -917,6 +951,30 @@ class AgentStore:
                     defaults.update(saved)
             except json.JSONDecodeError:
                 pass
+        original_custom = str(
+            defaults.get("persona_custom_prompt") or ""
+        )
+        normalized_custom = normalize_persona_custom_prompt(original_custom)
+        if normalized_custom != original_custom:
+            defaults["persona_custom_prompt"] = normalized_custom
+            if row:
+                try:
+                    saved = json.loads(row["value_json"])
+                except json.JSONDecodeError:
+                    saved = None
+                if isinstance(saved, dict):
+                    saved["persona_custom_prompt"] = normalized_custom
+                    with self._lock, self._connection() as conn:
+                        conn.execute(
+                            """UPDATE settings SET value_json = ?, updated_at = ?
+                               WHERE platform = ? AND owner_id = ?""",
+                            (
+                                json.dumps(saved, ensure_ascii=False),
+                                int(time.time()),
+                                platform,
+                                owner_id,
+                            ),
+                        )
         return defaults
 
     def save_settings(self, platform: str, owner_id: str, values: dict) -> dict:

@@ -8,7 +8,7 @@ from typing import Any, Callable
 from .onebot import MessageEvent
 
 
-GROUP_BOT_ALIASES = ("折兮颜", "error酱", "错误酱", "小颜")
+GROUP_BOT_ALIASES = ("鲸鲸",)
 GROUP_FOLLOWUP_START_RE = re.compile(
     r"^(?:那|所以|然后|还有|继续|刚才|刚刚|这个|那个|"
     r"帮我|请问|查一下|查询|搜索|添加|提醒|记住)"

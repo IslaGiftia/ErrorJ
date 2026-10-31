@@ -838,7 +838,7 @@ def gcj02_to_wgs84(lat, lng):
 def _footprint_candidate_secret():
     token = os.environ.get("ERRORJIANG_AGENT_TOKEN", "").strip()
     if not token:
-        raise ValueError("ErrorJ Agent 内部令牌未配置。")
+        raise ValueError("鲸鲸内部令牌未配置。")
     return token.encode("utf-8")
 
 
@@ -7270,7 +7270,7 @@ def deliver_notification(channel, url, title, body, event, link="/workbench"):
 def agent_internal_request(path, payload=None, timeout=15):
     token = os.environ.get("ERRORJIANG_AGENT_TOKEN", "").strip()
     if not token:
-        raise RuntimeError("ErrorJ Agent 尚未配置内部令牌。")
+        raise RuntimeError("鲸鲸尚未配置内部令牌。")
     headers = {
         "Accept": "application/json",
         "X-ErrorJ-Agent-Token": token,
@@ -8265,7 +8265,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return {
                 "kind": "owner",
                 "user_id": 0,
-                "username": "ErrorJ Agent",
+                "username": "鲸鲸",
                 "nickname": "管理员",
                 "role": "owner",
             }
@@ -8287,10 +8287,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def guard_agent_request(self):
         expected = os.environ.get("ERRORJIANG_AGENT_TOKEN", "").strip()
         if not expected:
-            api_error(self, 503, "ErrorJ Agent 内部接口未启用。")
+            api_error(self, 503, "鲸鲸内部接口未启用。")
             return False
         if not self.agent_request_identity():
-            api_error(self, 401, "ErrorJ Agent 鉴权失败。")
+            api_error(self, 401, "鲸鲸鉴权失败。")
             return False
         return True
 
@@ -16657,7 +16657,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )
         self.send_json(200, {"ok": True, "status": status})
 
-    # ---------- ErrorJ Agent 内部工具接口 ----------
+    # ---------- 鲸鲸内部工具接口 ----------
     @staticmethod
     def agent_limit(value, default=8, maximum=20):
         try:
@@ -17202,7 +17202,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         self.log_activity(
             f"agent_review_{kind}_{action}",
-            f"ErrorJ Agent 审核 {kind} #{item_id}：{action}",
+            f"鲸鲸审核 {kind} #{item_id}：{action}",
             target_type=kind,
             target_id=item_id,
             actor=identity,
@@ -17337,7 +17337,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         expense_id = transaction(create)
         self.log_activity(
             "aa_expense_create",
-            f"ErrorJ Agent 在账目「{event['title']}」录入费用",
+            f"鲸鲸在账目「{event['title']}」录入费用",
             target_type="aa_event",
             target_id=event_id,
             actor=identity,
@@ -18073,7 +18073,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 identity,
                 candidate,
                 metadata,
-                "ErrorJ Agent 高德自动搜索",
+                "鲸鲸高德自动搜索",
             )
         except ValueError as exc:
             api_error(self, 400, str(exc))
@@ -18129,7 +18129,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 identity,
                 candidate,
                 {"status": ""},
-                "ErrorJ Agent QQ 位置卡片",
+                "鲸鲸 QQ 位置卡片",
             )
         except ValueError as exc:
             api_error(self, 400, str(exc))
@@ -18286,7 +18286,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         address = values[3] or ""
         author = self.map_creator_name(user_id)
         link = PUBLIC_SITE_URL + f"/map?place={place_id}"
-        detail = f"{author} 通过 ErrorJ Agent 新增了标记点「{name}」"
+        detail = f"{author} 通过鲸鲸新增了标记点「{name}」"
         if address:
             detail += f"（{address}）"
         if identity.get("kind") not in ("owner", "admin"):
@@ -18380,7 +18380,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         }
         handler = handlers.get(tool)
         if not handler:
-            api_error(self, 400, "未知 ErrorJ Agent 工具。")
+            api_error(self, 400, "未知鲸鲸工具。")
             return
         handler(identity, args)
 
@@ -18440,7 +18440,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def api_agent_web_status(self):
         if not self.is_admin():
-            api_error(self, 403, "只有管理员可以查看 ErrorJ Agent。")
+            api_error(self, 403, "只有管理员可以查看鲸鲸。")
             return
         try:
             status = agent_internal_request("/internal/status", timeout=5)
@@ -18454,7 +18454,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def api_agent_web_chat(self, payload):
         if not self.is_admin():
-            api_error(self, 403, "只有管理员可以使用 ErrorJ Agent。")
+            api_error(self, 403, "只有管理员可以使用鲸鲸。")
             return
         message = str((payload or {}).get("message") or "").strip()
         if not message:
@@ -18470,7 +18470,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 timeout=110,
             )
         except HTTPError as exc:
-            detail = "Agent 请求失败。"
+            detail = "鲸鲸请求失败。"
             try:
                 error_data = json.loads(exc.read().decode("utf-8"))
                 detail = str(error_data.get("error") or detail)
@@ -18485,7 +18485,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def api_agent_web_settings(self):
         if not self.is_admin():
-            api_error(self, 403, "只有管理员可以管理 ErrorJ Agent。")
+            api_error(self, 403, "只有管理员可以管理鲸鲸。")
             return
         try:
             data = agent_internal_request(
@@ -18504,7 +18504,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def api_agent_web_settings_save(self, payload):
         if not self.is_admin():
-            api_error(self, 403, "只有管理员可以管理 ErrorJ Agent。")
+            api_error(self, 403, "只有管理员可以管理鲸鲸。")
             return
         values = (payload or {}).get("settings")
         if not isinstance(values, dict):
@@ -18536,7 +18536,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def api_agent_web_memories(self, query):
         if not self.is_admin():
-            api_error(self, 403, "只有管理员可以管理 ErrorJ Agent 记忆。")
+            api_error(self, 403, "只有管理员可以管理鲸鲸记忆。")
             return
         search = str((query.get("q") or [""])[0])
         try:
@@ -18585,7 +18585,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def api_agent_web_memory_delete(self, payload):
         if not self.is_admin():
-            api_error(self, 403, "只有管理员可以管理 ErrorJ Agent 记忆。")
+            api_error(self, 403, "只有管理员可以管理鲸鲸记忆。")
             return
         try:
             memory_id = int((payload or {}).get("id"))

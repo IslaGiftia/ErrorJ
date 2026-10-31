@@ -530,7 +530,7 @@ class AgentService:
             )
             user_label = member_name or "星星"
             transcript = "\n".join(
-                f"{user_label if row['role'] == 'user' else '折兮颜'}："
+                f"{user_label if row['role'] == 'user' else '鲸鲸'}："
                 f"{str(row['content'])[:500]}"
                 for row in messages[-40:]
             )
@@ -612,7 +612,7 @@ class AgentService:
                 (
                     f"{row.get('display_name') or '群友'}："
                     if row.get("role") == "user"
-                    else "折兮颜："
+                    else "鲸鲸："
                 )
                 + str(row.get("content") or "")[:500]
                 for row in messages[-40:]
@@ -1229,7 +1229,7 @@ class AgentService:
                         "role": "user",
                         "content": (
                             f"{user_label}：{user_text}\n"
-                            f"折兮颜：{assistant_text}"
+                            f"鲸鲸：{assistant_text}"
                         ),
                     },
                 ],
@@ -1507,7 +1507,7 @@ class AgentService:
             else self.store.memory_context("qq", owner_id, "", 8)
         )
         prompt = (
-            "你是折兮颜，称呼用户为星星。请主动发一条简短自然的消息。"
+            "你是鲸鲸，称呼用户为星星。请主动发一条简短自然的消息。"
             "只发一到两句，"
             "不要分点、不要空行、闲聊句末通常不加句号，"
             "问号和感叹号按语气保留，不要提这是系统定时任务。"
@@ -1721,7 +1721,7 @@ class AgentService:
                         "qqbot",
                         group_id,
                         "assistant",
-                        "折兮颜",
+                        "鲸鲸",
                         "assistant",
                         text,
                         f"group-proactive:{day}",
@@ -2331,7 +2331,7 @@ class AgentService:
             self.store.bind_admin("qqbot", str(event.user_id))
             self.send_reply(
                 event,
-                "主账号已绑定为折兮颜管理员。现在可以直接聊天",
+                "主账号已绑定为鲸鲸管理员。现在可以直接聊天",
             )
             return
         bind_match = BIND_RE.fullmatch(event.text.strip())
@@ -2345,7 +2345,7 @@ class AgentService:
             self.store.bind_admin(platform, str(event.user_id))
             self.send_reply(
                 event,
-                "主账号已绑定为 ErrorJ Agent 管理员。现在可以查询库存、链接、笔记和审核队列。",
+                "主账号已绑定为鲸鲸管理员。现在可以查询库存、链接、笔记和审核队列。",
             )
             return
         is_admin = (
@@ -2388,7 +2388,7 @@ class AgentService:
                 self.send_reply(
                     event,
                     f"绑定码 {code}，10 分钟内有效。"
-                    f"请让朋友在群里 @折兮颜 发送：绑定账号 {code}",
+                    f"请让朋友在群里 @鲸鲸 发送：绑定账号 {code}",
                 )
                 return
             bind_user_match = (
@@ -2480,7 +2480,7 @@ class AgentService:
         if not is_admin and event.message_type == "private":
             self.send_reply(
                 event,
-                "普通用户请在授权群里 @折兮颜 使用。主 QQ 私聊仅限管理员。",
+                "普通用户请在授权群里 @鲸鲸 使用。主 QQ 私聊仅限管理员。",
             )
             return
         if event.message_type == "group" and not is_admin:
@@ -2910,7 +2910,7 @@ class AgentService:
                 platform,
                 str(event.chat_id),
                 "assistant",
-                "折兮颜",
+                "鲸鲸",
                 "assistant",
                 reply,
                 f"assistant:{event.message_id}",
@@ -3519,7 +3519,7 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
                 return
             except Exception:
                 traceback.print_exc()
-                self.send_json(500, {"error": "Agent 处理失败。"})
+                self.send_json(500, {"error": "鲸鲸处理失败。"})
                 return
             self.send_json(200, {"reply": reply})
             return
@@ -3554,11 +3554,11 @@ def main() -> int:
         config = Config.load(base_dir)
         service = AgentService(config)
     except Exception as exc:
-        print(f"ErrorJ Agent 启动失败：{exc}", file=sys.stderr)
+        print(f"鲸鲸启动失败：{exc}", file=sys.stderr)
         return 1
     server = AgentHttpServer((config.host, config.port), service)
     print(
-        f"ErrorJ Agent 已启动：http://{config.host}:{config.port} "
+        f"鲸鲸已启动：http://{config.host}:{config.port} "
         f"(model={config.deepseek_model})",
         flush=True,
     )

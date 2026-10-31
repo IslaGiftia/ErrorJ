@@ -1,1 +1,1 @@
-"""ErrorJ Agent service package."""
+"""鲸鲸 service package."""

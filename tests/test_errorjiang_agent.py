@@ -46,6 +46,7 @@ from errorjiang_agent.routing import (
     GroupConversationPolicy,
     build_group_event_pipeline,
 )
+from errorjiang_agent.research import WebResearchEngine
 from errorjiang_agent.service import AgentHttpServer, AgentService
 from errorjiang_agent.store import AgentStore
 from errorjiang_agent.tools import ToolRegistry
@@ -143,6 +144,53 @@ class AgentStoreTests(unittest.TestCase):
         prompt = AgentService.persona_prompt(settings)
         self.assertIn("温柔", prompt)
         self.assertIn("少用感叹号", prompt)
+
+    def test_legacy_persona_identity_is_migrated_to_jingjing(self):
+        legacy = (
+            "你是「大肥鱼」，一条蓝色鲸鱼娘。"
+            "别人叫你“大肥鱼”你会炸毛反驳“才不是大肥鱼！”。"
+            "折兮颜和小颜是旧名字。"
+        )
+        self.store.save_settings(
+            "qqbot",
+            "10001",
+            {"persona_custom_prompt": legacy},
+        )
+        settings = self.store.get_settings("qqbot", "10001")
+        custom = settings["persona_custom_prompt"]
+        self.assertIn("鲸鲸", custom)
+        self.assertIn("胖鲸", custom)
+        for legacy_name in ("大肥鱼", "折兮颜", "小颜"):
+            self.assertNotIn(legacy_name, custom)
+        conn = sqlite3.connect(self.store.path)
+        try:
+            row = conn.execute(
+                "SELECT value_json FROM settings "
+                "WHERE platform = ? AND owner_id = ?",
+                ("qqbot", "10001"),
+            ).fetchone()
+        finally:
+            conn.close()
+        saved = json.loads(row[0])["persona_custom_prompt"]
+        self.assertEqual(saved, custom)
+
+    def test_legacy_assistant_display_name_is_migrated_to_jingjing(self):
+        self.store.add_group_message(
+            "qqbot",
+            "group-openid",
+            "bot-openid",
+            "折兮颜",
+            "assistant",
+            "旧消息",
+            "legacy-assistant-name",
+        )
+        migrated = AgentStore(self.store.path)
+        rows = migrated.get_group_messages(
+            "qqbot",
+            "group-openid",
+            5,
+        )
+        self.assertEqual(rows[0]["display_name"], "鲸鲸")
 
     def test_group_weather_city_is_member_scoped_and_clearable(self):
         self.store.set_group_weather_city(
@@ -752,7 +800,7 @@ class AgentStoreTests(unittest.TestCase):
 
         self.assertTrue(
             service.group_message_wants_reply(
-                event("折兮颜，帮我查一下千阳县美食")
+                event("鲸鲸，帮我查一下千阳县美食")
             )
         )
         self.assertFalse(
@@ -783,7 +831,7 @@ class AgentStoreTests(unittest.TestCase):
             "qqbot",
             "group-openid",
             "assistant",
-            "折兮颜",
+            "鲸鲸",
             "assistant",
             "我刚才查了千阳县。",
             "group-auto-assistant-1",
@@ -824,7 +872,7 @@ class AgentStoreTests(unittest.TestCase):
         )
         service._event_done = lambda future: None
         service.schedule_qqbot_event(
-            event("Error酱，在吗")
+            event("鲸鲸，在吗")
         )
         self.assertEqual(len(submitted), 1)
         self.assertTrue(submitted[0][1][0].to_me)
@@ -1171,9 +1219,9 @@ class AgentStoreTests(unittest.TestCase):
             "qqbot",
             "group-openid",
             "assistant",
-            "折兮颜",
+            "鲸鲸",
             "assistant",
-            "可以，折兮颜记下了",
+            "可以，鲸鲸记下了",
             "assistant:message-1",
         )
         history = self.store.get_group_messages(
@@ -1360,7 +1408,7 @@ class AgentStoreTests(unittest.TestCase):
             "qq",
             "10001",
             "周六一起整理书架吧",
-            "嗯，折兮颜记下了。",
+            "嗯，鲸鲸记下了。",
         )
         events = self.store.list_timeline_events("qq", "10001")
         self.assertEqual(len(events), 1)
@@ -2640,7 +2688,7 @@ class OneBotParserTests(unittest.TestCase):
                     {
                         "id": "bot-openid",
                         "member_openid": "bot-openid",
-                        "username": "折兮颜",
+                        "username": "鲸鲸",
                         "bot": True,
                     }
                 ],
@@ -3100,7 +3148,7 @@ class AgentInfrastructureTests(unittest.TestCase):
             message_type="group",
             chat_id="group",
             message_id="message",
-            text="Error酱，在吗",
+            text="鲸鲸，在吗",
             to_me=False,
             platform="qqbot",
             group_full=True,
@@ -3149,6 +3197,156 @@ class AgentInfrastructureTests(unittest.TestCase):
         service.prepare_footprint = lambda arguments, context: {}
         brain = service.build_brain(FakeErrorJ())
         self.assertIs(brain.hot_search, service.hot_search)
+
+
+class WebResearchTests(unittest.TestCase):
+    def test_research_plans_searches_merges_and_fetches_pages(self):
+        class Provider:
+            name = "research"
+
+            def __init__(self):
+                self.search_calls = []
+                self.fetch_calls = []
+
+            def chat(self, messages, tools):
+                self.assert_no_tools = tools == []
+                return {
+                    "content": json.dumps(
+                        {
+                            "queries": [
+                                "量子计算 最新进展",
+                                "量子计算 官方 回应",
+                            ]
+                        },
+                        ensure_ascii=False,
+                    )
+                }
+
+            def web_search(self, query, count=5, original_question=""):
+                self.search_calls.append((query, count, original_question))
+                if "官方" in query:
+                    return {
+                        "results": [
+                            {
+                                "title": "官方说明",
+                                "url": "https://www.example.com/a?utm_source=x",
+                                "authority": 9,
+                            },
+                            {
+                                "title": "第二来源",
+                                "url": "https://news.example.com/b",
+                                "authority": 6,
+                            },
+                        ]
+                    }
+                return {
+                    "results": [
+                        {
+                            "title": "官方说明",
+                            "url": "https://example.com/a",
+                            "authority": 8,
+                            "summary": "同一篇网页的更长摘要。",
+                        },
+                        {
+                            "title": "背景资料",
+                            "url": "https://docs.example.com/c",
+                            "authority": 5,
+                        },
+                    ]
+                }
+
+            def web_fetch(self, url):
+                self.fetch_calls.append(url)
+                return {
+                    "title": "网页正文",
+                    "content": "公开网页正文 " * 600,
+                }
+
+        provider = Provider()
+        engine = WebResearchEngine(provider, max_fetches=2)
+        result = engine.run(
+            "量子计算",
+            "量子计算最近有什么进展？",
+            5,
+        )
+        self.assertEqual(len(result["queries"]), 3)
+        self.assertEqual(len(provider.search_calls), 3)
+        self.assertEqual(len(result["pages"]), 2)
+        self.assertLessEqual(len(result["pages"][0]["content"]), 2400)
+        self.assertLessEqual(len(json.dumps(result, ensure_ascii=False)), 14500)
+        official = [
+            item
+            for item in result["results"]
+            if item["title"] == "官方说明"
+        ]
+        self.assertEqual(len(official), 1)
+        self.assertGreaterEqual(len(official[0]["matched_queries"]), 2)
+
+    def test_research_falls_back_when_query_planning_fails(self):
+        class Provider:
+            def chat(self, messages, tools):
+                raise AgentError("planner unavailable")
+
+            def web_search(self, query, count=5, original_question=""):
+                return {
+                    "results": [
+                        {
+                            "title": query,
+                            "url": "https://example.com/" + str(len(query)),
+                        }
+                    ]
+                }
+
+            def web_fetch(self, url):
+                return {"content": "page"}
+
+        engine = WebResearchEngine(Provider())
+        result = engine.run("测试主题", "测试主题有什么新消息")
+        self.assertGreaterEqual(len(result["queries"]), 2)
+        self.assertEqual(result["results"][0]["title"], "测试主题")
+
+    def test_research_reports_when_every_search_fails(self):
+        class Provider:
+            def chat(self, messages, tools):
+                return {"content": '{"queries":["测试 A","测试 B"]}'}
+
+            def web_search(self, query, count=5, original_question=""):
+                raise AgentError("search denied")
+
+            def web_fetch(self, url):
+                raise AgentError("fetch denied")
+
+        with self.assertRaises(AgentError):
+            WebResearchEngine(Provider()).run("测试")
+
+    def test_brain_dispatches_deep_research_tool(self):
+        calls = []
+
+        class Research:
+            def run(self, query, original_question, count):
+                calls.append((query, original_question, count))
+                return {"untrusted": True, "results": []}
+
+        brain = AgentBrain(
+            object(),
+            FakeErrorJ(),
+            lambda arguments, context: {},
+            web_research=Research(),
+        )
+        result = brain.tool_registry.execute(
+            "deepseek_web_research",
+            {"query": "复杂事件", "count": 7},
+            {
+                "tools_enabled": "1",
+                "web_search_enabled": "1",
+            },
+            "帮我查一下复杂事件的来龙去脉",
+        )
+        self.assertTrue(result["untrusted"])
+        self.assertEqual(
+            calls,
+            [("复杂事件", "帮我查一下复杂事件的来龙去脉", 7)],
+        )
 
 
 class AgentBrainTests(unittest.TestCase):
@@ -3330,6 +3528,47 @@ class AgentBrainTests(unittest.TestCase):
         self.assertIn("温柔，少用感叹号", deepseek.seen_systems[0])
         self.assertIn("deepseek_web_search", deepseek.seen_tools[0])
 
+    def test_custom_persona_template_reaches_agent_system_prompt(self):
+        deepseek = FakeSearchDeepSeek(
+            [
+                {
+                    "role": "assistant",
+                    "content": "在呢。",
+                }
+            ]
+        )
+        custom = (
+            "你是「鲸鲸」，一条住在 QQ 里的蓝色鲸鱼娘。"
+            "语气懒散但任务要认真。"
+            "开场示例末尾标记：鲸尾摆摆。"
+        )
+        persona_prompt = AgentService.persona_prompt(
+            {
+                "persona_preset": "冷脸萌",
+                "persona_custom_prompt": custom,
+            }
+        )
+        brain = AgentBrain(
+            deepseek,
+            FakeErrorJ(),
+            lambda args, context: {},
+        )
+        self.assertEqual(
+            brain.reply(
+                "在吗",
+                [],
+                {
+                    "tools_enabled": "1",
+                    "persona_prompt": persona_prompt,
+                },
+            ),
+            "在呢。",
+        )
+        system = deepseek.seen_systems[0]
+        self.assertIn("蓝色鲸鱼娘", system)
+        self.assertIn("鲸尾摆摆", system)
+        self.assertIn("自称始终使用“鲸鲸”", system)
+
     def test_web_search_disabled_is_hidden_from_model(self):
         deepseek = FakeSearchDeepSeek(
             [{"role": "assistant", "content": "普通回复"}]
@@ -3349,6 +3588,7 @@ class AgentBrainTests(unittest.TestCase):
         )
         self.assertEqual(reply, "普通回复")
         self.assertNotIn("deepseek_web_search", deepseek.seen_tools[0])
+        self.assertNotIn("deepseek_web_research", deepseek.seen_tools[0])
         self.assertNotIn("deepseek_web_fetch", deepseek.seen_tools[0])
         self.assertNotIn("web_hot_search", deepseek.seen_tools[0])
 
@@ -4244,7 +4484,7 @@ class AgentInternalAuthTests(unittest.TestCase):
         identity = {
             "kind": "owner",
             "user_id": 0,
-            "username": "ErrorJ Agent",
+            "username": "鲸鲸",
             "nickname": "管理员",
             "role": "owner",
         }
@@ -4835,6 +5075,15 @@ class AgentConsoleUiTests(unittest.TestCase):
     def test_agent_page_is_settings_console_without_chat(self):
         html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
         script = (app.STATIC_DIR / "agent.js").read_text(encoding="utf-8")
+        landing = (app.STATIC_DIR / "site" / "site.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("<title>鲸鲸 · 配置中心</title>", html)
+        self.assertIn("<strong>鲸鲸</strong>", html)
+        self.assertIn('title="鲸鲸"', landing)
+        self.assertIn('aria-label="打开鲸鲸"', landing)
+        self.assertNotIn("折兮颜", html + script + landing)
+        self.assertNotIn("ErrorJ Agent", html + script + landing)
         self.assertIn('class="agent-console-shell"', html)
         self.assertIn('id="settings-stickers"', html)
         self.assertIn('id="agentSettingsSave" disabled', html)
