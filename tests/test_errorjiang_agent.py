@@ -2017,6 +2017,36 @@ class AgentStoreTests(unittest.TestCase):
             self.assertIsNotNone(STICKER_REQUEST_RE.search(text))
         self.assertIsNone(STICKER_REQUEST_RE.search("这个表情包是什么"))
 
+    def test_empty_mention_uses_natural_reply(self):
+        from errorjiang_agent.service import (
+            EMPTY_MENTION_REPLIES,
+            EMPTY_STICKER_REPLIES,
+        )
+
+        service = object.__new__(AgentService)
+        replies = []
+        service.send_reply = lambda event, text: replies.append(text)
+        event = MessageEvent(
+            self_id="bot",
+            user_id="member-openid",
+            message_type="group",
+            chat_id="group-openid",
+            message_id="empty-mention",
+            text="",
+            to_me=True,
+            platform="qqbot",
+        )
+        service._process_event(event)
+        self.assertIn(replies[-1], EMPTY_MENTION_REPLIES)
+        self.assertTrue(
+            all(
+                "请直接告诉我" not in reply
+                for reply in EMPTY_MENTION_REPLIES
+            )
+        )
+        service._process_event(event, saved_stickers=1)
+        self.assertIn(replies[-1], EMPTY_STICKER_REPLIES)
+
     def test_qqbot_reply_uses_openapi_messages_per_bubble(self):
         class FakeQQBot:
             def __init__(self):

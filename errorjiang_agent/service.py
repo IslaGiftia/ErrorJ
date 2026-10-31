@@ -107,6 +107,17 @@ MEMORY_CONSOLIDATION_LOOKBACK_SECONDS = 2 * 86400
 STICKER_REQUEST_RE = re.compile(
     r"(?:发|来|整)(?:个|一个|张|一下)?[^，。！？!?]{0,8}(?:表情包|表情)"
 )
+EMPTY_MENTION_REPLIES = (
+    "怎么啦，只戳我不说话",
+    "嗯？在呢",
+    "戳我一下就跑？",
+    "人呢，找我干嘛",
+)
+EMPTY_STICKER_REPLIES = (
+    "表情收下了",
+    "就这么丢个表情过来？",
+    "收到，想说什么",
+)
 STICKER_FILENAME_SPLIT_RE = re.compile(
     r"[\s_\-—–()（）\[\]【】{}.,，、/|;；]+"
 )
@@ -2751,9 +2762,11 @@ class AgentService:
         if not text and not event.location:
             self.send_reply(
                 event,
-                "表情我收下了。你直接说想问什么就行。"
-                if saved_stickers
-                else "请直接告诉我你想查询什么。",
+                random.choice(
+                    EMPTY_STICKER_REPLIES
+                    if saved_stickers
+                    else EMPTY_MENTION_REPLIES
+                ),
             )
             return
         if text.lower() in ("/reset", "重置对话", "清空上下文"):
