@@ -2380,6 +2380,35 @@ class UploadLimitTests(unittest.TestCase):
 
 
 class ComplianceWorkflowTests(unittest.TestCase):
+    def test_recommended_legacy_icons_use_lucide(self):
+        note_html = (app.STATIC_DIR / "note-read.html").read_text(encoding="utf-8")
+        note_script = (app.STATIC_DIR / "note-read.js").read_text(encoding="utf-8")
+        bookmarks_html = (app.STATIC_DIR / "bookmarks.html").read_text(encoding="utf-8")
+        bookmarks_script = (app.STATIC_DIR / "bookmarks.js").read_text(encoding="utf-8")
+        bookmarks_css = (app.STATIC_DIR / "bookmarks.css").read_text(encoding="utf-8")
+        moments_script = (app.STATIC_DIR / "moments.js").read_text(encoding="utf-8")
+
+        self.assertIn('data-lucide="menu"', note_html)
+        self.assertIn('/static/vendor/lucide.min.js', note_html)
+        self.assertIn("lucide.createIcons()", note_script)
+
+        self.assertIn('data-lucide="layout-grid"', bookmarks_html)
+        self.assertIn('data-lucide="list"', bookmarks_html)
+        self.assertIn('data-lucide="loader-circle"', bookmarks_script)
+        self.assertIn('data-lucide="check"', bookmarks_script)
+        self.assertIn('data-lucide="x"', bookmarks_script)
+        self.assertNotIn("◌", bookmarks_script)
+        self.assertNotIn("✓", bookmarks_script)
+        self.assertNotIn("✕", bookmarks_script)
+        self.assertNotIn('content: "▦"', bookmarks_css)
+        self.assertNotIn('content: "☷"', bookmarks_css)
+
+        self.assertIn('return "book-open"', moments_script)
+        self.assertIn('return "music"', moments_script)
+        self.assertIn('return "notebook-pen"', moments_script)
+        self.assertNotIn("📖", moments_script)
+        self.assertNotIn("📝", moments_script)
+
     def setUp(self):
         self._temp = tempfile.TemporaryDirectory()
         self._db_patch = patch.object(

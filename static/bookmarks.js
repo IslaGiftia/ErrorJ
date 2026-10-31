@@ -370,13 +370,13 @@
   function linkStatusMarkup(item) {
     const checking = Boolean(state.checkStatus?.running);
     if (checking) {
-      return '<span class="pin-link-status checking" title="检查中">◌</span>';
+      return '<span class="pin-link-status checking" title="检查中"><i data-lucide="loader-circle" aria-hidden="true"></i></span>';
     }
     if (item.link_status === "valid") {
-      return `<span class="pin-link-status valid" title="链接有效${item.link_status_code ? ` (${item.link_status_code})` : ""}">✓</span>`;
+      return `<span class="pin-link-status valid" title="链接有效${item.link_status_code ? ` (${item.link_status_code})` : ""}"><i data-lucide="check" aria-hidden="true"></i></span>`;
     }
     if (item.link_status === "broken") {
-      return `<span class="pin-link-status broken" title="${escapeHtml(item.link_error || "链接失效")}">✕</span>`;
+      return `<span class="pin-link-status broken" title="${escapeHtml(item.link_error || "链接失效")}"><i data-lucide="x" aria-hidden="true"></i></span>`;
     }
     return "";
   }

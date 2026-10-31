@@ -271,12 +271,23 @@ svg {
 }
 
 .pin-view-toggle button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
   height: 32px;
   padding: 0 10px;
   border: 0;
   background: var(--pin-surface);
   color: var(--pin-muted);
   font-size: 12px;
+}
+
+.pin-view-toggle button svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
 }
 
 .pin-view-toggle button + button {
@@ -788,8 +799,12 @@ svg {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
-  font-weight: 800;
+}
+
+.pin-link-status svg {
+  display: block;
+  width: 14px;
+  height: 14px;
 }
 
 .pin-link-status.valid {
@@ -1328,19 +1343,11 @@ svg {
   }
 
   .pin-view-toggle button {
-    font-size: 0;
+    padding: 0 8px;
   }
 
-  .pin-view-toggle button::before {
-    font-size: 13px;
-  }
-
-  .pin-view-toggle button[data-view="nav"]::before {
-    content: "▦";
-  }
-
-  .pin-view-toggle button[data-view="list"]::before {
-    content: "☷";
+  .pin-view-toggle button span {
+    display: none;
   }
 
   .pin-sort-bar {

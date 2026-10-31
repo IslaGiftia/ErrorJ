@@ -37,7 +37,9 @@
       </div>
       <div class="nt-outline nt-read-outline" id="outlineBar" hidden>
         <button class="nt-outline-toggle" id="outlineToggle" type="button"
-          aria-label="展开章节" aria-expanded="false" title="章节">☰</button>
+          aria-label="展开章节" aria-expanded="false" title="章节">
+          <i data-lucide="menu" aria-hidden="true"></i>
+        </button>
         <nav class="nt-outline-path" id="outlinePath" aria-label="当前阅读位置"></nav>
         <span class="nt-outline-count" id="outlineCount"></span>
         <div class="nt-outline-panel" id="outlinePanel" hidden></div>
@@ -49,6 +51,7 @@
 
   <script src="/static/vendor/marked.min.js"></script>
   <script src="/static/vendor/purify.min.js"></script>
+  <script src="/static/vendor/lucide.min.js"></script>
   <script src="/static/note-read.js"></script>
 </body>
 </html>

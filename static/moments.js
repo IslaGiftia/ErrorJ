@@ -620,6 +620,19 @@
     { passive: true }
   );
 
+  function shareIconName(type) {
+    if (type === "book") return "book-open";
+    if (type === "music") return "music";
+    return "notebook-pen";
+  }
+
+  function shareTypeIcon(type, className) {
+    var icon = el("span", className || "mo-share-icon");
+    icon.innerHTML =
+      '<i data-lucide="' + shareIconName(type) + '" aria-hidden="true"></i>';
+    return icon;
+  }
+
   function buildShareCard(share) {
     var info = el("div", "mo-share-info");
     /*
@@ -646,9 +659,7 @@
     if (share.locked) {
       // 游客：分享卡照样看得见（封面 + 标题），点进去看内容要登录
       var locked = el("div", "mo-share is-locked");
-      locked.appendChild(
-        el("span", "mo-share-icon", share.type === "book" ? "📖" : share.type === "music" ? "♪" : "📝")
-      );
+      locked.appendChild(shareTypeIcon(share.type));
       locked.appendChild(info);
       locked.appendChild(el("span", "mo-share-locked", "请登录后操作"));
       return locked;
@@ -665,7 +676,7 @@
         image.loading = "lazy";
         cover.appendChild(image);
       } else {
-        cover.appendChild(el("span", "mo-share-placeholder", "♪"));
+        cover.appendChild(shareTypeIcon("music", "mo-share-placeholder"));
       }
       /*
        * 播放键和歌曲播放页是同一套：同样的实心圆形样式 + morphicons 的 play↔pause 形变。
@@ -727,9 +738,7 @@
     }
     var linkCard = el("button", "mo-share is-link");
     linkCard.type = "button";
-    linkCard.appendChild(
-      el("span", "mo-share-icon", share.type === "book" ? "📖" : "📝")
-    );
+    linkCard.appendChild(shareTypeIcon(share.type));
     linkCard.appendChild(info);
     linkCard.appendChild(el("span", "mo-share-open", "阅读"));
     linkCard.addEventListener("click", function () {

@@ -265,8 +265,11 @@
       });
   }
 
-  load();
+  if (window.lucide && typeof window.lucide.createIcons === "function") {
+    window.lucide.createIcons();
+  }
 
+  load();
   window.addEventListener("scroll", handleScroll, { passive: true });
   window.addEventListener("resize", function () {
     syncReadTopHeight();

@@ -829,7 +829,12 @@ button.mo-share:hover {
   border-radius: var(--radius);
   background: var(--mo-accent-soft);
   color: var(--mo-accent);
-  font-size: 17px;
+}
+
+.mo-share-icon svg {
+  display: block;
+  width: 17px;
+  height: 17px;
 }
 
 .mo-share.is-missing .mo-share-icon {
@@ -899,7 +904,12 @@ button.mo-share:hover {
   place-items: center;
   width: 100%;
   height: 100%;
-  font-size: 20px;
+}
+
+.mo-share-placeholder svg {
+  display: block;
+  width: 20px;
+  height: 20px;
 }
 
 /*
