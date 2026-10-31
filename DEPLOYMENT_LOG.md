@@ -6410,6 +6410,56 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 
 备注：线上完整财务数据需要登录，公网使用服务器实际返回的同版静态文件做哈希和页面结构检查；交互验证在隔离测试数据库上完成，没有改动线上真实账目。
 
+## 161. 2026-10-31 15:03:35 完善鲸鲸群聊人格、表情与侧栏体验
+
+来源：站长连续测试鲸鲸回复速度、群聊表情包、人格模板保存和各模块侧栏后，要求完成最推荐的侧栏优化并执行完整发布，同时更新参考项目和 GitHub README。
+
+完成内容（提交 `0043ead feat: refine jingjing chat and shared sidebars`，15 文件，+436/−101）：
+
+- QQ 闲聊默认按较快打字速度等待后回复，约 12% 概率额外慢回；工具调用和明确命令不增加延迟。Agent 基础设置新增“闲聊拟人延迟”开关。
+- 表情包库改为机器人全局库，所有群成员都能保存；旧成员表情在 Agent 启动时合并到 `owner_id=0`。明确索要时确定性发送，普通闲聊约 18% 概率自动配图。
+- 自定义人格上限提高到 6000 字并保留换行格式，管理员人格全局用于私聊、群聊和主动消息；旧自称迁移不再误改大肥鱼等触发词，`||` 与 `[[split]]` 都可分条。
+- Agent 侧栏统一字号、圆角、左右内边距、图标间距和点击高度；留言 / 动态 / 推荐三栏侧栏统一 12px 左右留白，更新日志行提高到 40px，并扩大状态胶囊透明点击区。
+- 工作台顶部导航按钮提高到 40px，桌面保留图标和文字，手机保持横向滚动图标栏，并为全部 10 个按钮补齐可访问名称与悬停提示。
+- README、参考项目和站内更新日志同步补充本轮功能。
+
+部署步骤：
+```text
+本地：Python 编译检查；node --check agent.js / workbench.js / messages.js / moments.js；
+      changelog-seed JSON 校验；python -m unittest discover -s tests -> 316 passed；
+      git diff --check 干净
+浏览器：本地 Playwright 验证 Agent 侧栏、三栏侧栏、工作台桌面和手机导航
+提交：0043ead feat: refine jingjing chat and shared sidebars
+      （fetch -> pull --rebase -> push；local == origin/main == 0043ead）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 462a8c2b6e661d9751de0b11235d33c5c6524e95f0a0eb211da47c2180e9b227
+备份：/data/errorjiang-backup/20261031-150428/
+      （inventory.db 7.8M、changelog-seed.json 134K、
+       errorjiang_agent/data 完整备份 14M；无 WAL / SHM / auth.json）
+服务器：systemctl stop errorjiang-agent -> systemctl stop errorjiang
+      备份 -> git pull --ff-only -> 0043ead
+      seed 安装；import_changelog_moments.py --date 2026-10-31 --force
+      -> 新增 5 条、覆盖 0 条、跳过 0 条（当天五条按 seed 重建）
+      systemctl start errorjiang -> systemctl start errorjiang-agent
+```
+
+验证结果：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 公网 /api/health = {"ok": true}；Agent /health = {"ok": true}
+版本      -> 功能提交 = origin/main = 服务器 HEAD = 0043ead
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+更新日志  -> /api/moments 中 2026-10-31 15:03:35
+             「完善鲸鲸群聊人格、表情与侧栏体验」（id 787，kind = log）
+表情库    -> Agent DB 中所有 34 张表情均为 owner_id = 0，成员私有库已合并
+静态文件  -> agent.css / agent.html / agent.js / references.html /
+             site/sidebar.css / workbench.css / workbench.html
+             公网与本地规范化 SHA256 全部一致
+公网侧栏  -> 三栏侧栏标题 / 正文左右内边距均为 12px，更新日志行最小高度 40px
+公网导航  -> 工作台 10 个按钮均 40px 且带 aria-label；移动端 390px 页面无横向溢出
+本地回归  -> 316 项单测通过
+```
+
 ## 160. 2026-10-31 14:08:15 书签、笔记与分享卡图标统一为 Lucide
 
 来源：站长确认只替换此前审计中最值得做的四项，其余图标不动；替换后做最小发布。
