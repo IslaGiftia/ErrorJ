@@ -6425,12 +6425,48 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 
 部署步骤：
 ```text
-待执行。
+本地：Python 编译检查；node --check books.js / messages.js / moments.js / activity.js；
+      changelog-seed JSON 校验；python -m unittest discover -s tests -> 295 passed；
+      git diff --check 干净
+浏览器：本地与公网均验证 220ms Modal 入场、390×844 手机视口居中，
+        以及减少动效下 160ms 纯淡入
+提交：e815b10 feat: upgrade agent architecture and shared locations
+      （fetch → pull --rebase → push；local == origin/main == e815b10）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = d71dfc53ca376d4316db31fb0f288e3ecd849f49a51d32b5a7682c68dc4c527b
+备份：/data/errorjiang-backup/20261031-112839/
+      （inventory.db 7.7M、auth.json、changelog-seed.json、
+       完整 agent-data：agent.db 724K + stickers；无 WAL / SHM）
+服务器：systemctl stop errorjiang-agent → systemctl stop errorjiang
+      cp 备份 → git pull --ff-only → e815b10
+      seed 安装；import_changelog_moments.py --date 2026-10-31 --force
+      → 新增 1 条、覆盖 0 条、跳过 0 条
+      systemctl start errorjiang → systemctl start errorjiang-agent
 ```
 
 验证结果：
 ```text
-待部署后补齐。
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 网站 /api/health = {"ok": true}；
+             Agent 172.17.0.1:8011/health = {"ok": true}
+QQBot     -> 已连接 4015320753
+版本      -> 功能提交 = origin/main = 服务器 HEAD = e815b10
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+更新日志  -> /api/moments 中 2026-10-31 11:26:20
+             「折兮颜架构升级、群位置卡片自动添加与 Modal 入场」（id 771，kind = log）
+静态文件  -> styles.css 规范化 CRLF 后本地 / 服务器 SHA256 =
+             e1ed177c6c7cb4e1b03c873af150b9721fa0e81fb465bfdf2bd2fb0073648356
+             references.html =
+             200d5674f3ffd346282c72fd061ffceb51b494995b4aee82368175785f7b333f
+公网页    -> references.html 已包含 2026-10-31 的 Agent / 位置卡片与 Modal 动效摘要
+公网交互  -> Playwright 直接加载线上 styles.css 与 index.html：
+             普通模式 animationName = modal-overlay-in / modal-panel-in，0.22s；
+             减少动效模式 = modal-overlay-fade-in，0.16s；手机视口弹窗未溢出
+位置解析  -> 服务器运行同版 Agent 代码解析真实短链
+             https://surl.amap.com/35DEkryCD9nV
+             -> 34.25213848901167, 108.95823955535886，地址「下马陵六号」
+本地回归  -> 295 项单测通过；Provider 回退、Tool Registry、事件管线、
+             高德 tuwen / callAPP 解析、自动添加、未绑定提示和 Modal 降级均通过
 ```
 
 ## 149. 2026-10-22 22:02:31 折兮颜迁移官方 QQBot 并升级群聊记忆与内容工具箱
