@@ -127,9 +127,9 @@
 
   function savedPoiEnabled() {
     try {
-      return localStorage.getItem(POI_STORAGE_KEY) !== "0";
+      return localStorage.getItem(POI_STORAGE_KEY) === "1";
     } catch (err) {
-      return true;
+      return false;
     }
   }
 
@@ -220,11 +220,11 @@
       tag: "浅色",
       dot: "#f0e2c3",
       gcj: true,
-      zoomCap: 18,
+      zoomCap: 20,
       layer: L.tileLayer(amapUrl(8), {
         subdomains: "1234",
         minZoom: 3,
-        maxZoom: 19,
+        maxZoom: 20,
         maxNativeZoom: 18,
         attribution: "&copy; 高德地图"
       })
@@ -234,11 +234,11 @@
       tag: "卫星",
       dot: "#4f7a52",
       gcj: true,
-      zoomCap: 18,
+      zoomCap: 20,
       layer: L.tileLayer(amapUrl(6), {
         subdomains: "1234",
         minZoom: 3,
-        maxZoom: 19,
+        maxZoom: 20,
         maxNativeZoom: 18,
         attribution: "&copy; 高德地图"
       })
@@ -298,7 +298,7 @@
   var map = L.map(mapEl, {
     zoomControl: false,
     minZoom: 3,
-    maxZoom: 19,
+    maxZoom: 20,
     worldCopyJump: true,
     preferCanvas: true
   });

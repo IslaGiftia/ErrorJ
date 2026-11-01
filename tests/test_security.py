@@ -2380,6 +2380,17 @@ class UploadLimitTests(unittest.TestCase):
 
 
 class ComplianceWorkflowTests(unittest.TestCase):
+    def test_map_zoom_cap_and_merchant_preference(self):
+        map_script = (app.STATIC_DIR / "map.js").read_text(encoding="utf-8")
+        map_html = (app.STATIC_DIR / "map.html").read_text(encoding="utf-8")
+
+        self.assertIn('localStorage.getItem(POI_STORAGE_KEY) === "1"', map_script)
+        self.assertIn('localStorage.setItem(POI_STORAGE_KEY, state.poiEnabled ? "1" : "0")', map_script)
+        self.assertIn('aria-pressed="false"', map_html)
+        self.assertIn("zoomCap: 20", map_script)
+        self.assertIn("maxZoom: 20", map_script)
+        self.assertIn("maxNativeZoom: 18", map_script)
+
     def test_shared_sidebars_and_workbench_nav_keep_consistent_padding(self):
         sidebar_css = (app.STATIC_DIR / "site" / "sidebar.css").read_text(
             encoding="utf-8"
