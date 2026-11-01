@@ -7734,3 +7734,51 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
 ```
 
 备注：线上完整财务数据需要登录，公网使用服务器实际返回的同版静态文件做哈希和页面结构检查；交互验证在隔离测试数据库上完成，没有改动线上真实账目。
+
+## 164. 2026-11-01 22:12:42 足迹地图提高缩放并记住周边商户偏好
+
+来源：站长希望在不更换地图组件的前提下，把现有足迹地图放到最大，让商户密集区域的标记更容易分开和操作；周边商户默认关闭，并在用户手动切换后记住选择。
+
+完成内容（提交 `ca146d3 feat: improve footprint map zoom controls`，5 文件，+22/−10）：
+
+- 高德矢量和高德卫星的最高缩放提高到 20 级；18 级以内继续使用原生瓦片，19–20 级只放大同一套坐标投影，商户和足迹点不会重新定位或漂移。
+- 足迹页「周边商户」首次进入默认关闭，不会主动请求商户数据。
+- 用户打开或关闭商户图层后写入当前浏览器偏好，下次进入自动恢复；关闭状态和打开状态都会持久化。
+- 商户图层仍从 13 级开始加载，15 级以后显示名称；继续放大时相邻商户会在屏幕上拉开，方便点击和查看。
+- 增加地图缩放上限、默认开关和持久化逻辑的回归测试，README 与参考项目页同步更新。
+
+部署步骤：
+```text
+本地：python -m py_compile app.py；
+      python -m unittest discover -s tests -v -> 318 passed；
+      node --check map.js / books.js / messages.js / moments.js / activity.js；
+      changelog-seed JSON 校验；git diff --check 干净
+提交：ca146d3 feat: improve footprint map zoom controls
+      （fetch → pull --rebase → push；local == origin/main == ca146d3）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 0742dee78d62cee22534ba3bf084e1b4ce3ef6bd8f749d6241c8b00ff1142ed6
+备份：/data/errorjiang-backup/20261101-221645/
+      （inventory.db 8.0M、changelog-seed.json 136K；无 WAL / SHM）
+服务器：systemctl stop -> 备份 -> git pull --ff-only -> ca146d3
+      seed 安装；import_changelog_moments.py --date 2026-11-01 --force
+      -> 新增 1 条、覆盖 0 条、跳过 0 条
+      systemctl start errorjiang
+```
+
+验证结果：
+```text
+服务      -> errorjiang / nginx active，/api/health = {"ok": true}
+版本      -> 本地代码提交 = origin/main = 服务器 HEAD = ca146d3
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+更新日志  -> /api/moments 中 2026-11-01 22:12:42
+             「足迹地图提高缩放并记住周边商户偏好」（id 802，kind = log）
+静态文件  -> map.js 本地 / 公网 SHA256 =
+             1008CD0B94F64B9E11416CB6C83B0CC25EFF8484029FD484EFC57036512AB1DF
+             map.html 本地 / 公网 SHA256 =
+             FB23AB85F1119B12104878A21E86E0A681FC4AEABA24CAF186DCE249D1227E43
+线上交互  -> Playwright 使用公网同版 map.html 与拦截的隔离地图数据验证：
+             商户层默认关闭且首次不请求；手动打开会加载商户；
+             刷新后关闭 / 打开状态分别恢复；缩放上限为 20；
+             相邻商户在 20 级屏幕距离约 176.2px，不再重叠为同一点
+本地回归  -> 318 项单测通过；地图缩放、商户开关、持久化与语法检查均通过
+```
