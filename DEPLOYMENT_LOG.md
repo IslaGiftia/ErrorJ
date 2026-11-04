@@ -7865,3 +7865,48 @@ Python 编译 -> app.py、Agent store / service / brain 与测试文件通过
              记忆强度、证据、归档筛选和恢复请求正常
              无横向溢出、无控制台错误、无页面脚本错误
 ```
+
+部署步骤：
+```text
+提交：1fa4f66 feat: add living memory lifecycle and sticker pack tools
+      （fetch -> pull --rebase -> push；local == origin/main == 1fa4f66）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json
+      本地 / 服务器 SHA256 =
+      8f89d2f73f1e14bbf64260c6c3269f97ce091be778b2fedc765e3514a05b2ca3
+备份：/data/errorjiang-backup/20261104-140327（11M）
+      inventory.db 9281536 bytes、agent.db 1085440 bytes、
+      auth.json 223 bytes、changelog-seed.json 141227 bytes；无 WAL / SHM
+服务器：stop errorjiang + errorjiang-agent -> 备份 -> git pull --ff-only -> 1fa4f66
+      app.init_db；AgentStore 迁移；seed 安装
+      import_changelog_moments.py --date 2026-11-04 --force
+      -> 新增 2 条、覆盖 0 条、跳过 0 条
+      start errorjiang -> start errorjiang-agent
+主站数据：reference_projects 新增 astrbot_plugin_livingmemory（id 26）
+```
+
+最终验证：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 主站 https://zhexiyan.cc/api/health = {"ok": true}
+             Agent 172.17.0.1:8011/health = {"ok": true}
+版本      -> 本地代码提交 = origin/main = 服务器 HEAD = 1fa4f66
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+数据库    -> memories 553 条，stickers 34 张
+             memories 已含 strength / pinned / archived_at / evidence / source_ref
+             stickers 已含 use_count / last_used_at
+             memory_events / memory_decay_runs / sticker_usage 已创建
+Agent API -> /internal/memories 200；/internal/sticker/export 返回有效 ZIP
+             ZIP 含 manifest.json，共 34 个条目
+更新日志  -> /api/moments 中 id 805、kind = log
+             2026-11-04 13:59:45「鲸鲸记忆生命周期与表情包整理升级」
+参考项目  -> /api/references 已返回 astrbot_plugin_livingmemory
+静态文件  -> agent.js   SHA256 = db2c6e3c026e04e6e08a27d170d2f5d8087d9fdf9f8a27f0f1a4b49e54693907
+             agent.html SHA256 = 4fc286724c060859bda7ff952290709a86fd7e9dbe5db8c1584be2df623df6d5
+             agent.css  SHA256 = f2d3304f1494b7570b6c8a2348d14daf93c32cead85633232fc5f9532d5a405f
+             references.html SHA256 = 4f344ecdd5b3d1ce94b7a88ad45f304b0c1fc9d8c453aeceac26dc52adf474bb
+线上交互  -> Playwright 加载公网同版 agent.html，隔离 API 数据验证：
+             记忆强度、证据、归档筛选、恢复按钮正常
+             1280×900 与 390×844 均无横向溢出
+             无 console error、无 page error
+本地回归  -> 348 项单测通过；Python / JavaScript / JSON / diff 检查通过
+```
