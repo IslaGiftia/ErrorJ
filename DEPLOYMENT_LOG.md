@@ -7782,3 +7782,59 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
              相邻商户在 20 级屏幕距离约 176.2px，不再重叠为同一点
 本地回归  -> 318 项单测通过；地图缩放、商户开关、持久化与语法检查均通过
 ```
+
+## 165. 2026-11-04 12:58:22 鲸鲸群主动升级与表情检索重构
+
+来源：继续完善群聊冷场主动聊天，解决固定门槛、无关消息错误清零未回复、缺少运行记录和单群控制的问题；同时让全局表情库支持描述、关键词、情绪、分层检索和机器人批量整理。
+
+完成内容（提交 `c7bfbe3 feat: upgrade proactive group chat and stickers`，12 文件，+4522/−216）：
+
+- 群聊冷场聊天会按每个群过去 7 天的发言间隔自动调整安静门槛，低频群每周最多尝试 3 次；保留随机等待、90 分钟冷却、每日上限和连续未回应暂定。
+- 主动消息发出后观察 15 分钟，只有明确回复、引用、叫到鲸鲸或接续原话题才算有效反馈；无关消息只取消待发送任务，不再错误清零未回应次数。
+- 群主动运行记录保存触发原因、上下文大小、生成 / 跳过 / 取消 / 发送 / 私聊兜底 / 接话 / 过期等状态。
+- Agent 页面可以查看群主动状态和最近记录、生成预览、手动试发、暂停或恢复单群，并可单独设置每群安静门槛与每日次数。
+- 群聊上下文压缩为未结束话题、最近话题与活跃成员；生成期间有新消息会丢弃本轮，过期任务自动重新随机排期。
+- 表情库新增描述、检索关键词和六类情绪；上传与批量编辑都可维护，旧表情库自动迁移。
+- 表情检索保持原始文件名最高优先级，再按描述、关键词、情绪、标签和分类分层匹配；增加多词全部命中优先、中文二字片段兜底和未命中分类统计。
+- 新增 `sticker_list` / `sticker_update` 工具；管理员可让鲸鲸查看并批量更新表情元数据，删除仍只在 Agent 页面进行。
+- 修复 Agent 页面全局设置与定时线程读取旧管理员配置不一致的问题，晨报、私聊主动消息和群主动统一合并全局设置。
+
+部署步骤：
+```text
+本地：python -m unittest discover -s tests -v -> 335 passed；
+      Python / JavaScript 语法检查；changelog-seed JSON 校验；git diff --check 干净
+提交：c7bfbe3 feat: upgrade proactive group chat and stickers
+      （fetch → pull --rebase → push；local == origin/main == c7bfbe3）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json，
+      两侧 SHA256 = 9f75b197a639ce8dc189f1727883cdfc7117dedfa5f0195ae5286aaeef8ca37c
+备份：/data/errorjiang-backup/20261104-130010/
+      （inventory.db 8.9M、agent.db 956K、changelog-seed.json 137K；无 WAL / SHM）
+服务器：stop errorjiang + errorjiang-agent -> 备份 -> git pull --ff-only -> c7bfbe3
+      seed 安装；import_changelog_moments.py --date 2026-11-04 --force
+      -> 新增 1 条、覆盖 0 条、跳过 0 条
+      start errorjiang -> start errorjiang-agent
+```
+
+验证结果：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 主站 /api/health = {"ok": true}
+             Agent 172.17.0.1:8011/health = {"ok": true}
+版本      -> 本地代码提交 = origin/main = 服务器 HEAD = c7bfbe3
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+数据库    -> Agent 已创建 group_proactive_runs / group_proactive_overrides；
+             stickers 新增 caption / keywords / mood；
+             group_proactive_state 新增接话窗口、运行 id 与最近主动消息字段
+更新日志  -> /api/moments 中 2026-11-04 12:58:22
+             「鲸鲸群主动升级与表情检索重构」（id 803，kind = log）
+静态文件  -> agent.js   SHA256 = 60EF2C36AA5E21EB5CC022363F64F7516EB80BA6CA8C399FC93636DC412EE594
+             agent.html SHA256 = 93D50299236E84FB6CD7962D7D308BA71B390E350684B0FF2DD18B8CEEE1B59F
+             agent.css  SHA256 = 2F5E385E2BDCE61A3EBEB5F37F61B6AD6E0F1AB915D6C6A3FA96980F7C88304F
+             references.html SHA256 = 69D5BF7F78D7B862394FD373E0B15AB8ABF5B48CF6E201A19B4B8F83D043DB34
+线上 API  -> group_idle_proactive 返回 enabled / groups / runs；
+             现有 34 张表情均返回 caption / keywords / mood 字段
+线上交互  -> Playwright 使用公网同版 agent.html 与隔离数据验证：
+             群主动单群卡片、150 分钟自适应门槛和运行记录正常；
+             表情描述、情绪和批量元数据控件正常；390px 视口无横向溢出
+本地回归  -> 335 项单测通过；群主动、表情迁移、检索、工具调用和页面交互均通过
+```
