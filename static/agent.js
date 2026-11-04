@@ -9,6 +9,8 @@
   var settingsSave = document.getElementById("agentSettingsSave");
   var memoryList = document.getElementById("agentMemoryList");
   var memorySearch = document.getElementById("agentMemorySearch");
+  var memoryArchived = document.getElementById("agentMemoryArchived");
+  var memoryCount = document.getElementById("agentMemoryCount");
   var groupMemberList = document.getElementById("agentGroupMemberList");
   var timelineList = document.getElementById("agentTimelineList");
   var timelineForm = document.getElementById("agentTimelineForm");
@@ -24,6 +26,14 @@
   var stickerUploadCaption = document.getElementById("agentStickerUploadCaption");
   var stickerUploadKeywords = document.getElementById("agentStickerUploadKeywords");
   var stickerUploadMood = document.getElementById("agentStickerUploadMood");
+  var stickerSearch = document.getElementById("agentStickerSearch");
+  var stickerMoodFilter = document.getElementById("agentStickerMoodFilter");
+  var stickerSort = document.getElementById("agentStickerSort");
+  var stickerPendingOnly = document.getElementById("agentStickerPendingOnly");
+  var stickerFilterSummary = document.getElementById("agentStickerFilterSummary");
+  var stickerExport = document.getElementById("agentStickerExport");
+  var stickerImportBtn = document.getElementById("agentStickerImportBtn");
+  var stickerImportInput = document.getElementById("agentStickerImportInput");
   var stickerBulk = document.getElementById("agentStickerBulk");
   var stickerSelectedCount = document.getElementById("agentStickerSelectedCount");
   var stickerBulkCategory = document.getElementById("agentStickerBulkCategory");
@@ -436,6 +446,10 @@
           "settingMemoryConsolidationTime",
           settings.memory_consolidation_time
         );
+        settingValue(
+          "settingMemoryDecayEnabled",
+          settings.memory_decay_enabled
+        );
         settingValue("settingProactiveEnabled", settings.proactive_enabled);
         settingValue("settingStickerEnabled", settings.sticker_enabled);
         settingValue("settingChatHumanDelay", settings.chat_human_delay);
@@ -513,6 +527,9 @@
       memory_consolidation_time: document.getElementById(
         "settingMemoryConsolidationTime"
       ).value,
+      memory_decay_enabled: document.getElementById(
+        "settingMemoryDecayEnabled"
+      ).checked,
       proactive_enabled: document.getElementById(
         "settingProactiveEnabled"
       ).checked,
@@ -601,11 +618,15 @@
     var url = "/api/agent/web/memories";
     var searchText = String(query || "").trim();
     if (searchText) url += "?q=" + encodeURIComponent(searchText);
+    if (memoryArchived.checked) {
+      url += (searchText ? "&" : "?") + "include_archived=1";
+    }
     return fetch(url, { credentials: "same-origin", cache: "no-store" })
       .then(readApiResponse)
       .then(function (data) {
         if (requestId !== memoryRequestId) return;
         memoryList.innerHTML = "";
+        memoryCount.textContent = (data.memories || []).length + " 条";
         (data.memories || []).forEach(function (memory) {
           var item = document.createElement("div");
           item.className = "agent-memory-item";
@@ -616,10 +637,52 @@
           meta.textContent =
             platformLabel(memory.platform) +
             " · " + memory.kind +
+            " · 强度 " + Math.round(Number(memory.strength || 0) * 100) + "%" +
             " · 重要度 " + memory.importance +
             " · 置信度 " + (memory.confidence || 5) +
+            (Number(memory.pinned) ? " · 固定" : "") +
+            (memory.archived_at ? " · 已归档" : "") +
             (memory.source === "consolidation" ? " · 空闲整理" : "");
           copy.append(text, meta);
+          if (memory.evidence) {
+            var evidence = document.createElement("small");
+            evidence.className = "agent-memory-evidence";
+            evidence.textContent = "证据：" + memory.evidence;
+            copy.appendChild(evidence);
+          }
+          var actions = document.createElement("div");
+          actions.className = "agent-memory-actions";
+          var archive = document.createElement("button");
+          archive.type = "button";
+          archive.title = memory.archived_at ? "恢复记忆" : "归档记忆";
+          archive.setAttribute(
+            "aria-label",
+            memory.archived_at ? "恢复记忆" : "归档记忆"
+          );
+          archive.innerHTML =
+            '<i data-lucide="' +
+            (memory.archived_at ? "rotate-ccw" : "archive") +
+            '"></i>';
+          archive.addEventListener("click", function () {
+            fetch("/api/agent/web/memory-status", {
+              method: "POST",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id: memory.id,
+                platform: memory.platform,
+                archived: !memory.archived_at,
+              }),
+            })
+              .then(readApiResponse)
+              .then(function () {
+                return loadMemories(memorySearch.value);
+              })
+              .catch(function (error) {
+                setSettingsStatus(error.message, settingsDirty);
+              });
+          });
+          actions.appendChild(archive);
           var remove = document.createElement("button");
           remove.type = "button";
           remove.title = "删除记忆";
@@ -643,7 +706,8 @@
                 setSettingsStatus(error.message, settingsDirty);
               });
           });
-          item.append(copy, remove);
+          actions.appendChild(remove);
+          item.append(copy, actions);
           memoryList.appendChild(item);
         });
         if (!(data.memories || []).length) {
@@ -966,8 +1030,53 @@
       });
   }
 
+  function filteredStickerList() {
+    var query = stickerSearch.value.trim().toLowerCase();
+    var tokens = query
+      ? query.split(/[\s,，、/|;；:：]+/).filter(Boolean)
+      : [];
+    var mood = stickerMoodFilter.value;
+    var pendingOnly = stickerPendingOnly.checked;
+    var rows = currentStickers.filter(function (sticker) {
+      if (mood && (sticker.effective_mood || sticker.mood) !== mood) {
+        return false;
+      }
+      if (pendingOnly && !sticker.needs_metadata) return false;
+      if (!tokens.length) return true;
+      var hay = [
+        sticker.source_name,
+        sticker.caption,
+        sticker.keywords,
+        sticker.category,
+        sticker.tags,
+        sticker.effective_mood,
+        stickerMoodLabel(sticker.effective_mood || sticker.mood),
+      ].join(" ").toLowerCase();
+      return tokens.every(function (token) {
+        return hay.indexOf(token) >= 0;
+      });
+    });
+    var sortMode = stickerSort.value;
+    rows.sort(function (left, right) {
+      if (sortMode === "recent") {
+        return Number(right.last_used_at || 0) - Number(left.last_used_at || 0);
+      }
+      if (sortMode === "used") {
+        return Number(right.use_count || 0) - Number(left.use_count || 0);
+      }
+      if (sortMode === "name") {
+        return String(left.source_name || "").localeCompare(
+          String(right.source_name || ""),
+          "zh-CN"
+        );
+      }
+      return Number(right.id || 0) - Number(left.id || 0);
+    });
+    return rows;
+  }
+
   function toggleStickerGroup(category) {
-    var stickers = currentStickers.filter(function (sticker) {
+    var stickers = filteredStickerList().filter(function (sticker) {
       return (sticker.category || "未分类") === category;
     });
     var allSelected =
@@ -1037,7 +1146,8 @@
     var meta = document.createElement("span");
     meta.className = "agent-sticker-meta";
     meta.textContent =
-      stickerMoodLabel(sticker.mood) +
+      stickerMoodLabel(sticker.effective_mood || sticker.mood) +
+      " · 使用 " + Number(sticker.use_count || 0) + " 次" +
       (sticker.keywords ? " · " + sticker.keywords : "");
     meta.title = meta.textContent;
     item.appendChild(meta);
@@ -1067,7 +1177,8 @@
   function renderStickerGroups() {
     stickerGrid.innerHTML = "";
     var grouped = {};
-    currentStickers.forEach(function (sticker) {
+    var visible = filteredStickerList();
+    visible.forEach(function (sticker) {
       var category = String(sticker.category || "未分类");
       if (!grouped[category]) grouped[category] = [];
       grouped[category].push(sticker);
@@ -1101,9 +1212,17 @@
       group.append(head, grid);
       stickerGrid.appendChild(group);
     });
-    if (!currentStickers.length) {
+    var pending = currentStickers.filter(function (sticker) {
+      return Boolean(sticker.needs_metadata);
+    }).length;
+    stickerFilterSummary.textContent =
+      "显示 " + visible.length + " / " + currentStickers.length +
+      " 张 · 待整理 " + pending + " 张";
+    if (!visible.length) {
       stickerGrid.innerHTML =
-        '<div class="agent-sticker-item"><span>暂无</span></div>';
+        '<div class="agent-sticker-item"><span>' +
+        (currentStickers.length ? "没有匹配的表情" : "暂无") +
+        "</span></div>";
     }
     updateStickerSelectionUI();
     refreshIcons();
@@ -1309,6 +1428,48 @@
       });
   }
 
+  function exportStickerPack() {
+    setSettingsStatus("正在准备表情包 ZIP…", settingsDirty);
+    window.location.assign("/api/agent/web/sticker-export");
+  }
+
+  function importStickerPack(file) {
+    if (!file) return;
+    if (file.size > 50 * 1024 * 1024) {
+      setSettingsStatus("表情包 ZIP 不能超过 50MB", true);
+      return;
+    }
+    stickerImportBtn.classList.add("is-uploading");
+    stickerImportBtn.setAttribute("aria-disabled", "true");
+    setSettingsStatus("正在导入表情包 ZIP…", settingsDirty);
+    fileBase64(file)
+      .then(function (data) {
+        return fetch("/api/agent/web/sticker-import", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data_base64: data }),
+        }).then(readApiResponse);
+      })
+      .then(function (data) {
+        setSettingsStatus(
+          "已导入 " + Number(data.imported || 0) +
+          " 张，跳过重复 " + Number(data.duplicates || 0) +
+          " 张，忽略 " + Number(data.skipped || 0) + " 张",
+          settingsDirty
+        );
+        return loadStickers();
+      })
+      .catch(function (error) {
+        setSettingsStatus(error.message, true);
+      })
+      .then(function () {
+        stickerImportBtn.classList.remove("is-uploading");
+        stickerImportBtn.removeAttribute("aria-disabled");
+        stickerImportInput.value = "";
+      });
+  }
+
   function setupSectionNavigation() {
     var links = Array.prototype.slice.call(
       document.querySelectorAll("[data-section-link]")
@@ -1384,6 +1545,9 @@
       loadMemories(value);
     }, 180);
   });
+  memoryArchived.addEventListener("change", function () {
+    loadMemories(memorySearch.value);
+  });
   stickerUploadBtn.addEventListener("keydown", function (event) {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
@@ -1391,6 +1555,19 @@
   });
   stickerInput.addEventListener("change", function () {
     uploadStickerFiles(this.files);
+  });
+  stickerSearch.addEventListener("input", renderStickerGroups);
+  stickerMoodFilter.addEventListener("change", renderStickerGroups);
+  stickerSort.addEventListener("change", renderStickerGroups);
+  stickerPendingOnly.addEventListener("change", renderStickerGroups);
+  stickerExport.addEventListener("click", exportStickerPack);
+  stickerImportInput.addEventListener("change", function () {
+    importStickerPack(this.files && this.files[0]);
+  });
+  stickerImportBtn.addEventListener("keydown", function (event) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    stickerImportInput.click();
   });
   stickerCategorySelect.addEventListener("change", function () {
     stickerUploadTarget.textContent = "上传到“" + this.value + "”";

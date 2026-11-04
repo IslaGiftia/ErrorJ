@@ -1,4 +1,5 @@
 import base64
+import io
 import json
 import http.client
 import os
@@ -8,6 +9,7 @@ import tempfile
 import threading
 import time
 import unittest
+import zipfile
 from collections import defaultdict
 from dataclasses import replace
 from datetime import datetime, timedelta
@@ -354,6 +356,8 @@ class AgentStoreTests(unittest.TestCase):
         self.assertEqual(sticker["caption"], "")
         self.assertEqual(sticker["keywords"], "")
         self.assertEqual(sticker["mood"], "")
+        self.assertEqual(sticker["use_count"], 0)
+        self.assertIsNone(sticker["last_used_at"])
         self.assertEqual(sticker["source_name"], "")
         self.assertEqual(sticker["tags"], "旧标签")
 
@@ -662,6 +666,122 @@ class AgentStoreTests(unittest.TestCase):
         )
         self.assertEqual(selected["status"], "selected", selected)
         self.assertEqual(service.selected_sticker(context)["ref"], "one.png")
+
+    def test_sticker_usage_tracks_recent_and_avoids_repeat(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        first = self.store.add_sticker(
+            "0",
+            "image",
+            "first.png",
+            category="开心",
+            source_name="开心一号.png",
+            caption="开心到飞起",
+            keywords="开心 飞起",
+            mood="happy",
+        )
+        second = self.store.add_sticker(
+            "0",
+            "image",
+            "second.png",
+            category="开心",
+            source_name="开心二号.png",
+            caption="开心转圈",
+            keywords="开心 转圈",
+            mood="happy",
+        )
+        used_at = int(time.time())
+        with patch("errorjiang_agent.store.time.time", return_value=used_at):
+            self.assertTrue(
+                self.store.record_sticker_use(
+                    "0",
+                    first,
+                    "qqbot",
+                    "chat-openid",
+                    "开心",
+                    "metadata",
+                )
+            )
+        stickers = self.store.list_stickers("0")
+        used = next(item for item in stickers if item["id"] == first)
+        self.assertEqual(used["use_count"], 1)
+        self.assertEqual(used["last_used_at"], used_at)
+        recent = self.store.recent_sticker_ids(
+            "0",
+            "qqbot",
+            "chat-openid",
+            used_at - 60,
+            5,
+        )
+        self.assertEqual(recent, [first])
+        selected = AgentService.choose_sticker_for_query(
+            stickers,
+            "开心",
+            exclude_ids={first},
+            allow_random=False,
+        )
+        self.assertEqual(selected["id"], second)
+        context = {
+            "platform": "qqbot",
+            "chat_id": "chat-openid",
+            "sticker_enabled": "1",
+        }
+        result = service.prepare_sticker({"emotion": "开心"}, context)
+        self.assertEqual(result["status"], "selected")
+        self.assertEqual(service.selected_sticker(context)["id"], second)
+
+    def test_sticker_pack_export_import_and_deduplication(self):
+        source_temp = tempfile.TemporaryDirectory()
+        target_temp = tempfile.TemporaryDirectory()
+        self.addCleanup(source_temp.cleanup)
+        self.addCleanup(target_temp.cleanup)
+        source = object.__new__(AgentService)
+        source.store = AgentStore(Path(source_temp.name) / "source.db")
+        source.sticker_dir = Path(source_temp.name) / "stickers"
+        source.sticker_dir.mkdir()
+        source.save_sticker_upload(
+            "0",
+            b"\x89PNG\r\n\x1a\npack-image",
+            "晚安_鲸鱼睡大觉.png",
+            "晚安",
+            caption="鲸鱼盖着被子睡大觉",
+            keywords="晚安 鲸鱼 睡大觉",
+            mood="daily",
+        )
+        archive = source.export_sticker_pack("0")
+        self.assertTrue(archive.startswith(b"PK"))
+
+        target = object.__new__(AgentService)
+        target.store = AgentStore(Path(target_temp.name) / "target.db")
+        target.sticker_dir = Path(target_temp.name) / "stickers"
+        target.sticker_dir.mkdir()
+        result = target.import_sticker_pack(archive, "0")
+        self.assertEqual(result["imported"], 1)
+        sticker = target.store.list_stickers("0")[0]
+        self.assertEqual(sticker["source_name"], "晚安_鲸鱼睡大觉.png")
+        self.assertEqual(sticker["caption"], "鲸鱼盖着被子睡大觉")
+        self.assertEqual(sticker["keywords"], "晚安 鲸鱼 睡大觉")
+        self.assertEqual(sticker["mood"], "daily")
+        self.assertTrue((target.sticker_dir / sticker["ref"]).is_file())
+        repeated = target.import_sticker_pack(archive, "0")
+        self.assertEqual(repeated["duplicates"], 1)
+
+    def test_sticker_pack_rejects_unsafe_archive(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        service = object.__new__(AgentService)
+        service.store = AgentStore(Path(temp.name) / "agent.db")
+        service.sticker_dir = Path(temp.name) / "stickers"
+        service.sticker_dir.mkdir()
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr(
+                "manifest.json",
+                json.dumps({"version": 1, "stickers": []}),
+            )
+            archive.writestr("../evil.png", b"bad")
+        with self.assertRaises(AgentError):
+            service.import_sticker_pack(buffer.getvalue(), "0")
 
     def test_proactive_target_prefers_qqbot_admin(self):
         self.store.bind_admin("qq", "10001")
@@ -2156,6 +2276,288 @@ class AgentStoreTests(unittest.TestCase):
         memory = self.store.list_memories("qq", "10001")[0]
         self.assertIn("confidence", memory)
         self.assertIn("source", memory)
+
+    def test_legacy_memories_migrate_lifecycle_fields_and_events(self):
+        path = Path(self.temp.name) / "legacy-memory.db"
+        connection = sqlite3.connect(path)
+        try:
+            connection.execute(
+                """CREATE TABLE memories (
+                       id INTEGER PRIMARY KEY AUTOINCREMENT,
+                       platform TEXT NOT NULL,
+                       owner_id TEXT NOT NULL,
+                       kind TEXT NOT NULL DEFAULT 'fact',
+                       content TEXT NOT NULL,
+                       importance INTEGER NOT NULL DEFAULT 5,
+                       confidence INTEGER NOT NULL DEFAULT 5,
+                       source TEXT NOT NULL DEFAULT 'chat',
+                       access_count INTEGER NOT NULL DEFAULT 0,
+                       created_at INTEGER NOT NULL,
+                       updated_at INTEGER NOT NULL,
+                       last_used_at INTEGER,
+                       UNIQUE(platform, owner_id, content)
+                   )"""
+            )
+            connection.execute(
+                """INSERT INTO memories(
+                       platform, owner_id, content, created_at, updated_at
+                   ) VALUES ('qq', '10001', '旧记忆', 1, 1)"""
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        migrated = AgentStore(path)
+        memory = migrated.list_memories("qq", "10001")[0]
+        self.assertEqual(memory["strength"], 1.0)
+        self.assertEqual(memory["pinned"], 0)
+        self.assertIsNone(memory["archived_at"])
+        self.assertEqual(memory["evidence"], "")
+        self.assertEqual(memory["source_ref"], "")
+        connection = sqlite3.connect(path)
+        try:
+            tables = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+        finally:
+            connection.close()
+        self.assertIn("memory_events", tables)
+        self.assertIn("memory_decay_runs", tables)
+
+    def test_memory_evidence_merges_and_is_searchable(self):
+        memory_id = self.store.add_memory(
+            "qq",
+            "10001",
+            "星星喜欢安静的咖啡馆",
+            "preference",
+            7,
+            8,
+            evidence="原话：想找安静一点的地方",
+        )
+        repeated_id = self.store.add_memory(
+            "qq",
+            "10001",
+            "星星喜欢安静的咖啡馆",
+            "preference",
+            8,
+            9,
+            evidence="补充：最好有插座",
+        )
+        self.assertEqual(memory_id, repeated_id)
+        memory = self.store.list_memories("qq", "10001")[0]
+        self.assertIn("原话", memory["evidence"])
+        self.assertIn("插座", memory["evidence"])
+        self.assertEqual(
+            len(self.store.list_memories("qq", "10001", "插座")),
+            1,
+        )
+        actions = [
+            event["action"]
+            for event in self.store.list_memory_events(
+                "qq",
+                "10001",
+                memory_id,
+            )
+        ]
+        self.assertEqual(actions.count("remember"), 2)
+        self.assertTrue(
+            self.store.delete_memory("qq", "10001", memory_id)
+        )
+        self.assertEqual(
+            self.store.list_memory_events("qq", "10001", memory_id),
+            [],
+        )
+
+    def test_memory_context_skips_unrelated_and_reinforces_matches(self):
+        memory_id = self.store.add_memory(
+            "qq",
+            "10001",
+            "星星怕打雷",
+            "fact",
+            2,
+            2,
+        )
+        before = self.store.list_memories("qq", "10001")[0]
+        self.assertEqual(
+            self.store.memory_context("qq", "10001", "咖啡", 5),
+            [],
+        )
+        unchanged = self.store.list_memories("qq", "10001")[0]
+        self.assertEqual(unchanged["access_count"], 0)
+        self.assertEqual(unchanged["strength"], before["strength"])
+
+        recalled = self.store.memory_context("qq", "10001", "打雷", 5)
+        self.assertEqual(recalled, ["星星怕打雷"])
+        reinforced = self.store.list_memories("qq", "10001")[0]
+        self.assertEqual(reinforced["id"], memory_id)
+        self.assertEqual(reinforced["access_count"], 1)
+        self.assertGreater(reinforced["strength"], before["strength"])
+
+    def test_memory_archive_restore_and_daily_decay_are_reversible(self):
+        now = int(time.time())
+        low_id = self.store.add_memory(
+            "qq",
+            "10001",
+            "不太重要的旧事件",
+            "event",
+            2,
+            2,
+        )
+        high_id = self.store.add_memory(
+            "qq",
+            "10001",
+            "非常重要的长期约定",
+            "promise",
+            9,
+            8,
+        )
+        connection = sqlite3.connect(self.store.path)
+        try:
+            connection.execute(
+                """UPDATE memories
+                   SET strength = 0.16, updated_at = ?, last_used_at = NULL
+                   WHERE id IN (?, ?)""",
+                (now - 86400, low_id, high_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.assertTrue(self.store.claim_memory_decay("2026-11-04"))
+        self.assertFalse(self.store.claim_memory_decay("2026-11-04"))
+        result = self.store.decay_memories(now)
+        self.assertEqual(result, {"decayed": 2, "archived": 1})
+        active_ids = {
+            memory["id"]
+            for memory in self.store.list_memories("qq", "10001")
+        }
+        self.assertNotIn(low_id, active_ids)
+        self.assertIn(high_id, active_ids)
+        archived = self.store.list_memories(
+            "qq",
+            "10001",
+            include_archived=True,
+        )
+        low = next(memory for memory in archived if memory["id"] == low_id)
+        self.assertIsNotNone(low["archived_at"])
+        self.assertTrue(
+            self.store.set_memory_archived(
+                "qq",
+                "10001",
+                low_id,
+                False,
+            )
+        )
+        restored_ids = {
+            memory["id"]
+            for memory in self.store.list_memories("qq", "10001")
+        }
+        self.assertIn(low_id, restored_ids)
+        actions = [
+            event["action"]
+            for event in self.store.list_memory_events(
+                "qq",
+                "10001",
+                low_id,
+            )
+        ]
+        self.assertIn("decay_archive", actions)
+        self.assertIn("restore", actions)
+
+    def test_memory_tools_respect_scope_permissions_and_secrets(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        private_context = {
+            "platform": "qq",
+            "owner_id": "10001",
+            "chat_id": "10001",
+            "chat_type": "private",
+            "message_id": "message-1",
+            "memory_enabled": "1",
+            "is_admin": "0",
+        }
+        remembered = service.memorize_memory_tool(
+            {
+                "content": "星星偏爱安静的咖啡馆",
+                "kind": "preference",
+                "importance": 8,
+                "confidence": 9,
+                "evidence": "原话：想找安静的地方",
+            },
+            private_context,
+        )
+        self.assertEqual(remembered["status"], "remembered")
+        recalled = service.recall_memory_tool(
+            {"query": "安静 咖啡"},
+            private_context,
+        )
+        self.assertEqual(recalled["status"], "ok")
+        self.assertEqual(recalled["count"], 1)
+        self.assertIn("咖啡馆", recalled["memories"][0]["content"])
+        self.assertGreater(recalled["memories"][0]["strength"], 0.35)
+        missing = service.recall_memory_tool(
+            {"query": "滑雪"},
+            private_context,
+        )
+        self.assertEqual(missing["status"], "not_found")
+        self.assertEqual(missing["memories"], [])
+        rejected = service.memorize_memory_tool(
+            {"content": "网站密码是 secret123"},
+            private_context,
+        )
+        self.assertEqual(rejected["status"], "rejected")
+
+        member_context = {
+            "platform": "qqbot",
+            "owner_id": "member-openid",
+            "chat_id": "group-openid",
+            "chat_type": "group",
+            "memory_enabled": "1",
+            "is_admin": "0",
+        }
+        forbidden = service.memorize_memory_tool(
+            {
+                "content": "群活动改到周日",
+                "scope": "group",
+            },
+            member_context,
+        )
+        self.assertEqual(forbidden["status"], "forbidden")
+        admin_context = dict(member_context, is_admin="1")
+        group_saved = service.memorize_memory_tool(
+            {
+                "content": "群活动改到周日",
+                "scope": "group",
+                "kind": "event",
+            },
+            admin_context,
+        )
+        self.assertEqual(group_saved["status"], "remembered")
+        group_recalled = service.recall_memory_tool(
+            {"query": "周日", "scope": "group"},
+            member_context,
+        )
+        self.assertEqual(group_recalled["status"], "ok")
+        self.assertEqual(group_recalled["memories"][0]["scope"], "group")
+        forbidden_archive = service.forget_memory_tool(
+            {
+                "ids": [group_saved["memory_id"]],
+                "scope": "group",
+            },
+            member_context,
+        )
+        self.assertEqual(forbidden_archive["status"], "forbidden")
+        archived = service.forget_memory_tool(
+            {
+                "ids": [group_saved["memory_id"]],
+                "scope": "group",
+            },
+            admin_context,
+        )
+        self.assertEqual(archived["status"], "archived")
 
     def test_group_member_directory_survives_and_links_site_account(self):
         first = self.store.remember_group_member(
@@ -5872,6 +6274,122 @@ class AgentInternalAuthTests(unittest.TestCase):
         self.assertEqual(args[1]["ids"], [1, 2])
         self.assertEqual(args[1]["values"]["mood"], "daily")
 
+    def test_agent_memory_list_forwards_archive_filter(self):
+        handler = self.make_handler({})
+        handler.is_admin = lambda: True
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        with patch.object(
+            app,
+            "agent_internal_request",
+            return_value={
+                "memories": [
+                    {
+                        "id": 4,
+                        "pinned": 0,
+                        "strength": 0.42,
+                        "importance": 8,
+                        "evidence": "原话",
+                        "archived_at": None,
+                    }
+                ]
+            },
+        ) as request:
+            handler.api_agent_web_memories(
+                {"q": ["咖啡"], "include_archived": ["1"]}
+            )
+        self.assertEqual(captured["status"], 200)
+        self.assertEqual(captured["payload"]["memories"][0]["strength"], 0.42)
+        self.assertEqual(request.call_count, 2)
+        for call in request.call_args_list:
+            self.assertIn("include_archived=1", call.args[0])
+            self.assertIn("q=%E5%92%96%E5%95%A1", call.args[0])
+
+    def test_agent_memory_status_forwards_archive_action(self):
+        handler = self.make_handler({})
+        handler.is_admin = lambda: True
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        with patch.object(
+            app,
+            "agent_internal_request",
+            return_value={"ok": True, "archived": True},
+        ) as request:
+            handler.api_agent_web_memory_status(
+                {
+                    "id": 9,
+                    "platform": "qq",
+                    "archived": True,
+                }
+            )
+        self.assertEqual(captured["status"], 200)
+        args = request.call_args.args
+        self.assertEqual(args[0], "/internal/memory/status")
+        self.assertEqual(args[1]["id"], 9)
+        self.assertEqual(args[1]["platform"], "qq")
+        self.assertTrue(args[1]["archived"])
+
+    def test_agent_sticker_import_forwards_zip(self):
+        handler = self.make_handler({})
+        handler.is_admin = lambda: True
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        raw = b"PK-test-sticker-pack"
+        with patch.object(
+            app,
+            "agent_internal_request",
+            return_value={"ok": True, "imported": 2, "duplicates": 1},
+        ) as request:
+            handler.api_agent_web_sticker_import(
+                {"data_base64": base64.b64encode(raw).decode("ascii")}
+            )
+        self.assertEqual(captured["status"], 200)
+        self.assertEqual(captured["payload"]["imported"], 2)
+        args = request.call_args.args
+        self.assertEqual(args[0], "/internal/sticker/import")
+        self.assertEqual(
+            base64.b64decode(args[1]["data_base64"]),
+            raw,
+        )
+
+    def test_agent_sticker_export_streams_zip(self):
+        handler = self.make_handler({})
+        handler.is_admin = lambda: True
+        handler.wfile = io.BytesIO()
+        response_meta = {}
+        handler.send_response = lambda status: response_meta.update(
+            {"status": status}
+        )
+        handler.send_header = lambda key, value: response_meta.update(
+            {key: value}
+        )
+        handler.end_headers = lambda: None
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return b"PK-sticker-export"
+
+        with patch.dict(
+            os.environ,
+            {"ERRORJIANG_AGENT_TOKEN": "test-token"},
+        ), patch.object(app, "urlopen", return_value=FakeResponse()):
+            handler.api_agent_web_sticker_export()
+        self.assertEqual(response_meta["status"], 200)
+        self.assertEqual(response_meta["Content-Type"], "application/zip")
+        self.assertEqual(handler.wfile.getvalue(), b"PK-sticker-export")
+
     def test_binding_command_accepts_username(self):
         from errorjiang_agent.service import (
             BIND_USER_RE,
@@ -6414,6 +6932,23 @@ class AgentConsoleUiTests(unittest.TestCase):
             script,
         )
 
+    def test_agent_memory_lifecycle_controls_are_wired(self):
+        html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
+        script = (app.STATIC_DIR / "agent.js").read_text(encoding="utf-8")
+        self.assertIn('id="settingMemoryDecayEnabled"', html)
+        self.assertIn("记忆衰减与归档", html)
+        self.assertIn('id="agentMemoryArchived"', html)
+        self.assertIn('id="agentMemoryCount"', html)
+        self.assertIn(
+            'settingValue(\n          "settingMemoryDecayEnabled",\n'
+            "          settings.memory_decay_enabled\n        );",
+            script,
+        )
+        self.assertIn("memory_decay_enabled:", script)
+        self.assertIn("include_archived=1", script)
+        self.assertIn("/api/agent/web/memory-status", script)
+        self.assertIn("agent-memory-evidence", script)
+
     def test_agent_settings_intro_has_no_eyebrow(self):
         html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
         self.assertIn("<h1>机器人设置</h1>", html)
@@ -6449,6 +6984,11 @@ class AgentConsoleUiTests(unittest.TestCase):
         self.assertIn('id="agentStickerUploadKeywords"', html)
         self.assertIn('id="agentStickerUploadMood"', html)
         self.assertIn('id="agentStickerBulkUpdate"', html)
+        self.assertIn('id="agentStickerSearch"', html)
+        self.assertIn('id="agentStickerMoodFilter"', html)
+        self.assertIn('id="agentStickerPendingOnly"', html)
+        self.assertIn('id="agentStickerExport"', html)
+        self.assertIn('id="agentStickerImportInput"', html)
         self.assertIn('id="agentSettingsSave" disabled', html)
         self.assertIn('aria-label="筛选记忆"', html)
         self.assertIn('id="settings-persona"', html)
@@ -6478,6 +7018,8 @@ class AgentConsoleUiTests(unittest.TestCase):
         self.assertIn("agent-sticker-file-name", script)
         self.assertIn("agent-sticker-caption", script)
         self.assertIn("/api/agent/web/sticker-update", script)
+        self.assertIn("/api/agent/web/sticker-export", script)
+        self.assertIn("/api/agent/web/sticker-import", script)
         self.assertEqual(html.count("data-console-section"), 9)
         self.assertNotIn('id="agentMessages"', html)
         self.assertNotIn('id="agentForm"', html)

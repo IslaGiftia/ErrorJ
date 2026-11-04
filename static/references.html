@@ -263,6 +263,13 @@ width: min(980px, 100%);
         <p>2026-11-01 的足迹地图更新：高德矢量和高德卫星最高缩放提高到 20 级，19–20 级保持同一坐标投影，不会造成商户或足迹点漂移。周边商户改为默认关闭，并记住用户在当前浏览器中的开关选择；首次进入不会请求商户数据，后续进入自动恢复上次状态。</p>
         <p>2026-11-04 的鲸鲸群主动与表情库更新：群聊冷场聊天会根据每个群过去 7 天的发言节奏自动调整安静门槛，低频群每周最多尝试 3 次；达到门槛后再随机等待，发送前重新确认无人插话。主动消息发出后会观察 15 分钟，只有明确回复、引用、叫到鲸鲸或接续原话题才算有效反馈；Agent 页面可以查看运行记录、生成预览、手动试发、暂停单群并设置群级门槛与每日次数。</p>
         <p>表情库新增描述、关键词和六类情绪，原始文件名仍保持最高优先级，其后才匹配描述、关键词、情绪、标签和分类；多词查询、中文片段兜底和未命中真实分类统计均已加入。上传和 Agent 页面勾选多张后都可以维护这些元数据，鲸鲸也可以通过 sticker_list / sticker_update 查看和批量整理表情，删除仍只在管理页面进行。</p>
+        <p>2026-11-04 的 Memory 2.5 与表情整理更新：长期记忆新增原话证据、强度、访问强化、每日衰减和软归档恢复；自动上下文与显式召回只保留与当前话题相关的内容，无关查询不会再强化记忆。鲸鲸新增 recall_long_term_memory / memorize_long_term_memory / forget_long_term_memory 三个工具，个人与群共享记忆继续隔离，密码、令牌和验证码拒绝写入。</p>
+        <p>表情库新增同聊天 24 小时最近使用避让、使用次数与最近使用排序、“只看待整理”筛选，以及带 manifest.json 的 ZIP 导入导出。导入会按完整 SHA256 去重，并校验压缩包大小、路径、图片格式和清单条目。</p>
+      </article>
+
+      <article class="reference-item">
+        <a href="https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory" target="_blank" rel="noopener noreferrer">astrbot_plugin_livingmemory</a>
+        <p>参考长期记忆的强度、访问强化、时间衰减、软归档和混合召回思路。该项目使用 AGPL-3.0，本站只独立实现相关设计，没有复制其代码，也没有引入 Embedding、FAISS 或独立 Dashboard。</p>
       </article>
 
       <article class="reference-item">

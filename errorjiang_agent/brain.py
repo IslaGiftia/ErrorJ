@@ -488,6 +488,95 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "recall_long_term_memory",
+            "description": "按当前话题显式检索长期记忆，返回 id、内容、类型、强度、来源和证据。默认只查当前用户；群共享记忆需要 scope=group 或 all。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "scope": {
+                        "type": "string",
+                        "enum": ["self", "group", "all"],
+                        "description": "默认 self。group 只在群聊有效。",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 20,
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "memorize_long_term_memory",
+            "description": "显式保存一条长期记忆。默认保存到当前用户；scope=group 时写入当前群共享记忆，仅管理员可用。不要保存密码、令牌、临时查询或未经确认的隐私。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {"type": "string"},
+                    "kind": {
+                        "type": "string",
+                        "enum": [
+                            "fact",
+                            "preference",
+                            "relationship",
+                            "promise",
+                            "habit",
+                            "boundary",
+                            "event",
+                        ],
+                    },
+                    "scope": {
+                        "type": "string",
+                        "enum": ["self", "group"],
+                    },
+                    "importance": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10,
+                    },
+                    "confidence": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10,
+                    },
+                    "evidence": {
+                        "type": "string",
+                        "description": "支持这条记忆的简短原话或事实依据。",
+                    },
+                },
+                "required": ["content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "forget_long_term_memory",
+            "description": "把长期记忆软归档，不直接删除。优先使用 recall 返回的 ids；也可按 query 精确匹配少量记忆。群共享记忆只有管理员可归档。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ids": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                    },
+                    "query": {"type": "string"},
+                    "scope": {
+                        "type": "string",
+                        "enum": ["self", "group"],
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "web_hot_search",
             "description": "查询微博、B站、抖音当前热搜榜，可一次查询全部平台。",
             "parameters": {
@@ -630,6 +719,9 @@ class AgentBrain:
         web_research: WebResearchEngine | None = None,
         prepare_sticker_list=None,
         prepare_sticker_update=None,
+        prepare_memory_recall=None,
+        prepare_memory_write=None,
+        prepare_memory_forget=None,
     ):
         self.deepseek = deepseek
         self.errorjiang = errorjiang
@@ -637,6 +729,9 @@ class AgentBrain:
         self.prepare_sticker = prepare_sticker
         self.prepare_sticker_list = prepare_sticker_list
         self.prepare_sticker_update = prepare_sticker_update
+        self.prepare_memory_recall = prepare_memory_recall
+        self.prepare_memory_write = prepare_memory_write
+        self.prepare_memory_forget = prepare_memory_forget
         self.prepare_reminder = prepare_reminder
         self.prepare_content_send = prepare_content_send
         self.prepare_footprint = prepare_footprint
@@ -830,6 +925,51 @@ class AgentBrain:
             "sticker_update",
             sticker_update_handler,
             admin_only=True,
+        )
+
+        def memory_recall_handler(
+            arguments: dict[str, Any],
+            tool_context: dict[str, str] | None,
+            user_text: str,
+        ) -> dict[str, Any]:
+            del user_text
+            if not self.prepare_memory_recall:
+                return {"status": "unavailable"}
+            return self.prepare_memory_recall(arguments, tool_context)
+
+        registry.register(
+            "recall_long_term_memory",
+            memory_recall_handler,
+        )
+
+        def memory_write_handler(
+            arguments: dict[str, Any],
+            tool_context: dict[str, str] | None,
+            user_text: str,
+        ) -> dict[str, Any]:
+            del user_text
+            if not self.prepare_memory_write:
+                return {"status": "unavailable"}
+            return self.prepare_memory_write(arguments, tool_context)
+
+        registry.register(
+            "memorize_long_term_memory",
+            memory_write_handler,
+        )
+
+        def memory_forget_handler(
+            arguments: dict[str, Any],
+            tool_context: dict[str, str] | None,
+            user_text: str,
+        ) -> dict[str, Any]:
+            del user_text
+            if not self.prepare_memory_forget:
+                return {"status": "unavailable"}
+            return self.prepare_memory_forget(arguments, tool_context)
+
+        registry.register(
+            "forget_long_term_memory",
+            memory_forget_handler,
         )
 
         def reminder_handler(

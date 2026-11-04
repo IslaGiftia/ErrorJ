@@ -806,6 +806,38 @@
   font-size: 8px;
 }
 
+.agent-memory-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.agent-memory-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.agent-memory-toolbar input {
+  accent-color: var(--agent-accent);
+}
+
+.agent-memory-actions {
+  display: flex;
+  gap: 5px;
+}
+
+.agent-memory-evidence {
+  display: -webkit-box;
+  margin-top: 4px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .agent-memory-item button,
 .agent-member-actions button,
 .agent-timeline-actions button {
@@ -995,6 +1027,63 @@
   gap: 8px;
 }
 
+.agent-sticker-search-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.agent-sticker-search-bar > label:not(.agent-sticker-search):not(.agent-sticker-pending-filter) {
+  display: grid;
+  gap: 4px;
+}
+
+.agent-sticker-search-bar > label > span {
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.agent-sticker-search {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg-soft);
+}
+
+.agent-sticker-search svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+}
+
+.agent-sticker-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  box-shadow: none !important;
+  background: transparent;
+}
+
+.agent-sticker-pending-filter {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.agent-sticker-pending-filter input {
+  accent-color: var(--agent-accent);
+}
+
 .agent-sticker-category-bar {
   grid-template-columns: minmax(0, 1fr) auto;
 }
@@ -1126,6 +1215,39 @@
   clip-path: inset(50%);
   opacity: 0;
   pointer-events: none;
+}
+
+.agent-sticker-pack-tools {
+  display: flex;
+  gap: 8px;
+}
+
+.agent-sticker-pack-tools button,
+.agent-sticker-pack-tools label {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg-soft);
+  color: var(--text);
+  font: inherit;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.agent-sticker-pack-tools .is-uploading {
+  cursor: wait;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.agent-sticker-pack-tools svg {
+  width: 14px;
+  height: 14px;
 }
 
 .agent-sticker-upload-grid {
@@ -1511,6 +1633,7 @@
   .agent-sticker-category-bar,
   .agent-sticker-category-form,
   .agent-sticker-tools,
+  .agent-sticker-search-bar,
   .agent-sticker-upload-grid,
   .agent-sticker-bulk,
   .agent-timeline-form-grid,
@@ -1537,6 +1660,11 @@
 
   .agent-sticker-bulk-row {
     grid-template-columns: 1fr;
+  }
+
+  .agent-sticker-pack-tools > button,
+  .agent-sticker-pack-tools > label {
+    flex: 1 1 0;
   }
 
   .agent-timeline-item {

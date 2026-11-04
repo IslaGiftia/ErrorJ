@@ -10254,6 +10254,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_agent_web_timeline(query)
             elif path == "/api/agent/web/stickers":
                 self.api_agent_web_stickers(query)
+            elif path == "/api/agent/web/sticker-export":
+                self.api_agent_web_sticker_export()
             elif re.fullmatch(
                 r"/api/agent/media/(?:music|book|note_markdown|note_txt|note_html)/\d+",
                 path,
@@ -10366,6 +10368,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_agent_web_group_idle_action(payload)
             elif path == "/api/agent/web/memory-delete":
                 self.api_agent_web_memory_delete(payload)
+            elif path == "/api/agent/web/memory-status":
+                self.api_agent_web_memory_status(payload)
             elif path == "/api/agent/web/group-member-update":
                 self.api_agent_web_group_member_update(payload)
             elif path == "/api/agent/web/timeline-create":
@@ -10382,6 +10386,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_agent_web_sticker_move(payload)
             elif path == "/api/agent/web/sticker-update":
                 self.api_agent_web_sticker_update(payload)
+            elif path == "/api/agent/web/sticker-import":
+                self.api_agent_web_sticker_import(payload)
             elif path == "/api/agent/web/sticker-delete":
                 self.api_agent_web_sticker_delete(payload)
             elif path == "/api/login":
@@ -18631,15 +18637,21 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 403, "只有管理员可以管理鲸鲸记忆。")
             return
         search = str((query.get("q") or [""])[0])
+        include_archived = str(
+            (query.get("include_archived") or ["0"])[0]
+        ) == "1"
+        archived_query = "&include_archived=1" if include_archived else ""
         try:
             data = agent_internal_request(
                 "/internal/memories?platform=web&owner_id=0&q="
-                + quote(search),
+                + quote(search)
+                + archived_query,
                 timeout=10,
             )
             qq_data = agent_internal_request(
                 "/internal/memories?platform=qq&owner_id=0&q="
-                + quote(search),
+                + quote(search)
+                + archived_query,
                 timeout=10,
             )
             memories = []
@@ -18652,7 +18664,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 item["platform"] = "qq"
                 memories.append(item)
             memories.sort(
-                key=lambda item: (int(item.get("importance") or 0), int(item.get("id") or 0)),
+                key=lambda item: (
+                    int(item.get("pinned") or 0),
+                    float(item.get("strength") or 0),
+                    int(item.get("importance") or 0),
+                    int(item.get("id") or 0),
+                ),
                 reverse=True,
             )
             data["memories"] = memories
@@ -18691,6 +18708,33 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "platform": str((payload or {}).get("platform") or "web"),
                     "owner_id": "0",
                     "id": memory_id,
+                },
+                timeout=10,
+            )
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_memory_status(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以管理鲸鲸记忆。")
+            return
+        try:
+            memory_id = int((payload or {}).get("id"))
+        except (TypeError, ValueError):
+            api_error(self, 400, "记忆编号不正确。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/memory/status",
+                {
+                    "platform": str(
+                        (payload or {}).get("platform") or "web"
+                    ),
+                    "owner_id": "0",
+                    "id": memory_id,
+                    "archived": bool((payload or {}).get("archived")),
                 },
                 timeout=10,
             )
@@ -19040,6 +19084,74 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 timeout=15,
             )
         except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_sticker_export(self):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以导出表情包。")
+            return
+        token = os.environ.get("ERRORJIANG_AGENT_TOKEN", "").strip()
+        if not token:
+            api_error(self, 503, "鲸鲸尚未配置内部令牌。")
+            return
+        try:
+            request = Request(
+                AGENT_BASE_URL + "/internal/sticker/export?owner_id=0",
+                headers={
+                    "X-ErrorJ-Agent-Token": token,
+                    "User-Agent": "ErrorJ-Agent-Bridge/1.0",
+                },
+            )
+            with urlopen(request, timeout=30) as response:
+                body = response.read()
+        except (HTTPError, URLError, OSError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/zip")
+        self.send_header(
+            "Content-Disposition",
+            'attachment; filename="errorjiang-stickers.zip"',
+        )
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def api_agent_web_sticker_import(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以导入表情包。")
+            return
+        data_base64 = str((payload or {}).get("data_base64") or "")
+        try:
+            raw = base64.b64decode(data_base64, validate=True)
+        except Exception:
+            api_error(self, 400, "表情包 ZIP 数据无效。")
+            return
+        if not raw or len(raw) > 50 * 1024 * 1024:
+            api_error(self, 400, "表情包 ZIP 不能超过 50MB。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/sticker/import",
+                {
+                    "owner_id": "0",
+                    "data_base64": data_base64,
+                },
+                timeout=120,
+            )
+        except HTTPError as exc:
+            detail = "表情包导入失败。"
+            try:
+                error_data = json.loads(exc.read().decode("utf-8"))
+                detail = str(error_data.get("error") or detail)
+            except Exception:
+                pass
+            api_error(self, 502, detail)
+            return
+        except (URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
             api_error(self, 502, str(exc)[:200])
             return
         self.send_json(200, data)

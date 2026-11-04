@@ -153,6 +153,16 @@
           </label>
           <label class="agent-setting-row">
             <span class="agent-setting-copy">
+              <strong>记忆衰减与归档</strong>
+              <small>长期未使用的低重要度记忆会减弱并自动归档，召回后重新增强</small>
+            </span>
+            <span class="agent-switch">
+              <input type="checkbox" id="settingMemoryDecayEnabled" data-setting-input>
+              <span aria-hidden="true"></span>
+            </span>
+          </label>
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
               <strong>回复表情包</strong>
               <small>情绪合适时低频发送，可按分类和文件名匹配</small>
             </span>
@@ -368,6 +378,13 @@
                    aria-label="筛选记忆">
           </label>
         </header>
+        <div class="agent-memory-toolbar">
+          <span id="agentMemoryCount">0 条</span>
+          <label>
+            <input type="checkbox" id="agentMemoryArchived">
+            <span>显示已归档</span>
+          </label>
+        </div>
         <div class="agent-list" id="agentMemoryList"></div>
       </section>
 
@@ -414,6 +431,39 @@
           <div><h2>表情包库</h2><p>分类可选；新表情优先按原始文件名匹配，也可以批量归类整理。</p></div>
           <span class="agent-section-count" id="agentStickerCount">0 个</span>
         </header>
+        <div class="agent-sticker-search-bar">
+          <label class="agent-sticker-search">
+            <i data-lucide="search"></i>
+            <input type="search" id="agentStickerSearch" maxlength="120"
+                   placeholder="搜索文件名、描述、关键词" aria-label="搜索表情">
+          </label>
+          <label>
+            <span>情绪</span>
+            <select id="agentStickerMoodFilter">
+              <option value="">全部情绪</option>
+              <option value="happy">开心</option>
+              <option value="angry">生气</option>
+              <option value="sad">难过</option>
+              <option value="shy">害羞</option>
+              <option value="confused">困惑</option>
+              <option value="daily">日常</option>
+            </select>
+          </label>
+          <label>
+            <span>排序</span>
+            <select id="agentStickerSort">
+              <option value="default">默认顺序</option>
+              <option value="recent">最近使用</option>
+              <option value="used">使用最多</option>
+              <option value="name">文件名</option>
+            </select>
+          </label>
+          <label class="agent-sticker-pending-filter">
+            <input type="checkbox" id="agentStickerPendingOnly">
+            <span>只看待整理</span>
+          </label>
+        </div>
+        <p class="agent-section-note" id="agentStickerFilterSummary">共 0 张表情</p>
         <div class="agent-sticker-category-bar">
           <label class="agent-sticker-category">
             <span>分类（可选）</span>
@@ -439,6 +489,19 @@
           </label>
           <input class="agent-sticker-file" id="agentStickerInput" type="file" multiple
                  accept="image/png,image/jpeg,image/gif,image/webp,image/bmp">
+        </div>
+        <div class="agent-sticker-pack-tools">
+          <button type="button" id="agentStickerExport">
+            <i data-lucide="download"></i>
+            <span>导出 ZIP</span>
+          </button>
+          <label id="agentStickerImportBtn" for="agentStickerImportInput"
+                 role="button" tabindex="0">
+            <i data-lucide="upload"></i>
+            <span>导入 ZIP</span>
+          </label>
+          <input class="agent-sticker-file" id="agentStickerImportInput"
+                 type="file" accept=".zip,application/zip">
         </div>
         <div class="agent-sticker-upload-grid">
           <label>

@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hmac
+import io
 import ipaddress
 import json
 import mimetypes
@@ -23,6 +24,7 @@ import traceback
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
+import zipfile
 
 from .adapters import AdapterRegistry, OneBotAdapter, QQBotAdapter
 from .brain import AgentBrain
@@ -173,6 +175,9 @@ STICKER_MOOD_FINE_TAGS = {
     "cpu": "daily",
     "reply": "daily",
 }
+STICKER_PACK_MAX_BYTES = 50 * 1024 * 1024
+STICKER_PACK_MAX_ENTRIES = 1000
+STICKER_PACK_MAX_IMAGES = 500
 
 
 class RateLimiter:
@@ -319,6 +324,9 @@ class AgentService:
             prepare_sticker_update=(
                 self.sticker_update_tool if sticker_enabled else None
             ),
+            prepare_memory_recall=self.recall_memory_tool,
+            prepare_memory_write=self.memorize_memory_tool,
+            prepare_memory_forget=self.forget_memory_tool,
         )
 
     def sticker_candidates(
@@ -348,6 +356,15 @@ class AgentService:
             "0",
             str(tool_context.get("platform") or ""),
         )
+        recent_ids = set(
+            self.store.recent_sticker_ids(
+                "0",
+                str(tool_context.get("platform") or ""),
+                str(tool_context.get("chat_id") or ""),
+                int(time.time()) - 24 * 3600,
+                limit=5,
+            )
+        )
         sticker = self.choose_sticker_for_query(
             stickers,
             query,
@@ -356,6 +373,7 @@ class AgentService:
                 not raw_query
                 and bool(self.normalize_sticker_mood(mood or emotion))
             ),
+            exclude_ids=recent_ids,
         )
         if not sticker:
             return {
@@ -366,6 +384,17 @@ class AgentService:
             }
         if tool_context is not None:
             tool_context["selected_sticker"] = str(sticker["id"])
+            tool_context["selected_sticker_query"] = query
+            tool_context["selected_sticker_matched_by"] = (
+                "filename"
+                if any(
+                    keyword in query.lower()
+                    for keyword in self.sticker_filename_keywords(
+                        str(sticker.get("source_name") or "")
+                    )
+                )
+                else "metadata"
+            )
         return {
             "status": "selected",
             "emotion": emotion,
@@ -378,6 +407,305 @@ class AgentService:
             "mood": self.sticker_effective_mood(sticker),
             "category": str(sticker.get("category") or ""),
             "message": "表情包会在文字回复后发送；如果要换图，可以换关键词再调用。",
+        }
+
+    @staticmethod
+    def memory_terms(query: str) -> list[str]:
+        normalized = " ".join(str(query or "").lower().split()).strip()
+        terms = []
+        for word in re.findall(r"[\w\u4e00-\u9fff]{2,}", normalized):
+            if word not in terms:
+                terms.append(word)
+            if re.search(r"[\u4e00-\u9fff]", word) and len(word) >= 3:
+                for index in range(len(word) - 1):
+                    gram = word[index : index + 2]
+                    if gram not in terms:
+                        terms.append(gram)
+        return terms[:24]
+
+    @classmethod
+    def memory_result_match(
+        cls,
+        memory: dict[str, Any],
+        query: str,
+    ) -> float:
+        normalized = " ".join(str(query or "").lower().split()).strip()
+        content = str(memory.get("content") or "").lower()
+        evidence = str(memory.get("evidence") or "").lower()
+        haystack = content + " " + evidence
+        if not normalized:
+            return 0.0
+        phrase = 12.0 if normalized in haystack else 0.0
+        relevance = sum(
+            2.5
+            for term in cls.memory_terms(normalized)
+            if term in haystack
+        )
+        return phrase + relevance
+
+    @classmethod
+    def memory_result_score(
+        cls,
+        memory: dict[str, Any],
+        query: str,
+        now: int,
+    ) -> float:
+        updated_at = int(
+            memory.get("last_used_at")
+            or memory.get("updated_at")
+            or now
+        )
+        age_days = max(0.0, (now - updated_at) / 86400)
+        recency = max(0.0, 3.0 - age_days * 0.08)
+        kinds = {
+            "boundary": 2.0,
+            "preference": 1.5,
+            "relationship": 1.5,
+            "promise": 1.4,
+            "habit": 1.1,
+            "event": 0.9,
+            "fact": 0.8,
+        }
+        return (
+            cls.memory_result_match(memory, query)
+            + float(memory.get("strength") or 1.0) * 3.0
+            + int(memory.get("importance") or 5) * 0.65
+            + int(memory.get("confidence") or 5) * 0.45
+            + min(8, int(memory.get("access_count") or 0)) * 0.24
+            + recency
+            + kinds.get(str(memory.get("kind") or "fact"), 0.8)
+        )
+
+    @staticmethod
+    def memory_scope_targets(
+        tool_context: dict[str, str],
+        scope: str,
+    ) -> list[tuple[str, str, str]]:
+        platform = str(tool_context.get("platform") or "qq")
+        owner_id = str(tool_context.get("owner_id") or "")
+        chat_type = str(tool_context.get("chat_type") or "private")
+        chat_id = str(tool_context.get("chat_id") or owner_id)
+        normalized = scope if scope in ("self", "group", "all") else "self"
+        if chat_type != "group":
+            normalized = "self"
+        targets = []
+        if normalized in ("self", "all") and owner_id:
+            targets.append((platform, owner_id, "self"))
+        if normalized in ("group", "all") and chat_type == "group" and chat_id:
+            targets.append((f"{platform}-group", chat_id, "group"))
+        return targets
+
+    def recall_memory_tool(
+        self,
+        arguments: dict[str, Any],
+        tool_context: dict[str, str] | None,
+    ) -> dict[str, Any]:
+        if not tool_context or tool_context.get("memory_enabled") == "0":
+            return {"status": "disabled"}
+        query = str(arguments.get("query") or "").strip()[:300]
+        if not query:
+            return {"status": "error", "message": "请提供召回关键词。"}
+        try:
+            limit = max(1, min(int(arguments.get("limit") or 8), 20))
+        except (TypeError, ValueError):
+            limit = 8
+        scope = str(arguments.get("scope") or "self")
+        targets = self.memory_scope_targets(tool_context, scope)
+        if not targets:
+            return {"status": "not_found", "memories": []}
+        now = int(time.time())
+        ranked = []
+        for platform, owner_id, target_scope in targets:
+            for memory in self.store.list_memories(
+                platform,
+                owner_id,
+                limit=200,
+            ):
+                row = dict(memory)
+                if self.memory_result_match(row, query) <= 0:
+                    continue
+                row["scope"] = target_scope
+                ranked.append(
+                    (
+                        self.memory_result_score(row, query, now),
+                        row,
+                    )
+                )
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        selected = [row for _score, row in ranked[:limit]]
+        for row in selected:
+            platform = (
+                str(tool_context.get("platform") or "qq")
+                if row["scope"] == "self"
+                else f"{tool_context.get('platform') or 'qq'}-group"
+            )
+            owner_id = (
+                str(tool_context.get("owner_id") or "")
+                if row["scope"] == "self"
+                else str(tool_context.get("chat_id") or "")
+            )
+            self.store.mark_memory_used(
+                platform,
+                owner_id,
+                int(row["id"]),
+            )
+        return {
+            "status": "ok" if selected else "not_found",
+            "query": query,
+            "count": len(selected),
+            "memories": [
+                {
+                    "id": int(row.get("id") or 0),
+                    "scope": row.get("scope"),
+                    "kind": row.get("kind"),
+                    "content": row.get("content"),
+                    "importance": row.get("importance"),
+                    "confidence": row.get("confidence"),
+                    "strength": round(float(row.get("strength") or 0), 3),
+                    "source": row.get("source"),
+                    "evidence": row.get("evidence"),
+                }
+                for row in selected
+            ],
+        }
+
+    def memorize_memory_tool(
+        self,
+        arguments: dict[str, Any],
+        tool_context: dict[str, str] | None,
+    ) -> dict[str, Any]:
+        if not tool_context or tool_context.get("memory_enabled") == "0":
+            return {"status": "disabled"}
+        content = " ".join(
+            str(arguments.get("content") or "").split()
+        ).strip()[:1000]
+        if not content:
+            return {"status": "error", "message": "记忆内容不能为空。"}
+        if re.search(
+            r"(?:密码|口令|pass(?:word)?|token|api[\s_-]*key|"
+            r"secret|密钥|验证码)\s*(?:是|为|[:：=])\s*\S+",
+            content,
+            re.IGNORECASE,
+        ):
+            return {
+                "status": "rejected",
+                "message": "密码、令牌和验证码不能写入长期记忆。",
+            }
+        scope = str(arguments.get("scope") or "self")
+        if scope == "group":
+            if (
+                str(tool_context.get("chat_type") or "") != "group"
+                or tool_context.get("is_admin") != "1"
+            ):
+                return {
+                    "status": "forbidden",
+                    "message": "只有管理员可以在群里写入共享记忆。",
+                }
+            platform = f"{tool_context.get('platform') or 'qq'}-group"
+            owner_id = str(tool_context.get("chat_id") or "")
+        else:
+            platform = str(tool_context.get("platform") or "qq")
+            owner_id = str(tool_context.get("owner_id") or "")
+        if not owner_id:
+            return {"status": "error", "message": "当前会话缺少记忆归属。"}
+        try:
+            importance = max(1, min(int(arguments.get("importance") or 5), 10))
+        except (TypeError, ValueError):
+            importance = 5
+        try:
+            confidence = max(
+                1,
+                min(int(arguments.get("confidence") or 5), 10),
+            )
+        except (TypeError, ValueError):
+            confidence = 5
+        kind = str(arguments.get("kind") or "fact")
+        if kind not in {
+            "fact",
+            "preference",
+            "relationship",
+            "promise",
+            "habit",
+            "boundary",
+            "event",
+        }:
+            kind = "fact"
+        memory_id = self.store.add_memory(
+            platform,
+            owner_id,
+            content,
+            kind,
+            importance,
+            confidence,
+            "agent_tool",
+            evidence=str(arguments.get("evidence") or ""),
+            source_ref=str(tool_context.get("message_id") or ""),
+        )
+        return {
+            "status": "remembered" if memory_id else "error",
+            "memory_id": memory_id or 0,
+            "scope": "group" if scope == "group" else "self",
+            "content": content,
+        }
+
+    def forget_memory_tool(
+        self,
+        arguments: dict[str, Any],
+        tool_context: dict[str, str] | None,
+    ) -> dict[str, Any]:
+        if not tool_context or tool_context.get("memory_enabled") == "0":
+            return {"status": "disabled"}
+        scope = str(arguments.get("scope") or "self")
+        if scope == "group" and (
+            str(tool_context.get("chat_type") or "") != "group"
+            or tool_context.get("is_admin") != "1"
+        ):
+            return {
+                "status": "forbidden",
+                "message": "只有管理员可以归档群共享记忆。",
+            }
+        targets = self.memory_scope_targets(tool_context, scope)
+        if not targets:
+            return {"status": "not_found", "archived": 0}
+        ids = []
+        for value in arguments.get("ids") or []:
+            try:
+                memory_id = int(value)
+            except (TypeError, ValueError):
+                continue
+            if memory_id not in ids:
+                ids.append(memory_id)
+        query = " ".join(str(arguments.get("query") or "").split()).strip()
+        archived = 0
+        for platform, owner_id, _scope in targets:
+            if ids:
+                candidate_ids = ids
+            elif query:
+                memories = self.store.list_memories(
+                    platform,
+                    owner_id,
+                    query,
+                    limit=20,
+                )
+                candidate_ids = [
+                    int(item["id"])
+                    for item in memories
+                    if query.lower() in str(item.get("content") or "").lower()
+                ][:5]
+            else:
+                candidate_ids = []
+            for memory_id in candidate_ids:
+                if self.store.set_memory_archived(
+                    platform,
+                    owner_id,
+                    memory_id,
+                    True,
+                ):
+                    archived += 1
+        return {
+            "status": "archived" if archived else "not_found",
+            "archived": archived,
+            "scope": scope,
         }
 
     def prepare_reminder(
@@ -566,14 +894,30 @@ class AgentService:
                     "qq" if self.store.admin_ids("qq") else "qqbot",
                     admin_ids[0],
                 )
-                if not settings.get("memory_consolidation_enabled", True):
+                consolidation_enabled = settings.get(
+                    "memory_consolidation_enabled",
+                    True,
+                )
+                decay_enabled = settings.get("memory_decay_enabled", True)
+                if not consolidation_enabled and not decay_enabled:
                     continue
                 target_time = str(
                     settings.get("memory_consolidation_time") or "03:30"
                 )
                 if not self.proactive_time_near(now, target_time):
                     continue
-                self.consolidate_memories(now.strftime("%Y-%m-%d"), now)
+                day = now.strftime("%Y-%m-%d")
+                if consolidation_enabled:
+                    self.consolidate_memories(day, now)
+                if decay_enabled and self.store.claim_memory_decay(day):
+                    result = self.store.decay_memories(int(now.timestamp()))
+                    if result["decayed"] or result["archived"]:
+                        print(
+                            "[Memory] 衰减完成："
+                            f"更新 {result['decayed']} 条，"
+                            f"归档 {result['archived']} 条",
+                            flush=True,
+                        )
             except Exception:
                 traceback.print_exc()
 
@@ -672,6 +1016,10 @@ class AgentService:
                         int(item.get("importance") or 5),
                         confidence,
                         "consolidation",
+                        evidence=str(
+                            data.get("summary")
+                            or transcript[-600:]
+                        ),
                     )
                     created += 1
             except Exception:
@@ -752,6 +1100,10 @@ class AgentService:
                         int(item.get("importance") or 5),
                         confidence,
                         "group_consolidation",
+                        evidence=str(
+                            data.get("summary")
+                            or transcript[-600:]
+                        ),
                     )
                     created += 1
             except Exception:
@@ -1082,6 +1434,7 @@ class AgentService:
         mood: str = "",
         *,
         allow_random: bool = True,
+        exclude_ids: set[int] | None = None,
     ) -> dict[str, Any] | None:
         if not stickers:
             return None
@@ -1097,16 +1450,39 @@ class AgentService:
         )
         if not pool:
             pool = list(stickers)
-        scored = [
+        all_scored = [
             (cls.sticker_match_score(sticker, query), sticker)
             for sticker in pool
         ]
-        best_score = max(score for score, _ in scored)
-        if best_score <= 0:
-            return random.choice(pool) if allow_random else None
-        return random.choice(
-            [sticker for score, sticker in scored if score == best_score]
-        )
+        best_score = max(score for score, _ in all_scored)
+        fresh_pool = [
+            sticker
+            for sticker in pool
+            if not exclude_ids
+            or int(sticker.get("id") or 0) not in exclude_ids
+        ]
+        scored = [
+            (cls.sticker_match_score(sticker, query), sticker)
+            for sticker in fresh_pool
+        ]
+        fresh_best = max((score for score, _ in scored), default=0)
+        if fresh_best > 0:
+            return random.choice(
+                [sticker for score, sticker in scored if score == fresh_best]
+            )
+        if best_score > 0:
+            return random.choice(
+                [
+                    sticker
+                    for score, sticker in all_scored
+                    if score == best_score
+                ]
+            )
+        if not allow_random:
+            return None
+        if fresh_pool:
+            return random.choice(fresh_pool)
+        return random.choice(pool)
 
     @classmethod
     def sticker_category_stats(
@@ -1265,6 +1641,154 @@ class AgentService:
             "ok": True,
             "moved": moved,
             "category": normalized,
+        }
+
+    def export_sticker_pack(self, owner_id: str = "0") -> bytes:
+        stickers = self.store.list_stickers(owner_id, 1000)
+        manifest = {
+            "version": 1,
+            "exported_at": int(time.time()),
+            "stickers": [],
+        }
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(
+            buffer,
+            "w",
+            compression=zipfile.ZIP_DEFLATED,
+        ) as archive:
+            for sticker in stickers:
+                ref = Path(str(sticker.get("ref") or "")).name
+                if not ref:
+                    continue
+                source = self.sticker_dir / ref
+                if not source.is_file():
+                    continue
+                raw = source.read_bytes()
+                item = {
+                    "ref": ref,
+                    "category": str(sticker.get("category") or "未分类"),
+                    "source_name": str(sticker.get("source_name") or ""),
+                    "caption": str(sticker.get("caption") or ""),
+                    "keywords": str(sticker.get("keywords") or ""),
+                    "mood": str(sticker.get("mood") or ""),
+                    "tags": str(sticker.get("tags") or ""),
+                    "sha256": hashlib.sha256(raw).hexdigest(),
+                }
+                manifest["stickers"].append(item)
+                archive.writestr("images/" + ref, raw)
+            archive.writestr(
+                "manifest.json",
+                json.dumps(manifest, ensure_ascii=False, indent=2),
+            )
+        result = buffer.getvalue()
+        if len(result) > STICKER_PACK_MAX_BYTES:
+            raise AgentError("表情包总大小超过 50MB，暂时无法导出。")
+        return result
+
+    def import_sticker_pack(
+        self,
+        raw: bytes,
+        owner_id: str = "0",
+    ) -> dict[str, Any]:
+        if not raw or len(raw) > STICKER_PACK_MAX_BYTES:
+            raise AgentError("表情包 ZIP 为空或超过 50MB。")
+        imported = 0
+        duplicates = 0
+        skipped = 0
+        errors = []
+        try:
+            archive = zipfile.ZipFile(io.BytesIO(raw))
+        except (zipfile.BadZipFile, OSError) as exc:
+            raise AgentError("表情包 ZIP 无法读取。") from exc
+        with archive:
+            infos = archive.infolist()
+            if len(infos) > STICKER_PACK_MAX_ENTRIES:
+                raise AgentError("表情包 ZIP 文件数量过多。")
+            total_size = sum(max(0, info.file_size) for info in infos)
+            if total_size > STICKER_PACK_MAX_BYTES:
+                raise AgentError("表情包 ZIP 解压后总大小超过 50MB。")
+            for info in infos:
+                name = info.filename.replace("\\", "/")
+                if name.startswith("/") or ".." in Path(name).parts:
+                    raise AgentError("表情包 ZIP 包含不安全路径。")
+            try:
+                manifest = json.loads(
+                    archive.read("manifest.json").decode("utf-8")
+                )
+            except (KeyError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise AgentError("表情包 ZIP 缺少有效的 manifest.json。") from exc
+            items = manifest.get("stickers")
+            if not isinstance(items, list) or len(items) > STICKER_PACK_MAX_IMAGES:
+                raise AgentError("表情包清单条目过多或格式不正确。")
+            existing_refs = {
+                str(sticker.get("ref") or "")
+                for sticker in self.store.list_stickers(owner_id, 1000)
+            }
+            for item in items:
+                if not isinstance(item, dict):
+                    skipped += 1
+                    continue
+                source_name = Path(
+                    str(item.get("source_name") or "")
+                ).name[:180]
+                ref_name = Path(str(item.get("ref") or "")).name
+                if not ref_name:
+                    skipped += 1
+                    continue
+                try:
+                    with archive.open("images/" + ref_name) as image_file:
+                        image_data = image_file.read(5 * 1024 * 1024 + 1)
+                except KeyError:
+                    skipped += 1
+                    errors.append(f"{ref_name}: 缺少图片")
+                    continue
+                if not image_data or len(image_data) > 5 * 1024 * 1024:
+                    skipped += 1
+                    continue
+                extension = self.sticker_extension_from_bytes(image_data)
+                if not extension:
+                    skipped += 1
+                    errors.append(f"{ref_name}: 不是支持的图片格式")
+                    continue
+                expected_hash = str(item.get("sha256") or "").lower()
+                actual_hash = hashlib.sha256(image_data).hexdigest()
+                if expected_hash and expected_hash != actual_hash:
+                    skipped += 1
+                    errors.append(f"{ref_name}: SHA256 校验失败")
+                    continue
+                ref = actual_hash[:24] + extension
+                if ref in existing_refs:
+                    duplicates += 1
+                    continue
+                target = self.sticker_dir / ref
+                if not target.exists():
+                    target.write_bytes(image_data)
+                category = self.normalize_sticker_category(
+                    str(item.get("category") or "未分类")
+                )
+                self.store.add_sticker(
+                    owner_id,
+                    "image",
+                    ref,
+                    str(item.get("tags") or ""),
+                    category,
+                    source_name,
+                    str(item.get("caption") or ""),
+                    str(item.get("keywords") or ""),
+                    self.normalize_sticker_mood(
+                        str(item.get("mood") or "")
+                    ),
+                )
+                existing_refs.add(ref)
+                imported += 1
+        return {
+            "ok": True,
+            "imported": imported,
+            "duplicates": duplicates,
+            "skipped": skipped,
+            "errors": errors[:20],
+            "stickers": self.store.list_stickers(owner_id, 1000),
+            "categories": self.store.list_sticker_categories(owner_id),
         }
 
     def sticker_list_tool(
@@ -1619,6 +2143,7 @@ class AgentService:
                     int(item.get("importance") or 5),
                     int(item.get("confidence") or 5),
                     "chat",
+                    evidence=f"{user_text}\n{assistant_text}"[:600],
                 )
             for item in (data.get("events") or [])[:6]:
                 if not isinstance(item, dict):
@@ -4334,6 +4859,7 @@ class AgentService:
             "owner_id": str(event.user_id),
             "chat_id": str(event.chat_id),
             "chat_type": event.message_type,
+            "message_id": str(event.message_id or ""),
             "is_admin": "1" if is_admin else "0",
             "target_user_id": str(target_user_id),
             "speaker_name": speaker_name,
@@ -4361,6 +4887,7 @@ class AgentService:
                 and global_settings.get("sticker_enabled", True)
                 else "0"
             ),
+            "memory_enabled": "1" if memory_enabled else "0",
         }
         errorjiang = ErrorJClient(
             self.config.errorjiang_base_url,
@@ -4416,6 +4943,15 @@ class AgentService:
             if context.get("is_admin") == "1"
             else str(event.user_id)
         )
+        recent_sticker_ids = set(
+            self.store.recent_sticker_ids(
+                "0",
+                platform,
+                str(event.chat_id),
+                int(time.time()) - 24 * 3600,
+                limit=5,
+            )
+        )
         if (
             platform == "qqbot"
             and sticker is None
@@ -4426,7 +4962,11 @@ class AgentService:
                 "qqbot",
             )
             if candidates:
-                sticker = self.choose_sticker_for_query(candidates, text)
+                sticker = self.choose_sticker_for_query(
+                    candidates,
+                    text,
+                    exclude_ids=recent_sticker_ids,
+                )
         elif (
             platform == "qqbot"
             and sticker is None
@@ -4440,7 +4980,20 @@ class AgentService:
                 sticker = self.choose_sticker_for_query(
                     candidates,
                     f"{text} {reply}",
+                    exclude_ids=recent_sticker_ids,
                 )
+        if sticker:
+            self.store.record_sticker_use(
+                "0",
+                int(sticker.get("id") or 0),
+                platform,
+                str(event.chat_id),
+                str(
+                    context.get("selected_sticker_query")
+                    or f"{text} {reply}"
+                ),
+                str(context.get("selected_sticker_matched_by") or "chat"),
+            )
         self.send_reply(
             event,
             reply,
@@ -4615,9 +5168,14 @@ class AgentService:
             "platform": "web",
             "owner_id": str(user_id),
             "chat_id": str(user_id),
+            "chat_type": "private",
+            "message_id": "",
             "is_admin": "1" if int(user_id) == self.config.admin_user_id else "0",
             "target_user_id": str(user_id),
             "sticker_enabled": "0",
+            "memory_enabled": (
+                "1" if settings.get("memory_enabled", True) else "0"
+            ),
             "persona_prompt": self.persona_prompt(settings),
             "web_search_enabled": (
                 "1" if settings.get("web_search_enabled", True) else "0"
@@ -4751,11 +5309,18 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
             platform = str((query.get("platform") or ["web"])[0])
             owner_id = str((query.get("owner_id") or ["0"])[0])
             search = str((query.get("q") or [""])[0])
+            include_archived = str(
+                (query.get("include_archived") or ["0"])[0]
+            ) == "1"
             self.send_json(
                 200,
                 {
                     "memories": self.service.store.list_memories(
-                        platform, owner_id, search, 100
+                        platform,
+                        owner_id,
+                        search,
+                        100,
+                        include_archived=include_archived,
                     )
                 },
             )
@@ -4794,15 +5359,44 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
                 return
             query = parse_qs(parsed.query)
             owner_id = str((query.get("owner_id") or ["0"])[0])
+            stickers = self.service.store.list_stickers(owner_id, 200)
+            for sticker in stickers:
+                sticker["effective_mood"] = (
+                    self.service.sticker_effective_mood(sticker)
+                )
+                sticker["needs_metadata"] = not all(
+                    str(sticker.get(key) or "").strip()
+                    for key in ("caption", "keywords", "mood")
+                )
             self.send_json(
                 200,
                 {
-                    "stickers": self.service.store.list_stickers(owner_id, 200),
+                    "stickers": stickers,
                     "categories": self.service.store.list_sticker_categories(
                         owner_id
                     ),
                 },
             )
+            return
+        if path == "/internal/sticker/export":
+            if not self.internal_authorized():
+                self.send_json(403, {"error": "forbidden"})
+                return
+            try:
+                body = self.service.export_sticker_pack("0")
+            except AgentError as exc:
+                self.send_json(400, {"error": str(exc)})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header(
+                "Content-Disposition",
+                'attachment; filename="errorjiang-stickers.zip"',
+            )
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
             return
         if path.startswith("/stickers/"):
             filename = Path(path[len("/stickers/") :]).name
@@ -4882,10 +5476,12 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
             "/internal/web-chat",
             "/internal/settings",
             "/internal/memory/delete",
+            "/internal/memory/status",
             "/internal/sticker/upload",
             "/internal/sticker/category-create",
             "/internal/sticker/move",
             "/internal/sticker/update",
+            "/internal/sticker/import",
             "/internal/sticker/delete",
             "/internal/timeline/create",
             "/internal/timeline/status",
@@ -4942,6 +5538,23 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
                     platform, owner_id, memory_id
                 )
                 self.send_json(200, {"ok": deleted})
+                return
+            if parsed.path == "/internal/memory/status":
+                platform = str(payload.get("platform") or "web")
+                owner_id = str(payload.get("owner_id") or "0")
+                try:
+                    memory_id = int(payload.get("id"))
+                except (TypeError, ValueError):
+                    self.send_json(400, {"error": "invalid memory"})
+                    return
+                archived = bool(payload.get("archived"))
+                updated = self.service.store.set_memory_archived(
+                    platform,
+                    owner_id,
+                    memory_id,
+                    archived,
+                )
+                self.send_json(200, {"ok": updated, "archived": archived})
                 return
             if parsed.path == "/internal/sticker/upload":
                 owner_id = str(payload.get("owner_id") or "0")
@@ -5047,6 +5660,22 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
                         ),
                     },
                 )
+                return
+            if parsed.path == "/internal/sticker/import":
+                owner_id = str(payload.get("owner_id") or "0")
+                try:
+                    raw = base64.b64decode(
+                        str(payload.get("data_base64") or ""),
+                        validate=True,
+                    )
+                    result = self.service.import_sticker_pack(
+                        raw,
+                        owner_id,
+                    )
+                except (ValueError, AgentError) as exc:
+                    self.send_json(400, {"error": str(exc)})
+                    return
+                self.send_json(200, result)
                 return
             if parsed.path == "/internal/timeline/create":
                 platform = str(payload.get("platform") or "web")
