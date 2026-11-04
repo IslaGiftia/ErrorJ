@@ -42,7 +42,7 @@ class GroupConversationPolicy:
         rows = self.store.get_group_messages(
             event.platform,
             str(event.chat_id),
-            12,
+            40,
         )
         cutoff = int(time.time()) - 10 * 60
         for index in range(len(rows) - 1, -1, -1):

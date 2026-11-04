@@ -10362,6 +10362,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_agent_web_chat(payload)
             elif path == "/api/agent/web/settings":
                 self.api_agent_web_settings_save(payload)
+            elif path == "/api/agent/web/group-idle-action":
+                self.api_agent_web_group_idle_action(payload)
             elif path == "/api/agent/web/memory-delete":
                 self.api_agent_web_memory_delete(payload)
             elif path == "/api/agent/web/group-member-update":
@@ -10378,6 +10380,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_agent_web_sticker_category_create(payload)
             elif path == "/api/agent/web/sticker-move":
                 self.api_agent_web_sticker_move(payload)
+            elif path == "/api/agent/web/sticker-update":
+                self.api_agent_web_sticker_update(payload)
             elif path == "/api/agent/web/sticker-delete":
                 self.api_agent_web_sticker_delete(payload)
             elif path == "/api/login":
@@ -18583,6 +18587,45 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         self.send_json(200, data)
 
+    def api_agent_web_group_idle_action(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以操作鲸鲸的群主动设置。")
+            return
+        action = str((payload or {}).get("action") or "").strip()
+        group_id = str((payload or {}).get("group_id") or "").strip()
+        if action not in ("preview", "send", "pause", "resume", "configure"):
+            api_error(self, 400, "未知的群主动操作。")
+            return
+        if not group_id:
+            api_error(self, 400, "缺少群标识。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/group-idle-action",
+                {
+                    "action": action,
+                    "group_id": group_id,
+                    "idle_trigger_minutes": (payload or {}).get(
+                        "idle_trigger_minutes"
+                    ),
+                    "max_per_day": (payload or {}).get("max_per_day"),
+                },
+                timeout=110 if action in ("preview", "send") else 15,
+            )
+        except HTTPError as exc:
+            detail = "群主动操作失败。"
+            try:
+                error_data = json.loads(exc.read().decode("utf-8"))
+                detail = str(error_data.get("error") or detail)
+            except Exception:
+                pass
+            api_error(self, 502, detail)
+            return
+        except (URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
     def api_agent_web_memories(self, query):
         if not self.is_admin():
             api_error(self, 403, "只有管理员可以管理鲸鲸记忆。")
@@ -18921,6 +18964,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
             or (payload or {}).get("usage")
             or ""
         ).strip()[:40]
+        caption = str((payload or {}).get("caption") or "").strip()[:200]
+        keywords = str((payload or {}).get("keywords") or "").strip()[:300]
+        mood = str((payload or {}).get("mood") or "").strip()[:20]
         data_base64 = str((payload or {}).get("data_base64") or "")
         try:
             raw = base64.b64decode(data_base64, validate=True)
@@ -18937,9 +18983,61 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "owner_id": "0",
                     "file_name": file_name,
                     "category": category,
+                    "caption": caption,
+                    "keywords": keywords,
+                    "mood": mood,
                     "data_base64": data_base64,
                 },
                 timeout=20,
+            )
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_sticker_update(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以管理表情包。")
+            return
+        raw_ids = (payload or {}).get("ids")
+        if not isinstance(raw_ids, list):
+            api_error(self, 400, "请选择要更新的表情包。")
+            return
+        sticker_ids = []
+        for raw_id in raw_ids[:200]:
+            try:
+                sticker_id = int(raw_id)
+            except (TypeError, ValueError):
+                continue
+            if sticker_id not in sticker_ids:
+                sticker_ids.append(sticker_id)
+        if not sticker_ids:
+            api_error(self, 400, "请选择要更新的表情包。")
+            return
+        values = {}
+        for key, limit in (
+            ("category", 40),
+            ("caption", 200),
+            ("keywords", 300),
+            ("mood", 20),
+        ):
+            if key not in (payload or {}):
+                continue
+            text = str((payload or {}).get(key) or "").strip()
+            if text or key == "mood":
+                values[key] = text[:limit]
+        if not values:
+            api_error(self, 400, "至少填写描述、关键词或情绪中一项。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/sticker/update",
+                {
+                    "owner_id": "0",
+                    "ids": sticker_ids,
+                    "values": values,
+                },
+                timeout=15,
             )
         except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
             api_error(self, 502, str(exc)[:200])

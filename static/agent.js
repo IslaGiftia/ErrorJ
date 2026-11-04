@@ -21,10 +21,17 @@
   var stickerCategoryAdd = document.getElementById("agentStickerCategoryAdd");
   var stickerCategoryCancel = document.getElementById("agentStickerCategoryCancel");
   var stickerUploadTarget = document.getElementById("agentStickerUploadTarget");
+  var stickerUploadCaption = document.getElementById("agentStickerUploadCaption");
+  var stickerUploadKeywords = document.getElementById("agentStickerUploadKeywords");
+  var stickerUploadMood = document.getElementById("agentStickerUploadMood");
   var stickerBulk = document.getElementById("agentStickerBulk");
   var stickerSelectedCount = document.getElementById("agentStickerSelectedCount");
   var stickerBulkCategory = document.getElementById("agentStickerBulkCategory");
   var stickerBulkMove = document.getElementById("agentStickerBulkMove");
+  var stickerBulkCaption = document.getElementById("agentStickerBulkCaption");
+  var stickerBulkKeywords = document.getElementById("agentStickerBulkKeywords");
+  var stickerBulkMood = document.getElementById("agentStickerBulkMood");
+  var stickerBulkUpdate = document.getElementById("agentStickerBulkUpdate");
   var stickerCategories = ["未分类"];
   var selectedStickerIds = {};
   var currentStickers = [];
@@ -114,6 +121,277 @@
         ? groups.length + " 个"
         : "未配置"
       : "--";
+    renderGroupIdleStatus(
+      agent.group_idle_proactive,
+      online
+    );
+  }
+
+  function compactDuration(seconds) {
+    var value = Math.max(0, Number(seconds) || 0);
+    if (value < 60) return "不到1分钟";
+    if (value < 3600) return Math.ceil(value / 60) + "分钟";
+    if (value < 86400) return Math.ceil(value / 3600) + "小时";
+    return Math.ceil(value / 86400) + "天";
+  }
+
+  function renderGroupIdleStatus(idle, online) {
+    var target = document.getElementById("agentGroupIdleStatus");
+    var cards = document.getElementById("agentGroupIdleGroups");
+    var runsTarget = document.getElementById("agentGroupIdleRuns");
+    if (!target) return;
+    if (!online) {
+      target.textContent = "冷场聊天状态：鲸鲸离线";
+      if (cards) cards.innerHTML = "";
+      if (runsTarget) runsTarget.innerHTML = "";
+      return;
+    }
+    if (!idle) {
+      target.textContent = "冷场聊天状态：暂无数据";
+      if (cards) cards.innerHTML = "";
+      if (runsTarget) runsTarget.innerHTML = "";
+      return;
+    }
+    if (!idle.enabled) {
+      target.textContent = "冷场聊天状态：已关闭";
+      renderGroupIdleCards(idle);
+      renderGroupIdleRuns(idle.runs || []);
+      return;
+    }
+    var groups = Array.isArray(idle.groups) ? idle.groups : [];
+    if (!groups.length) {
+      target.textContent = "冷场聊天状态：已启用，等待群消息建立计时";
+      renderGroupIdleCards(idle);
+      renderGroupIdleRuns(idle.runs || []);
+      return;
+    }
+    var now = Math.floor(Date.now() / 1000);
+    var parts = groups.slice(0, 4).map(function (group) {
+      var label = "…" + String(group.group_tail || "");
+      if (!group.enabled) return label + " 已单独暂停";
+      var unanswered = Number(group.unanswered_count || 0);
+      var maxUnanswered = Number(idle.max_unanswered || 2);
+      var dailyLimit = Number(group.daily_limit || idle.daily_limit || 1);
+      if (Number(group.sent_today || 0) >= dailyLimit) {
+        return label + " 今日已达上限";
+      }
+      if (unanswered >= maxUnanswered) {
+        return label + " 连续未回应，暂停";
+      }
+      var nextAt = Number(group.next_proactive_at || 0);
+      if (nextAt) {
+        var waiting = nextAt <= now
+          ? label + " 即将判断"
+          : label + " 约 " + compactDuration(nextAt - now) + "后判断";
+        return group.last_error
+          ? waiting + " · 上次失败待重试"
+          : waiting;
+      }
+      var lastUserAt = Number(group.last_user_at || 0);
+      if (!lastUserAt) return label + " 等待首条群消息";
+      var idleLabel = label + " 已安静 " + compactDuration(now - lastUserAt);
+      return group.last_error
+        ? idleLabel + " · 上次失败待重试"
+        : idleLabel;
+    });
+    target.textContent =
+      "冷场聊天状态：已启用｜" +
+      parts.join("；") +
+      (groups.length > parts.length
+        ? "；另有 " + (groups.length - parts.length) + " 个群"
+        : "");
+    renderGroupIdleCards(idle);
+    renderGroupIdleRuns(idle.runs || []);
+  }
+
+  function groupIdleCardText(group, idle, now) {
+    if (!group.enabled) return "这个群已单独暂停";
+    var unanswered = Number(group.unanswered_count || 0);
+    var maxUnanswered = Number(idle.max_unanswered || 2);
+    var dailyLimit = Number(group.daily_limit || idle.daily_limit || 1);
+    if (Number(group.sent_today || 0) >= dailyLimit) {
+      return "今日主动次数已用完";
+    }
+    if (unanswered >= maxUnanswered) {
+      return "连续 " + unanswered + " 次没有有效接话，等待群重新活跃";
+    }
+    var awaitingUntil = Number(group.awaiting_reply_until || 0);
+    if (awaitingUntil > now) {
+      return "已发言，正在观察 " + compactDuration(awaitingUntil - now) + "内的有效接话";
+    }
+    var nextAt = Number(group.next_proactive_at || 0);
+    if (nextAt) {
+      return nextAt <= now
+        ? "已到判断时间，正在等待调度"
+        : "约 " + compactDuration(nextAt - now) + "后重新判断";
+    }
+    var lastUserAt = Number(group.last_user_at || 0);
+    if (!lastUserAt) return "等待首条群消息建立计时";
+    return "已安静 " + compactDuration(now - lastUserAt);
+  }
+
+  function groupIdleThresholdText(group) {
+    var effective = Number(group.effective_idle_minutes || group.idle_minutes || 90);
+    var sample = Number(group.sample_count || 0);
+    var text = "自适应门槛 " + effective + " 分钟 · 近 7 天 " + sample + " 条真人消息";
+    if (group.sparse && group.weekly_limit) {
+      text += " · 低频群每周最多 " + group.weekly_limit + " 次";
+    }
+    return text;
+  }
+
+  function renderGroupIdleCards(idle) {
+    var target = document.getElementById("agentGroupIdleGroups");
+    if (!target) return;
+    target.innerHTML = "";
+    var groups = Array.isArray(idle.groups) ? idle.groups : [];
+    var now = Math.floor(Date.now() / 1000);
+    groups.forEach(function (group) {
+      var row = document.createElement("div");
+      row.className = "agent-idle-group";
+      var copy = document.createElement("div");
+      copy.className = "agent-idle-group-main";
+      var title = document.createElement("strong");
+      title.textContent = "群 …" + String(group.group_tail || "");
+      var status = document.createElement("small");
+      status.textContent =
+        groupIdleCardText(group, idle, now) +
+        " · " + groupIdleThresholdText(group);
+      copy.append(title, status);
+
+      var actions = document.createElement("div");
+      actions.className = "agent-idle-actions";
+      [
+        ["preview", "生成预览"],
+        ["send", "试发一次"],
+        [group.enabled ? "pause" : "resume", group.enabled ? "暂停此群" : "恢复此群"],
+      ].forEach(function (item) {
+        var button = document.createElement("button");
+        button.type = "button";
+        button.dataset.groupId = String(group.group_id || "");
+        button.dataset.action = item[0];
+        button.textContent = item[1];
+        button.addEventListener("click", function () {
+          runGroupIdleAction(
+            button.dataset.groupId,
+            button.dataset.action,
+            button
+          );
+        });
+        actions.appendChild(button);
+      });
+      var limits = document.createElement("div");
+      limits.className = "agent-idle-limits";
+      var thresholdLabel = document.createElement("label");
+      var thresholdCopy = document.createElement("span");
+      thresholdCopy.textContent = "此群门槛";
+      var thresholdInput = document.createElement("input");
+      thresholdInput.type = "number";
+      thresholdInput.min = "15";
+      thresholdInput.max = "1440";
+      thresholdInput.step = "5";
+      thresholdInput.value = String(group.idle_minutes || 90);
+      thresholdLabel.append(thresholdCopy, thresholdInput);
+      var dailyLabel = document.createElement("label");
+      var dailyCopy = document.createElement("span");
+      dailyCopy.textContent = "每日最多";
+      var dailyInput = document.createElement("input");
+      dailyInput.type = "number";
+      dailyInput.min = "1";
+      dailyInput.max = "6";
+      dailyInput.value = String(group.daily_limit || 1);
+      dailyLabel.append(dailyCopy, dailyInput);
+      var saveLimits = document.createElement("button");
+      saveLimits.type = "button";
+      saveLimits.textContent = "保存群参数";
+      saveLimits.addEventListener("click", function () {
+        runGroupIdleAction(
+          String(group.group_id || ""),
+          "configure",
+          saveLimits,
+          {
+            idle_trigger_minutes: Number(thresholdInput.value) || 90,
+            max_per_day: Number(dailyInput.value) || 1,
+          }
+        );
+      });
+      limits.append(thresholdLabel, dailyLabel, saveLimits);
+      row.append(copy, actions, limits);
+      target.appendChild(row);
+    });
+  }
+
+  function renderGroupIdleRuns(runs) {
+    var target = document.getElementById("agentGroupIdleRuns");
+    if (!target) return;
+    target.innerHTML = "";
+    var labels = {
+      running: "生成中",
+      sent: "已发送",
+      replied: "已接话",
+      skipped: "已跳过",
+      cancelled: "已取消",
+      failed: "失败",
+      expired: "未接话",
+      preview: "预览",
+      private_fallback: "私聊兜底",
+    };
+    (Array.isArray(runs) ? runs : []).slice(0, 8).forEach(function (run) {
+      var row = document.createElement("div");
+      row.className = "agent-idle-run";
+      var status = document.createElement("span");
+      status.className = "agent-idle-run-status";
+      status.textContent = labels[run.status] || run.status || "记录";
+      var copy = document.createElement("div");
+      copy.className = "agent-idle-run-copy";
+      var reason = document.createElement("span");
+      reason.textContent =
+        "…" + String(run.group_tail || "") +
+        " · " + String(run.trigger_reason || "群聊冷场判断");
+      var detail = document.createElement("span");
+      detail.textContent =
+        String(run.detail || run.generated_text || run.reply_text || "")
+          .replace(/\s+/g, " ")
+          .slice(0, 100);
+      copy.append(reason, detail);
+      var time = document.createElement("span");
+      time.className = "agent-idle-run-time";
+      time.textContent = timelineDate(run.started_at);
+      row.append(status, copy, time);
+      target.appendChild(row);
+    });
+  }
+
+  function runGroupIdleAction(groupId, action, button, extra) {
+    if (!groupId || !action) return;
+    button.disabled = true;
+    fetch("/api/agent/web/group-idle-action", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        Object.assign(
+          { group_id: groupId, action: action },
+          extra || {}
+        )
+      ),
+    })
+      .then(readApiResponse)
+      .then(function (data) {
+        var preview = document.getElementById("agentGroupIdlePreview");
+        if (preview) {
+          preview.hidden = !data.message;
+          preview.textContent = data.message || "";
+        }
+        setSettingsStatus(data.message || "群主动操作已完成", false);
+        return loadStatus();
+      })
+      .catch(function (error) {
+        setSettingsStatus(error.message, true);
+      })
+      .then(function () {
+        button.disabled = false;
+      });
   }
 
   function loadStatus() {
@@ -173,6 +451,10 @@
           settings.group_proactive_enabled
         );
         settingValue(
+          "settingGroupIdleProactiveEnabled",
+          settings.group_idle_proactive_enabled
+        );
+        settingValue(
           "settingGroupWeatherEnabled",
           settings.group_weather_enabled
         );
@@ -184,6 +466,26 @@
         settingValue(
           "settingGroupProactiveTime",
           settings.group_proactive_time
+        );
+        settingValue(
+          "settingGroupIdleTriggerMinutes",
+          settings.group_idle_trigger_minutes
+        );
+        settingValue(
+          "settingGroupIdleRandomMin",
+          settings.group_idle_random_min_minutes
+        );
+        settingValue(
+          "settingGroupIdleRandomMax",
+          settings.group_idle_random_max_minutes
+        );
+        settingValue(
+          "settingGroupIdleMaxPerDay",
+          settings.group_idle_max_per_day
+        );
+        settingValue(
+          "settingGroupIdleMaxUnanswered",
+          settings.group_idle_max_unanswered
         );
         settingValue("settingProactiveMax", settings.proactive_max_per_day);
         settingValue("settingMorningTime", settings.morning_time);
@@ -228,6 +530,9 @@
       group_proactive_enabled: document.getElementById(
         "settingGroupProactiveEnabled"
       ).checked,
+      group_idle_proactive_enabled: document.getElementById(
+        "settingGroupIdleProactiveEnabled"
+      ).checked,
       group_weather_enabled: document.getElementById(
         "settingGroupWeatherEnabled"
       ).checked,
@@ -240,6 +545,26 @@
       group_proactive_time: document.getElementById(
         "settingGroupProactiveTime"
       ).value,
+      group_idle_trigger_minutes:
+        Number(
+          document.getElementById("settingGroupIdleTriggerMinutes").value
+        ) || 90,
+      group_idle_random_min_minutes:
+        Number(
+          document.getElementById("settingGroupIdleRandomMin").value
+        ) || 15,
+      group_idle_random_max_minutes:
+        Number(
+          document.getElementById("settingGroupIdleRandomMax").value
+        ) || 45,
+      group_idle_max_per_day:
+        Number(
+          document.getElementById("settingGroupIdleMaxPerDay").value
+        ) || 1,
+      group_idle_max_unanswered:
+        Number(
+          document.getElementById("settingGroupIdleMaxUnanswered").value
+        ) || 2,
       proactive_max_per_day:
         Number(document.getElementById("settingProactiveMax").value) || 2,
       morning_time: document.getElementById("settingMorningTime").value,
@@ -657,6 +982,17 @@
     updateStickerSelectionUI();
   }
 
+  function stickerMoodLabel(value) {
+    return {
+      happy: "开心",
+      angry: "生气",
+      sad: "难过",
+      shy: "害羞",
+      confused: "困惑",
+      daily: "日常",
+    }[value] || value || "未识别";
+  }
+
   function createStickerCard(sticker) {
     var item = document.createElement("div");
     item.className = "agent-sticker-item";
@@ -692,6 +1028,19 @@
     fileName.textContent = sticker.source_name || "未记录文件名";
     fileName.title = sticker.source_name || "未记录文件名";
     item.appendChild(fileName);
+    var caption = document.createElement("span");
+    caption.className = "agent-sticker-caption";
+    caption.textContent =
+      sticker.caption || "未填写描述";
+    caption.title = sticker.caption || "未填写描述";
+    item.appendChild(caption);
+    var meta = document.createElement("span");
+    meta.className = "agent-sticker-meta";
+    meta.textContent =
+      stickerMoodLabel(sticker.mood) +
+      (sticker.keywords ? " · " + sticker.keywords : "");
+    meta.title = meta.textContent;
+    item.appendChild(meta);
 
     var remove = document.createElement("button");
     remove.type = "button";
@@ -802,6 +1151,9 @@
 
   function uploadStickerFiles(files) {
     var category = stickerCategorySelect.value || "未分类";
+    var caption = stickerUploadCaption.value.trim();
+    var keywords = stickerUploadKeywords.value.trim();
+    var mood = stickerUploadMood.value;
     var list = Array.prototype.slice.call(files || []);
     if (!list.length) return;
     stickerUploadBtn.classList.add("is-uploading");
@@ -821,6 +1173,9 @@
               body: JSON.stringify({
                 file_name: file.name,
                 category: category,
+                caption: caption,
+                keywords: keywords,
+                mood: mood,
                 data_base64: data,
               }),
             }).then(readApiResponse);
@@ -832,6 +1187,9 @@
           "表情包已上传到“" + category + "”",
           settingsDirty
         );
+        stickerUploadCaption.value = "";
+        stickerUploadKeywords.value = "";
+        stickerUploadMood.value = "";
         return loadStickers();
       })
       .catch(function (error) {
@@ -904,6 +1262,50 @@
       })
       .then(function () {
         stickerBulkMove.disabled = false;
+      });
+  }
+
+  function updateSelectedStickerMetadata() {
+    var ids = Object.keys(selectedStickerIds).map(Number);
+    if (!ids.length) {
+      setSettingsStatus("请先选择表情包", settingsDirty);
+      return;
+    }
+    var payload = { ids: ids };
+    var caption = stickerBulkCaption.value.trim();
+    var keywords = stickerBulkKeywords.value.trim();
+    var mood = stickerBulkMood.value;
+    if (caption) payload.caption = caption;
+    if (keywords) payload.keywords = keywords;
+    if (mood) payload.mood = mood;
+    if (Object.keys(payload).length === 1) {
+      setSettingsStatus("填写描述、关键词或情绪后再保存", settingsDirty);
+      return;
+    }
+    stickerBulkUpdate.disabled = true;
+    setSettingsStatus("正在更新表情元数据…", settingsDirty);
+    fetch("/api/agent/web/sticker-update", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+      .then(readApiResponse)
+      .then(function (data) {
+        setSettingsStatus(
+          "已更新 " + Number(data.updated || 0) + " 张表情的元数据",
+          settingsDirty
+        );
+        stickerBulkCaption.value = "";
+        stickerBulkKeywords.value = "";
+        stickerBulkMood.value = "";
+        return loadStickers();
+      })
+      .catch(function (error) {
+        setSettingsStatus(error.message, settingsDirty);
+      })
+      .then(function () {
+        stickerBulkUpdate.disabled = false;
       });
   }
 
@@ -1006,6 +1408,7 @@
     createStickerCategory();
   });
   stickerBulkMove.addEventListener("click", moveSelectedStickers);
+  stickerBulkUpdate.addEventListener("click", updateSelectedStickerMetadata);
   timelineForm.addEventListener("submit", function (event) {
     event.preventDefault();
     var title = document.getElementById("agentTimelineTitle").value.trim();

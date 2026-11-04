@@ -112,6 +112,9 @@ class AgentStore:
                     ref TEXT NOT NULL,
                     category TEXT NOT NULL DEFAULT '未分类',
                     source_name TEXT NOT NULL DEFAULT '',
+                    caption TEXT NOT NULL DEFAULT '',
+                    keywords TEXT NOT NULL DEFAULT '',
+                    mood TEXT NOT NULL DEFAULT '',
                     tags TEXT NOT NULL DEFAULT '',
                     created_at INTEGER NOT NULL,
                     UNIQUE(owner_id, kind, ref)
@@ -182,6 +185,63 @@ class AgentStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_group_messages_group
                     ON group_messages(platform, group_id, id);
+                CREATE INDEX IF NOT EXISTS idx_group_messages_activity
+                    ON group_messages(
+                        platform, group_id, role, created_at
+                    );
+
+                CREATE TABLE IF NOT EXISTS group_proactive_state (
+                    platform TEXT NOT NULL,
+                    group_id TEXT NOT NULL,
+                    last_user_at INTEGER NOT NULL DEFAULT 0,
+                    last_user_message_id INTEGER NOT NULL DEFAULT 0,
+                    next_proactive_at INTEGER,
+                    last_proactive_at INTEGER,
+                    unanswered_count INTEGER NOT NULL DEFAULT 0,
+                    awaiting_reply_until INTEGER,
+                    last_proactive_message_id INTEGER NOT NULL DEFAULT 0,
+                    last_proactive_text TEXT NOT NULL DEFAULT '',
+                    last_proactive_run_id INTEGER,
+                    last_effective_reply_at INTEGER,
+                    last_error TEXT NOT NULL DEFAULT '',
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY (platform, group_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_group_proactive_next
+                    ON group_proactive_state(
+                        platform, next_proactive_at, unanswered_count
+                    );
+
+                CREATE TABLE IF NOT EXISTS group_proactive_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    platform TEXT NOT NULL,
+                    group_id TEXT NOT NULL,
+                    trigger_reason TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL,
+                    detail TEXT NOT NULL DEFAULT '',
+                    generated_text TEXT NOT NULL DEFAULT '',
+                    context_chars INTEGER NOT NULL DEFAULT 0,
+                    started_at INTEGER NOT NULL,
+                    finished_at INTEGER,
+                    sent_message_id INTEGER NOT NULL DEFAULT 0,
+                    reply_at INTEGER,
+                    reply_member_id TEXT NOT NULL DEFAULT '',
+                    reply_text TEXT NOT NULL DEFAULT ''
+                );
+                CREATE INDEX IF NOT EXISTS idx_group_proactive_runs_group
+                    ON group_proactive_runs(
+                        platform, group_id, id DESC
+                    );
+
+                CREATE TABLE IF NOT EXISTS group_proactive_overrides (
+                    platform TEXT NOT NULL,
+                    group_id TEXT NOT NULL,
+                    enabled INTEGER,
+                    idle_trigger_minutes INTEGER,
+                    max_per_day INTEGER,
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY (platform, group_id)
+                );
 
                 CREATE TABLE IF NOT EXISTS group_weather_locations (
                     platform TEXT NOT NULL,
@@ -282,6 +342,27 @@ class AgentStore:
                         settings_row["owner_id"],
                     ),
                 )
+            proactive_state_columns = {
+                row["name"]
+                for row in conn.execute(
+                    "PRAGMA table_info(group_proactive_state)"
+                ).fetchall()
+            }
+            for name, definition in (
+                ("awaiting_reply_until", "INTEGER"),
+                (
+                    "last_proactive_message_id",
+                    "INTEGER NOT NULL DEFAULT 0",
+                ),
+                ("last_proactive_text", "TEXT NOT NULL DEFAULT ''"),
+                ("last_proactive_run_id", "INTEGER"),
+                ("last_effective_reply_at", "INTEGER"),
+            ):
+                if name not in proactive_state_columns:
+                    conn.execute(
+                        "ALTER TABLE group_proactive_state "
+                        f"ADD COLUMN {name} {definition}"
+                    )
             memory_columns = {
                 row["name"]
                 for row in conn.execute("PRAGMA table_info(memories)").fetchall()
@@ -327,6 +408,12 @@ class AgentStore:
                     "ALTER TABLE stickers "
                     "ADD COLUMN source_name TEXT NOT NULL DEFAULT ''"
                 )
+            for name in ("caption", "keywords", "mood"):
+                if name not in sticker_columns:
+                    conn.execute(
+                        "ALTER TABLE stickers "
+                        f"ADD COLUMN {name} TEXT NOT NULL DEFAULT ''"
+                    )
             reminder_columns = {
                 row["name"]
                 for row in conn.execute("PRAGMA table_info(reminders)").fetchall()
@@ -717,9 +804,9 @@ class AgentStore:
         role: str,
         content: str,
         source_message_id: str = "",
-    ) -> None:
+    ) -> int | None:
         with self._lock, self._connection() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 """INSERT OR IGNORE INTO group_messages
                    (platform, group_id, member_id, display_name, role,
                     content, source_message_id, created_at)
@@ -735,6 +822,493 @@ class AgentStore:
                     int(time.time()),
                 ),
             )
+        return int(cursor.lastrowid) if cursor.rowcount > 0 else None
+
+    def record_group_activity(
+        self,
+        platform: str,
+        group_id: str,
+        member_id: str,
+        display_name: str,
+        content: str,
+        source_message_id: str = "",
+        *,
+        reset_unanswered: bool = True,
+        effective_reply: bool = False,
+    ) -> bool:
+        """Store a human group message and reset that group's idle state."""
+        now = int(time.time())
+        name = " ".join(str(display_name or "").split()).strip()[:80]
+        topic = " ".join(str(content or "").split()).strip()[:4000]
+        with self._lock, self._connection() as conn:
+            cursor = conn.execute(
+                """INSERT OR IGNORE INTO group_messages
+                   (platform, group_id, member_id, display_name, role,
+                    content, source_message_id, created_at)
+                   VALUES (?, ?, ?, ?, 'user', ?, ?, ?)""",
+                (
+                    platform,
+                    str(group_id),
+                    str(member_id),
+                    name,
+                    topic,
+                    str(source_message_id or ""),
+                    now,
+                ),
+            )
+            if cursor.rowcount <= 0:
+                return False
+            message_id = int(cursor.lastrowid or 0)
+            conn.execute(
+                """INSERT INTO group_members
+                   (platform, group_id, member_id, display_name, first_seen,
+                    last_seen, message_count, last_topic)
+                   VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+                   ON CONFLICT(platform, group_id, member_id) DO UPDATE SET
+                       display_name = CASE
+                           WHEN excluded.display_name != ''
+                           THEN excluded.display_name
+                           ELSE group_members.display_name
+                       END,
+                       last_seen = excluded.last_seen,
+                       message_count = group_members.message_count + 1,
+                       last_topic = CASE
+                           WHEN excluded.last_topic != ''
+                           THEN excluded.last_topic
+                           ELSE group_members.last_topic
+                       END""",
+                (
+                    platform,
+                    str(group_id),
+                    str(member_id),
+                    name,
+                    now,
+                    now,
+                    topic[:200],
+                ),
+            )
+            conn.execute(
+                """INSERT INTO group_proactive_state
+                   (platform, group_id, last_user_at, last_user_message_id,
+                    next_proactive_at, unanswered_count, updated_at)
+                   VALUES (?, ?, ?, ?, NULL, 0, ?)
+                   ON CONFLICT(platform, group_id) DO UPDATE SET
+                       last_user_at = excluded.last_user_at,
+                       last_user_message_id = excluded.last_user_message_id,
+                       next_proactive_at = NULL,
+                       unanswered_count = CASE
+                           WHEN ? THEN 0
+                           ELSE unanswered_count
+                       END,
+                       awaiting_reply_until = CASE
+                           WHEN ? THEN NULL
+                           ELSE awaiting_reply_until
+                       END,
+                       last_effective_reply_at = CASE
+                           WHEN ? THEN ?
+                           ELSE last_effective_reply_at
+                       END,
+                       last_error = '',
+                       updated_at = excluded.updated_at""",
+                (
+                    platform,
+                    str(group_id),
+                    now,
+                    message_id,
+                    now,
+                    1 if reset_unanswered else 0,
+                    1 if reset_unanswered else 0,
+                    1 if effective_reply else 0,
+                    now,
+                ),
+            )
+        return True
+
+    def ensure_group_proactive_state(
+        self,
+        platform: str,
+        group_id: str,
+        now: int,
+    ) -> dict:
+        """Create a group state without making an already-quiet group fire immediately."""
+        current = self.get_group_proactive_state(platform, group_id)
+        if current:
+            return current
+        with self._lock, self._connection() as conn:
+            latest = conn.execute(
+                """SELECT id, created_at
+                   FROM group_messages
+                   WHERE platform = ? AND group_id = ? AND role = 'user'
+                   ORDER BY id DESC LIMIT 1""",
+                (platform, str(group_id)),
+            ).fetchone()
+            last_user_at = (
+                int(latest["created_at"])
+                if latest and int(latest["created_at"] or 0) > 0
+                else int(now)
+            )
+            last_message_id = (
+                int(latest["id"]) if latest and int(latest["id"] or 0) > 0 else 0
+            )
+            conn.execute(
+                """INSERT OR IGNORE INTO group_proactive_state
+                   (platform, group_id, last_user_at, last_user_message_id,
+                    next_proactive_at, unanswered_count, updated_at)
+                   VALUES (?, ?, ?, ?, NULL, 0, ?)""",
+                (
+                    platform,
+                    str(group_id),
+                    last_user_at,
+                    last_message_id,
+                    int(now),
+                ),
+            )
+        return self.get_group_proactive_state(platform, group_id)
+
+    def get_group_proactive_state(
+        self,
+        platform: str,
+        group_id: str,
+    ) -> dict | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                """SELECT *
+                   FROM group_proactive_state
+                   WHERE platform = ? AND group_id = ?""",
+                (platform, str(group_id)),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def list_group_proactive_states(
+        self,
+        platform: str,
+        limit: int = 20,
+    ) -> list[dict]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT *
+                   FROM group_proactive_state
+                   WHERE platform = ?
+                   ORDER BY
+                       CASE WHEN next_proactive_at IS NULL THEN 1 ELSE 0 END,
+                       next_proactive_at,
+                       updated_at DESC
+                   LIMIT ?""",
+                (
+                    platform,
+                    max(1, min(int(limit), 100)),
+                ),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def schedule_group_proactive(
+        self,
+        platform: str,
+        group_id: str,
+        next_at: int,
+    ) -> None:
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """UPDATE group_proactive_state
+                   SET next_proactive_at = ?, last_error = '', updated_at = ?
+                   WHERE platform = ? AND group_id = ?""",
+                (
+                    int(next_at),
+                    int(time.time()),
+                    platform,
+                    str(group_id),
+                ),
+            )
+
+    def record_group_proactive_failure(
+        self,
+        platform: str,
+        group_id: str,
+        next_at: int,
+        error: str,
+    ) -> None:
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """UPDATE group_proactive_state
+                   SET next_proactive_at = ?, last_error = ?, updated_at = ?
+                   WHERE platform = ? AND group_id = ?""",
+                (
+                    int(next_at),
+                    " ".join(str(error or "").split()).strip()[:500],
+                    int(time.time()),
+                    platform,
+                    str(group_id),
+                ),
+            )
+
+    def mark_group_proactive_sent(
+        self,
+        platform: str,
+        group_id: str,
+        sent_at: int,
+        *,
+        message_id: int = 0,
+        text: str = "",
+        run_id: int | None = None,
+        reply_window_seconds: int = 15 * 60,
+    ) -> None:
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """UPDATE group_proactive_state
+                   SET next_proactive_at = NULL,
+                       last_proactive_at = ?,
+                       unanswered_count = unanswered_count + 1,
+                       awaiting_reply_until = ?,
+                       last_proactive_message_id = ?,
+                       last_proactive_text = ?,
+                       last_proactive_run_id = ?,
+                       last_error = '',
+                       updated_at = ?
+                   WHERE platform = ? AND group_id = ?""",
+                (
+                    int(sent_at),
+                    int(sent_at) + max(60, int(reply_window_seconds)),
+                    int(message_id),
+                    " ".join(str(text or "").split()).strip()[:1200],
+                    int(run_id) if run_id is not None else None,
+                    int(sent_at),
+                    platform,
+                    str(group_id),
+                ),
+            )
+
+    def expire_group_proactive_awaiting(
+        self,
+        platform: str,
+        group_id: str,
+        now: int,
+    ) -> None:
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """UPDATE group_proactive_state
+                   SET awaiting_reply_until = NULL, updated_at = ?
+                   WHERE platform = ? AND group_id = ?
+                     AND awaiting_reply_until IS NOT NULL""",
+                (
+                    int(now),
+                    platform,
+                    str(group_id),
+                ),
+            )
+
+    def create_group_proactive_run(
+        self,
+        platform: str,
+        group_id: str,
+        trigger_reason: str,
+        *,
+        status: str = "running",
+        context_chars: int = 0,
+    ) -> int:
+        now = int(time.time())
+        with self._lock, self._connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO group_proactive_runs
+                   (platform, group_id, trigger_reason, status,
+                    context_chars, started_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    platform,
+                    str(group_id),
+                    " ".join(str(trigger_reason or "").split()).strip()[:300],
+                    status,
+                    max(0, int(context_chars)),
+                    now,
+                ),
+            )
+        return int(cursor.lastrowid)
+
+    def update_group_proactive_run(
+        self,
+        run_id: int,
+        *,
+        status: str,
+        detail: str | None = None,
+        generated_text: str | None = None,
+        context_chars: int | None = None,
+        sent_message_id: int | None = None,
+    ) -> None:
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """UPDATE group_proactive_runs
+                   SET status = ?,
+                       detail = COALESCE(?, detail),
+                       generated_text = COALESCE(?, generated_text),
+                       context_chars = COALESCE(?, context_chars),
+                       sent_message_id = COALESCE(?, sent_message_id),
+                       finished_at = ?
+                   WHERE id = ?""",
+                (
+                    status,
+                    (
+                        " ".join(str(detail or "").split()).strip()[:500]
+                        if detail is not None
+                        else None
+                    ),
+                    (
+                        str(generated_text or "")[:1200]
+                        if generated_text is not None
+                        else None
+                    ),
+                    (
+                        max(0, int(context_chars))
+                        if context_chars is not None
+                        else None
+                    ),
+                    (
+                        int(sent_message_id)
+                        if sent_message_id is not None
+                        else None
+                    ),
+                    int(time.time()),
+                    int(run_id),
+                ),
+            )
+
+    def mark_group_proactive_run_replied(
+        self,
+        run_id: int,
+        reply_at: int,
+        member_id: str,
+        reply_text: str,
+    ) -> None:
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """UPDATE group_proactive_runs
+                   SET status = 'replied',
+                       reply_at = ?,
+                       reply_member_id = ?,
+                       reply_text = ?,
+                       finished_at = COALESCE(finished_at, ?)
+                   WHERE id = ?""",
+                (
+                    int(reply_at),
+                    str(member_id),
+                    " ".join(str(reply_text or "").split()).strip()[:500],
+                    int(reply_at),
+                    int(run_id),
+                ),
+            )
+
+    def list_group_proactive_runs(
+        self,
+        platform: str,
+        limit: int = 20,
+        group_id: str = "",
+    ) -> list[dict]:
+        where = "platform = ?"
+        values: list[object] = [platform]
+        if group_id:
+            where += " AND group_id = ?"
+            values.append(str(group_id))
+        values.append(max(1, min(int(limit), 100)))
+        with self._connection() as conn:
+            rows = conn.execute(
+                f"""SELECT *
+                    FROM group_proactive_runs
+                    WHERE {where}
+                    ORDER BY id DESC LIMIT ?""",
+                tuple(values),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_group_proactive_override(
+        self,
+        platform: str,
+        group_id: str,
+    ) -> dict | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                """SELECT *
+                   FROM group_proactive_overrides
+                   WHERE platform = ? AND group_id = ?""",
+                (platform, str(group_id)),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def set_group_proactive_enabled(
+        self,
+        platform: str,
+        group_id: str,
+        enabled: bool,
+    ) -> None:
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """INSERT INTO group_proactive_overrides
+                   (platform, group_id, enabled, updated_at)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(platform, group_id) DO UPDATE SET
+                       enabled = excluded.enabled,
+                       updated_at = excluded.updated_at""",
+                (
+                    platform,
+                    str(group_id),
+                    1 if enabled else 0,
+                    int(time.time()),
+                ),
+            )
+
+    def set_group_proactive_limits(
+        self,
+        platform: str,
+        group_id: str,
+        idle_trigger_minutes: int,
+        max_per_day: int,
+    ) -> None:
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """INSERT INTO group_proactive_overrides
+                   (platform, group_id, idle_trigger_minutes, max_per_day,
+                    updated_at)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(platform, group_id) DO UPDATE SET
+                       idle_trigger_minutes = excluded.idle_trigger_minutes,
+                       max_per_day = excluded.max_per_day,
+                       updated_at = excluded.updated_at""",
+                (
+                    platform,
+                    str(group_id),
+                    int(idle_trigger_minutes),
+                    int(max_per_day),
+                    int(time.time()),
+                ),
+            )
+
+    def group_activity_timestamps(
+        self,
+        platform: str,
+        group_id: str,
+        since: int,
+    ) -> list[int]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT created_at
+                   FROM group_messages
+                   WHERE platform = ? AND group_id = ?
+                     AND role = 'user' AND created_at >= ?
+                   ORDER BY created_at, id""",
+                (
+                    platform,
+                    str(group_id),
+                    int(since),
+                ),
+            ).fetchall()
+        return [int(row["created_at"]) for row in rows]
+
+    def proactive_count_since(self, owner_id: str, since: int) -> int:
+        with self._connection() as conn:
+            row = conn.execute(
+                """SELECT COUNT(*) AS n
+                   FROM proactive_log
+                   WHERE owner_id = ? AND sent_at >= ?""",
+                (owner_id, int(since)),
+            ).fetchone()
+        return int(row["n"] or 0) if row else 0
 
     def get_group_messages(
         self,
@@ -954,6 +1528,12 @@ class AgentStore:
             "group_holiday_enabled": True,
             "group_weather_city": "",
             "group_proactive_time": "08:30",
+            "group_idle_proactive_enabled": False,
+            "group_idle_trigger_minutes": 90,
+            "group_idle_random_min_minutes": 15,
+            "group_idle_random_max_minutes": 45,
+            "group_idle_max_unanswered": 2,
+            "group_idle_max_per_day": 1,
             "voice_enabled": False,
             "memory_consolidation_enabled": True,
             "memory_consolidation_time": "03:30",
@@ -1039,6 +1619,9 @@ class AgentStore:
         tags: str = "",
         category: str = "未分类",
         source_name: str = "",
+        caption: str = "",
+        keywords: str = "",
+        mood: str = "",
     ) -> int:
         category = str(category or "未分类").strip()[:40] or "未分类"
         with self._lock, self._connection() as conn:
@@ -1050,15 +1633,30 @@ class AgentStore:
             )
             conn.execute(
                 """INSERT INTO stickers(
-                       owner_id, kind, ref, category, source_name, tags,
-                       created_at
-                   ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                       owner_id, kind, ref, category, source_name, caption,
+                       keywords, mood, tags, created_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(owner_id, kind, ref) DO UPDATE SET
                        category = excluded.category,
                        source_name = CASE
                            WHEN excluded.source_name <> ''
                            THEN excluded.source_name
                            ELSE stickers.source_name
+                       END,
+                       caption = CASE
+                           WHEN excluded.caption <> ''
+                           THEN excluded.caption
+                           ELSE stickers.caption
+                       END,
+                       keywords = CASE
+                           WHEN excluded.keywords <> ''
+                           THEN excluded.keywords
+                           ELSE stickers.keywords
+                       END,
+                       mood = CASE
+                           WHEN excluded.mood <> ''
+                           THEN excluded.mood
+                           ELSE stickers.mood
                        END,
                        tags = excluded.tags""",
                 (
@@ -1067,6 +1665,9 @@ class AgentStore:
                     ref,
                     category,
                     str(source_name or "").strip()[:180],
+                    str(caption or "").strip()[:200],
+                    str(keywords or "").strip()[:300],
+                    str(mood or "").strip()[:20],
                     tags[:300],
                     int(time.time()),
                 ),
@@ -1080,7 +1681,8 @@ class AgentStore:
     def list_stickers(self, owner_id: str, limit: int = 100) -> list[dict]:
         with self._connection() as conn:
             rows = conn.execute(
-                """SELECT id, kind, ref, category, source_name, tags, created_at
+                """SELECT id, kind, ref, category, source_name, caption,
+                          keywords, mood, tags, created_at
                    FROM stickers
                    WHERE owner_id = ? ORDER BY id DESC LIMIT ?""",
                 (owner_id, max(1, min(int(limit), 200))),
@@ -1141,6 +1743,55 @@ class AgentStore:
                 f"""UPDATE stickers SET category = ?
                     WHERE owner_id = ? AND id IN ({placeholders})""",
                 (category, owner_id, *unique_ids),
+            )
+        return int(cursor.rowcount or 0)
+
+    def update_stickers_metadata(
+        self,
+        owner_id: str,
+        sticker_ids: list[int],
+        values: dict,
+    ) -> int:
+        unique_ids = []
+        for sticker_id in sticker_ids[:200]:
+            try:
+                value = int(sticker_id)
+            except (TypeError, ValueError):
+                continue
+            if value not in unique_ids:
+                unique_ids.append(value)
+        if not unique_ids:
+            return 0
+        allowed = {"category", "caption", "keywords", "mood", "tags"}
+        updates = {}
+        for key in allowed:
+            if key not in values or values[key] is None:
+                continue
+            limit = 40 if key == "category" else 300
+            if key == "caption":
+                limit = 200
+            elif key == "mood":
+                limit = 20
+            value = " ".join(str(values[key] or "").split()).strip()[:limit]
+            if key == "category" and not value:
+                value = "未分类"
+            updates[key] = value
+        if not updates:
+            return 0
+        placeholders = ",".join("?" for _ in unique_ids)
+        assignments = ", ".join(f"{key} = ?" for key in updates)
+        with self._lock, self._connection() as conn:
+            if "category" in updates:
+                conn.execute(
+                    """INSERT OR IGNORE INTO sticker_categories(
+                           owner_id, name, created_at
+                       ) VALUES (?, ?, ?)""",
+                    (owner_id, updates["category"], int(time.time())),
+                )
+            cursor = conn.execute(
+                f"""UPDATE stickers SET {assignments}
+                    WHERE owner_id = ? AND id IN ({placeholders})""",
+                (*updates.values(), owner_id, *unique_ids),
             )
         return int(cursor.rowcount or 0)
 

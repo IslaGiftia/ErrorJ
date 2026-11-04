@@ -10,7 +10,7 @@ import time
 import unittest
 from collections import defaultdict
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -351,6 +351,9 @@ class AgentStoreTests(unittest.TestCase):
         migrated = AgentStore(path)
         sticker = migrated.list_stickers("0")[0]
         self.assertEqual(sticker["category"], "未分类")
+        self.assertEqual(sticker["caption"], "")
+        self.assertEqual(sticker["keywords"], "")
+        self.assertEqual(sticker["mood"], "")
         self.assertEqual(sticker["source_name"], "")
         self.assertEqual(sticker["tags"], "旧标签")
 
@@ -419,6 +422,7 @@ class AgentStoreTests(unittest.TestCase):
         stickers = self.store.list_stickers("0")
         self.assertEqual(stickers[0]["category"], "泪目")
         self.assertEqual(stickers[0]["source_name"], "cry.png")
+        self.assertEqual(stickers[0]["mood"], "sad")
         self.assertIn("泪目", self.store.list_sticker_categories("0"))
 
     def test_sticker_categories_support_bulk_move(self):
@@ -525,6 +529,140 @@ class AgentStoreTests(unittest.TestCase):
         )
         self.assertEqual(explicit["ref"], "sleep.png")
 
+    def test_sticker_layered_search_and_metadata_tools(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        self.store.add_sticker(
+            "0",
+            "image",
+            "filename.png",
+            category="日常",
+            source_name="猫猫比心.png",
+            caption="普通描述",
+            keywords="普通",
+            mood="daily",
+        )
+        self.store.add_sticker(
+            "0",
+            "image",
+            "caption.png",
+            category="开心",
+            source_name="random.png",
+            caption="猫猫比心",
+            keywords="猫 比心",
+            mood="happy",
+        )
+        self.store.add_sticker(
+            "0",
+            "image",
+            "angry-cat.png",
+            category="生气",
+            source_name="random2.png",
+            caption="气鼓鼓的猫",
+            keywords="生气 猫 暴躁",
+            mood="angry",
+        )
+        self.store.add_sticker(
+            "0",
+            "image",
+            "sad.png",
+            category="泪目",
+            source_name="random3.png",
+            caption="眼泪止不住",
+            keywords="泪目 哭",
+            mood="sad",
+        )
+        selected = AgentService.choose_sticker_for_query(
+            self.store.list_stickers("0"),
+            "猫猫比心",
+            allow_random=False,
+        )
+        self.assertEqual(selected["ref"], "filename.png")
+        selected = AgentService.choose_sticker_for_query(
+            self.store.list_stickers("0"),
+            "生气猫",
+            allow_random=False,
+        )
+        self.assertEqual(selected["ref"], "angry-cat.png")
+        selected = AgentService.choose_sticker_for_query(
+            self.store.list_stickers("0"),
+            "泪目",
+            allow_random=False,
+        )
+        self.assertEqual(selected["ref"], "sad.png")
+
+        listed = service.sticker_list_tool(
+            {"query": "生气 猫", "limit": 10},
+            {"platform": "qqbot", "sticker_enabled": "1"},
+        )
+        self.assertEqual(listed["count"], 1)
+        sticker_id = listed["stickers"][0]["id"]
+        updated = service.sticker_update_tool(
+            {
+                "ids": [sticker_id],
+                "caption": "气到冒烟的猫",
+                "keywords": "生气 猫 冒烟",
+                "mood": "angry",
+            },
+            {"platform": "qqbot", "sticker_enabled": "1"},
+        )
+        self.assertEqual(updated["status"], "updated")
+        sticker = next(
+            item
+            for item in self.store.list_stickers("0")
+            if item["id"] == sticker_id
+        )
+        self.assertEqual(sticker["caption"], "气到冒烟的猫")
+        self.assertEqual(sticker["keywords"], "生气 猫 冒烟")
+        self.assertEqual(sticker["mood"], "angry")
+
+    def test_sticker_picker_returns_real_stats_on_miss(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        self.store.add_sticker(
+            "0",
+            "image",
+            "one.png",
+            category="泪目",
+            source_name="cry.png",
+            caption="眼泪止不住",
+            keywords="哭 泪目",
+            mood="sad",
+        )
+        self.store.add_sticker(
+            "0",
+            "image",
+            "two.png",
+            category="开心",
+            source_name="happy.png",
+            mood="happy",
+        )
+        context = {
+            "platform": "qqbot",
+            "owner_id": "admin-openid",
+            "is_admin": "1",
+            "sticker_enabled": "1",
+        }
+        result = service.prepare_sticker(
+            {"emotion": "完全不存在的画面"},
+            context,
+        )
+        self.assertEqual(result["status"], "not_found")
+        self.assertEqual(
+            {item["name"] for item in result["categories"]},
+            {"泪目", "开心"},
+        )
+        self.assertEqual(
+            {item["name"] for item in result["moods"]},
+            {"难过", "开心"},
+        )
+        selected = service.prepare_sticker(
+            {"emotion": "泪目", "query": "眼泪"},
+            context,
+        )
+        self.assertEqual(selected["status"], "selected", selected)
+        self.assertEqual(service.selected_sticker(context)["ref"], "one.png")
+
     def test_proactive_target_prefers_qqbot_admin(self):
         self.store.bind_admin("qq", "10001")
         self.store.bind_admin("qqbot", "admin-openid")
@@ -595,7 +733,7 @@ class AgentStoreTests(unittest.TestCase):
         self.store.bind_admin("qqbot", "admin-openid")
         self.store.save_settings(
             "qqbot",
-            "admin-openid",
+            "0",
             {
                 "group_proactive_enabled": True,
                 "group_weather_enabled": True,
@@ -799,6 +937,775 @@ class AgentStoreTests(unittest.TestCase):
             [],
         )
 
+    def test_group_idle_proactive_schedules_then_sends_once(self):
+        self.store.bind_admin("qqbot", "admin-openid")
+        self.store.save_settings(
+            "qqbot",
+            "admin-openid",
+            {
+                "group_idle_proactive_enabled": True,
+                "group_idle_trigger_minutes": 90,
+                "group_idle_random_min_minutes": 15,
+                "group_idle_random_max_minutes": 45,
+                "group_idle_max_per_day": 1,
+                "group_idle_max_unanswered": 2,
+                "quiet_start": "23:30",
+                "quiet_end": "08:00",
+            },
+        )
+        now = datetime(2026, 11, 4, 15, 0)
+        activity_at = now - timedelta(minutes=100)
+        with patch(
+            "errorjiang_agent.store.time.time",
+            return_value=activity_at.timestamp(),
+        ):
+            self.store.record_group_activity(
+                "qqbot",
+                "group-openid",
+                "member-openid",
+                "小明",
+                "周末有人去吃火锅吗",
+                "group-idle-message-1",
+            )
+
+        class FakeQQBot:
+            def __init__(self):
+                self.sent = []
+
+            def send_active_message(self, message_type, chat_id, text):
+                self.sent.append((message_type, chat_id, text))
+
+        class FakeDeepSeek:
+            def chat(self, messages, tools):
+                self.last_messages = messages
+                return {"content": "火锅先记着，周六谁先到谁占座？"}
+
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.qqbot = FakeQQBot()
+        service.onebot = SimpleNamespace()
+        service.errorjiang = SimpleNamespace(
+            tool=lambda *args, **kwargs: {"casts": []}
+        )
+        service.deepseek = FakeDeepSeek()
+        service.config = SimpleNamespace(
+            qqbot_group_ids=frozenset({"group-openid"})
+        )
+
+        with patch(
+            "errorjiang_agent.service.random.randint",
+            return_value=20 * 60,
+        ):
+            service._group_idle_proactive_tick(now)
+        self.assertEqual(service.qqbot.sent, [])
+        state = self.store.get_group_proactive_state(
+            "qqbot",
+            "group-openid",
+        )
+        self.assertEqual(
+            state["next_proactive_at"],
+            int(now.timestamp()) + 20 * 60,
+        )
+
+        due = datetime.fromtimestamp(state["next_proactive_at"]) + timedelta(
+            seconds=1
+        )
+        service._group_idle_proactive_tick(due)
+        self.assertEqual(len(service.qqbot.sent), 1)
+        message_type, group_id, text = service.qqbot.sent[0]
+        self.assertEqual((message_type, group_id), ("group", "group-openid"))
+        self.assertIn("火锅", text)
+        self.assertIn("最近群聊流水", service.deepseek.last_messages[1]["content"])
+        state = self.store.get_group_proactive_state(
+            "qqbot",
+            "group-openid",
+        )
+        self.assertEqual(state["unanswered_count"], 1)
+        self.assertIsNone(state["next_proactive_at"])
+        self.assertEqual(
+            self.store.proactive_count(
+                due.strftime("%Y-%m-%d"),
+                "qqbot-group-idle:group-openid",
+            ),
+            1,
+        )
+        status = service.group_idle_status()
+        self.assertTrue(status["enabled"])
+        self.assertEqual(status["groups"][0]["unanswered_count"], 1)
+        self.assertEqual(status["groups"][0]["group_tail"], "group-openid"[-8:])
+        self.assertEqual(
+            self.store.get_group_messages("qqbot", "group-openid")[-1][
+                "content"
+            ],
+            text,
+        )
+
+        service._group_idle_proactive_tick(
+            due + timedelta(minutes=30)
+        )
+        self.assertEqual(len(service.qqbot.sent), 1)
+
+    def test_group_idle_discards_generation_when_group_becomes_active(self):
+        self.store.bind_admin("qqbot", "admin-openid")
+        self.store.save_settings(
+            "qqbot",
+            "admin-openid",
+            {
+                "group_idle_proactive_enabled": True,
+                "group_idle_trigger_minutes": 90,
+                "group_idle_random_min_minutes": 15,
+                "group_idle_random_max_minutes": 45,
+            },
+        )
+        now = datetime(2026, 11, 4, 16, 0)
+        activity_at = now - timedelta(minutes=120)
+        with patch(
+            "errorjiang_agent.store.time.time",
+            return_value=activity_at.timestamp(),
+        ):
+            self.store.record_group_activity(
+                "qqbot",
+                "group-openid",
+                "member-openid",
+                "小明",
+                "晚上一起打游戏吗",
+                "race-message-1",
+            )
+
+        class FakeQQBot:
+            def __init__(self):
+                self.sent = []
+
+            def send_active_message(self, message_type, chat_id, text):
+                self.sent.append((message_type, chat_id, text))
+
+        store = self.store
+
+        class ActiveGroupDeepSeek:
+            def chat(self, messages, tools):
+                with patch(
+                    "errorjiang_agent.store.time.time",
+                    return_value=(now + timedelta(minutes=3)).timestamp(),
+                ):
+                    store.record_group_activity(
+                        "qqbot",
+                        "group-openid",
+                        "member-2",
+                        "小红",
+                        "来了来了",
+                        "race-message-2",
+                    )
+                return {"content": "那就晚上八点？"}
+
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.qqbot = FakeQQBot()
+        service.onebot = SimpleNamespace()
+        service.errorjiang = SimpleNamespace(
+            tool=lambda *args, **kwargs: {"casts": []}
+        )
+        service.deepseek = ActiveGroupDeepSeek()
+        service.config = SimpleNamespace(
+            qqbot_group_ids=frozenset({"group-openid"})
+        )
+        with patch(
+            "errorjiang_agent.service.random.randint",
+            return_value=15 * 60,
+        ):
+            service._group_idle_proactive_tick(now)
+        state = self.store.get_group_proactive_state(
+            "qqbot",
+            "group-openid",
+        )
+        due = datetime.fromtimestamp(state["next_proactive_at"]) + timedelta(
+            seconds=1
+        )
+        service._group_idle_proactive_tick(due)
+        self.assertEqual(service.qqbot.sent, [])
+        state = self.store.get_group_proactive_state(
+            "qqbot",
+            "group-openid",
+        )
+        self.assertIsNone(state["next_proactive_at"])
+        self.assertEqual(state["unanswered_count"], 0)
+
+    def test_group_idle_reschedules_stale_task_without_generating(self):
+        self.store.bind_admin("qqbot", "admin-openid")
+        self.store.save_settings(
+            "qqbot",
+            "admin-openid",
+            {
+                "group_idle_proactive_enabled": True,
+                "group_idle_trigger_minutes": 90,
+                "group_idle_random_min_minutes": 15,
+                "group_idle_random_max_minutes": 45,
+            },
+        )
+        now = datetime(2026, 11, 4, 17, 0)
+        activity_at = now - timedelta(hours=5)
+        with patch(
+            "errorjiang_agent.store.time.time",
+            return_value=activity_at.timestamp(),
+        ):
+            self.store.record_group_activity(
+                "qqbot",
+                "group-openid",
+                "member-openid",
+                "小明",
+                "下午有人出去吗",
+                "stale-message-1",
+            )
+        self.store.schedule_group_proactive(
+            "qqbot",
+            "group-openid",
+            int(now.timestamp()) - 3 * 3600,
+        )
+
+        class FakeQQBot:
+            def __init__(self):
+                self.sent = []
+
+            def send_active_message(self, message_type, chat_id, text):
+                self.sent.append((message_type, chat_id, text))
+
+        class NoGeneration:
+            def chat(self, messages, tools):
+                raise AssertionError("stale task must not call the model")
+
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.qqbot = FakeQQBot()
+        service.onebot = SimpleNamespace()
+        service.errorjiang = SimpleNamespace()
+        service.deepseek = NoGeneration()
+        service.config = SimpleNamespace(
+            qqbot_group_ids=frozenset({"group-openid"})
+        )
+        with patch(
+            "errorjiang_agent.service.random.randint",
+            return_value=20 * 60,
+        ):
+            service._group_idle_proactive_tick(now)
+        self.assertEqual(service.qqbot.sent, [])
+        state = self.store.get_group_proactive_state(
+            "qqbot",
+            "group-openid",
+        )
+        self.assertEqual(
+            state["next_proactive_at"],
+            int(now.timestamp()) + 20 * 60,
+        )
+
+    def test_group_idle_stops_after_unanswered_limit(self):
+        self.store.bind_admin("qqbot", "admin-openid")
+        self.store.save_settings(
+            "qqbot",
+            "admin-openid",
+            {
+                "group_idle_proactive_enabled": True,
+                "group_idle_trigger_minutes": 15,
+                "group_idle_max_unanswered": 2,
+            },
+        )
+        now = datetime(2026, 11, 4, 18, 0)
+        with patch(
+            "errorjiang_agent.store.time.time",
+            return_value=(now - timedelta(hours=2)).timestamp(),
+        ):
+            self.store.record_group_activity(
+                "qqbot",
+                "group-openid",
+                "member-openid",
+                "小明",
+                "晚上吃什么",
+                "unanswered-message-1",
+            )
+        with patch(
+            "errorjiang_agent.store.time.time",
+            return_value=(now - timedelta(minutes=90)).timestamp(),
+        ):
+            self.store.mark_group_proactive_sent(
+                "qqbot",
+                "group-openid",
+                int((now - timedelta(minutes=90)).timestamp()),
+            )
+        with patch(
+            "errorjiang_agent.store.time.time",
+            return_value=(now - timedelta(minutes=30)).timestamp(),
+        ):
+            self.store.mark_group_proactive_sent(
+                "qqbot",
+                "group-openid",
+                int((now - timedelta(minutes=30)).timestamp()),
+            )
+
+        class FakeQQBot:
+            def __init__(self):
+                self.sent = []
+
+            def send_active_message(self, message_type, chat_id, text):
+                self.sent.append((message_type, chat_id, text))
+
+        class NoGeneration:
+            def chat(self, messages, tools):
+                raise AssertionError("unanswered limit must stop generation")
+
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.qqbot = FakeQQBot()
+        service.onebot = SimpleNamespace()
+        service.errorjiang = SimpleNamespace()
+        service.deepseek = NoGeneration()
+        service.config = SimpleNamespace(
+            qqbot_group_ids=frozenset({"group-openid"})
+        )
+        service._group_idle_proactive_tick(now)
+        self.assertEqual(service.qqbot.sent, [])
+        state = self.store.get_group_proactive_state(
+            "qqbot",
+            "group-openid",
+        )
+        self.assertEqual(state["unanswered_count"], 2)
+        self.assertIsNone(state["next_proactive_at"])
+
+    def test_group_idle_skip_uses_long_backoff(self):
+        self.store.bind_admin("qqbot", "admin-openid")
+        self.store.save_settings(
+            "qqbot",
+            "admin-openid",
+            {
+                "group_idle_proactive_enabled": True,
+                "group_idle_trigger_minutes": 90,
+            },
+        )
+        now = datetime(2026, 11, 4, 19, 0)
+        with patch(
+            "errorjiang_agent.store.time.time",
+            return_value=(now - timedelta(hours=2)).timestamp(),
+        ):
+            self.store.record_group_activity(
+                "qqbot",
+                "group-openid",
+                "member-openid",
+                "小明",
+                "今天好安静",
+                "skip-message-1",
+            )
+        self.store.schedule_group_proactive(
+            "qqbot",
+            "group-openid",
+            int(now.timestamp()),
+        )
+
+        class FakeQQBot:
+            def __init__(self):
+                self.sent = []
+
+            def send_active_message(self, message_type, chat_id, text):
+                self.sent.append((message_type, chat_id, text))
+
+        class SkipDeepSeek:
+            def chat(self, messages, tools):
+                return {"content": "SKIP"}
+
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.qqbot = FakeQQBot()
+        service.onebot = SimpleNamespace()
+        service.errorjiang = SimpleNamespace()
+        service.deepseek = SkipDeepSeek()
+        service.config = SimpleNamespace(
+            qqbot_group_ids=frozenset({"group-openid"})
+        )
+        service._group_idle_proactive_tick(now)
+        self.assertEqual(service.qqbot.sent, [])
+        state = self.store.get_group_proactive_state(
+            "qqbot",
+            "group-openid",
+        )
+        self.assertEqual(
+            state["next_proactive_at"],
+            int(now.timestamp()) + 6 * 3600,
+        )
+
+    def test_group_idle_threshold_adapts_to_group_cadence(self):
+        now_ts = int(datetime(2026, 11, 4, 20, 0).timestamp())
+        for index in range(24):
+            self.store.add_group_message(
+                "qqbot",
+                "group-openid",
+                "member-openid",
+                "小明",
+                "user",
+                f"普通消息 {index}",
+                f"cadence-{index}",
+            )
+        with self.store._connection() as conn:
+            for index in range(24):
+                conn.execute(
+                    """UPDATE group_messages SET created_at = ?
+                       WHERE source_message_id = ?""",
+                    (
+                        now_ts - 24 * 3600 + index * 3600,
+                        f"cadence-{index}",
+                    ),
+                )
+        service = object.__new__(AgentService)
+        service.store = self.store
+        adaptive = service.group_idle_threshold(
+            "qqbot",
+            "group-openid",
+            90,
+            now_ts,
+        )
+        self.assertFalse(adaptive["sparse"])
+        self.assertEqual(adaptive["minutes"], 150)
+        self.assertEqual(adaptive["median_gap_seconds"], 3600)
+
+    def test_group_idle_only_effective_reply_resets_unanswered(self):
+        self.store.bind_admin("qqbot", "admin-openid")
+        base = int(datetime(2026, 11, 4, 16, 0).timestamp())
+        with patch("errorjiang_agent.store.time.time", return_value=base):
+            self.store.record_group_activity(
+                "qqbot",
+                "group-openid",
+                "member-openid",
+                "小明",
+                "周六去吃火锅吗",
+                "reply-base",
+            )
+        run_id = self.store.create_group_proactive_run(
+            "qqbot",
+            "group-openid",
+            "接续最近群聊",
+        )
+        message_id = self.store.add_group_message(
+            "qqbot",
+            "group-openid",
+            "assistant",
+            "鲸鲸",
+            "assistant",
+            "火锅可以，周六谁先到？",
+            "idle-sent",
+        )
+        self.store.mark_group_proactive_sent(
+            "qqbot",
+            "group-openid",
+            base + 100,
+            message_id=message_id or 0,
+            text="火锅可以，周六谁先到？",
+            run_id=run_id,
+        )
+        self.store.update_group_proactive_run(
+            run_id,
+            status="sent",
+            generated_text="火锅可以，周六谁先到？",
+        )
+
+        service = object.__new__(AgentService)
+        service.store = self.store
+
+        def event(text, message_id):
+            return MessageEvent(
+                self_id="bot",
+                user_id="member-2",
+                message_type="group",
+                chat_id="group-openid",
+                message_id=message_id,
+                text=text,
+                to_me=False,
+                platform="qqbot",
+                group_full=True,
+                display_name="小红",
+            )
+
+        with patch(
+            "errorjiang_agent.service.time.time",
+            return_value=base + 180,
+        ), patch(
+            "errorjiang_agent.store.time.time",
+            return_value=base + 180,
+        ):
+            self.assertTrue(
+                service._observe_group_activity(
+                    event("今天风好大", "unrelated-reply")
+                )
+            )
+        state = self.store.get_group_proactive_state(
+            "qqbot",
+            "group-openid",
+        )
+        self.assertEqual(state["unanswered_count"], 1)
+        run = self.store.list_group_proactive_runs(
+            "qqbot",
+            limit=1,
+        )[0]
+        self.assertEqual(run["status"], "sent")
+
+        with patch(
+            "errorjiang_agent.service.time.time",
+            return_value=base + 240,
+        ), patch(
+            "errorjiang_agent.store.time.time",
+            return_value=base + 240,
+        ):
+            self.assertTrue(
+                service._observe_group_activity(
+                    event("火锅我也去", "effective-reply")
+                )
+            )
+        state = self.store.get_group_proactive_state(
+            "qqbot",
+            "group-openid",
+        )
+        self.assertEqual(state["unanswered_count"], 0)
+        self.assertIsNone(state["awaiting_reply_until"])
+        run = self.store.list_group_proactive_runs(
+            "qqbot",
+            limit=1,
+        )[0]
+        self.assertEqual(run["status"], "replied")
+        self.assertEqual(run["reply_member_id"], "member-2")
+
+    def test_group_idle_scheduler_expires_reply_window(self):
+        self.store.bind_admin("qqbot", "admin-openid")
+        self.store.save_settings(
+            "qqbot",
+            "admin-openid",
+            {"group_idle_proactive_enabled": True},
+        )
+        base = int(datetime(2026, 11, 4, 16, 0).timestamp())
+        with patch("errorjiang_agent.store.time.time", return_value=base):
+            self.store.record_group_activity(
+                "qqbot",
+                "group-openid",
+                "member-openid",
+                "小明",
+                "有人去吃火锅吗",
+                "expire-base",
+            )
+        run_id = self.store.create_group_proactive_run(
+            "qqbot",
+            "group-openid",
+            "接续最近群聊",
+        )
+        self.store.mark_group_proactive_sent(
+            "qqbot",
+            "group-openid",
+            base,
+            text="火锅可以，谁去？",
+            run_id=run_id,
+        )
+        self.store.update_group_proactive_run(
+            run_id,
+            status="sent",
+            generated_text="火锅可以，谁去？",
+        )
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.qqbot = SimpleNamespace()
+        service.onebot = SimpleNamespace()
+        service.errorjiang = SimpleNamespace()
+        service.deepseek = SimpleNamespace()
+        service.config = SimpleNamespace(
+            qqbot_group_ids=frozenset({"group-openid"})
+        )
+        now = datetime.fromtimestamp(base + 16 * 60)
+        with patch(
+            "errorjiang_agent.store.time.time",
+            return_value=base + 16 * 60,
+        ):
+            service._group_idle_proactive_tick(now)
+        state = self.store.get_group_proactive_state(
+            "qqbot",
+            "group-openid",
+        )
+        self.assertIsNone(state["awaiting_reply_until"])
+        self.assertEqual(state["unanswered_count"], 1)
+        run = self.store.list_group_proactive_runs("qqbot", limit=1)[0]
+        self.assertEqual(run["status"], "expired")
+
+    def test_group_idle_manual_preview_send_and_pause(self):
+        self.store.bind_admin("qqbot", "admin-openid")
+        self.store.save_settings(
+            "qqbot",
+            "admin-openid",
+            {"group_idle_proactive_enabled": True},
+        )
+        self.store.add_group_message(
+            "qqbot",
+            "group-openid",
+            "member-openid",
+            "小明",
+            "user",
+            "最近有人去看展吗",
+            "manual-context",
+        )
+
+        class FakeQQBot:
+            def __init__(self):
+                self.sent = []
+
+            def send_active_message(self, message_type, chat_id, text):
+                self.sent.append((message_type, chat_id, text))
+
+        class FakeDeepSeek:
+            def chat(self, messages, tools):
+                return {"content": "最近那个展好像快结束了，有人想去吗？"}
+
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.qqbot = FakeQQBot()
+        service.onebot = SimpleNamespace()
+        service.errorjiang = SimpleNamespace()
+        service.deepseek = FakeDeepSeek()
+        service.config = SimpleNamespace(
+            qqbot_group_ids=frozenset({"group-openid"})
+        )
+
+        preview = service.group_idle_action("preview", "group-openid")
+        self.assertTrue(preview["ok"])
+        self.assertEqual(service.qqbot.sent, [])
+        self.assertEqual(
+            self.store.list_group_proactive_runs("qqbot", limit=1)[0][
+                "status"
+            ],
+            "preview",
+        )
+
+        configured = service.group_idle_action(
+            "configure",
+            "group-openid",
+            idle_trigger_minutes=180,
+            max_per_day=2,
+        )
+        self.assertTrue(configured["ok"])
+        override = self.store.get_group_proactive_override(
+            "qqbot",
+            "group-openid",
+        )
+        self.assertEqual(override["idle_trigger_minutes"], 180)
+        self.assertEqual(override["max_per_day"], 2)
+
+        sent = service.group_idle_action("send", "group-openid")
+        self.assertTrue(sent["ok"])
+        self.assertEqual(len(service.qqbot.sent), 1)
+        self.assertEqual(service.qqbot.sent[0][0], "group")
+        self.assertEqual(
+            self.store.list_group_proactive_runs("qqbot", limit=1)[0][
+                "status"
+            ],
+            "sent",
+        )
+
+        paused = service.group_idle_action("pause", "group-openid")
+        self.assertTrue(paused["ok"])
+        override = self.store.get_group_proactive_override(
+            "qqbot",
+            "group-openid",
+        )
+        self.assertEqual(override["enabled"], 0)
+
+    def test_group_idle_respects_group_pause_and_sparse_weekly_limit(self):
+        self.store.bind_admin("qqbot", "admin-openid")
+        self.store.save_settings(
+            "qqbot",
+            "admin-openid",
+            {
+                "group_idle_proactive_enabled": True,
+                "group_idle_trigger_minutes": 15,
+            },
+        )
+        now = datetime(2026, 11, 4, 20, 0)
+        with patch(
+            "errorjiang_agent.store.time.time",
+            return_value=(now - timedelta(hours=2)).timestamp(),
+        ):
+            self.store.record_group_activity(
+                "qqbot",
+                "group-openid",
+                "member-openid",
+                "小明",
+                "有人吗",
+                "pause-context",
+            )
+        self.store.set_group_proactive_enabled(
+            "qqbot",
+            "group-openid",
+            False,
+        )
+
+        class NoQQBotSend:
+            def send_active_message(self, message_type, chat_id, text):
+                raise AssertionError("paused group must not send")
+
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.qqbot = NoQQBotSend()
+        service.onebot = SimpleNamespace()
+        service.errorjiang = SimpleNamespace()
+        service.deepseek = SimpleNamespace(
+            chat=lambda *args, **kwargs: {"content": "不该生成"}
+        )
+        service.config = SimpleNamespace(
+            qqbot_group_ids=frozenset({"group-openid"})
+        )
+        service._group_idle_proactive_tick(now)
+
+        self.store.set_group_proactive_enabled(
+            "qqbot",
+            "group-openid",
+            True,
+        )
+        for index in range(3):
+            self.store.claim_proactive_slot(
+                now.strftime("%Y-%m-%d"),
+                f"sparse-{index}",
+                "qqbot-group-idle:group-openid",
+            )
+        service._group_idle_proactive_tick(now)
+        self.assertEqual(
+            self.store.list_group_proactive_runs("qqbot", limit=10),
+            [],
+        )
+
+    def test_full_group_messages_are_observed_before_reply_gate(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.config = SimpleNamespace(
+            qqbot_group_ids=frozenset({"group-openid"})
+        )
+        service.group_policy = GroupConversationPolicy(self.store)
+        service.event_pipeline = build_group_event_pipeline(
+            service.group_policy,
+            service.config,
+        )
+        submitted = []
+        service.executor = SimpleNamespace(
+            submit=lambda *args: submitted.append(args)
+        )
+        event = MessageEvent(
+            self_id="bot-openid",
+            user_id="member-openid",
+            message_type="group",
+            chat_id="group-openid",
+            message_id="ordinary-group-message",
+            text="今天食堂排队也太长了",
+            to_me=False,
+            platform="qqbot",
+            group_full=True,
+            display_name="小明",
+        )
+        service.schedule_qqbot_event(event)
+        self.assertEqual(submitted, [])
+        history = self.store.get_group_messages("qqbot", "group-openid")
+        self.assertEqual(history[-1]["content"], "今天食堂排队也太长了")
+        state = self.store.get_group_proactive_state(
+            "qqbot",
+            "group-openid",
+        )
+        self.assertGreater(state["last_user_at"], 0)
+
     def test_group_holiday_notice_weekend_and_holiday_eve(self):
         self.assertEqual(
             AgentService.group_holiday_notice(
@@ -931,6 +1838,21 @@ class AgentStoreTests(unittest.TestCase):
         self.assertTrue(
             service.group_message_wants_reply(
                 event("接着说", referenced=True)
+            )
+        )
+        for index in range(24):
+            self.store.add_group_message(
+                "qqbot",
+                "group-openid",
+                f"other-{index % 3}",
+                f"群友{index % 3}",
+                "user",
+                f"普通闲聊 {index}",
+                f"group-auto-extra-{index}",
+            )
+        self.assertTrue(
+            service.group_message_wants_reply(
+                event("还有呢", user_id="member-openid")
             )
         )
         self.assertFalse(
@@ -1322,6 +2244,132 @@ class AgentStoreTests(unittest.TestCase):
         self.assertEqual(
             self.store.get_group_messages("qqbot", "group-openid"),
             [],
+        )
+
+    def test_group_activity_resets_idle_state_and_deduplicates(self):
+        with patch("errorjiang_agent.store.time.time", return_value=100):
+            inserted = self.store.record_group_activity(
+                "qqbot",
+                "group-openid",
+                "member-openid",
+                "星星",
+                "周末去吃火锅吗",
+                "message-1",
+            )
+        self.assertTrue(inserted)
+        state = self.store.get_group_proactive_state(
+            "qqbot",
+            "group-openid",
+        )
+        self.assertEqual(state["last_user_at"], 100)
+        self.assertGreater(state["last_user_message_id"], 0)
+        self.assertEqual(state["unanswered_count"], 0)
+        self.assertEqual(
+            self.store.get_group_member(
+                "qqbot",
+                "group-openid",
+                "member-openid",
+            )["message_count"],
+            1,
+        )
+
+        self.store.schedule_group_proactive(
+            "qqbot",
+            "group-openid",
+            200,
+        )
+        with patch("errorjiang_agent.store.time.time", return_value=300):
+            self.store.mark_group_proactive_sent(
+                "qqbot",
+                "group-openid",
+                300,
+            )
+        with patch("errorjiang_agent.store.time.time", return_value=400):
+            duplicate = self.store.record_group_activity(
+                "qqbot",
+                "group-openid",
+                "member-openid",
+                "星星",
+                "周末去吃火锅吗",
+                "message-1",
+            )
+        self.assertFalse(duplicate)
+        state = self.store.get_group_proactive_state(
+            "qqbot",
+            "group-openid",
+        )
+        self.assertEqual(state["last_user_at"], 100)
+        self.assertEqual(state["unanswered_count"], 1)
+
+        with patch("errorjiang_agent.store.time.time", return_value=500):
+            self.assertTrue(
+                self.store.record_group_activity(
+                    "qqbot",
+                    "group-openid",
+                    "member-openid",
+                    "星星",
+                    "那就周六",
+                    "message-2",
+                )
+            )
+        state = self.store.get_group_proactive_state(
+            "qqbot",
+            "group-openid",
+        )
+        self.assertEqual(state["last_user_at"], 500)
+        self.assertIsNone(state["next_proactive_at"])
+        self.assertEqual(state["unanswered_count"], 0)
+        self.assertEqual(
+            self.store.get_group_member(
+                "qqbot",
+                "group-openid",
+                "member-openid",
+            )["message_count"],
+            2,
+        )
+
+    def test_group_proactive_state_migrates_v2_columns(self):
+        path = Path(self.temp.name) / "legacy-proactive.db"
+        conn = sqlite3.connect(path)
+        try:
+            conn.execute(
+                """CREATE TABLE group_proactive_state (
+                       platform TEXT NOT NULL,
+                       group_id TEXT NOT NULL,
+                       last_user_at INTEGER NOT NULL DEFAULT 0,
+                       last_user_message_id INTEGER NOT NULL DEFAULT 0,
+                       next_proactive_at INTEGER,
+                       last_proactive_at INTEGER,
+                       unanswered_count INTEGER NOT NULL DEFAULT 0,
+                       last_error TEXT NOT NULL DEFAULT '',
+                       updated_at INTEGER NOT NULL,
+                       PRIMARY KEY (platform, group_id)
+                   )"""
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        migrated = AgentStore(path)
+        conn = sqlite3.connect(path)
+        try:
+            columns = {
+                row[1]
+                for row in conn.execute(
+                    "PRAGMA table_info(group_proactive_state)"
+                ).fetchall()
+            }
+        finally:
+            conn.close()
+        self.assertIn("awaiting_reply_until", columns)
+        self.assertIn("last_proactive_message_id", columns)
+        self.assertIn("last_proactive_run_id", columns)
+        self.assertIn("last_effective_reply_at", columns)
+        self.assertTrue(
+            migrated.get_group_proactive_override(
+                "qqbot",
+                "group-openid",
+            )
+            is None
         )
 
     def test_idle_memory_consolidation_is_daily_and_structured(self):
@@ -4707,6 +5755,28 @@ class AgentInternalAuthTests(unittest.TestCase):
         self.assertIsNone(app.required_permission("/agent", "GET"))
         self.assertIsNone(app.required_permission("/api/agent/web/chat", "POST"))
 
+    def test_group_idle_action_forwards_admin_request(self):
+        handler = self.make_handler({})
+        handler.is_admin = lambda: True
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        with patch.object(
+            app,
+            "agent_internal_request",
+            return_value={"ok": True, "message": "预览内容"},
+        ) as request:
+            handler.api_agent_web_group_idle_action(
+                {"action": "preview", "group_id": "group-openid"}
+            )
+        self.assertEqual(captured["status"], 200)
+        self.assertEqual(captured["payload"]["message"], "预览内容")
+        args = request.call_args.args
+        self.assertEqual(args[0], "/internal/group-idle-action")
+        self.assertEqual(args[1]["action"], "preview")
+        self.assertEqual(args[1]["group_id"], "group-openid")
+
     def test_agent_sticker_upload_forwards_category_to_global_pack(self):
         handler = self.make_handler({})
         handler.is_admin = lambda: True
@@ -4724,6 +5794,9 @@ class AgentInternalAuthTests(unittest.TestCase):
                 {
                     "file_name": "cry.png",
                     "category": "泪目",
+                    "caption": "猫猫哭了",
+                    "keywords": "猫猫 泪目 哭",
+                    "mood": "sad",
                     "data_base64": base64.b64encode(raw).decode("ascii"),
                 }
             )
@@ -4732,6 +5805,9 @@ class AgentInternalAuthTests(unittest.TestCase):
         self.assertEqual(args[0], "/internal/sticker/upload")
         self.assertEqual(args[1]["owner_id"], "0")
         self.assertEqual(args[1]["category"], "泪目")
+        self.assertEqual(args[1]["caption"], "猫猫哭了")
+        self.assertEqual(args[1]["keywords"], "猫猫 泪目 哭")
+        self.assertEqual(args[1]["mood"], "sad")
 
     def test_agent_sticker_category_create_and_move_forward(self):
         handler = self.make_handler({})
@@ -4769,7 +5845,32 @@ class AgentInternalAuthTests(unittest.TestCase):
         self.assertEqual(create_args[1]["name"], "常用")
         self.assertEqual(move_args[0], "/internal/sticker/move")
         self.assertEqual(move_args[1]["ids"], [1, 2])
-        self.assertEqual(move_args[1]["category"], "常用")
+
+    def test_agent_sticker_metadata_update_forwards_batch(self):
+        handler = self.make_handler({})
+        handler.is_admin = lambda: True
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        with patch.object(
+            app,
+            "agent_internal_request",
+            return_value={"ok": True, "updated": 2},
+        ) as request:
+            handler.api_agent_web_sticker_update(
+                {
+                    "ids": [1, "2", 2],
+                    "caption": "猫猫睡大觉",
+                    "keywords": "猫猫 晚安 睡大觉",
+                    "mood": "daily",
+                }
+            )
+        self.assertEqual(captured["status"], 200)
+        args = request.call_args.args
+        self.assertEqual(args[0], "/internal/sticker/update")
+        self.assertEqual(args[1]["ids"], [1, 2])
+        self.assertEqual(args[1]["values"]["mood"], "daily")
 
     def test_binding_command_accepts_username(self):
         from errorjiang_agent.service import (
@@ -5214,6 +6315,9 @@ class AgentTimelineApiTests(unittest.TestCase):
             "owner_id": "0",
             "file_name": "泪目_猫猫.png",
             "category": "泪目",
+            "caption": "猫猫眼泪止不住",
+            "keywords": "泪目 猫猫 哭",
+            "mood": "sad",
             "data_base64": base64.b64encode(raw).decode("ascii"),
         }
         connection = http.client.HTTPConnection(
@@ -5238,10 +6342,16 @@ class AgentTimelineApiTests(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertEqual(result["sticker"]["category"], "泪目")
         self.assertEqual(result["sticker"]["source_name"], "泪目_猫猫.png")
+        self.assertEqual(result["sticker"]["caption"], "猫猫眼泪止不住")
+        self.assertEqual(result["sticker"]["keywords"], "泪目 猫猫 哭")
+        self.assertEqual(result["sticker"]["mood"], "sad")
         self.assertEqual(result["sticker"]["tags"], "泪目")
         sticker = service.store.list_stickers("0")[0]
         self.assertEqual(sticker["category"], "泪目")
         self.assertEqual(sticker["source_name"], "泪目_猫猫.png")
+        self.assertEqual(sticker["caption"], "猫猫眼泪止不住")
+        self.assertEqual(sticker["keywords"], "泪目 猫猫 哭")
+        self.assertEqual(sticker["mood"], "sad")
         self.assertEqual(sticker["tags"], "泪目")
         self.assertTrue((service.sticker_dir / sticker["ref"]).is_file())
         connection = http.client.HTTPConnection(
@@ -5335,6 +6445,10 @@ class AgentConsoleUiTests(unittest.TestCase):
         self.assertNotIn("ErrorJ Agent", html + script + landing)
         self.assertIn('class="agent-console-shell"', html)
         self.assertIn('id="settings-stickers"', html)
+        self.assertIn('id="agentStickerUploadCaption"', html)
+        self.assertIn('id="agentStickerUploadKeywords"', html)
+        self.assertIn('id="agentStickerUploadMood"', html)
+        self.assertIn('id="agentStickerBulkUpdate"', html)
         self.assertIn('id="agentSettingsSave" disabled', html)
         self.assertIn('aria-label="筛选记忆"', html)
         self.assertIn('id="settings-persona"', html)
@@ -5344,7 +6458,26 @@ class AgentConsoleUiTests(unittest.TestCase):
         self.assertIn('id="settingPersonaPreset"', html)
         self.assertIn('id="settingWebSearchEnabled"', html)
         self.assertIn('id="settingGroupProactiveEnabled"', html)
+        self.assertIn('id="settingGroupIdleProactiveEnabled"', html)
+        self.assertIn('id="settingGroupIdleTriggerMinutes"', html)
+        self.assertIn('id="settingGroupIdleRandomMin"', html)
+        self.assertIn('id="settingGroupIdleRandomMax"', html)
+        self.assertIn('id="settingGroupIdleMaxPerDay"', html)
+        self.assertIn('id="settingGroupIdleMaxUnanswered"', html)
+        self.assertIn('id="agentGroupIdleStatus"', html)
+        self.assertIn('id="agentGroupIdleGroups"', html)
+        self.assertIn('id="agentGroupIdlePreview"', html)
+        self.assertIn('id="agentGroupIdleRuns"', html)
+        self.assertIn(
+            "group_idle_proactive_enabled",
+            script,
+        )
+        self.assertIn("renderGroupIdleStatus", script)
+        self.assertIn("/api/agent/web/group-idle-action", script)
+        self.assertIn("保存群参数", script)
         self.assertIn("agent-sticker-file-name", script)
+        self.assertIn("agent-sticker-caption", script)
+        self.assertIn("/api/agent/web/sticker-update", script)
         self.assertEqual(html.count("data-console-section"), 9)
         self.assertNotIn('id="agentMessages"', html)
         self.assertNotIn('id="agentForm"', html)

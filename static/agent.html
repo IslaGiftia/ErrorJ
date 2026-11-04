@@ -234,7 +234,7 @@
       <section class="agent-console-section" id="settings-proactive" data-console-section>
         <header class="agent-section-head">
           <span class="agent-section-icon"><i data-lucide="send"></i></span>
-          <div><h2>主动聊天</h2><p>只发送到管理员 QQBot 私聊，不会主动在群里发言。</p></div>
+          <div><h2>主动聊天</h2><p>这里只负责管理员 QQBot 私聊；群聊由下方「群主动」单独控制。</p></div>
         </header>
         <div class="agent-setting-list">
           <label class="agent-setting-row">
@@ -261,7 +261,7 @@
       <section class="agent-console-section" id="settings-group-proactive" data-console-section>
         <header class="agent-section-head">
           <span class="agent-section-icon"><i data-lucide="message-circle-more"></i></span>
-          <div><h2>群主动</h2><p>每天最多发送一次晨间简报，内容仅包含城市天气和周末/节假日提示。</p></div>
+          <div><h2>群主动</h2><p>保留每日晨报，也可以让鲸鲸在群聊冷场后自然接一句。</p></div>
         </header>
         <div class="agent-setting-list">
           <label class="agent-setting-row">
@@ -271,6 +271,16 @@
             </span>
             <span class="agent-switch">
               <input type="checkbox" id="settingGroupProactiveEnabled" data-setting-input>
+              <span aria-hidden="true"></span>
+            </span>
+          </label>
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
+              <strong>冷场主动聊天</strong>
+              <small>群里安静一段时间后，随机等待一阵再判断是否适合开口</small>
+            </span>
+            <span class="agent-switch">
+              <input type="checkbox" id="settingGroupIdleProactiveEnabled" data-setting-input>
               <span aria-hidden="true"></span>
             </span>
           </label>
@@ -305,8 +315,38 @@
             <span>晨报时间</span>
             <input type="time" id="settingGroupProactiveTime" data-setting-input>
           </label>
+          <label>
+            <span>冷场门槛（分钟）</span>
+            <input type="number" id="settingGroupIdleTriggerMinutes"
+                   min="15" max="1440" step="5" data-setting-input>
+          </label>
+          <label>
+            <span>随机等待最短（分钟）</span>
+            <input type="number" id="settingGroupIdleRandomMin"
+                   min="1" max="360" data-setting-input>
+          </label>
+          <label>
+            <span>随机等待最长（分钟）</span>
+            <input type="number" id="settingGroupIdleRandomMax"
+                   min="1" max="720" data-setting-input>
+          </label>
+          <label>
+            <span>每群每日最多</span>
+            <input type="number" id="settingGroupIdleMaxPerDay"
+                   min="1" max="6" data-setting-input>
+          </label>
+          <label>
+            <span>连续未回应上限</span>
+            <input type="number" id="settingGroupIdleMaxUnanswered"
+                   min="1" max="10" data-setting-input>
+          </label>
         </div>
-        <p class="agent-section-note">群成员可 @鲸鲸 发送“设置天气城市 西安”或“清除天气城市”；系统只保存城市名，不保存精确坐标。</p>
+        <p class="agent-section-note">冷场聊天默认关闭；有真人发言会立即重置计时。连续主动发言没人接话时自动暂停，等群重新活跃后恢复。系统只保存天气城市名，不保存精确坐标。</p>
+        <p class="agent-section-note" id="agentGroupIdleStatus" aria-live="polite">正在读取冷场聊天状态…</p>
+        <div class="agent-idle-groups" id="agentGroupIdleGroups"></div>
+        <div class="agent-idle-preview" id="agentGroupIdlePreview" hidden
+             aria-live="polite"></div>
+        <div class="agent-idle-runs" id="agentGroupIdleRuns"></div>
       </section>
 
       <section class="agent-console-section" id="settings-members" data-console-section>
@@ -400,13 +440,55 @@
           <input class="agent-sticker-file" id="agentStickerInput" type="file" multiple
                  accept="image/png,image/jpeg,image/gif,image/webp,image/bmp">
         </div>
-        <div class="agent-sticker-bulk" id="agentStickerBulk" hidden>
-          <span id="agentStickerSelectedCount">已选 0 张</span>
+        <div class="agent-sticker-upload-grid">
           <label>
-            <span>移至</span>
-            <select id="agentStickerBulkCategory"></select>
+            <span>描述（可选）</span>
+            <input type="text" id="agentStickerUploadCaption" maxlength="200"
+                   placeholder="例如：猫猫裹着被子睡大觉">
           </label>
-          <button type="button" id="agentStickerBulkMove">移动</button>
+          <label>
+            <span>关键词（可选）</span>
+            <input type="text" id="agentStickerUploadKeywords" maxlength="300"
+                   placeholder="猫猫 晚安 睡大觉">
+          </label>
+          <label>
+            <span>情绪（可选）</span>
+            <select id="agentStickerUploadMood">
+              <option value="">自动推断</option>
+              <option value="happy">开心</option>
+              <option value="angry">生气</option>
+              <option value="sad">难过</option>
+              <option value="shy">害羞</option>
+              <option value="confused">困惑</option>
+              <option value="daily">日常</option>
+            </select>
+          </label>
+        </div>
+        <div class="agent-sticker-bulk" id="agentStickerBulk" hidden>
+          <div class="agent-sticker-bulk-row">
+            <span id="agentStickerSelectedCount">已选 0 张</span>
+            <label>
+              <span>移至</span>
+              <select id="agentStickerBulkCategory"></select>
+            </label>
+            <button type="button" id="agentStickerBulkMove">移动</button>
+          </div>
+          <div class="agent-sticker-bulk-row agent-sticker-bulk-metadata">
+            <input type="text" id="agentStickerBulkCaption" maxlength="200"
+                   placeholder="批量描述（留空不改）">
+            <input type="text" id="agentStickerBulkKeywords" maxlength="300"
+                   placeholder="批量关键词（留空不改）">
+            <select id="agentStickerBulkMood">
+              <option value="">情绪不变</option>
+              <option value="happy">开心</option>
+              <option value="angry">生气</option>
+              <option value="sad">难过</option>
+              <option value="shy">害羞</option>
+              <option value="confused">困惑</option>
+              <option value="daily">日常</option>
+            </select>
+            <button type="button" id="agentStickerBulkUpdate">保存元数据</button>
+          </div>
         </div>
         <div class="agent-sticker-groups" id="agentStickerGrid"></div>
       </section>
