@@ -7910,3 +7910,75 @@ Agent API -> /internal/memories 200；/internal/sticker/export 返回有效 ZIP
              无 console error、无 page error
 本地回归  -> 348 项单测通过；Python / JavaScript / JSON / diff 检查通过
 ```
+
+## 167. 2026-11-06 17:11:03 鲸鲸群聊学习、分享卡片与运行诊断升级
+
+来源：继续完善群聊免 @ 分享内容理解、群聊自然接话节奏、人工审核黑话库、本地搜索领域路由，并补齐记忆成本控制、历史保留、设置校验、临时安静、运行诊断和搜索证据质量。
+
+完成内容（提交 `fd14853 feat: upgrade Jingjing group chat and diagnostics`，22 文件，+8036/−172）：
+
+- B站、抖音、微博、网易云音乐和小红书分享链接或 QQ 卡片无需 @，鲸鲸只读取公开标题、作者和摘要，不下载媒体，最多处理两条，并把外部文字标为不可信资料。
+- 群聊新增 10 分钟回复密度、连续对话疲劳、短消息合并和克制 / 标准 / 活跃三档；显式 @、叫名字、命令、位置和分享卡片保持即时处理。
+- 群黑话库支持本地候选、人工填写含义后批准、忽略、重新打开、停用和删除；只保存词、次数、含义、例句和群标识，不保存聊天原文。
+- 群友可以临时让自己安静，管理员可以暂停整个群；安静仅过滤自然接话，显式请求仍有效。
+- 搜索新增金融、学术、安全、代码、法律、健康、旅行、游戏等领域路由，并为结果补充发布日期、新鲜度、官方来源、来源质量和疑似转载提示。
+- 即时记忆改为本地分流并设置每会话每日上限；私聊和群聊历史默认分别保留 90 天和 30 天，清理前完成记忆与黑话提取。
+- Agent 新增运行诊断、模型 / 搜索 / 抓取 / 热搜调用统计、搜索测试和历史清理；设置项统一校验类型、范围和候选项。
+- 多图库表情包、群聊 / 人格选图规则和待审核表情继续随本批正式上线；站内参考项目补入 media parser、group chat plus、self learning、AnySearch 和 meme manager。
+
+本地验证：
+```text
+单元测试    -> 396 项通过
+Python      -> app.py、Agent 新模块、服务、存储、测试文件编译通过
+JavaScript  -> agent.js、books.js、messages.js、moments.js、activity.js 检查通过
+JSON        -> config/changelog-seed.json 校验通过
+差异检查    -> git diff --check 干净
+页面验证    -> 本地 1440×1000 与 390×844 验证
+             群主动、群黑话、运行诊断、历史清理、记忆设置和搜索领域路由控件正常
+             无横向溢出、无页面脚本错误
+```
+
+部署步骤：
+```text
+提交：fd148537240cc1ad50c34607242ed25a4d08bf51
+      feat: upgrade Jingjing group chat and diagnostics
+      （fetch -> pull --rebase -> push；local == origin/main == fd14853）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json
+      本地 / 服务器 SHA256 =
+      fbd21ff950a708bceb9d75268607a53ee93b15657fa276e08a2754094d0d1117
+备份：/data/errorjiang-backup/20261106-171355
+      inventory.db 9605120 bytes、agent.db 1257472 bytes、
+      auth.json 223 bytes、changelog-seed.json 142590 bytes；无 WAL / SHM
+服务器：stop errorjiang + errorjiang-agent -> 备份 -> git pull --ff-only -> fd14853
+      app.init_db；AgentStore 迁移；seed 安装
+      import_changelog_moments.py --date 2026-11-06 --force
+      -> 新增 1 条、覆盖 0 条、跳过 0 条
+      start errorjiang -> start errorjiang-agent
+主站数据：reference_projects 新增 id 27–31
+          （meme manager、media parser、group chat plus、self learning、AnySearch）
+```
+
+最终验证：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 主站 /api/health = {"ok": true}
+             Agent 172.17.0.1:8011/health = {"ok": true}
+版本      -> 本地代码提交 = origin/main = 服务器 HEAD = fd14853
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+数据库    -> memories 583 条，stickers 34 张
+             group_jargon / sticker_libraries / sticker_candidates /
+             memory_extraction_runs / history_cleanup_runs /
+             agent_call_metrics / group_quiet_state 均已创建
+更新日志  -> /api/moments 中 id 806、kind = log
+             2026-11-06 17:11:03「鲸鲸群聊学习、分享卡片与运行诊断升级」
+参考项目  -> /api/references 返回 id 27–31，五个新增项目全部可见
+静态文件  -> agent.js   SHA256 = 9C000DD75D268F2F152D0AB367C28BCA536D0041B86D4F3F68764D11F9FC58F6
+             agent.html SHA256 = 3FADAA4332787B423F73F1701375C63DEB3FDF99359A92007707657331937A79
+             agent.css  SHA256 = 08EC3E67413AFA254836901C496C51FACDE54546ED43BE941A5A56A01DEE40D8
+             references.html SHA256 = 29B9AD8E867900F4801C32B7CAA46B5746411D8ACF292B40A082F6F15F4F5105
+             本地与公网四个文件哈希逐一一致
+线上页面  -> 本机 Chromium 直连公网静态页时被链路关闭，无法完成公网浏览器渲染；
+             已使用本地同版静态页完成桌面 / 手机 Playwright 验证，
+             并以四个公网静态文件 SHA256 完全一致确认部署内容
+本地回归  -> 396 项单测通过；Python / JavaScript / JSON / diff 检查通过
+```
