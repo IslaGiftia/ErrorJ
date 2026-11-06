@@ -10246,6 +10246,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_agent_web_status()
             elif path == "/api/agent/web/settings":
                 self.api_agent_web_settings()
+            elif path == "/api/agent/web/group-jargon":
+                self.api_agent_web_group_jargon()
+            elif path == "/api/agent/web/diagnostics":
+                self.api_agent_web_diagnostics()
             elif path == "/api/agent/web/memories":
                 self.api_agent_web_memories(query)
             elif path == "/api/agent/web/group-members":
@@ -10255,7 +10259,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             elif path == "/api/agent/web/stickers":
                 self.api_agent_web_stickers(query)
             elif path == "/api/agent/web/sticker-export":
-                self.api_agent_web_sticker_export()
+                self.api_agent_web_sticker_export(query)
             elif re.fullmatch(
                 r"/api/agent/media/(?:music|book|note_markdown|note_txt|note_html)/\d+",
                 path,
@@ -10364,6 +10368,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_agent_web_chat(payload)
             elif path == "/api/agent/web/settings":
                 self.api_agent_web_settings_save(payload)
+            elif path == "/api/agent/web/group-jargon":
+                self.api_agent_web_group_jargon_action(payload)
+            elif path == "/api/agent/web/diagnostics":
+                self.api_agent_web_diagnostics_action(payload)
             elif path == "/api/agent/web/group-idle-action":
                 self.api_agent_web_group_idle_action(payload)
             elif path == "/api/agent/web/memory-delete":
@@ -10388,6 +10396,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_agent_web_sticker_update(payload)
             elif path == "/api/agent/web/sticker-import":
                 self.api_agent_web_sticker_import(payload)
+            elif path == "/api/agent/web/sticker-library":
+                self.api_agent_web_sticker_library(payload)
+            elif path == "/api/agent/web/sticker-rule":
+                self.api_agent_web_sticker_rule(payload)
+            elif path == "/api/agent/web/sticker-candidate":
+                self.api_agent_web_sticker_candidate(payload)
             elif path == "/api/agent/web/sticker-delete":
                 self.api_agent_web_sticker_delete(payload)
             elif path == "/api/login":
@@ -18593,6 +18607,82 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         self.send_json(200, data)
 
+    def api_agent_web_group_jargon(self):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以管理鲸鲸的群黑话。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/group-jargon",
+                timeout=10,
+            )
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_group_jargon_action(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以管理鲸鲸的群黑话。")
+            return
+        action = str((payload or {}).get("action") or "").strip()
+        if action not in ("save", "approve", "reject", "reopen", "delete"):
+            api_error(self, 400, "未知的群黑话操作。")
+            return
+        try:
+            item_id = int((payload or {}).get("id"))
+        except (TypeError, ValueError):
+            api_error(self, 400, "黑话条目编号不正确。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/group-jargon",
+                {
+                    "id": item_id,
+                    "action": action,
+                    "meaning": str((payload or {}).get("meaning") or ""),
+                    "example": str((payload or {}).get("example") or ""),
+                },
+                timeout=10,
+            )
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_diagnostics(self):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以查看鲸鲸诊断。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/diagnostics",
+                timeout=10,
+            )
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_diagnostics_action(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以运行鲸鲸诊断。")
+            return
+        action = str((payload or {}).get("action") or "").strip()
+        if action not in ("search_check", "history_cleanup"):
+            api_error(self, 400, "未知的诊断操作。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/diagnostics",
+                {"action": action},
+                timeout=60 if action == "search_check" else 20,
+            )
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
     def api_agent_web_group_idle_action(self, payload):
         if not self.is_admin():
             api_error(self, 403, "只有管理员可以操作鲸鲸的群主动设置。")
@@ -19011,7 +19101,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
         caption = str((payload or {}).get("caption") or "").strip()[:200]
         keywords = str((payload or {}).get("keywords") or "").strip()[:300]
         mood = str((payload or {}).get("mood") or "").strip()[:20]
+        library_id = str(
+            (payload or {}).get("library_id") or "default"
+        ).strip()[:60]
         data_base64 = str((payload or {}).get("data_base64") or "")
+        library_id = str(
+            (payload or {}).get("library_id") or "default"
+        ).strip()[:60]
         try:
             raw = base64.b64decode(data_base64, validate=True)
         except Exception:
@@ -19030,6 +19126,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "caption": caption,
                     "keywords": keywords,
                     "mood": mood,
+                    "library_id": library_id,
                     "data_base64": data_base64,
                 },
                 timeout=20,
@@ -19088,7 +19185,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return
         self.send_json(200, data)
 
-    def api_agent_web_sticker_export(self):
+    def api_agent_web_sticker_export(self, query):
         if not self.is_admin():
             api_error(self, 403, "只有管理员可以导出表情包。")
             return
@@ -19096,9 +19193,17 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not token:
             api_error(self, 503, "鲸鲸尚未配置内部令牌。")
             return
+        library_id = str(
+            (query.get("library_id") or [""])[0]
+        ).strip()[:60]
+        library_query = (
+            "&library_id=" + quote(library_id) if library_id else ""
+        )
         try:
             request = Request(
-                AGENT_BASE_URL + "/internal/sticker/export?owner_id=0",
+                AGENT_BASE_URL
+                + "/internal/sticker/export?owner_id=0"
+                + library_query,
                 headers={
                     "X-ErrorJ-Agent-Token": token,
                     "User-Agent": "ErrorJ-Agent-Bridge/1.0",
@@ -19125,6 +19230,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 403, "只有管理员可以导入表情包。")
             return
         data_base64 = str((payload or {}).get("data_base64") or "")
+        library_id = str(
+            (payload or {}).get("library_id") or "default"
+        ).strip()[:60]
         try:
             raw = base64.b64decode(data_base64, validate=True)
         except Exception:
@@ -19138,6 +19246,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 "/internal/sticker/import",
                 {
                     "owner_id": "0",
+                    "library_id": library_id,
                     "data_base64": data_base64,
                 },
                 timeout=120,
@@ -19152,6 +19261,130 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 502, detail)
             return
         except (URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_sticker_library(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以管理表情图库。")
+            return
+        action = str((payload or {}).get("action") or "").strip()
+        forwarded = {"owner_id": "0", "action": action}
+        if action == "create":
+            forwarded["name"] = str(
+                (payload or {}).get("name") or ""
+            ).strip()[:40]
+        elif action == "update":
+            forwarded["id"] = str(
+                (payload or {}).get("id") or ""
+            ).strip()[:60]
+            if "name" in (payload or {}):
+                forwarded["name"] = str(
+                    (payload or {}).get("name") or ""
+                ).strip()[:40]
+            if "enabled" in (payload or {}):
+                forwarded["enabled"] = bool(
+                    (payload or {}).get("enabled")
+                )
+        elif action == "move":
+            raw_ids = (payload or {}).get("ids")
+            if not isinstance(raw_ids, list):
+                api_error(self, 400, "请选择要移动的表情包。")
+                return
+            forwarded["ids"] = [
+                int(item)
+                for item in raw_ids[:200]
+                if str(item).isdigit()
+            ]
+            forwarded["library_id"] = str(
+                (payload or {}).get("library_id") or ""
+            ).strip()[:60]
+        else:
+            api_error(self, 400, "未知图库操作。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/sticker/library",
+                forwarded,
+                timeout=15,
+            )
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_sticker_rule(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以管理表情选图规则。")
+            return
+        scope_type = str(
+            (payload or {}).get("scope_type") or "default"
+        ).strip()
+        scope_key = str(
+            (payload or {}).get("scope_key") or ""
+        ).strip()[:200]
+        raw_library_ids = (payload or {}).get("library_ids")
+        if scope_type not in ("default", "group", "persona"):
+            api_error(self, 400, "选图规则范围不正确。")
+            return
+        if not isinstance(raw_library_ids, list):
+            api_error(self, 400, "请选择图库。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/sticker/rule",
+                {
+                    "scope_type": scope_type,
+                    "scope_key": scope_key,
+                    "library_ids": [
+                        str(item)[:60]
+                        for item in raw_library_ids[:50]
+                        if str(item).strip()
+                    ],
+                },
+                timeout=15,
+            )
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_sticker_candidate(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以审核表情候选。")
+            return
+        try:
+            candidate_id = int((payload or {}).get("id"))
+        except (TypeError, ValueError):
+            api_error(self, 400, "候选表情编号不正确。")
+            return
+        action = str((payload or {}).get("action") or "").strip()
+        if action not in ("accept", "discard"):
+            api_error(self, 400, "未知候选表情操作。")
+            return
+        try:
+            data = agent_internal_request(
+                "/internal/sticker/candidate",
+                {
+                    "id": candidate_id,
+                    "action": action,
+                    "category": str(
+                        (payload or {}).get("category") or "未分类"
+                    ).strip()[:40],
+                    "caption": str(
+                        (payload or {}).get("caption") or ""
+                    ).strip()[:200],
+                    "keywords": str(
+                        (payload or {}).get("keywords") or ""
+                    ).strip()[:300],
+                    "mood": str(
+                        (payload or {}).get("mood") or ""
+                    ).strip()[:20],
+                },
+                timeout=15,
+            )
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
             api_error(self, 502, str(exc)[:200])
             return
         self.send_json(200, data)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 import json
 from pathlib import Path
 import re
@@ -10,6 +11,7 @@ import threading
 import time
 
 from .persona import normalize_persona_custom_prompt
+from .settings_schema import normalize_settings_update
 
 
 class AgentStore:
@@ -119,6 +121,42 @@ class AgentStore:
                     created_at INTEGER NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS memory_extraction_runs (
+                    day TEXT NOT NULL,
+                    platform TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY (day, platform, owner_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS history_cleanup_runs (
+                    day TEXT PRIMARY KEY,
+                    private_deleted INTEGER NOT NULL DEFAULT 0,
+                    group_deleted INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS agent_call_metrics (
+                    day TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    success INTEGER NOT NULL,
+                    call_count INTEGER NOT NULL DEFAULT 0,
+                    total_ms INTEGER NOT NULL DEFAULT 0,
+                    last_at INTEGER NOT NULL,
+                    PRIMARY KEY (day, kind, success)
+                );
+
+                CREATE TABLE IF NOT EXISTS group_quiet_state (
+                    platform TEXT NOT NULL,
+                    group_id TEXT NOT NULL,
+                    member_id TEXT NOT NULL,
+                    quiet_until INTEGER NOT NULL,
+                    reason TEXT NOT NULL DEFAULT '',
+                    created_at INTEGER NOT NULL,
+                    PRIMARY KEY (platform, group_id, member_id)
+                );
+
                 CREATE TABLE IF NOT EXISTS settings (
                     platform TEXT NOT NULL,
                     owner_id TEXT NOT NULL,
@@ -127,11 +165,21 @@ class AgentStore:
                     PRIMARY KEY (platform, owner_id)
                 );
 
+                CREATE TABLE IF NOT EXISTS sticker_libraries (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS stickers (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     owner_id TEXT NOT NULL,
                     kind TEXT NOT NULL,
                     ref TEXT NOT NULL,
+                    library_id TEXT NOT NULL DEFAULT 'default',
                     category TEXT NOT NULL DEFAULT '未分类',
                     source_name TEXT NOT NULL DEFAULT '',
                     caption TEXT NOT NULL DEFAULT '',
@@ -165,6 +213,29 @@ class AgentStore:
                     created_at INTEGER NOT NULL,
                     PRIMARY KEY (owner_id, name)
                 );
+
+                CREATE TABLE IF NOT EXISTS sticker_selection_rules (
+                    scope_type TEXT NOT NULL,
+                    scope_key TEXT NOT NULL DEFAULT '',
+                    library_ids TEXT NOT NULL DEFAULT '[]',
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY (scope_type, scope_key)
+                );
+
+                CREATE TABLE IF NOT EXISTS sticker_candidates (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    owner_id TEXT NOT NULL DEFAULT '0',
+                    library_id TEXT NOT NULL DEFAULT 'default',
+                    ref TEXT NOT NULL,
+                    source_name TEXT NOT NULL DEFAULT '',
+                    platform TEXT NOT NULL DEFAULT '',
+                    chat_id TEXT NOT NULL DEFAULT '',
+                    sender_id TEXT NOT NULL DEFAULT '',
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(owner_id, ref)
+                );
+                CREATE INDEX IF NOT EXISTS idx_sticker_candidates_created
+                    ON sticker_candidates(created_at DESC);
 
                 CREATE TABLE IF NOT EXISTS shared_locations (
                     platform TEXT NOT NULL,
@@ -228,6 +299,25 @@ class AgentStore:
                     ON group_messages(
                         platform, group_id, role, created_at
                     );
+
+                CREATE TABLE IF NOT EXISTS group_jargon (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    platform TEXT NOT NULL,
+                    group_id TEXT NOT NULL,
+                    term TEXT NOT NULL,
+                    meaning TEXT NOT NULL DEFAULT '',
+                    example TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    occurrences INTEGER NOT NULL DEFAULT 1,
+                    member_count INTEGER NOT NULL DEFAULT 1,
+                    first_seen INTEGER NOT NULL,
+                    last_seen INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    UNIQUE(platform, group_id, term)
+                );
+                CREATE INDEX IF NOT EXISTS idx_group_jargon_status
+                    ON group_jargon(status, updated_at);
 
                 CREATE TABLE IF NOT EXISTS group_proactive_state (
                     platform TEXT NOT NULL,
@@ -350,6 +440,12 @@ class AgentStore:
                 """
             )
             conn.execute(
+                """INSERT OR IGNORE INTO sticker_libraries
+                       (id, name, enabled, sort_order, created_at, updated_at)
+                   VALUES ('default', '默认图库', 1, 0, ?, ?)""",
+                (int(time.time()), int(time.time())),
+            )
+            conn.execute(
                 """UPDATE group_messages SET display_name = ?
                    WHERE role = 'assistant'
                      AND display_name IN ('折兮颜', '小颜', '大肥鱼',
@@ -467,6 +563,11 @@ class AgentStore:
                 conn.execute(
                     "ALTER TABLE stickers ADD COLUMN last_used_at INTEGER"
                 )
+            if "library_id" not in sticker_columns:
+                conn.execute(
+                    "ALTER TABLE stickers "
+                    "ADD COLUMN library_id TEXT NOT NULL DEFAULT 'default'"
+                )
             reminder_columns = {
                 row["name"]
                 for row in conn.execute("PRAGMA table_info(reminders)").fetchall()
@@ -484,6 +585,10 @@ class AgentStore:
             conn.execute(
                 "UPDATE stickers SET category = '未分类' "
                 "WHERE TRIM(category) = ''"
+            )
+            conn.execute(
+                "UPDATE stickers SET library_id = 'default' "
+                "WHERE TRIM(COALESCE(library_id, '')) = ''"
             )
             conn.execute(
                 """INSERT OR IGNORE INTO stickers(
@@ -1629,6 +1734,173 @@ class AgentStore:
             ).fetchall()
         return [dict(row) for row in reversed(rows)]
 
+    def get_group_reply_stats(
+        self,
+        platform: str,
+        group_id: str,
+        since: int,
+    ) -> dict[str, int]:
+        with self._connection() as conn:
+            row = conn.execute(
+                """SELECT COUNT(*) AS reply_count,
+                          COALESCE(MAX(created_at), 0) AS last_reply_at
+                   FROM group_messages
+                   WHERE platform = ? AND group_id = ?
+                     AND role = 'assistant' AND created_at >= ?""",
+                (
+                    platform,
+                    str(group_id),
+                    int(since),
+                ),
+            ).fetchone()
+        return {
+            "reply_count": int(row["reply_count"] or 0) if row else 0,
+            "last_reply_at": int(row["last_reply_at"] or 0) if row else 0,
+        }
+
+    def upsert_group_jargon_candidates(
+        self,
+        platform: str,
+        group_id: str,
+        candidates: list[dict[str, Any]],
+    ) -> int:
+        now = int(time.time())
+        saved = 0
+        with self._lock, self._connection() as conn:
+            for item in candidates[:20]:
+                term = " ".join(str(item.get("term") or "").split()).strip()[:24]
+                if len(term) < 2:
+                    continue
+                occurrences = max(1, int(item.get("occurrences") or 1))
+                member_count = max(1, int(item.get("member_count") or 1))
+                conn.execute(
+                    """INSERT INTO group_jargon
+                       (platform, group_id, term, status, occurrences,
+                        member_count, first_seen, last_seen, created_at,
+                        updated_at)
+                       VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(platform, group_id, term) DO UPDATE SET
+                           occurrences = MAX(
+                               group_jargon.occurrences,
+                               excluded.occurrences
+                           ),
+                           member_count = MAX(
+                               group_jargon.member_count,
+                               excluded.member_count
+                           ),
+                           last_seen = excluded.last_seen,
+                           updated_at = excluded.updated_at""",
+                    (
+                        platform,
+                        str(group_id),
+                        term,
+                        occurrences,
+                        member_count,
+                        now,
+                        now,
+                        now,
+                        now,
+                    ),
+                )
+                saved += 1
+        return saved
+
+    def list_group_jargon(
+        self,
+        *,
+        include_rejected: bool = False,
+        limit: int = 200,
+    ) -> list[dict]:
+        where = "" if include_rejected else "WHERE status != 'rejected'"
+        with self._connection() as conn:
+            rows = conn.execute(
+                f"""SELECT id, platform, group_id, term, meaning, example,
+                           status, occurrences, member_count, first_seen,
+                           last_seen, created_at, updated_at
+                    FROM group_jargon
+                    {where}
+                    ORDER BY CASE status
+                                 WHEN 'pending' THEN 0
+                                 WHEN 'approved' THEN 1
+                                 ELSE 2
+                             END,
+                             occurrences DESC, updated_at DESC
+                    LIMIT ?""",
+                (max(1, min(int(limit), 500)),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def update_group_jargon(
+        self,
+        jargon_id: int,
+        *,
+        status: str | None = None,
+        meaning: str | None = None,
+        example: str | None = None,
+    ) -> dict | None:
+        updates: dict[str, Any] = {}
+        if status is not None:
+            if status not in ("pending", "approved", "rejected"):
+                raise ValueError("无效的黑话状态。")
+            updates["status"] = status
+        if meaning is not None:
+            updates["meaning"] = " ".join(str(meaning).split()).strip()[:500]
+        if example is not None:
+            updates["example"] = " ".join(str(example).split()).strip()[:500]
+        if not updates:
+            return None
+        updates["updated_at"] = int(time.time())
+        assignments = ", ".join(f"{key} = ?" for key in updates)
+        with self._lock, self._connection() as conn:
+            cursor = conn.execute(
+                f"""UPDATE group_jargon SET {assignments} WHERE id = ?""",
+                (*updates.values(), int(jargon_id)),
+            )
+            if cursor.rowcount <= 0:
+                return None
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM group_jargon WHERE id = ?",
+                (int(jargon_id),),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def delete_group_jargon(self, jargon_id: int) -> bool:
+        with self._lock, self._connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM group_jargon WHERE id = ?",
+                (int(jargon_id),),
+            )
+        return cursor.rowcount > 0
+
+    def approved_group_jargon(
+        self,
+        platform: str,
+        group_id: str,
+        text: str,
+        limit: int = 6,
+    ) -> list[dict]:
+        value = str(text or "")[:4000]
+        if not value:
+            return []
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT id, term, meaning, example, occurrences
+                   FROM group_jargon
+                   WHERE platform = ? AND group_id = ?
+                     AND status = 'approved' AND meaning != ''
+                     AND instr(?, term) > 0
+                   ORDER BY LENGTH(term) DESC, occurrences DESC
+                   LIMIT ?""",
+                (
+                    platform,
+                    str(group_id),
+                    value,
+                    max(1, min(int(limit), 12)),
+                ),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def clear_group_messages(
         self,
         platform: str,
@@ -1807,9 +2079,280 @@ class AgentStore:
             except sqlite3.IntegrityError:
                 return False
 
+    def claim_memory_extraction(
+        self,
+        day: str,
+        platform: str,
+        owner_id: str,
+        limit: int,
+    ) -> bool:
+        maximum = max(1, min(int(limit), 100))
+        now = int(time.time())
+        with self._lock, self._connection() as conn:
+            row = conn.execute(
+                """SELECT attempts FROM memory_extraction_runs
+                   WHERE day = ? AND platform = ? AND owner_id = ?""",
+                (day, platform, str(owner_id)),
+            ).fetchone()
+            attempts = int(row["attempts"] or 0) if row else 0
+            if attempts >= maximum:
+                return False
+            conn.execute(
+                """INSERT INTO memory_extraction_runs
+                       (day, platform, owner_id, attempts, updated_at)
+                   VALUES (?, ?, ?, 1, ?)
+                   ON CONFLICT(day, platform, owner_id) DO UPDATE SET
+                       attempts = memory_extraction_runs.attempts + 1,
+                       updated_at = excluded.updated_at""",
+                (day, platform, str(owner_id), now),
+            )
+            conn.execute(
+                "DELETE FROM memory_extraction_runs WHERE day < ?",
+                ((datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d"),),
+            )
+        return True
+
+    def record_agent_metric(
+        self,
+        kind: str,
+        success: bool,
+        latency_ms: int = 0,
+    ) -> None:
+        day = datetime.now().strftime("%Y-%m-%d")
+        now = int(time.time())
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """INSERT INTO agent_call_metrics
+                       (day, kind, success, call_count, total_ms, last_at)
+                   VALUES (?, ?, ?, 1, ?, ?)
+                   ON CONFLICT(day, kind, success) DO UPDATE SET
+                       call_count = agent_call_metrics.call_count + 1,
+                       total_ms = agent_call_metrics.total_ms + excluded.total_ms,
+                       last_at = excluded.last_at""",
+                (
+                    day,
+                    str(kind or "other")[:40],
+                    1 if success else 0,
+                    max(0, int(latency_ms)),
+                    now,
+                ),
+            )
+            conn.execute(
+                "DELETE FROM agent_call_metrics WHERE day < ?",
+                (
+                    (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d"),
+                ),
+            )
+
+    def agent_metric_summary(self, days: int = 7) -> dict[str, Any]:
+        today = datetime.now().strftime("%Y-%m-%d")
+        since = (
+            datetime.now() - timedelta(days=max(1, min(int(days), 30)) - 1)
+        ).strftime("%Y-%m-%d")
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT day, kind, success, call_count, total_ms, last_at
+                   FROM agent_call_metrics
+                   WHERE day >= ?
+                   ORDER BY day, kind, success""",
+                (since,),
+            ).fetchall()
+        by_day: dict[str, dict[str, dict[str, int]]] = {}
+        total_calls = 0
+        failed_calls = 0
+        for row in rows:
+            day = str(row["day"])
+            kind = str(row["kind"])
+            count = int(row["call_count"] or 0)
+            item = by_day.setdefault(day, {}).setdefault(
+                kind,
+                {
+                    "success": 0,
+                    "failure": 0,
+                    "total_ms": 0,
+                    "last_at": 0,
+                },
+            )
+            item["success" if int(row["success"]) else "failure"] += count
+            item["total_ms"] += int(row["total_ms"] or 0)
+            item["last_at"] = max(item["last_at"], int(row["last_at"] or 0))
+            total_calls += count
+            if not int(row["success"]):
+                failed_calls += count
+        return {
+            "today": by_day.get(today, {}),
+            "by_day": by_day,
+            "total_calls": total_calls,
+            "failed_calls": failed_calls,
+        }
+
+    def prune_history(
+        self,
+        day: str,
+        private_days: int,
+        group_days: int,
+        now: int | None = None,
+    ) -> dict[str, int | bool]:
+        current = int(now or time.time())
+        with self._lock, self._connection() as conn:
+            existing = conn.execute(
+                "SELECT 1 FROM history_cleanup_runs WHERE day = ?",
+                (day,),
+            ).fetchone()
+            if existing:
+                return {
+                    "ran": False,
+                    "private_deleted": 0,
+                    "group_deleted": 0,
+                }
+            private_deleted = 0
+            group_deleted = 0
+            if int(private_days) > 0:
+                cursor = conn.execute(
+                    "DELETE FROM messages WHERE created_at < ?",
+                    (current - int(private_days) * 86400,),
+                )
+                private_deleted = max(0, int(cursor.rowcount))
+            if int(group_days) > 0:
+                cursor = conn.execute(
+                    "DELETE FROM group_messages WHERE created_at < ?",
+                    (current - int(group_days) * 86400,),
+                )
+                group_deleted = max(0, int(cursor.rowcount))
+            conn.execute(
+                """INSERT INTO history_cleanup_runs
+                   (day, private_deleted, group_deleted, created_at)
+                   VALUES (?, ?, ?, ?)""",
+                (day, private_deleted, group_deleted, current),
+            )
+        return {
+            "ran": True,
+            "private_deleted": private_deleted,
+            "group_deleted": group_deleted,
+        }
+
+    def set_group_quiet(
+        self,
+        platform: str,
+        group_id: str,
+        member_id: str,
+        quiet_until: int,
+        reason: str = "",
+    ) -> None:
+        now = int(time.time())
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """INSERT INTO group_quiet_state
+                       (platform, group_id, member_id, quiet_until,
+                        reason, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(platform, group_id, member_id) DO UPDATE SET
+                       quiet_until = excluded.quiet_until,
+                       reason = excluded.reason,
+                       created_at = excluded.created_at""",
+                (
+                    platform,
+                    str(group_id),
+                    str(member_id),
+                    int(quiet_until),
+                    str(reason or "")[:200],
+                    now,
+                ),
+            )
+
+    def clear_group_quiet(
+        self,
+        platform: str,
+        group_id: str,
+        member_id: str,
+    ) -> bool:
+        with self._lock, self._connection() as conn:
+            cursor = conn.execute(
+                """DELETE FROM group_quiet_state
+                   WHERE platform = ? AND group_id = ? AND member_id = ?""",
+                (platform, str(group_id), str(member_id)),
+            )
+        return cursor.rowcount > 0
+
+    def group_quiet_active(
+        self,
+        platform: str,
+        group_id: str,
+        member_id: str,
+        now: int | None = None,
+    ) -> dict | None:
+        current = int(now or time.time())
+        with self._connection() as conn:
+            row = conn.execute(
+                """SELECT platform, group_id, member_id, quiet_until, reason
+                   FROM group_quiet_state
+                   WHERE platform = ? AND group_id = ?
+                     AND member_id IN (?, '*') AND quiet_until > ?
+                   ORDER BY CASE member_id WHEN '*' THEN 1 ELSE 0 END
+                   LIMIT 1""",
+                (
+                    platform,
+                    str(group_id),
+                    str(member_id),
+                    current,
+                ),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def list_active_group_quiet(self, now: int | None = None) -> list[dict]:
+        current = int(now or time.time())
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT platform, group_id, member_id, quiet_until, reason
+                   FROM group_quiet_state
+                   WHERE quiet_until > ?
+                   ORDER BY quiet_until""",
+                (current,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def diagnostic_counts(self) -> dict[str, int]:
+        with self._connection() as conn:
+            row = conn.execute(
+                """SELECT
+                       (SELECT COUNT(*) FROM messages) AS messages,
+                       (SELECT COUNT(*) FROM group_messages) AS group_messages,
+                       (SELECT COUNT(*) FROM memories) AS memories,
+                       (SELECT COUNT(*) FROM group_jargon) AS group_jargon,
+                       (SELECT COUNT(*) FROM reminders
+                        WHERE sent_at IS NULL AND cancelled_at IS NULL)
+                           AS pending_reminders,
+                       (SELECT COUNT(*) FROM group_proactive_state)
+                           AS proactive_groups"""
+            ).fetchone()
+        return {
+            key: int(row[key] or 0)
+            for key in (
+                "messages",
+                "group_messages",
+                "memories",
+                "group_jargon",
+                "pending_reminders",
+                "proactive_groups",
+            )
+        }
+
+    def last_history_cleanup(self) -> dict | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                """SELECT day, private_deleted, group_deleted, created_at
+                   FROM history_cleanup_runs
+                   ORDER BY day DESC LIMIT 1"""
+            ).fetchone()
+        return dict(row) if row else None
+
     def get_settings(self, platform: str, owner_id: str) -> dict:
         defaults = {
             "memory_enabled": True,
+            "memory_immediate_extraction_enabled": True,
+            "memory_immediate_extraction_daily_limit": 12,
+            "private_history_retention_days": 90,
+            "group_history_retention_days": 30,
             "proactive_enabled": True,
             "proactive_max_per_day": 2,
             "quiet_start": "23:30",
@@ -1817,11 +2360,14 @@ class AgentStore:
             "morning_time": "09:00",
             "night_time": "21:30",
             "sticker_enabled": True,
+            "sticker_auto_collect_enabled": True,
+            "sticker_auto_collect_library": "default",
             "chat_human_delay": True,
             "persona_preset": "冷脸萌",
             "persona_custom_prompt": "",
             "web_search_enabled": True,
             "web_search_count": 5,
+            "web_domain_routing_enabled": True,
             "group_proactive_enabled": False,
             "group_weather_enabled": True,
             "group_holiday_enabled": True,
@@ -1833,6 +2379,12 @@ class AgentStore:
             "group_idle_random_max_minutes": 45,
             "group_idle_max_unanswered": 2,
             "group_idle_max_per_day": 1,
+            "group_reply_control_enabled": True,
+            "group_activity_level": "balanced",
+            "group_jargon_enabled": True,
+            "group_reply_max_per_10m": 6,
+            "group_reply_fatigue_rounds": 3,
+            "group_message_merge_seconds": 4,
             "voice_enabled": False,
             "memory_consolidation_enabled": True,
             "memory_consolidation_time": "03:30",
@@ -1847,7 +2399,9 @@ class AgentStore:
             try:
                 saved = json.loads(row["value_json"])
                 if isinstance(saved, dict):
-                    defaults.update(saved)
+                    defaults.update(
+                        normalize_settings_update(defaults, saved)
+                    )
             except json.JSONDecodeError:
                 pass
         original_custom = str(
@@ -1892,9 +2446,7 @@ class AgentStore:
 
     def save_settings(self, platform: str, owner_id: str, values: dict) -> dict:
         current = self.get_settings(platform, owner_id)
-        for key in current:
-            if key in values:
-                current[key] = values[key]
+        current.update(normalize_settings_update(current, values))
         with self._lock, self._connection() as conn:
             conn.execute(
                 """INSERT INTO settings(platform, owner_id, value_json, updated_at)
@@ -1922,9 +2474,17 @@ class AgentStore:
         caption: str = "",
         keywords: str = "",
         mood: str = "",
+        library_id: str = "default",
     ) -> int:
         category = str(category or "未分类").strip()[:40] or "未分类"
+        library_id = str(library_id or "default").strip()[:60] or "default"
         with self._lock, self._connection() as conn:
+            library = conn.execute(
+                "SELECT id FROM sticker_libraries WHERE id = ?",
+                (library_id,),
+            ).fetchone()
+            if not library:
+                library_id = "default"
             conn.execute(
                 """INSERT OR IGNORE INTO sticker_categories(
                        owner_id, name, created_at
@@ -1933,10 +2493,11 @@ class AgentStore:
             )
             conn.execute(
                 """INSERT INTO stickers(
-                       owner_id, kind, ref, category, source_name, caption,
-                       keywords, mood, tags, created_at
-                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       owner_id, kind, ref, library_id, category, source_name,
+                       caption, keywords, mood, tags, created_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(owner_id, kind, ref) DO UPDATE SET
+                       library_id = excluded.library_id,
                        category = excluded.category,
                        source_name = CASE
                            WHEN excluded.source_name <> ''
@@ -1963,6 +2524,7 @@ class AgentStore:
                     owner_id,
                     kind,
                     ref,
+                    library_id,
                     category,
                     str(source_name or "").strip()[:180],
                     str(caption or "").strip()[:200],
@@ -1978,17 +2540,381 @@ class AgentStore:
             ).fetchone()
         return int(row["id"])
 
-    def list_stickers(self, owner_id: str, limit: int = 100) -> list[dict]:
+    def list_stickers(
+        self,
+        owner_id: str,
+        limit: int = 100,
+        library_id: str | None = None,
+    ) -> list[dict]:
+        sql = """SELECT id, kind, ref, library_id, category, source_name,
+                        caption, keywords, mood, tags, use_count,
+                        last_used_at, created_at
+                 FROM stickers WHERE owner_id = ?"""
+        params: list = [owner_id]
+        if library_id:
+            sql += " AND library_id = ?"
+            params.append(str(library_id))
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(max(1, min(int(limit), 1000)))
+        with self._connection() as conn:
+            rows = conn.execute(sql, tuple(params)).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_sticker_libraries(
+        self,
+        include_disabled: bool = True,
+    ) -> list[dict]:
+        sql = """SELECT l.id, l.name, l.enabled, l.sort_order, l.created_at,
+                        l.updated_at, COUNT(s.id) AS sticker_count
+                 FROM sticker_libraries l
+                 LEFT JOIN stickers s
+                   ON s.library_id = l.id AND s.owner_id = '0'"""
+        if not include_disabled:
+            sql += " WHERE l.enabled = 1"
+        sql += """ GROUP BY l.id, l.name, l.enabled, l.sort_order,
+                          l.created_at, l.updated_at
+                   ORDER BY l.sort_order, l.created_at, l.name"""
+        with self._connection() as conn:
+            rows = conn.execute(sql).fetchall()
+        return [dict(row) for row in rows]
+
+    def create_sticker_library(self, name: str) -> dict:
+        value = " ".join(str(name or "").split()).strip()[:40]
+        if not value:
+            raise ValueError("图库名称不能为空。")
+        now = int(time.time())
+        with self._lock, self._connection() as conn:
+            if conn.execute(
+                "SELECT 1 FROM sticker_libraries WHERE name = ?",
+                (value,),
+            ).fetchone():
+                raise ValueError("已经存在同名图库。")
+            library_id = ""
+            for _attempt in range(20):
+                candidate = "lib-" + secrets.token_hex(4)
+                if not conn.execute(
+                    "SELECT 1 FROM sticker_libraries WHERE id = ?",
+                    (candidate,),
+                ).fetchone():
+                    library_id = candidate
+                    break
+            if not library_id:
+                raise ValueError("图库编号生成失败，请重试。")
+            sort_order = conn.execute(
+                "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next "
+                "FROM sticker_libraries"
+            ).fetchone()["next"]
+            conn.execute(
+                """INSERT INTO sticker_libraries
+                       (id, name, enabled, sort_order, created_at, updated_at)
+                   VALUES (?, ?, 1, ?, ?, ?)""",
+                (library_id, value, int(sort_order), now, now),
+            )
+            row = conn.execute(
+                "SELECT * FROM sticker_libraries WHERE id = ?",
+                (library_id,),
+            ).fetchone()
+        result = dict(row)
+        result["sticker_count"] = 0
+        return result
+
+    def update_sticker_library(
+        self,
+        library_id: str,
+        *,
+        name: str | None = None,
+        enabled: bool | None = None,
+    ) -> dict | None:
+        library_id = str(library_id or "").strip()
+        if not library_id:
+            return None
+        changes = []
+        params: list = []
+        if name is not None:
+            value = " ".join(str(name or "").split()).strip()[:40]
+            if not value:
+                raise ValueError("图库名称不能为空。")
+            changes.append("name = ?")
+            params.append(value)
+        if enabled is not None:
+            changes.append("enabled = ?")
+            params.append(1 if enabled else 0)
+        if not changes:
+            return None
+        changes.append("updated_at = ?")
+        params.append(int(time.time()))
+        params.append(library_id)
+        try:
+            with self._lock, self._connection() as conn:
+                cursor = conn.execute(
+                    f"""UPDATE sticker_libraries SET {", ".join(changes)}
+                        WHERE id = ?""",
+                    tuple(params),
+                )
+                if not cursor.rowcount:
+                    return None
+                row = conn.execute(
+                    """SELECT l.id, l.name, l.enabled, l.sort_order,
+                              l.created_at, l.updated_at,
+                              COUNT(s.id) AS sticker_count
+                       FROM sticker_libraries l
+                       LEFT JOIN stickers s
+                         ON s.library_id = l.id AND s.owner_id = '0'
+                       WHERE l.id = ?
+                       GROUP BY l.id""",
+                    (library_id,),
+                ).fetchone()
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("已经存在同名图库。") from exc
+        return dict(row) if row else None
+
+    def move_stickers_to_library(
+        self,
+        owner_id: str,
+        sticker_ids: list[int],
+        library_id: str,
+    ) -> int:
+        library_id = str(library_id or "").strip()
+        unique_ids = []
+        for sticker_id in sticker_ids[:200]:
+            try:
+                value = int(sticker_id)
+            except (TypeError, ValueError):
+                continue
+            if value not in unique_ids:
+                unique_ids.append(value)
+        if not unique_ids or not library_id:
+            return 0
+        placeholders = ",".join("?" for _ in unique_ids)
+        with self._lock, self._connection() as conn:
+            if not conn.execute(
+                "SELECT 1 FROM sticker_libraries WHERE id = ?",
+                (library_id,),
+            ).fetchone():
+                return 0
+            cursor = conn.execute(
+                f"""UPDATE stickers SET library_id = ?
+                    WHERE owner_id = ? AND id IN ({placeholders})""",
+                (library_id, owner_id, *unique_ids),
+            )
+        return int(cursor.rowcount or 0)
+
+    def list_sticker_rules(self) -> list[dict]:
         with self._connection() as conn:
             rows = conn.execute(
-                """SELECT id, kind, ref, category, source_name, caption,
-                          keywords, mood, tags, use_count, last_used_at,
-                          created_at
-                   FROM stickers
-                   WHERE owner_id = ? ORDER BY id DESC LIMIT ?""",
-                (owner_id, max(1, min(int(limit), 1000))),
+                """SELECT scope_type, scope_key, library_ids, updated_at
+                   FROM sticker_selection_rules
+                   ORDER BY scope_type, scope_key"""
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            try:
+                value = json.loads(str(item.get("library_ids") or "[]"))
+            except json.JSONDecodeError:
+                value = []
+            item["library_ids"] = [
+                str(library_id)
+                for library_id in (value if isinstance(value, list) else [])
+                if str(library_id).strip()
+            ]
+            result.append(item)
+        return result
+
+    def set_sticker_rule(
+        self,
+        scope_type: str,
+        scope_key: str,
+        library_ids: list[str],
+    ) -> list[str]:
+        if scope_type not in ("default", "group", "persona"):
+            raise ValueError("不支持的选图规则范围。")
+        normalized_key = (
+            ""
+            if scope_type == "default"
+            else " ".join(str(scope_key or "").split()).strip()[:200]
+        )
+        if scope_type != "default" and not normalized_key:
+            raise ValueError("请选择规则对象。")
+        with self._lock, self._connection() as conn:
+            available = {
+                str(row["id"])
+                for row in conn.execute(
+                    "SELECT id FROM sticker_libraries"
+                ).fetchall()
+            }
+            selected = []
+            for value in library_ids[:50]:
+                library_id = str(value or "").strip()
+                if (
+                    library_id in available
+                    and library_id not in selected
+                ):
+                    selected.append(library_id)
+            if not selected:
+                conn.execute(
+                    """DELETE FROM sticker_selection_rules
+                       WHERE scope_type = ? AND scope_key = ?""",
+                    (scope_type, normalized_key),
+                )
+                return []
+            conn.execute(
+                """INSERT INTO sticker_selection_rules
+                       (scope_type, scope_key, library_ids, updated_at)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(scope_type, scope_key) DO UPDATE SET
+                       library_ids = excluded.library_ids,
+                       updated_at = excluded.updated_at""",
+                (
+                    scope_type,
+                    normalized_key,
+                    json.dumps(selected, ensure_ascii=False),
+                    int(time.time()),
+                ),
+            )
+        return selected
+
+    def resolve_sticker_library_ids(
+        self,
+        platform: str,
+        chat_type: str,
+        chat_id: str,
+        persona_preset: str,
+    ) -> list[str]:
+        with self._connection() as conn:
+            enabled = [
+                str(row["id"])
+                for row in conn.execute(
+                    """SELECT id FROM sticker_libraries
+                       WHERE enabled = 1
+                       ORDER BY sort_order, created_at, name"""
+                ).fetchall()
+            ]
+            enabled_set = set(enabled)
+            rows = conn.execute(
+                """SELECT scope_type, scope_key, library_ids
+                   FROM sticker_selection_rules"""
+            ).fetchall()
+        rules = {}
+        for row in rows:
+            try:
+                value = json.loads(str(row["library_ids"] or "[]"))
+            except json.JSONDecodeError:
+                value = []
+            rules[(str(row["scope_type"]), str(row["scope_key"]))] = [
+                str(library_id)
+                for library_id in (value if isinstance(value, list) else [])
+                if str(library_id) in enabled_set
+            ]
+        candidates = []
+        if str(chat_type or "") == "group" and chat_id:
+            candidates.append(
+                ("group", f"{platform}:{chat_id}")
+            )
+        persona = " ".join(str(persona_preset or "").split()).strip()[:200]
+        if persona:
+            candidates.append(("persona", persona))
+        candidates.append(("default", ""))
+        for key in candidates:
+            selected = rules.get(key) or []
+            if selected:
+                return selected
+        return enabled
+
+    def add_sticker_candidate(
+        self,
+        owner_id: str,
+        ref: str,
+        library_id: str,
+        source_name: str = "",
+        platform: str = "",
+        chat_id: str = "",
+        sender_id: str = "",
+    ) -> int | None:
+        ref = Path(str(ref or "")).name
+        if not ref:
+            return None
+        library_id = str(library_id or "default").strip()[:60] or "default"
+        with self._lock, self._connection() as conn:
+            if not conn.execute(
+                "SELECT 1 FROM sticker_libraries WHERE id = ?",
+                (library_id,),
+            ).fetchone():
+                library_id = "default"
+            if conn.execute(
+                """SELECT 1 FROM stickers
+                   WHERE owner_id = ? AND kind = 'image' AND ref = ?""",
+                (owner_id, ref),
+            ).fetchone():
+                return None
+            cursor = conn.execute(
+                """INSERT OR IGNORE INTO sticker_candidates
+                       (owner_id, library_id, ref, source_name, platform,
+                        chat_id, sender_id, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    owner_id,
+                    library_id,
+                    ref,
+                    Path(str(source_name or "")).name[:180],
+                    str(platform or "")[:30],
+                    str(chat_id or "")[:200],
+                    str(sender_id or "")[:200],
+                    int(time.time()),
+                ),
+            )
+            if not cursor.rowcount:
+                return None
+            candidate_id = int(cursor.lastrowid)
+        return candidate_id
+
+    def list_sticker_candidates(
+        self,
+        owner_id: str = "0",
+        limit: int = 100,
+    ) -> list[dict]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT c.id, c.owner_id, c.library_id, c.ref,
+                          c.source_name, c.platform, c.chat_id,
+                          c.sender_id, c.created_at,
+                          COALESCE(l.name, c.library_id) AS library_name
+                   FROM sticker_candidates c
+                   LEFT JOIN sticker_libraries l ON l.id = c.library_id
+                   WHERE c.owner_id = ?
+                   ORDER BY c.id DESC LIMIT ?""",
+                (
+                    owner_id,
+                    max(1, min(int(limit), 200)),
+                ),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def get_sticker_candidate(self, candidate_id: int) -> dict | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                """SELECT id, owner_id, library_id, ref, source_name,
+                          platform, chat_id, sender_id, created_at
+                   FROM sticker_candidates WHERE id = ?""",
+                (int(candidate_id),),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def delete_sticker_candidate(self, candidate_id: int) -> dict | None:
+        with self._lock, self._connection() as conn:
+            row = conn.execute(
+                """SELECT id, owner_id, library_id, ref, source_name,
+                          platform, chat_id, sender_id, created_at
+                   FROM sticker_candidates WHERE id = ?""",
+                (int(candidate_id),),
+            ).fetchone()
+            if not row:
+                return None
+            conn.execute(
+                "DELETE FROM sticker_candidates WHERE id = ?",
+                (int(candidate_id),),
+            )
+        return dict(row)
 
     def list_sticker_categories(self, owner_id: str) -> list[str]:
         with self._connection() as conn:

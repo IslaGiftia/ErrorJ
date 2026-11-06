@@ -11,6 +11,15 @@
   var memorySearch = document.getElementById("agentMemorySearch");
   var memoryArchived = document.getElementById("agentMemoryArchived");
   var memoryCount = document.getElementById("agentMemoryCount");
+  var jargonList = document.getElementById("agentJargonList");
+  var jargonCount = document.getElementById("agentJargonCount");
+  var jargonStatusFilter = document.getElementById("agentJargonStatusFilter");
+  var diagnosticsThreads = document.getElementById("agentDiagnosticThreads");
+  var diagnosticsCounts = document.getElementById("agentDiagnosticCounts");
+  var diagnosticsCleanup = document.getElementById("agentDiagnosticCleanup");
+  var diagnosticsSearchResult = document.getElementById(
+    "agentDiagnosticsSearchResult"
+  );
   var groupMemberList = document.getElementById("agentGroupMemberList");
   var timelineList = document.getElementById("agentTimelineList");
   var timelineForm = document.getElementById("agentTimelineForm");
@@ -34,6 +43,24 @@
   var stickerExport = document.getElementById("agentStickerExport");
   var stickerImportBtn = document.getElementById("agentStickerImportBtn");
   var stickerImportInput = document.getElementById("agentStickerImportInput");
+  var stickerLibrarySelect = document.getElementById("agentStickerLibrary");
+  var stickerLibraryEnabled = document.getElementById("agentStickerLibraryEnabled");
+  var stickerLibraryAdd = document.getElementById("agentStickerLibraryAdd");
+  var stickerLibraryCreateForm = document.getElementById("agentStickerLibraryCreateForm");
+  var stickerLibraryCreateName = document.getElementById("agentStickerLibraryCreateName");
+  var stickerLibraryCreateCancel = document.getElementById("agentStickerLibraryCreateCancel");
+  var stickerLibraryRenameForm = document.getElementById("agentStickerLibraryRenameForm");
+  var stickerLibraryRename = document.getElementById("agentStickerLibraryRename");
+  var stickerAutoCollectEnabled = document.getElementById("settingStickerAutoCollectEnabled");
+  var stickerAutoCollectLibrary = document.getElementById("settingStickerAutoCollectLibrary");
+  var stickerRuleScope = document.getElementById("agentStickerRuleScope");
+  var stickerRuleKeyLabel = document.getElementById("agentStickerRuleKeyLabel");
+  var stickerRuleKey = document.getElementById("agentStickerRuleKey");
+  var stickerRuleLibraries = document.getElementById("agentStickerRuleLibraries");
+  var stickerRuleSummary = document.getElementById("agentStickerRuleSummary");
+  var stickerRuleSave = document.getElementById("agentStickerRuleSave");
+  var stickerCandidateCount = document.getElementById("agentStickerCandidateCount");
+  var stickerCandidateList = document.getElementById("agentStickerCandidateList");
   var stickerBulk = document.getElementById("agentStickerBulk");
   var stickerSelectedCount = document.getElementById("agentStickerSelectedCount");
   var stickerBulkCategory = document.getElementById("agentStickerBulkCategory");
@@ -42,9 +69,18 @@
   var stickerBulkKeywords = document.getElementById("agentStickerBulkKeywords");
   var stickerBulkMood = document.getElementById("agentStickerBulkMood");
   var stickerBulkUpdate = document.getElementById("agentStickerBulkUpdate");
+  var stickerBulkLibrary = document.getElementById("agentStickerBulkLibrary");
+  var stickerBulkLibraryMove = document.getElementById("agentStickerBulkLibraryMove");
   var stickerCategories = ["未分类"];
   var selectedStickerIds = {};
   var currentStickers = [];
+  var stickerLibraries = [];
+  var stickerRules = [];
+  var stickerRuleGroups = [];
+  var stickerCandidates = [];
+  var selectedStickerLibraryId = "default";
+  var stickerAutoCollectLibraryValue = "default";
+  var currentJargonItems = [];
   var settingsDirty = false;
   var memorySearchTimer = null;
   var memoryRequestId = 0;
@@ -429,6 +465,13 @@
     else element.value = value == null ? "" : String(value);
   }
 
+  function numberSetting(id, fallback) {
+    var element = document.getElementById(id);
+    if (!element || element.value === "") return fallback;
+    var value = Number(element.value);
+    return Number.isFinite(value) ? value : fallback;
+  }
+
   function loadSettings() {
     return fetch("/api/agent/web/settings", {
       credentials: "same-origin",
@@ -438,6 +481,22 @@
       .then(function (data) {
         var settings = data.settings || {};
         settingValue("settingMemoryEnabled", settings.memory_enabled);
+        settingValue(
+          "settingMemoryImmediateExtractionEnabled",
+          settings.memory_immediate_extraction_enabled
+        );
+        settingValue(
+          "settingMemoryImmediateDailyLimit",
+          settings.memory_immediate_extraction_daily_limit
+        );
+        settingValue(
+          "settingPrivateHistoryRetentionDays",
+          settings.private_history_retention_days
+        );
+        settingValue(
+          "settingGroupHistoryRetentionDays",
+          settings.group_history_retention_days
+        );
         settingValue(
           "settingMemoryConsolidationEnabled",
           settings.memory_consolidation_enabled
@@ -452,6 +511,17 @@
         );
         settingValue("settingProactiveEnabled", settings.proactive_enabled);
         settingValue("settingStickerEnabled", settings.sticker_enabled);
+        settingValue(
+          "settingStickerAutoCollectEnabled",
+          settings.sticker_auto_collect_enabled
+        );
+        stickerAutoCollectLibraryValue = String(
+          settings.sticker_auto_collect_library || "default"
+        );
+        settingValue(
+          "settingStickerAutoCollectLibrary",
+          stickerAutoCollectLibraryValue
+        );
         settingValue("settingChatHumanDelay", settings.chat_human_delay);
         settingValue("settingPersonaPreset", settings.persona_preset);
         settingValue(
@@ -461,12 +531,28 @@
         settingValue("settingWebSearchEnabled", settings.web_search_enabled);
         settingValue("settingWebSearchCount", settings.web_search_count);
         settingValue(
+          "settingWebDomainRoutingEnabled",
+          settings.web_domain_routing_enabled
+        );
+        settingValue(
           "settingGroupProactiveEnabled",
           settings.group_proactive_enabled
         );
         settingValue(
           "settingGroupIdleProactiveEnabled",
           settings.group_idle_proactive_enabled
+        );
+        settingValue(
+          "settingGroupReplyControlEnabled",
+          settings.group_reply_control_enabled
+        );
+        settingValue(
+          "settingGroupActivityLevel",
+          settings.group_activity_level || "balanced"
+        );
+        settingValue(
+          "settingGroupJargonEnabled",
+          settings.group_jargon_enabled
         );
         settingValue(
           "settingGroupWeatherEnabled",
@@ -501,6 +587,18 @@
           "settingGroupIdleMaxUnanswered",
           settings.group_idle_max_unanswered
         );
+        settingValue(
+          "settingGroupReplyMax",
+          settings.group_reply_max_per_10m
+        );
+        settingValue(
+          "settingGroupReplyFatigueRounds",
+          settings.group_reply_fatigue_rounds
+        );
+        settingValue(
+          "settingGroupMessageMergeSeconds",
+          settings.group_message_merge_seconds
+        );
         settingValue("settingProactiveMax", settings.proactive_max_per_day);
         settingValue("settingMorningTime", settings.morning_time);
         settingValue("settingNightTime", settings.night_time);
@@ -521,6 +619,17 @@
     setSettingsStatus("正在保存基础设置…", true);
     var values = {
       memory_enabled: document.getElementById("settingMemoryEnabled").checked,
+      memory_immediate_extraction_enabled: document.getElementById(
+        "settingMemoryImmediateExtractionEnabled"
+      ).checked,
+      memory_immediate_extraction_daily_limit:
+        Number(
+          document.getElementById("settingMemoryImmediateDailyLimit").value
+        ) || 12,
+      private_history_retention_days:
+        numberSetting("settingPrivateHistoryRetentionDays", 90),
+      group_history_retention_days:
+        numberSetting("settingGroupHistoryRetentionDays", 30),
       memory_consolidation_enabled: document.getElementById(
         "settingMemoryConsolidationEnabled"
       ).checked,
@@ -534,6 +643,9 @@
         "settingProactiveEnabled"
       ).checked,
       sticker_enabled: document.getElementById("settingStickerEnabled").checked,
+      sticker_auto_collect_enabled: stickerAutoCollectEnabled.checked,
+      sticker_auto_collect_library:
+        stickerAutoCollectLibrary.value || "default",
       chat_human_delay: document.getElementById("settingChatHumanDelay").checked,
       persona_preset: document.getElementById("settingPersonaPreset").value,
       persona_custom_prompt: document.getElementById(
@@ -544,11 +656,23 @@
       ).checked,
       web_search_count:
         Number(document.getElementById("settingWebSearchCount").value) || 5,
+      web_domain_routing_enabled: document.getElementById(
+        "settingWebDomainRoutingEnabled"
+      ).checked,
       group_proactive_enabled: document.getElementById(
         "settingGroupProactiveEnabled"
       ).checked,
       group_idle_proactive_enabled: document.getElementById(
         "settingGroupIdleProactiveEnabled"
+      ).checked,
+      group_reply_control_enabled: document.getElementById(
+        "settingGroupReplyControlEnabled"
+      ).checked,
+      group_activity_level: document.getElementById(
+        "settingGroupActivityLevel"
+      ).value,
+      group_jargon_enabled: document.getElementById(
+        "settingGroupJargonEnabled"
       ).checked,
       group_weather_enabled: document.getElementById(
         "settingGroupWeatherEnabled"
@@ -582,6 +706,16 @@
         Number(
           document.getElementById("settingGroupIdleMaxUnanswered").value
         ) || 2,
+      group_reply_max_per_10m:
+        Number(document.getElementById("settingGroupReplyMax").value) || 6,
+      group_reply_fatigue_rounds:
+        Number(
+          document.getElementById("settingGroupReplyFatigueRounds").value
+        ) || 3,
+      group_message_merge_seconds:
+        Number(
+          document.getElementById("settingGroupMessageMergeSeconds").value
+        ) || 0,
       proactive_max_per_day:
         Number(document.getElementById("settingProactiveMax").value) || 2,
       morning_time: document.getElementById("settingMorningTime").value,
@@ -721,6 +855,276 @@
       .catch(function (error) {
         if (requestId !== memoryRequestId) return;
         setSettingsStatus(error.message, settingsDirty);
+      });
+  }
+
+  function jargonStatusLabel(status) {
+    if (status === "approved") return "已启用";
+    if (status === "rejected") return "已忽略";
+    return "待确认";
+  }
+
+  function renderGroupJargon() {
+    var filter = jargonStatusFilter.value || "pending";
+    var items = currentJargonItems.filter(function (item) {
+      return filter === "all" || item.status === filter;
+    });
+    jargonList.innerHTML = "";
+    if (!items.length) {
+      jargonList.innerHTML =
+        '<div class="agent-memory-item"><p>当前没有符合条件的群黑话。</p></div>';
+      return;
+    }
+    items.forEach(function (item) {
+      var status = String(item.status || "pending");
+      var element = document.createElement("div");
+      element.className = "agent-memory-item agent-jargon-item";
+      element.dataset.jargonId = String(item.id);
+      var actions = [
+        '<button type="button" data-jargon-action="save">保存</button>',
+      ];
+      if (status === "pending") {
+        actions.unshift(
+          '<button type="button" class="is-primary" data-jargon-action="approve">批准并启用</button>'
+        );
+        actions.push(
+          '<button type="button" data-jargon-action="reject">忽略</button>'
+        );
+      } else if (status === "approved") {
+        actions.push(
+          '<button type="button" data-jargon-action="reject">停用</button>'
+        );
+      } else {
+        actions = [
+          '<button type="button" data-jargon-action="reopen">重新打开</button>',
+        ];
+      }
+      actions.push(
+        '<button type="button" data-jargon-action="delete">删除</button>'
+      );
+      element.innerHTML =
+        '<div class="agent-jargon-copy">' +
+          '<div class="agent-jargon-head">' +
+            '<strong class="agent-jargon-term">' +
+              escapeHtml(item.term) +
+            "</strong>" +
+            '<span class="agent-jargon-status ' +
+              (status === "approved" ? "is-approved" : "") +
+            '">' + jargonStatusLabel(status) + "</span>" +
+            '<span class="agent-jargon-meta">' +
+              escapeHtml(item.group_label || item.group_id || "") +
+              " · 出现 " + Number(item.occurrences || 0) + " 次" +
+              " · " + Number(item.member_count || 0) + " 人使用" +
+            "</span>" +
+          "</div>" +
+          '<div class="agent-jargon-editor">' +
+            "<label><span>在群里的意思</span>" +
+              '<input class="agent-jargon-meaning" maxlength="500" ' +
+                'value="' + escapeHtml(item.meaning || "") + '" ' +
+                'placeholder="例如：表示非常赞同或夸张"></label>' +
+            "<label><span>例句（可选）</span>" +
+              '<input class="agent-jargon-example" maxlength="500" ' +
+                'value="' + escapeHtml(item.example || "") + '" ' +
+                'placeholder="例如：这操作真绝绝子"></label>' +
+          "</div>" +
+          '<div class="agent-jargon-actions">' + actions.join("") + "</div>" +
+        "</div>";
+      jargonList.appendChild(element);
+    });
+  }
+
+  function loadGroupJargon() {
+    return fetch("/api/agent/web/group-jargon", {
+      credentials: "same-origin",
+      cache: "no-store",
+    })
+      .then(readApiResponse)
+      .then(function (data) {
+        currentJargonItems = data.items || [];
+        jargonCount.textContent =
+          Number(data.pending_count || 0) + " 待确认 · " +
+          Number(data.approved_count || 0) + " 已启用";
+        renderGroupJargon();
+      })
+      .catch(function (error) {
+        currentJargonItems = [];
+        jargonList.innerHTML =
+          '<div class="agent-memory-item"><p>' +
+          escapeHtml(error.message) +
+          "</p></div>";
+      });
+  }
+
+  function updateGroupJargon(item, action) {
+    var meaning = item.querySelector(".agent-jargon-meaning").value.trim();
+    var example = item.querySelector(".agent-jargon-example").value.trim();
+    if (action === "approve" && !meaning) {
+      setSettingsStatus("批准前请填写这个词在群里的意思。", settingsDirty);
+      item.querySelector(".agent-jargon-meaning").focus();
+      return;
+    }
+    var buttons = item.querySelectorAll("button");
+    buttons.forEach(function (button) {
+      button.disabled = true;
+    });
+    fetch("/api/agent/web/group-jargon", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: Number(item.dataset.jargonId),
+        action: action,
+        meaning: meaning,
+        example: example,
+      }),
+    })
+      .then(readApiResponse)
+      .then(function (data) {
+        currentJargonItems = data.items || [];
+        if (action === "approve" && jargonStatusFilter.value === "pending") {
+          jargonStatusFilter.value = "approved";
+        } else if (
+          action === "reject" &&
+          jargonStatusFilter.value !== "all"
+        ) {
+          jargonStatusFilter.value = "all";
+        } else if (
+          action === "reopen" &&
+          jargonStatusFilter.value !== "all"
+        ) {
+          jargonStatusFilter.value = "pending";
+        }
+        jargonCount.textContent =
+          Number(data.pending_count || 0) + " 待确认 · " +
+          Number(data.approved_count || 0) + " 已启用";
+        setSettingsStatus("群黑话已更新", settingsDirty);
+        renderGroupJargon();
+      })
+      .catch(function (error) {
+        setSettingsStatus(error.message, settingsDirty);
+        buttons.forEach(function (button) {
+          button.disabled = false;
+        });
+      });
+  }
+
+  function diagnosticsRow(label, value) {
+    return (
+      '<div class="agent-diagnostics-row"><span>' +
+      escapeHtml(label) +
+      "</span><strong>" +
+      escapeHtml(value) +
+      "</strong></div>"
+    );
+  }
+
+  function formatBytes(bytes) {
+    var value = Math.max(0, Number(bytes) || 0);
+    if (value < 1024) return value + " B";
+    if (value < 1024 * 1024) return (value / 1024).toFixed(1) + " KB";
+    return (value / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  function renderDiagnostics(data) {
+    var metrics = data.metrics || {};
+    var today = metrics.today || {};
+    var calls = Number(metrics.total_calls || 0);
+    var failures = Number(metrics.failed_calls || 0);
+    document.getElementById("agentDiagnosticCalls").textContent = String(calls);
+    document.getElementById("agentDiagnosticFailures").textContent =
+      String(failures);
+    document.getElementById("agentDiagnosticDb").textContent = formatBytes(
+      (data.database || {}).size_bytes
+    );
+    document.getElementById("agentDiagnosticQuiet").textContent = String(
+      (data.active_quiet || []).length
+    );
+    document.getElementById("agentDiagnosticsUpdated").textContent =
+      "更新于 " + new Date().toLocaleTimeString();
+
+    var threadLabels = {
+      proactive: "主动聊天",
+      reminders: "定时提醒",
+      memory: "记忆整理",
+      qqbot: "QQBot 连接",
+    };
+    var threadRows = [];
+    Object.keys(threadLabels).forEach(function (key) {
+      var state = (data.threads || {})[key] || {};
+      threadRows.push(
+        diagnosticsRow(
+          threadLabels[key],
+          state.alive ? "运行中" : state.present ? "已停止" : "未启用"
+        )
+      );
+    });
+    ["llm", "search", "fetch", "hot_search"].forEach(function (kind) {
+      if (!today[kind]) return;
+      threadRows.push(
+        diagnosticsRow(
+          {
+            llm: "今日模型调用",
+            search: "今日搜索",
+            fetch: "今日抓取",
+            hot_search: "今日热搜",
+          }[kind],
+          String(
+            Number(today[kind].success || 0) +
+            Number(today[kind].failure || 0)
+          )
+        )
+      );
+    });
+    diagnosticsThreads.innerHTML = threadRows.join("");
+
+    var counts = (data.database || {}).counts || {};
+    diagnosticsCounts.innerHTML = [
+      diagnosticsRow("私聊历史", String(counts.messages || 0) + " 条"),
+      diagnosticsRow("群聊历史", String(counts.group_messages || 0) + " 条"),
+      diagnosticsRow("长期记忆", String(counts.memories || 0) + " 条"),
+      diagnosticsRow("群黑话", String(counts.group_jargon || 0) + " 条"),
+      diagnosticsRow("待发送提醒", String(counts.pending_reminders || 0) + " 条"),
+    ].join("");
+
+    var cleanup = data.history_cleanup;
+    diagnosticsCleanup.innerHTML = cleanup
+      ? [
+          diagnosticsRow("最近清理", cleanup.day || "--"),
+          diagnosticsRow(
+            "清理私聊",
+            String(cleanup.private_deleted || 0) + " 条"
+          ),
+          diagnosticsRow(
+            "清理群聊",
+            String(cleanup.group_deleted || 0) + " 条"
+          ),
+        ].join("")
+      : diagnosticsRow("最近清理", "尚未运行");
+
+    var check = data.search_check;
+    if (check) {
+      diagnosticsSearchResult.textContent =
+        (check.ok ? "搜索测试成功：" : "搜索测试失败：") +
+        (check.message || "");
+    }
+  }
+
+  function loadDiagnostics(action) {
+    var options = {
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {},
+    };
+    if (action) {
+      options.method = "POST";
+      options.headers["Content-Type"] = "application/json";
+      options.body = JSON.stringify({ action: action });
+    }
+    return fetch("/api/agent/web/diagnostics", options)
+      .then(readApiResponse)
+      .then(renderDiagnostics)
+      .catch(function (error) {
+        diagnosticsSearchResult.textContent = error.message;
       });
   }
 
@@ -1038,6 +1442,12 @@
     var mood = stickerMoodFilter.value;
     var pendingOnly = stickerPendingOnly.checked;
     var rows = currentStickers.filter(function (sticker) {
+      if (
+        String(sticker.library_id || "default") !==
+        selectedStickerLibraryId
+      ) {
+        return false;
+      }
       if (mood && (sticker.effective_mood || sticker.mood) !== mood) {
         return false;
       }
@@ -1213,19 +1623,394 @@
       stickerGrid.appendChild(group);
     });
     var pending = currentStickers.filter(function (sticker) {
-      return Boolean(sticker.needs_metadata);
+      return (
+        String(sticker.library_id || "default") ===
+          selectedStickerLibraryId &&
+        Boolean(sticker.needs_metadata)
+      );
+    }).length;
+    var libraryTotal = currentStickers.filter(function (sticker) {
+      return (
+        String(sticker.library_id || "default") ===
+        selectedStickerLibraryId
+      );
     }).length;
     stickerFilterSummary.textContent =
-      "显示 " + visible.length + " / " + currentStickers.length +
+      "显示 " + visible.length + " / " + libraryTotal +
       " 张 · 待整理 " + pending + " 张";
     if (!visible.length) {
       stickerGrid.innerHTML =
         '<div class="agent-sticker-item"><span>' +
-        (currentStickers.length ? "没有匹配的表情" : "暂无") +
+        (libraryTotal ? "没有匹配的表情" : "这个图库还是空的") +
         "</span></div>";
     }
     updateStickerSelectionUI();
     refreshIcons();
+  }
+
+  function stickerLibraryById(libraryId) {
+    var targetId = String(libraryId || "default");
+    return stickerLibraries.find(function (library) {
+      return String(library.id) === targetId;
+    }) || null;
+  }
+
+  function fillStickerLibrarySelect(select, selectedId) {
+    select.innerHTML = "";
+    stickerLibraries.forEach(function (library) {
+      var option = document.createElement("option");
+      option.value = String(library.id);
+      option.textContent =
+        String(library.name || library.id) +
+        " · " + Number(library.sticker_count || 0) + " 张" +
+        (Number(library.enabled) ? "" : "（停用）");
+      select.appendChild(option);
+    });
+    if (stickerLibraries.length) {
+      var exists = stickerLibraries.some(function (library) {
+        return String(library.id) === String(selectedId);
+      });
+      select.value = exists
+        ? String(selectedId)
+        : String(stickerLibraries[0].id);
+    }
+  }
+
+  function refreshStickerLibraryControls(preferredId) {
+    var targetId = String(
+      preferredId || selectedStickerLibraryId || "default"
+    );
+    fillStickerLibrarySelect(stickerLibrarySelect, targetId);
+    fillStickerLibrarySelect(stickerBulkLibrary, targetId);
+    fillStickerLibrarySelect(
+      stickerAutoCollectLibrary,
+      stickerAutoCollectLibraryValue
+    );
+    selectedStickerLibraryId = stickerLibrarySelect.value || "default";
+    stickerLibrarySelect.value = selectedStickerLibraryId;
+    var library = stickerLibraryById(selectedStickerLibraryId);
+    stickerLibraryEnabled.checked = Boolean(
+      library && Number(library.enabled)
+    );
+    stickerLibraryRename.value = library ? String(library.name || "") : "";
+    stickerAutoCollectLibraryValue = stickerAutoCollectLibrary.value || "default";
+  }
+
+  function changeSelectedStickerLibrary(libraryId) {
+    selectedStickerLibraryId = String(libraryId || "default");
+    selectedStickerIds = {};
+    refreshStickerLibraryControls(selectedStickerLibraryId);
+    renderStickerGroups();
+  }
+
+  function updateStickerLibrary(action, payload) {
+    return fetch("/api/agent/web/sticker-library", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ action: action }, payload || {})),
+    }).then(readApiResponse);
+  }
+
+  function saveStickerLibraryEnabled() {
+    var library = stickerLibraryById(selectedStickerLibraryId);
+    if (!library) return;
+    stickerLibraryEnabled.disabled = true;
+    updateStickerLibrary("update", {
+      id: selectedStickerLibraryId,
+      enabled: stickerLibraryEnabled.checked,
+    })
+      .then(function () {
+        setSettingsStatus(
+          "图库“" + library.name + "”已" +
+          (stickerLibraryEnabled.checked ? "启用" : "停用"),
+          settingsDirty
+        );
+        return loadStickers();
+      })
+      .catch(function (error) {
+        stickerLibraryEnabled.checked = !stickerLibraryEnabled.checked;
+        setSettingsStatus(error.message, settingsDirty);
+      })
+      .then(function () {
+        stickerLibraryEnabled.disabled = false;
+      });
+  }
+
+  function createStickerLibrary() {
+    var name = stickerLibraryCreateName.value.trim();
+    if (!name) {
+      stickerLibraryCreateName.focus();
+      return;
+    }
+    updateStickerLibrary("create", { name: name })
+      .then(function (data) {
+        stickerLibraries = data.libraries || stickerLibraries;
+        stickerLibraryCreateForm.hidden = true;
+        stickerLibraryCreateName.value = "";
+        selectedStickerLibraryId = String(data.id || selectedStickerLibraryId);
+        setSettingsStatus("图库“" + name + "”已创建", settingsDirty);
+        return loadStickers();
+      })
+      .catch(function (error) {
+        setSettingsStatus(error.message, settingsDirty);
+      });
+  }
+
+  function renameStickerLibrary() {
+    var name = stickerLibraryRename.value.trim();
+    var library = stickerLibraryById(selectedStickerLibraryId);
+    if (!library || !name) {
+      stickerLibraryRename.focus();
+      return;
+    }
+    updateStickerLibrary("update", {
+      id: selectedStickerLibraryId,
+      name: name,
+    })
+      .then(function () {
+        setSettingsStatus("图库名称已保存", settingsDirty);
+        return loadStickers();
+      })
+      .catch(function (error) {
+        setSettingsStatus(error.message, settingsDirty);
+      });
+  }
+
+  function moveSelectedStickersLibrary() {
+    var ids = Object.keys(selectedStickerIds).map(Number);
+    if (!ids.length) {
+      setSettingsStatus("请先选择表情包", settingsDirty);
+      return;
+    }
+    var libraryId = stickerBulkLibrary.value;
+    var library = stickerLibraryById(libraryId);
+    if (!library) return;
+    stickerBulkLibraryMove.disabled = true;
+    updateStickerLibrary("move", {
+      ids: ids,
+      library_id: libraryId,
+    })
+      .then(function (data) {
+        selectedStickerIds = {};
+        setSettingsStatus(
+          "已移动 " + Number(data.moved || 0) +
+          " 张到“" + library.name + "”",
+          settingsDirty
+        );
+        return loadStickers();
+      })
+      .catch(function (error) {
+        setSettingsStatus(error.message, settingsDirty);
+      })
+      .then(function () {
+        stickerBulkLibraryMove.disabled = false;
+      });
+  }
+
+  function stickerRuleKeyOptions() {
+    var scope = stickerRuleScope.value;
+    if (scope === "group") {
+      return stickerRuleGroups.map(function (group) {
+        return {
+          value: String(group.platform) + ":" + String(group.group_id),
+          label: String(group.label || group.group_id),
+        };
+      });
+    }
+    if (scope === "persona") {
+      var select = document.getElementById("settingPersonaPreset");
+      return Array.prototype.slice.call(select.options)
+        .filter(function (option) {
+          return option.value;
+        })
+        .map(function (option) {
+          return { value: option.value, label: option.textContent };
+        });
+    }
+    return [];
+  }
+
+  function refreshStickerRuleKeys() {
+    var options = stickerRuleKeyOptions();
+    stickerRuleKey.innerHTML = "";
+    options.forEach(function (item) {
+      var option = document.createElement("option");
+      option.value = item.value;
+      option.textContent = item.label;
+      stickerRuleKey.appendChild(option);
+    });
+    stickerRuleKeyLabel.hidden = stickerRuleScope.value === "default";
+    renderStickerRuleLibraries();
+  }
+
+  function selectedStickerRuleKey() {
+    if (stickerRuleScope.value === "default") return "";
+    return stickerRuleKey.value || "";
+  }
+
+  function selectedStickerRule() {
+    var scope = stickerRuleScope.value;
+    var key = selectedStickerRuleKey();
+    return stickerRules.find(function (rule) {
+      return (
+        String(rule.scope_type) === scope &&
+        String(rule.scope_key || "") === key
+      );
+    }) || null;
+  }
+
+  function renderStickerRuleLibraries() {
+    var selected = selectedStickerRule();
+    var selectedIds = {};
+    ((selected && selected.library_ids) || []).forEach(function (libraryId) {
+      selectedIds[String(libraryId)] = true;
+    });
+    stickerRuleLibraries.innerHTML = "";
+    stickerLibraries.forEach(function (library) {
+      var label = document.createElement("label");
+      var input = document.createElement("input");
+      input.type = "checkbox";
+      input.value = String(library.id);
+      input.checked = Boolean(selectedIds[String(library.id)]);
+      var text = document.createElement("span");
+      text.textContent = String(library.name || library.id);
+      label.append(input, text);
+      stickerRuleLibraries.appendChild(label);
+    });
+    var summary = stickerRules.map(function (rule) {
+      var scopeLabel = {
+        default: "默认",
+        group: "群聊",
+        persona: "人格",
+      }[rule.scope_type] || rule.scope_type;
+      var keyLabel = rule.scope_key ? " " + rule.scope_key : "";
+      return scopeLabel + keyLabel + " → " + (rule.library_ids || []).length + " 个图库";
+    });
+    stickerRuleSummary.textContent = summary.length
+      ? summary.join("；")
+      : "当前没有自定义规则，使用所有启用图库";
+  }
+
+  function refreshStickerRules() {
+    refreshStickerRuleKeys();
+  }
+
+  function saveStickerRule() {
+    var libraryIds = Array.prototype.slice.call(
+      stickerRuleLibraries.querySelectorAll("input:checked")
+    ).map(function (input) {
+      return input.value;
+    });
+    stickerRuleSave.disabled = true;
+    fetch("/api/agent/web/sticker-rule", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        scope_type: stickerRuleScope.value,
+        scope_key: selectedStickerRuleKey(),
+        library_ids: libraryIds,
+      }),
+    })
+      .then(readApiResponse)
+      .then(function (data) {
+        stickerRules = data.rules || stickerRules;
+        setSettingsStatus(
+          libraryIds.length ? "选图规则已保存" : "当前规则已清除",
+          settingsDirty
+        );
+        refreshStickerRules();
+      })
+      .catch(function (error) {
+        setSettingsStatus(error.message, settingsDirty);
+      })
+      .then(function () {
+        stickerRuleSave.disabled = false;
+      });
+  }
+
+  function reviewStickerCandidate(candidate, action, categorySelect, button) {
+    button.disabled = true;
+    fetch("/api/agent/web/sticker-candidate", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: candidate.id,
+        action: action,
+        category: categorySelect ? categorySelect.value : "未分类",
+      }),
+    })
+      .then(readApiResponse)
+      .then(function () {
+        setSettingsStatus(
+          action === "accept" ? "表情已加入图库" : "候选表情已丢弃",
+          settingsDirty
+        );
+        return loadStickers();
+      })
+      .catch(function (error) {
+        setSettingsStatus(error.message, settingsDirty);
+      })
+      .then(function () {
+        button.disabled = false;
+      });
+  }
+
+  function renderStickerCandidates() {
+    stickerCandidateCount.textContent = stickerCandidates.length + " 张";
+    stickerCandidateList.innerHTML = "";
+    if (!stickerCandidates.length) {
+      stickerCandidateList.innerHTML =
+        '<p class="agent-section-note">没有待审核表情</p>';
+      return;
+    }
+    stickerCandidates.forEach(function (candidate) {
+      var card = document.createElement("article");
+      card.className = "agent-sticker-candidate";
+      var image = document.createElement("img");
+      image.src = "/agent-stickers/" + encodeURIComponent(candidate.ref);
+      image.alt = candidate.source_name || "候选表情";
+      image.loading = "lazy";
+      var copy = document.createElement("div");
+      copy.className = "agent-sticker-candidate-copy";
+      var name = document.createElement("span");
+      name.className = "agent-sticker-candidate-name";
+      name.textContent = candidate.source_name || candidate.ref;
+      var meta = document.createElement("span");
+      meta.className = "agent-sticker-candidate-meta";
+      meta.textContent =
+        (candidate.platform === "qqbot" ? "QQBot" : "OneBot") +
+        " · " + (candidate.library_name || "默认图库") +
+        " · " + timelineDate(candidate.created_at);
+      copy.append(name, meta);
+      var actions = document.createElement("div");
+      actions.className = "agent-sticker-candidate-actions";
+      var category = document.createElement("select");
+      stickerCategories.forEach(function (value) {
+        var option = document.createElement("option");
+        option.value = value;
+        option.textContent = value;
+        category.appendChild(option);
+      });
+      var accept = document.createElement("button");
+      accept.type = "button";
+      accept.className = "is-primary";
+      accept.textContent = "接收";
+      accept.addEventListener("click", function () {
+        reviewStickerCandidate(candidate, "accept", category, accept);
+      });
+      var discard = document.createElement("button");
+      discard.type = "button";
+      discard.textContent = "丢弃";
+      discard.addEventListener("click", function () {
+        reviewStickerCandidate(candidate, "discard", null, discard);
+      });
+      actions.append(category, accept, discard);
+      card.append(image, copy, actions);
+      stickerCandidateList.appendChild(card);
+    });
   }
 
   function loadStickers() {
@@ -1237,6 +2022,10 @@
       .then(function (data) {
         currentStickers = data.stickers || [];
         stickerCategories = cleanStickerCategories(data.categories);
+        stickerLibraries = data.libraries || [];
+        stickerRules = data.rules || [];
+        stickerRuleGroups = data.groups || [];
+        stickerCandidates = data.candidates || [];
         var validIds = {};
         currentStickers.forEach(function (sticker) {
           validIds[String(sticker.id)] = true;
@@ -1244,9 +2033,13 @@
         Object.keys(selectedStickerIds).forEach(function (stickerId) {
           if (!validIds[stickerId]) delete selectedStickerIds[stickerId];
         });
+        refreshStickerLibraryControls(selectedStickerLibraryId);
         document.getElementById("agentStickerCount").textContent =
-          currentStickers.length + " 个";
+          stickerLibraries.length + " 个图库 · " +
+          currentStickers.length + " 张";
         refreshStickerCategoryControls();
+        refreshStickerRules();
+        renderStickerCandidates();
         renderStickerGroups();
       })
       .catch(function (error) {
@@ -1291,6 +2084,7 @@
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 file_name: file.name,
+                library_id: selectedStickerLibraryId,
                 category: category,
                 caption: caption,
                 keywords: keywords,
@@ -1430,7 +2224,10 @@
 
   function exportStickerPack() {
     setSettingsStatus("正在准备表情包 ZIP…", settingsDirty);
-    window.location.assign("/api/agent/web/sticker-export");
+    window.location.assign(
+      "/api/agent/web/sticker-export?library_id=" +
+      encodeURIComponent(selectedStickerLibraryId)
+    );
   }
 
   function importStickerPack(file) {
@@ -1448,7 +2245,10 @@
           method: "POST",
           credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data_base64: data }),
+          body: JSON.stringify({
+            library_id: selectedStickerLibraryId,
+            data_base64: data,
+          }),
         }).then(readApiResponse);
       })
       .then(function (data) {
@@ -1548,6 +2348,50 @@
   memoryArchived.addEventListener("change", function () {
     loadMemories(memorySearch.value);
   });
+  jargonStatusFilter.addEventListener("change", renderGroupJargon);
+  jargonList.addEventListener("click", function (event) {
+    var button = event.target.closest("[data-jargon-action]");
+    if (!button) return;
+    var item = button.closest("[data-jargon-id]");
+    if (!item) return;
+    updateGroupJargon(item, button.dataset.jargonAction);
+  });
+  document
+    .getElementById("agentDiagnosticsRefresh")
+    .addEventListener("click", function () {
+      loadDiagnostics();
+    });
+  document
+    .getElementById("agentDiagnosticsSearch")
+    .addEventListener("click", function () {
+      var button = this;
+      button.disabled = true;
+      diagnosticsSearchResult.textContent = "正在测试搜索接口…";
+      loadDiagnostics("search_check").then(function () {
+        button.disabled = false;
+      });
+    });
+  document
+    .getElementById("agentDiagnosticsCleanup")
+    .addEventListener("click", function () {
+      var button = this;
+      if (button.dataset.confirm !== "1") {
+        button.dataset.confirm = "1";
+        button.querySelector("span").textContent = "再次点击确认";
+        window.setTimeout(function () {
+          button.dataset.confirm = "";
+          button.querySelector("span").textContent = "清理旧历史";
+        }, 4000);
+        return;
+      }
+      button.dataset.confirm = "";
+      button.disabled = true;
+      diagnosticsSearchResult.textContent = "正在清理旧历史…";
+      loadDiagnostics("history_cleanup").then(function () {
+        button.disabled = false;
+        button.querySelector("span").textContent = "清理旧历史";
+      });
+    });
   stickerUploadBtn.addEventListener("keydown", function (event) {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
@@ -1560,6 +2404,32 @@
   stickerMoodFilter.addEventListener("change", renderStickerGroups);
   stickerSort.addEventListener("change", renderStickerGroups);
   stickerPendingOnly.addEventListener("change", renderStickerGroups);
+  stickerLibrarySelect.addEventListener("change", function () {
+    changeSelectedStickerLibrary(this.value);
+  });
+  stickerLibraryEnabled.addEventListener("change", saveStickerLibraryEnabled);
+  stickerLibraryAdd.addEventListener("click", function () {
+    stickerLibraryCreateForm.hidden = false;
+    stickerLibraryCreateName.focus();
+  });
+  stickerLibraryCreateCancel.addEventListener("click", function () {
+    stickerLibraryCreateForm.hidden = true;
+    stickerLibraryCreateName.value = "";
+  });
+  stickerLibraryCreateForm.addEventListener("submit", function (event) {
+    event.preventDefault();
+    createStickerLibrary();
+  });
+  stickerLibraryRenameForm.addEventListener("submit", function (event) {
+    event.preventDefault();
+    renameStickerLibrary();
+  });
+  stickerAutoCollectLibrary.addEventListener("change", function () {
+    stickerAutoCollectLibraryValue = this.value || "default";
+  });
+  stickerRuleScope.addEventListener("change", refreshStickerRuleKeys);
+  stickerRuleKey.addEventListener("change", renderStickerRuleLibraries);
+  stickerRuleSave.addEventListener("click", saveStickerRule);
   stickerExport.addEventListener("click", exportStickerPack);
   stickerImportInput.addEventListener("change", function () {
     importStickerPack(this.files && this.files[0]);
@@ -1586,6 +2456,13 @@
   });
   stickerBulkMove.addEventListener("click", moveSelectedStickers);
   stickerBulkUpdate.addEventListener("click", updateSelectedStickerMetadata);
+  stickerBulkLibraryMove.addEventListener("click", moveSelectedStickersLibrary);
+  document
+    .getElementById("settingPersonaPreset")
+    .addEventListener("change", function () {
+      if (!stickerRuleScope || stickerRuleScope.value !== "persona") return;
+      refreshStickerRuleKeys();
+    });
   timelineForm.addEventListener("submit", function (event) {
     event.preventDefault();
     var title = document.getElementById("agentTimelineTitle").value.trim();
@@ -1631,6 +2508,8 @@
   loadStatus();
   loadSettings();
   loadMemories("");
+  loadGroupJargon();
+  loadDiagnostics();
   loadGroupMembers();
   loadTimeline();
   loadStickers();

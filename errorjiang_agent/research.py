@@ -8,6 +8,8 @@ from typing import Any, Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .errors import AgentError
+from .search_evidence import assess_search_evidence
+from .search_routing import SearchRoute, route_search_intent
 
 
 TRACKING_QUERY_KEYS = {
@@ -58,6 +60,7 @@ class WebResearchEngine:
         query: str,
         original_question: str = "",
         count: int = 5,
+        domain_routing_enabled: bool = True,
     ) -> dict[str, Any]:
         base_query = " ".join(str(query or "").split()).strip()[:160]
         if not base_query:
@@ -67,7 +70,23 @@ class WebResearchEngine:
         if not callable(getattr(self.provider, "web_fetch", None)):
             raise AgentError("当前模型 Provider 不支持网页抓取。")
 
-        queries = self._plan_queries(base_query, original_question)
+        route = (
+            route_search_intent(base_query, original_question)
+            if domain_routing_enabled
+            else SearchRoute(
+                domains=(),
+                queries=(base_query,),
+                region="auto",
+                language="zh-CN",
+                confidence=0.0,
+                matched_terms=(),
+            )
+        )
+        queries = self._plan_queries(
+            base_query,
+            original_question,
+            route,
+        )
         batches, errors = self._search_all(
             queries,
             max(3, min(int(count), 10)),
@@ -85,6 +104,7 @@ class WebResearchEngine:
         payload = {
             "query": base_query,
             "queries": queries,
+            "route": route.as_dict(),
             "untrusted": True,
             "fetched_at": datetime.now().astimezone().isoformat(
                 timespec="seconds"
@@ -96,12 +116,14 @@ class WebResearchEngine:
             "pages": pages,
             "errors": errors[:6],
         }
+        payload = assess_search_evidence(payload)
         return self._fit_payload(payload)
 
     def _plan_queries(
         self,
         query: str,
         original_question: str,
+        route: SearchRoute,
     ) -> list[str]:
         question = " ".join(str(original_question or query).split()).strip()
         messages = [
@@ -137,7 +159,12 @@ class WebResearchEngine:
             planned = [planned]
         elif not isinstance(planned, (list, tuple)):
             planned = []
-        queries = self._clean_queries([query, *list(planned)])
+        routed_queries = [
+            value for value in route.queries if value.casefold() != query.casefold()
+        ]
+        queries = self._clean_queries(
+            [query, *routed_queries, *list(planned)]
+        )
         if len(queries) < 2:
             queries = self._clean_queries(
                 [query, *self._fallback_queries(query, question)]
@@ -352,6 +379,13 @@ class WebResearchEngine:
                 str(value)[:80]
                 for value in list(item.get("matched_queries") or [])[:3]
             ],
+            "published_date": item.get("published_date"),
+            "freshness_days": item.get("freshness_days"),
+            "source_quality": item.get("source_quality"),
+            "official_source": bool(item.get("official_source")),
+            "possible_syndication": bool(
+                item.get("possible_syndication")
+            ),
         }
 
     @staticmethod

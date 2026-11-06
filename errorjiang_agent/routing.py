@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import random
 import re
 import time
 from typing import Any, Callable
@@ -18,11 +19,29 @@ GROUP_DIRECT_COMMAND_RE = re.compile(
     r"设置天气城市\s+|清除天气城市$|删除天气城市$|确认\s+\d{6}$|"
     r"保存(?:一个|一张)?(?:表情包?|图片)|添加(?:一个|一张)?(?:表情包?|图片))"
 )
+GROUP_QUIET_COMMAND_RE = re.compile(
+    r"^\s*(?:(?:群里|全群)\s*)?(?:鲸鲸\s*)?(?:"
+    r"安静(?:一下|一会儿)?|别插话(?:了)?|别说了?|闭嘴|禁言鲸鲸|"
+    r"恢复|解除安静|恢复说话|可以说话了)"
+    r"(?:\s*\d{1,3}\s*(?:分钟|小时))?\s*$"
+)
 
 
 class GroupConversationPolicy:
-    def __init__(self, store: Any):
+    ACTIVE_QUESTION_PROBABILITY = 0.45
+    ACTIVE_TOPIC_PROBABILITY = 0.18
+    ACTIVE_QUESTION_RE = re.compile(
+        r"(?:什么|怎么|为什么|咋|如何|有没有|有人|大家|推荐|求问|"
+        r"哪家|哪里|哪个|能不能|可不可以)"
+    )
+
+    def __init__(
+        self,
+        store: Any,
+        settings_provider: Callable[[MessageEvent], dict[str, Any]] | None = None,
+    ):
         self.store = store
+        self.settings_provider = settings_provider
 
     @staticmethod
     def location_add_requested(text: str) -> bool:
@@ -60,7 +79,65 @@ class GroupConversationPolicy:
             return ""
         return ""
 
+    def group_activity_level(self, event: MessageEvent) -> str:
+        if not self.settings_provider:
+            return "balanced"
+        try:
+            settings = self.settings_provider(event) or {}
+        except Exception:
+            return "balanced"
+        level = str(settings.get("group_activity_level") or "balanced").strip()
+        return level if level in ("quiet", "balanced", "active") else "balanced"
+
+    def active_join_candidate(self, event: MessageEvent) -> bool:
+        if self.group_activity_level(event) != "active":
+            return False
+        text = " ".join(event.text.split()).strip()
+        if (
+            len(text) < 4
+            or "http://" in text.lower()
+            or "https://" in text.lower()
+        ):
+            return False
+        question_like = bool(
+            text.endswith(("?", "？", "吗", "呢", "么"))
+            or self.ACTIVE_QUESTION_RE.search(text)
+        )
+        if not question_like and len(text) < 6:
+            return False
+        rows = self.store.get_group_messages(
+            event.platform,
+            str(event.chat_id),
+            40,
+        )
+        cutoff = int(time.time()) - 5 * 60
+        recent_members = {
+            str(row.get("member_id") or "")
+            for row in rows
+            if row.get("role") == "user"
+            and int(row.get("created_at") or 0) >= cutoff
+            and row.get("member_id")
+        }
+        recent_count = sum(
+            1
+            for row in rows
+            if row.get("role") == "user"
+            and int(row.get("created_at") or 0) >= cutoff
+        )
+        return (
+            recent_count >= 3
+            and len(recent_members) >= 2
+            and random.random()
+            < (
+                self.ACTIVE_QUESTION_PROBABILITY
+                if question_like
+                else self.ACTIVE_TOPIC_PROBABILITY
+            )
+        )
+
     def wants_reply(self, event: MessageEvent) -> bool:
+        if event.shared_media:
+            return True
         text = " ".join(event.text.split()).strip()
         if not text:
             return False
@@ -69,10 +146,14 @@ class GroupConversationPolicy:
             return True
         if event.mentions_other:
             return False
+        if GROUP_QUIET_COMMAND_RE.match(text):
+            return True
         if (
             GROUP_DIRECT_COMMAND_RE.match(text)
             or self.location_add_requested(text)
         ):
+            return True
+        if self.active_join_candidate(event):
             return True
         recent_member = self.recent_assistant_member(event)
         if event.referenced and recent_member:
@@ -130,6 +211,10 @@ def build_group_event_pipeline(
             return event
         if event.location:
             return event
+        if event.shared_media:
+            state.auto_reply = True
+            state.reason = "shared_media"
+            return replace(event, to_me=True)
         if (
             event.platform == "qqbot"
             and event.group_full
@@ -169,6 +254,7 @@ def build_group_event_pipeline(
             event.message_type == "group"
             and not event.to_me
             and not event.location
+            and not event.shared_media
         ):
             return None
         return event

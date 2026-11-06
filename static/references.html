@@ -265,11 +265,38 @@ width: min(980px, 100%);
         <p>表情库新增描述、关键词和六类情绪，原始文件名仍保持最高优先级，其后才匹配描述、关键词、情绪、标签和分类；多词查询、中文片段兜底和未命中真实分类统计均已加入。上传和 Agent 页面勾选多张后都可以维护这些元数据，鲸鲸也可以通过 sticker_list / sticker_update 查看和批量整理表情，删除仍只在管理页面进行。</p>
         <p>2026-11-04 的 Memory 2.5 与表情整理更新：长期记忆新增原话证据、强度、访问强化、每日衰减和软归档恢复；自动上下文与显式召回只保留与当前话题相关的内容，无关查询不会再强化记忆。鲸鲸新增 recall_long_term_memory / memorize_long_term_memory / forget_long_term_memory 三个工具，个人与群共享记忆继续隔离，密码、令牌和验证码拒绝写入。</p>
         <p>表情库新增同聊天 24 小时最近使用避让、使用次数与最近使用排序、“只看待整理”筛选，以及带 manifest.json 的 ZIP 导入导出。导入会按完整 SHA256 去重，并校验压缩包大小、路径、图片格式和清单条目。</p>
+        <p>2026-11-06 的表情管理更新：全库升级为多图库模式，旧图自动进入默认图库；可以新建、重命名和停用图库，并把已有表情批量移动到其他图库。机器人按“指定群聊优先、人格其次、默认最后”的规则选图，同一规则可以组合多个图库。收到图片后先进入待审核表情，管理员选择分类后接收或丢弃，避免所有群图片直接写入正式图库。</p>
+        <p>2026-11-06 的鲸鲸综合升级：群内分享 B站、抖音、微博、网易云音乐和小红书链接或卡片时不再要求 @，机器人只读取公开标题、作者和摘要，不下载媒体；群聊新增活跃度、回复密度、短消息合并、临时安静和人工审核的群黑话库。搜索前会用本地规则识别金融、学术、安全、代码、法律等领域，并为结果补充发布日期、官方来源、来源质量和疑似转载提示。即时记忆改为本地分流并设置每日上限，历史消息支持按天保留；Agent 新增运行诊断、调用统计、搜索测试和历史清理，同时统一校验设置类型与范围。</p>
       </article>
 
       <article class="reference-item">
         <a href="https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory" target="_blank" rel="noopener noreferrer">astrbot_plugin_livingmemory</a>
         <p>参考长期记忆的强度、访问强化、时间衰减、软归档和混合召回思路。该项目使用 AGPL-3.0，本站只独立实现相关设计，没有复制其代码，也没有引入 Embedding、FAISS 或独立 Dashboard。</p>
+      </article>
+
+      <article class="reference-item">
+        <a href="https://github.com/anka-afk/astrbot_plugin_meme_manager" target="_blank" rel="noopener noreferrer">astrbot_plugin_meme_manager</a>
+        <p>参考多表情包使用规则、按会话 / 人格选择图库、自动收集与人工审核的管理思路。项目为 MIT 许可证；Error酱 按现有 Python / SQLite 架构独立实现，没有引入其 AstrBot 运行时、独立 WebUI、Embedding 或云端图床。</p>
+      </article>
+
+      <article class="reference-item">
+        <a href="https://github.com/drdon1234/astrbot_plugin_media_parser" target="_blank" rel="noopener noreferrer">astrbot_plugin_media_parser</a>
+        <p>参考分享链接免 @ 识别、平台适配和卡片信息兜底的设计思路。该项目使用 AGPL-3.0，Error酱 没有复制其代码，只按现有架构独立实现 B站、抖音、微博、网易云音乐和小红书五类公开元数据读取；不下载媒体，最多处理两条链接。</p>
+      </article>
+
+      <article class="reference-item">
+        <a href="https://github.com/Him666233/astrbot_plugin_group_chat_plus" target="_blank" rel="noopener noreferrer">astrbot_plugin_group_chat_plus</a>
+        <p>参考群聊回复密度、连续对话疲劳和短消息合并的设计思路。该项目使用 AGPL-3.0，Error酱 没有复制其代码，只按现有 Python / SQLite 架构实现轻量自然接话节流；没有引入注意力图谱、情绪数值、独立 Web 面板或额外的判断模型调用。</p>
+      </article>
+
+      <article class="reference-item">
+        <a href="https://github.com/NickCharlie/astrbot_plugin_self_learning" target="_blank" rel="noopener noreferrer">astrbot_plugin_self_learning</a>
+        <p>参考群聊表达候选、人工审核和按作用域注入的设计思路。该项目使用 AGPL-3.0，Error酱 没有复制其代码，也没有引入自动人格演化、好感度、知识图谱或实时学习模型；只独立实现本地高频词候选、管理员确认含义和命中后的有限注入。</p>
+      </article>
+
+      <article class="reference-item">
+        <a href="https://github.com/anysearch-ai/anysearch-skill" target="_blank" rel="noopener noreferrer">anysearch-skill</a>
+        <p>参考统一搜索入口中的垂直领域分类、结构化标识查询、区域语言提示和领域能力缓存思路。项目代码使用 Apache-2.0，托管搜索后端未开源；Error酱 没有接入其 API 或复制 CLI，只独立实现本地领域路由，继续使用现有 DeepSeek Search / Fetch。</p>
       </article>
 
       <article class="reference-item">

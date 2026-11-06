@@ -12,18 +12,20 @@ import unittest
 import zipfile
 from collections import defaultdict
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.parse import urlencode
 
 import app
+from errorjiang_agent import group_learning, media_links, memory_policy
 from errorjiang_agent.adapters import (
     AdapterRegistry,
     OneBotAdapter,
     QQBotAdapter,
 )
+from errorjiang_agent.agent_metrics import MeteredProvider
 from errorjiang_agent.brain import TOOLS, AgentBrain
 from errorjiang_agent.clients import DeepSeekClient, HotSearchClient
 from errorjiang_agent.config import Config
@@ -49,7 +51,10 @@ from errorjiang_agent.routing import (
     build_group_event_pipeline,
 )
 from errorjiang_agent.research import WebResearchEngine
+from errorjiang_agent.search_routing import route_search_intent
+from errorjiang_agent.search_evidence import assess_search_evidence
 from errorjiang_agent.service import AgentHttpServer, AgentService
+from errorjiang_agent.settings_schema import normalize_settings_update
 from errorjiang_agent.store import AgentStore
 from errorjiang_agent.tools import ToolRegistry
 
@@ -111,6 +116,14 @@ class AgentStoreTests(unittest.TestCase):
         self.assertIsNone(self.store.linked_user_id("qq", "10003"))
 
     def test_memory_settings_and_stickers(self):
+        defaults = self.store.get_settings("qq", "10001")
+        self.assertTrue(defaults["memory_immediate_extraction_enabled"])
+        self.assertEqual(
+            defaults["memory_immediate_extraction_daily_limit"],
+            12,
+        )
+        self.assertEqual(defaults["private_history_retention_days"], 90)
+        self.assertEqual(defaults["group_history_retention_days"], 30)
         self.store.add_memory("qq", "10001", "星星喜欢安静", "preference", 8)
         self.store.add_memory("qq", "10001", "星星喜欢安静", "preference", 9)
         memories = self.store.list_memories("qq", "10001")
@@ -129,6 +142,161 @@ class AgentStoreTests(unittest.TestCase):
         self.assertEqual(self.store.list_stickers("10001")[0]["id"], sticker_id)
         self.assertIsNotNone(self.store.delete_sticker("10001", sticker_id))
 
+    def test_settings_schema_normalizes_types_bounds_and_choices(self):
+        current = self.store.get_settings("qqbot", "admin-openid")
+        normalized = normalize_settings_update(
+            current,
+            {
+                "memory_enabled": "false",
+                "web_search_count": "99",
+                "group_idle_trigger_minutes": 1,
+                "group_activity_level": "invalid",
+                "quiet_start": "25:99",
+                "unknown_key": "ignored",
+            },
+        )
+        self.assertFalse(normalized["memory_enabled"])
+        self.assertEqual(normalized["web_search_count"], 10)
+        self.assertEqual(normalized["group_idle_trigger_minutes"], 15)
+        self.assertNotIn("group_activity_level", normalized)
+        self.assertNotIn("quiet_start", normalized)
+        self.assertNotIn("unknown_key", normalized)
+        updated = self.store.save_settings(
+            "qqbot",
+            "admin-openid",
+            {
+                "memory_enabled": "false",
+                "web_search_count": 999,
+                "group_activity_level": "active",
+            },
+        )
+        self.assertFalse(updated["memory_enabled"])
+        self.assertEqual(updated["web_search_count"], 10)
+        self.assertEqual(updated["group_activity_level"], "active")
+
+    def test_history_retention_prunes_once_per_day(self):
+        now = 200 * 86400
+        with patch(
+            "errorjiang_agent.store.time.time",
+            side_effect=[
+                now - 100 * 86400,
+                now - 1 * 86400,
+                now - 100 * 86400,
+                now - 50 * 86400,
+                now - 1 * 86400,
+            ],
+        ):
+            self.store.add_message("qq", "10001", "user", "旧私聊")
+            self.store.add_message("qq", "10001", "user", "新私聊")
+            self.store.add_group_message(
+                "qqbot",
+                "group-openid",
+                "member-a",
+                "小明",
+                "user",
+                "旧群聊",
+                "old-group",
+            )
+            self.store.add_group_message(
+                "qqbot",
+                "group-openid",
+                "member-a",
+                "小明",
+                "user",
+                "中间群聊",
+                "middle-group",
+            )
+            self.store.add_group_message(
+                "qqbot",
+                "group-openid",
+                "member-b",
+                "小红",
+                "user",
+                "新群聊",
+                "new-group",
+            )
+        result = self.store.prune_history(
+            "2026-11-06",
+            private_days=30,
+            group_days=60,
+            now=now,
+        )
+        self.assertTrue(result["ran"])
+        self.assertEqual(result["private_deleted"], 1)
+        self.assertEqual(result["group_deleted"], 1)
+        self.assertEqual(
+            [row["content"] for row in self.store.get_messages("qq", "10001", 10)],
+            ["新私聊"],
+        )
+        self.assertEqual(
+            [
+                row["content"]
+                for row in self.store.get_group_messages(
+                    "qqbot",
+                    "group-openid",
+                    10,
+                )
+            ],
+            ["中间群聊", "新群聊"],
+        )
+        again = self.store.prune_history(
+            "2026-11-06",
+            private_days=30,
+            group_days=60,
+            now=now,
+        )
+        self.assertFalse(again["ran"])
+
+    def test_group_quiet_scope_and_metric_aggregation(self):
+        now = int(time.time())
+        self.store.set_group_quiet(
+            "qqbot",
+            "group-openid",
+            "member-a",
+            now + 600,
+            "personal",
+        )
+        self.assertIsNotNone(
+            self.store.group_quiet_active(
+                "qqbot",
+                "group-openid",
+                "member-a",
+                now,
+            )
+        )
+        self.assertIsNone(
+            self.store.group_quiet_active(
+                "qqbot",
+                "group-openid",
+                "member-b",
+                now,
+            )
+        )
+        self.store.set_group_quiet(
+            "qqbot",
+            "group-openid",
+            "*",
+            now + 600,
+            "group",
+        )
+        self.assertEqual(
+            self.store.group_quiet_active(
+                "qqbot",
+                "group-openid",
+                "member-b",
+                now,
+            )["member_id"],
+            "*",
+        )
+        self.store.record_agent_metric("search", True, 120)
+        self.store.record_agent_metric("search", False, 300)
+        self.store.record_agent_metric("llm", True, 200)
+        summary = self.store.agent_metric_summary()
+        self.assertEqual(summary["today"]["search"]["success"], 1)
+        self.assertEqual(summary["today"]["search"]["failure"], 1)
+        self.assertEqual(summary["total_calls"], 3)
+        self.assertEqual(summary["failed_calls"], 1)
+
     def test_persona_and_web_search_settings_persist(self):
         settings = self.store.save_settings(
             "qq",
@@ -138,11 +306,13 @@ class AgentStoreTests(unittest.TestCase):
                 "persona_custom_prompt": "少用感叹号，偶尔先说嗯。",
                 "web_search_enabled": False,
                 "web_search_count": 8,
+                "web_domain_routing_enabled": False,
             },
         )
         self.assertEqual(settings["persona_preset"], "温柔")
         self.assertEqual(settings["web_search_count"], 8)
         self.assertFalse(settings["web_search_enabled"])
+        self.assertFalse(settings["web_domain_routing_enabled"])
         prompt = AgentService.persona_prompt(settings)
         self.assertIn("温柔", prompt)
         self.assertIn("少用感叹号", prompt)
@@ -176,6 +346,33 @@ class AgentStoreTests(unittest.TestCase):
             {"chat_human_delay": False},
         )
         self.assertFalse(updated["chat_human_delay"])
+
+    def test_group_reply_control_defaults_and_persist(self):
+        settings = self.store.get_settings("qqbot", "admin-openid")
+        self.assertTrue(settings["group_reply_control_enabled"])
+        self.assertEqual(settings["group_activity_level"], "balanced")
+        self.assertTrue(settings["group_jargon_enabled"])
+        self.assertEqual(settings["group_reply_max_per_10m"], 6)
+        self.assertEqual(settings["group_reply_fatigue_rounds"], 3)
+        self.assertEqual(settings["group_message_merge_seconds"], 4)
+        updated = self.store.save_settings(
+            "qqbot",
+            "admin-openid",
+            {
+                "group_reply_control_enabled": False,
+                "group_activity_level": "active",
+                "group_jargon_enabled": False,
+                "group_reply_max_per_10m": 8,
+                "group_reply_fatigue_rounds": 4,
+                "group_message_merge_seconds": 2,
+            },
+        )
+        self.assertFalse(updated["group_reply_control_enabled"])
+        self.assertEqual(updated["group_activity_level"], "active")
+        self.assertFalse(updated["group_jargon_enabled"])
+        self.assertEqual(updated["group_reply_max_per_10m"], 8)
+        self.assertEqual(updated["group_reply_fatigue_rounds"], 4)
+        self.assertEqual(updated["group_message_merge_seconds"], 2)
 
     def test_bot_global_settings_merge_agent_page_platforms(self):
         self.store.save_settings(
@@ -358,8 +555,12 @@ class AgentStoreTests(unittest.TestCase):
         self.assertEqual(sticker["mood"], "")
         self.assertEqual(sticker["use_count"], 0)
         self.assertIsNone(sticker["last_used_at"])
+        self.assertEqual(sticker["library_id"], "default")
         self.assertEqual(sticker["source_name"], "")
         self.assertEqual(sticker["tags"], "旧标签")
+        libraries = migrated.list_sticker_libraries()
+        self.assertEqual(libraries[0]["id"], "default")
+        self.assertEqual(libraries[0]["sticker_count"], 1)
 
     def test_member_sticker_packs_migrate_to_global_library(self):
         self.store.add_sticker(
@@ -448,6 +649,218 @@ class AgentStoreTests(unittest.TestCase):
         self.assertEqual(stickers[first]["category"], "常用")
         self.assertEqual(stickers[second]["category"], "泪目")
         self.assertIn("常用", self.store.list_sticker_categories("0"))
+
+    def test_sticker_libraries_and_selection_rule_priority(self):
+        work = self.store.create_sticker_library("工作日常")
+        life = self.store.create_sticker_library("生活")
+        with self.assertRaises(ValueError):
+            self.store.create_sticker_library("生活")
+        default_sticker = self.store.add_sticker(
+            "0",
+            "image",
+            "default.png",
+            source_name="默认.png",
+        )
+        work_sticker = self.store.add_sticker(
+            "0",
+            "image",
+            "work.png",
+            source_name="工作.png",
+            library_id=work["id"],
+        )
+        life_sticker = self.store.add_sticker(
+            "0",
+            "image",
+            "life.png",
+            source_name="生活.png",
+            library_id=life["id"],
+        )
+        self.assertEqual(
+            self.store.move_stickers_to_library(
+                "0",
+                [default_sticker],
+                life["id"],
+            ),
+            1,
+        )
+        self.store.set_sticker_rule(
+            "default",
+            "",
+            [life["id"]],
+        )
+        self.store.set_sticker_rule(
+            "persona",
+            "冷脸萌",
+            [work["id"]],
+        )
+        self.store.set_sticker_rule(
+            "group",
+            "qqbot:group-openid",
+            [life["id"]],
+        )
+        self.assertEqual(
+            self.store.resolve_sticker_library_ids(
+                "qqbot",
+                "group",
+                "group-openid",
+                "冷脸萌",
+            ),
+            [life["id"]],
+        )
+        self.assertEqual(
+            self.store.resolve_sticker_library_ids(
+                "qqbot",
+                "private",
+                "member-openid",
+                "冷脸萌",
+            ),
+            [work["id"]],
+        )
+        self.assertEqual(
+            self.store.resolve_sticker_library_ids(
+                "qqbot",
+                "private",
+                "member-openid",
+                "温柔",
+            ),
+            [life["id"]],
+        )
+        self.store.update_sticker_library(life["id"], enabled=False)
+        self.assertEqual(
+            self.store.resolve_sticker_library_ids(
+                "qqbot",
+                "group",
+                "group-openid",
+                "冷脸萌",
+            ),
+            [work["id"]],
+        )
+        stickers = {
+            sticker["id"]: sticker
+            for sticker in self.store.list_stickers("0")
+        }
+        self.assertEqual(stickers[default_sticker]["library_id"], life["id"])
+        self.assertEqual(stickers[work_sticker]["library_id"], work["id"])
+        self.assertEqual(stickers[life_sticker]["library_id"], life["id"])
+
+    def test_sticker_candidates_stay_pending_until_review(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.sticker_dir = Path(self.temp.name) / "stickers"
+        service.sticker_dir.mkdir()
+        work = self.store.create_sticker_library("待审核目标")
+        raw = b"\x89PNG\r\n\x1a\ncandidate-image"
+        self.assertTrue(
+            service.save_sticker_candidate_image(
+                raw,
+                "猫猫笑哭.png",
+                work["id"],
+                "qqbot",
+                "group-openid",
+                "member-openid",
+            )
+        )
+        self.assertEqual(self.store.list_stickers("0"), [])
+        candidates = self.store.list_sticker_candidates("0")
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["library_id"], work["id"])
+        self.assertFalse(
+            service.save_sticker_candidate_image(
+                raw,
+                "重复.png",
+                work["id"],
+                "qqbot",
+                "group-openid",
+                "member-openid",
+            )
+        )
+        result = service.review_sticker_candidate(
+            candidates[0]["id"],
+            "accept",
+            category="笑哭",
+            caption="猫猫笑哭",
+            keywords="猫猫 笑哭",
+            mood="happy",
+        )
+        self.assertEqual(result["action"], "accepted")
+        sticker = self.store.list_stickers("0")[0]
+        self.assertEqual(sticker["library_id"], work["id"])
+        self.assertEqual(sticker["category"], "笑哭")
+        self.assertEqual(self.store.list_sticker_candidates("0"), [])
+
+        second_raw = b"\x89PNG\r\n\x1a\nsecond-candidate"
+        self.assertTrue(
+            service.save_sticker_candidate_image(
+                second_raw,
+                "不要.png",
+                "default",
+                "qqbot",
+                "group-openid",
+                "member-openid",
+            )
+        )
+        second = self.store.list_sticker_candidates("0")[0]
+        service.review_sticker_candidate(second["id"], "discard")
+        self.assertEqual(self.store.list_sticker_candidates("0"), [])
+        self.assertFalse((service.sticker_dir / second["ref"]).exists())
+
+    def test_sticker_selection_uses_group_and_persona_rules(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        work = self.store.create_sticker_library("工作")
+        life = self.store.create_sticker_library("生活")
+        self.store.add_sticker(
+            "0",
+            "image",
+            "default.png",
+            source_name="默认.png",
+        )
+        self.store.add_sticker(
+            "0",
+            "image",
+            "work.png",
+            source_name="工作.png",
+            library_id=work["id"],
+        )
+        self.store.add_sticker(
+            "0",
+            "image",
+            "life.png",
+            source_name="生活.png",
+            library_id=life["id"],
+        )
+        self.store.set_sticker_rule(
+            "group",
+            "qqbot:group-openid",
+            [life["id"]],
+        )
+        self.store.set_sticker_rule(
+            "persona",
+            "冷脸萌",
+            [work["id"]],
+        )
+        group_rows = service.sticker_candidates(
+            "0",
+            "qqbot",
+            {
+                "platform": "qqbot",
+                "chat_type": "group",
+                "chat_id": "group-openid",
+                "persona_preset": "冷脸萌",
+            },
+        )
+        self.assertEqual([row["ref"] for row in group_rows], ["life.png"])
+        persona_rows = service.sticker_candidates(
+            "0",
+            "qqbot",
+            {
+                "platform": "qqbot",
+                "chat_type": "private",
+                "chat_id": "member-openid",
+                "persona_preset": "冷脸萌",
+            },
+        )
+        self.assertEqual([row["ref"] for row in persona_rows], ["work.png"])
 
     def test_admin_sticker_picker_uses_global_pack(self):
         service = object.__new__(AgentService)
@@ -2008,6 +2421,251 @@ class AgentStoreTests(unittest.TestCase):
         service.schedule_qqbot_event(event("今天食堂排队好长"))
         self.assertEqual(len(submitted), 1)
 
+    def test_group_ambient_reply_density_and_fatigue(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service._group_ambient_lock = threading.Lock()
+        service._group_ambient_state = {}
+        service._group_runtime_settings = lambda _event: {
+            "group_reply_control_enabled": True,
+            "group_reply_max_per_10m": 6,
+            "group_reply_fatigue_rounds": 3,
+        }
+        event = MessageEvent(
+            self_id="bot",
+            user_id="member-openid",
+            message_type="group",
+            chat_id="group-openid",
+            message_id="ambient-reply",
+            text="那这个还有吗？",
+            to_me=True,
+            platform="qqbot",
+            group_full=True,
+        )
+        with patch(
+            "errorjiang_agent.store.time.time",
+            return_value=1000,
+        ):
+            for index in range(3):
+                self.store.add_group_message(
+                    "qqbot",
+                    "group-openid",
+                    "assistant",
+                    "鲸鲸",
+                    "assistant",
+                    f"回复 {index}",
+                    f"assistant-density-{index}",
+                )
+        with patch(
+            "errorjiang_agent.service.time.time",
+            return_value=1010,
+        ):
+            self.assertEqual(
+                service._group_auto_reply_suppression_reason(
+                    event,
+                    "group_conversation",
+                ),
+                "",
+            )
+            service._group_ambient_state["qqbot:group-openid"] = {
+                "last_member": "member-openid",
+                "last_at": 1000,
+                "streak": 3,
+            }
+            self.assertEqual(
+                service._group_auto_reply_suppression_reason(
+                    event,
+                    "group_conversation",
+                ),
+                "conversation_fatigue",
+            )
+            service._note_group_human_activity(
+                replace(event, text="鲸鲸，换个话题")
+            )
+            self.assertEqual(
+                service._group_ambient_state["qqbot:group-openid"]["streak"],
+                0,
+            )
+            service._group_ambient_state["qqbot:group-openid"] = {
+                "last_member": "member-openid",
+                "last_at": 1000,
+                "streak": 3,
+            }
+        with patch(
+            "errorjiang_agent.store.time.time",
+            return_value=1000,
+        ):
+            for index in range(3, 6):
+                self.store.add_group_message(
+                    "qqbot",
+                    "group-openid",
+                    "assistant",
+                    "鲸鲸",
+                    "assistant",
+                    f"回复 {index}",
+                    f"assistant-density-{index}",
+                )
+        with patch(
+            "errorjiang_agent.service.time.time",
+            return_value=1400,
+        ):
+            self.assertEqual(
+                service._group_auto_reply_suppression_reason(
+                    event,
+                    "group_conversation",
+                ),
+                "reply_density",
+            )
+        self.assertEqual(
+            service._group_auto_reply_suppression_reason(
+                replace(event, text="鲸鲸，在吗"),
+                "group_conversation",
+            ),
+            "",
+        )
+        self.assertEqual(
+            service._group_auto_reply_suppression_reason(
+                replace(event, text="设置天气城市 西安"),
+                "group_conversation",
+            ),
+            "",
+        )
+        self.assertEqual(
+            service._group_auto_reply_suppression_reason(
+                replace(event, text="添加刚才的标记点"),
+                "group_conversation",
+            ),
+            "",
+        )
+        self.assertEqual(
+            service._group_auto_reply_suppression_reason(
+                replace(
+                    event,
+                    shared_media=(
+                        {
+                            "url": "https://b23.tv/example",
+                            "platform": "bilibili",
+                        },
+                    ),
+                ),
+                "shared_media",
+            ),
+            "",
+        )
+        service._group_runtime_settings = lambda _event: {
+            "group_reply_control_enabled": False,
+        }
+        self.assertEqual(
+            service._group_auto_reply_suppression_reason(
+                event,
+                "group_conversation",
+            ),
+            "",
+        )
+
+    def test_ambient_group_messages_merge_for_a_short_window(self):
+        timers = []
+
+        class FakeTimer:
+            def __init__(self, delay, callback, args):
+                self.delay = delay
+                self.callback = callback
+                self.args = args
+                self.daemon = False
+                self.cancelled = False
+                timers.append(self)
+
+            def start(self):
+                return None
+
+            def cancel(self):
+                self.cancelled = True
+
+            def fire(self):
+                self.callback(*self.args)
+
+        class FakeFuture:
+            def add_done_callback(self, callback):
+                return None
+
+        submitted = []
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.config = SimpleNamespace(
+            group_enabled=True,
+            group_ids=frozenset(),
+            qqbot_group_ids=frozenset({"group-openid"}),
+        )
+        service._group_ambient_lock = threading.Lock()
+        service._group_ambient_state = {}
+        service._group_merge_lock = threading.Lock()
+        service._group_merge_timers = {}
+        service._group_merge_pending = {}
+        service._observe_group_activity = lambda _event: True
+        service._group_runtime_settings = lambda _event: {
+            "group_message_merge_seconds": 4,
+        }
+        service.event_pipeline = SimpleNamespace(
+            run=lambda event, state=None: (
+                replace(event, to_me=True),
+                EventState(auto_reply=True, reason="group_conversation"),
+            )
+        )
+        service.executor = SimpleNamespace(
+            submit=lambda fn, *args: submitted.append((fn, args))
+            or FakeFuture()
+        )
+        first = MessageEvent(
+            self_id="bot",
+            user_id="member-openid",
+            message_type="group",
+            chat_id="group-openid",
+            message_id="merge-1",
+            text="那这个还有吗？",
+            to_me=False,
+            platform="qqbot",
+            group_full=True,
+        )
+        second = replace(
+            first,
+            message_id="merge-2",
+            text="然后呢？",
+        )
+        with patch(
+            "errorjiang_agent.service.threading.Timer",
+            FakeTimer,
+        ):
+            service.schedule_qqbot_event(first)
+            service.schedule_qqbot_event(second)
+            self.assertEqual(len(timers), 2)
+            self.assertTrue(timers[0].cancelled)
+            self.assertEqual(submitted, [])
+            timers[1].fire()
+            self.assertEqual(len(submitted), 1)
+            self.assertEqual(submitted[0][1][0].message_id, "merge-2")
+            self.assertEqual(submitted[0][1][4], "group_conversation")
+
+            service.schedule_qqbot_event(
+                replace(
+                    first,
+                    message_id="merge-3",
+                    text="还有呢？",
+                )
+            )
+            service.schedule_qqbot_event(
+                replace(
+                    first,
+                    message_id="explicit-1",
+                    text="鲸鲸，在吗",
+                )
+            )
+        self.assertEqual(len(submitted), 2)
+        self.assertEqual(submitted[1][1][0].message_id, "explicit-1")
+        self.assertTrue(timers[2].cancelled)
+        self.assertEqual(service._group_merge_pending, {})
+        timers[2].fire()
+        self.assertEqual(len(submitted), 2)
+
     def test_amap_share_url_resolves_to_coordinates(self):
         class FakeResponse:
             def __enter__(self):
@@ -2916,6 +3574,85 @@ class AgentStoreTests(unittest.TestCase):
             self.store.delete_timeline_event("qq", "10001", event_id)
         )
         self.assertEqual(self.store.list_timeline_events("qq", "10001"), [])
+
+    def test_memory_policy_selects_stable_information_only(self):
+        explicit = memory_policy.extract_explicit_memory(
+            "记住：我对花生过敏"
+        )
+        self.assertEqual(explicit["content"], "我对花生过敏")
+        self.assertEqual(explicit["kind"], "preference")
+        self.assertIsNone(
+            memory_policy.extract_explicit_memory(
+                "记住：我的密码是 secret123"
+            )
+        )
+        self.assertTrue(
+            memory_policy.should_extract_memory_now(
+                "以后请叫我阿星"
+            )[0]
+        )
+        self.assertTrue(
+            memory_policy.should_extract_memory_now(
+                "周六一起整理书架吧"
+            )[0]
+        )
+        self.assertFalse(
+            memory_policy.should_extract_memory_now(
+                "今天中午吃什么"
+            )[0]
+        )
+
+    def test_remember_exchange_skips_chat_and_limits_immediate_calls(self):
+        class Extractor:
+            def __init__(self):
+                self.calls = 0
+
+            def chat(self, messages, tools):
+                self.calls += 1
+                return {"content": '{"memories":[],"events":[]}'}
+
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.deepseek = Extractor()
+        service.remember_exchange(
+            "qq",
+            "10001",
+            "今天中午吃什么",
+            "还没想好",
+        )
+        self.assertEqual(service.deepseek.calls, 0)
+        service.store.save_settings(
+            "qq",
+            "10001",
+            {"memory_immediate_extraction_daily_limit": 1},
+        )
+        service.remember_exchange(
+            "qq",
+            "10001",
+            "以后请叫我阿星",
+            "知道啦",
+        )
+        service.remember_exchange(
+            "qq",
+            "10001",
+            "我喜欢喝美式咖啡",
+            "记住啦",
+        )
+        self.assertEqual(service.deepseek.calls, 1)
+        service.remember_exchange(
+            "qq",
+            "10001",
+            "记住：我不吃香菜",
+            "好",
+        )
+        self.assertEqual(service.deepseek.calls, 1)
+        memories = self.store.list_memories("qq", "10001")
+        self.assertTrue(
+            any("不吃香菜" in item["content"] for item in memories)
+        )
+        self.assertTrue(
+            any(item["source"] == "explicit_chat" for item in memories)
+        )
 
     def test_remember_exchange_extracts_timeline_events(self):
         class Extractor:
@@ -3880,6 +4617,53 @@ class AgentStoreTests(unittest.TestCase):
             (service.sticker_dir / stickers[0]["ref"]).is_file()
         )
 
+    def test_unmentioned_group_image_is_collected_to_pending_only(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _limit):
+                return b"\x89PNG\r\n\x1a\npending-image"
+
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.sticker_dir = Path(self.temp.name) / "stickers"
+        service.sticker_dir.mkdir()
+        service.config = SimpleNamespace(
+            group_enabled=True,
+            group_ids=frozenset(),
+            qqbot_group_ids=frozenset(),
+        )
+        event = MessageEvent(
+            self_id="bot",
+            user_id="member-openid",
+            message_type="group",
+            chat_id="group-openid",
+            message_id="pending-auto-collect",
+            text="",
+            to_me=False,
+            platform="qqbot",
+            attachments=(
+                {
+                    "content_type": "image/png",
+                    "filename": "候选项.png",
+                    "url": "https://example.com/pending.png",
+                },
+            ),
+        )
+        with patch(
+            "errorjiang_agent.service.urlopen",
+            return_value=FakeResponse(),
+        ):
+            service._handle_message_event(event, activity_observed=True)
+        self.assertEqual(self.store.list_stickers("0"), [])
+        candidates = self.store.list_sticker_candidates("0")
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["source_name"], "候选项.png")
+
     def test_qqbot_image_without_mime_uses_magic_and_usage(self):
         class FakeResponse:
             def __enter__(self):
@@ -4151,6 +4935,42 @@ class OneBotParserTests(unittest.TestCase):
         self.assertIsNotNone(event)
         self.assertEqual(event.location["title"], "JSON 位置")
 
+    def test_onebot_json_card_extracts_supported_media_without_mention(self):
+        card = json.dumps(
+            {
+                "meta": {
+                    "detail_1": {
+                        "title": "测试视频",
+                        "desc": "这是卡片摘要",
+                        "qqdocurl": (
+                            "https://www.bilibili.com/video/BV1xx411c7mD"
+                        ),
+                    }
+                }
+            },
+            ensure_ascii=False,
+        )
+        event = parse_message_event(
+            {
+                "post_type": "message",
+                "message_type": "group",
+                "self_id": 20000,
+                "user_id": 10001,
+                "group_id": 30001,
+                "message_id": 15,
+                "message": [
+                    {"type": "json", "data": {"data": card}},
+                ],
+            }
+        )
+        self.assertIsNotNone(event)
+        self.assertFalse(event.to_me)
+        self.assertEqual(
+            event.shared_media[0]["platform"],
+            "bilibili",
+        )
+        self.assertEqual(event.shared_media[0]["title_hint"], "测试视频")
+
     def test_onebot_file_segment_is_parsed(self):
         event = parse_message_event(
             {
@@ -4410,6 +5230,36 @@ class OneBotParserTests(unittest.TestCase):
         self.assertAlmostEqual(event.location["lat"], 34.644625)
         self.assertAlmostEqual(event.location["lng"], 107.110015)
 
+    def test_qqbot_full_group_media_card_is_parsed_without_mention(self):
+        event = parse_qqbot_event(
+            "GROUP_MESSAGE_CREATE",
+            {
+                "id": "message-douyin-card",
+                "content": " ",
+                "group_openid": "group-openid",
+                "author": {
+                    "member_openid": "member-openid",
+                    "username": "星星",
+                },
+                "ark_data": {
+                    "ark_type": "news",
+                    "fields": {
+                        "title": "一条抖音视频",
+                        "desc": "卡片自带的视频简介",
+                        "jump_url": "https://v.douyin.com/abc123/",
+                    },
+                },
+            },
+            "bot-qq",
+        )
+        self.assertIsNotNone(event)
+        self.assertFalse(event.to_me)
+        self.assertEqual(event.shared_media[0]["platform"], "douyin")
+        self.assertEqual(
+            event.shared_media[0]["title_hint"],
+            "一条抖音视频",
+        )
+
     def test_amap_callapp_nested_payload_is_parsed(self):
         nested = (
             "androidamap?action=shorturl&p=B0HG3CD2JX,"
@@ -4457,6 +5307,772 @@ class OneBotParserTests(unittest.TestCase):
         self.assertIsNotNone(event)
         self.assertEqual(event.attachments[0]["filename"], "会议记录.txt")
         self.assertEqual(event.attachments[0]["content_type"], "text/plain")
+
+
+class MediaLinkTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.store = AgentStore(Path(self.temp.name) / "agent.db")
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_extracts_only_supported_links_and_caps_at_two(self):
+        text = (
+            "看看 https://b23.tv/first "
+            "https://www.douyin.com/video/123 "
+            "https://www.xiaohongshu.com/explore/abc "
+            "https://example.com/not-supported"
+        )
+        media = media_links.extract_shared_media(text)
+        self.assertEqual(
+            [item["platform"] for item in media],
+            ["bilibili", "douyin"],
+        )
+
+    def test_extracts_nested_card_url_and_title_hint(self):
+        card = json.dumps(
+            {
+                "meta": {
+                    "detail_1": {
+                        "title": "微博卡片标题",
+                        "desc": "卡片摘要",
+                        "qqdocurl": "https://m.weibo.cn/detail/123456",
+                    }
+                }
+            },
+            ensure_ascii=False,
+        )
+        media = media_links.extract_shared_media("", {"card": card})
+        self.assertEqual(len(media), 1)
+        self.assertEqual(media[0]["platform"], "weibo")
+        self.assertEqual(media[0]["title_hint"], "微博卡片标题")
+        self.assertEqual(media[0]["description_hint"], "卡片摘要")
+
+    def test_platform_host_matching_is_exact(self):
+        cases = {
+            "https://www.bilibili.com/video/BV1xx411c7mD": "bilibili",
+            "https://v.douyin.com/abc": "douyin",
+            "https://m.weibo.cn/detail/1": "weibo",
+            "https://music.163.com/song?id=1": "netease",
+            "https://www.xiaohongshu.com/explore/1": "xiaohongshu",
+            "https://notbilibili.com/video/1": "",
+            "https://example.com/www.bilibili.com": "",
+        }
+        for url, expected in cases.items():
+            with self.subTest(url=url):
+                self.assertEqual(media_links.platform_for_url(url), expected)
+
+    def test_private_and_local_addresses_are_rejected(self):
+        addresses = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))
+        ]
+        with patch(
+            "errorjiang_agent.media_links.socket.getaddrinfo",
+            return_value=addresses,
+        ):
+            self.assertFalse(
+                media_links.safe_public_url("https://www.bilibili.com/video/x")
+            )
+        addresses = [
+            (
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+                6,
+                "",
+                ("93.184.216.34", 443),
+            )
+        ]
+        with patch(
+            "errorjiang_agent.media_links.socket.getaddrinfo",
+            return_value=addresses,
+        ):
+            self.assertTrue(
+                media_links.safe_public_url("https://www.bilibili.com/video/x")
+            )
+
+    def test_bilibili_api_returns_metadata_without_media_download(self):
+        source = "https://www.bilibili.com/video/BV1xx411c7mD"
+        page = b"<html><title>fallback</title></html>"
+        payload = {
+            "data": {
+                "title": "B站测试视频",
+                "desc": "视频简介",
+                "duration": 125,
+                "pic": "//i.example/cover.jpg",
+                "owner": {"name": "测试UP主"},
+                "stat": {"view": 1234},
+            }
+        }
+        requested = []
+
+        def fetch(url, **_kwargs):
+            requested.append(url)
+            if url == source:
+                return source, page
+            return url, json.dumps(payload, ensure_ascii=False).encode()
+
+        with patch.object(media_links, "_fetch_url", side_effect=fetch):
+            parsed = media_links.parse_shared_media(
+                [{"url": source, "platform": "bilibili"}]
+            )
+        self.assertEqual(parsed[0]["title"], "B站测试视频")
+        self.assertEqual(parsed[0]["author"], "测试UP主")
+        self.assertEqual(parsed[0]["description"], "视频简介")
+        self.assertIn("播放 1234", parsed[0]["extra"])
+        self.assertEqual(len(requested), 2)
+        self.assertTrue(requested[1].startswith("https://api.bilibili.com/"))
+
+    def test_netease_song_album_and_playlist_metadata(self):
+        cases = [
+            (
+                "https://music.163.com/song?id=11",
+                {
+                    "songs": [
+                        {
+                            "name": "测试歌曲",
+                            "duration": 61000,
+                            "artists": [{"name": "歌手甲"}],
+                            "album": {"name": "专辑甲"},
+                        }
+                    ]
+                },
+                "测试歌曲",
+                "歌手甲",
+            ),
+            (
+                "https://music.163.com/album?id=22",
+                {
+                    "album": {
+                        "name": "测试专辑",
+                        "artist": {"name": "歌手乙"},
+                        "size": 8,
+                    }
+                },
+                "测试专辑",
+                "歌手乙",
+            ),
+            (
+                "https://music.163.com/playlist?id=33",
+                {
+                    "result": {
+                        "name": "测试歌单",
+                        "creator": {"nickname": "收藏者"},
+                        "trackCount": 12,
+                    }
+                },
+                "测试歌单",
+                "收藏者",
+            ),
+        ]
+        for url, payload, title, author in cases:
+            with self.subTest(url=url):
+                def fetch(api, **_kwargs):
+                    if api == url:
+                        return url, b""
+                    return api, json.dumps(payload).encode()
+
+                with patch.object(media_links, "_fetch_url", side_effect=fetch):
+                    parsed = media_links.parse_shared_media(
+                        [{"url": url, "platform": "netease"}]
+                    )
+                self.assertEqual(parsed[0]["title"], title)
+                self.assertEqual(parsed[0]["author"], author)
+
+    def test_weibo_api_metadata_and_html_fallback(self):
+        source = "https://m.weibo.cn/detail/123456"
+        html = (
+            '<meta property="og:title" content="微博网页标题">'
+            '<meta name="description" content="网页摘要">'
+        ).encode()
+        payload = {
+            "data": {
+                "text": "<p>微博正文</p>",
+                "user": {"screen_name": "博主"},
+            }
+        }
+        with patch.object(
+            media_links,
+            "_fetch_url",
+            side_effect=[
+                (source, html),
+                ("api", json.dumps(payload).encode()),
+            ],
+        ):
+            parsed = media_links.parse_shared_media(
+                [{"url": source, "platform": "weibo"}]
+            )
+        self.assertEqual(parsed[0]["title"], "微博正文")
+        self.assertEqual(parsed[0]["author"], "博主")
+
+        with patch.object(
+            media_links,
+            "_fetch_url",
+            side_effect=[
+                (source, html),
+                ValueError("api blocked"),
+            ],
+        ):
+            parsed = media_links.parse_shared_media(
+                [{"url": source, "platform": "weibo"}]
+            )
+        self.assertEqual(parsed[0]["title"], "微博网页标题")
+        self.assertEqual(parsed[0]["description"], "网页摘要")
+
+    def test_douyin_and_xhs_keep_card_hints_when_page_fetch_fails(self):
+        cases = [
+            ("https://v.douyin.com/abc/", "douyin", "抖音卡片"),
+            ("https://xhslink.com/a/abc", "xiaohongshu", "小红书卡片"),
+        ]
+        for url, platform, title in cases:
+            with self.subTest(platform=platform):
+                media = media_links.extract_shared_media(
+                    "",
+                    {
+                        "ark_data": {
+                            "fields": {
+                                "title": title,
+                                "desc": "卡片摘要",
+                                "jump_url": url,
+                            }
+                        }
+                    },
+                )
+                with patch.object(
+                    media_links,
+                    "_fetch_url",
+                    side_effect=ValueError("blocked"),
+                ):
+                    parsed = media_links.parse_shared_media(media)
+                self.assertEqual(parsed[0]["platform"], platform)
+                self.assertEqual(parsed[0]["title"], title)
+                self.assertEqual(parsed[0]["description"], "卡片摘要")
+                self.assertIn("分享卡片信息", parsed[0]["note"])
+
+    def test_group_media_card_bypasses_mention_gate(self):
+        class EmptyStore:
+            @staticmethod
+            def get_group_messages(platform, chat_id, limit):
+                return []
+
+        config = SimpleNamespace(
+            group_enabled=True,
+            group_ids=frozenset(),
+            qqbot_group_ids=frozenset(),
+        )
+        pipeline = build_group_event_pipeline(
+            GroupConversationPolicy(EmptyStore()),
+            config,
+        )
+        event = MessageEvent(
+            self_id="bot",
+            user_id="member",
+            message_type="group",
+            chat_id="group",
+            message_id="media-card",
+            text="",
+            to_me=False,
+            platform="qqbot",
+            group_full=True,
+            shared_media=(
+                {
+                    "url": "https://www.bilibili.com/video/BV1xx411c7mD",
+                    "platform": "bilibili",
+                },
+            ),
+        )
+        routed, state = pipeline.run(event)
+        self.assertIsNotNone(routed)
+        self.assertTrue(routed.to_me)
+        self.assertTrue(state.auto_reply)
+        self.assertEqual(state.reason, "shared_media")
+
+        unsupported = replace(
+            event,
+            text="https://example.com/ordinary-link",
+            shared_media=(),
+        )
+        routed, _ = pipeline.run(unsupported, EventState())
+        self.assertIsNone(routed)
+
+    def test_service_passes_untrusted_media_metadata_to_model(self):
+        captured = {}
+
+        class FakeBrain:
+            last_used_tools = []
+
+            def reply(
+                self,
+                user_text,
+                history,
+                tool_context,
+                memories=None,
+            ):
+                captured["user_text"] = user_text
+                captured["memories"] = list(memories or [])
+                return "看懂啦"
+
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.config = SimpleNamespace(
+            context_messages=8,
+            errorjiang_base_url="http://127.0.0.1:8000",
+            errorjiang_token="test-token",
+        )
+        service.relationship_context = lambda *_args: {}
+        service.timeline_context = lambda *_args: []
+        service.relationship_prompt = lambda *_args: ""
+        service.persona_prompt = lambda *_args: ""
+        service.shared_media_context = lambda _event: (
+            "平台：B站\n标题：一条测试视频\n作者：测试UP主"
+        )
+        service.should_humanize_chat_delay = lambda *_args: False
+        service.should_send_casual_sticker = lambda *_args: False
+        service.selected_sticker = lambda *_args: None
+        service.send_reply = lambda *_args, **_kwargs: None
+        service.update_relationship_after_exchange = lambda *_args: None
+        service.remember_exchange = lambda *_args: None
+        service.executor = SimpleNamespace(
+            submit=lambda *_args, **_kwargs: None
+        )
+        service.build_brain = lambda _client: FakeBrain()
+        event = MessageEvent(
+            self_id="bot",
+            user_id="admin-openid",
+            message_type="private",
+            chat_id="admin-openid",
+            message_id="media-service",
+            text="",
+            to_me=True,
+            platform="qqbot",
+            shared_media=(
+                {
+                    "url": "https://www.bilibili.com/video/BV1xx411c7mD",
+                    "platform": "bilibili",
+                },
+            ),
+        )
+        service._process_event(
+            event,
+            target_user_id=0,
+            is_admin=True,
+        )
+        self.assertEqual(captured["user_text"], "分享了一个内容卡片")
+        self.assertTrue(
+            any(
+                "不可信文本" in item
+                and "一条测试视频" in item
+                for item in captured["memories"]
+            )
+        )
+
+
+class GroupLearningTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.store = AgentStore(Path(self.temp.name) / "agent.db")
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_extracts_repeated_group_terms_without_raw_messages(self):
+        messages = [
+            {
+                "role": "user",
+                "member_id": "member-a",
+                "content": "这波操作真是绝绝子",
+            },
+            {
+                "role": "user",
+                "member_id": "member-b",
+                "content": "绝绝子，确实厉害",
+            },
+            {
+                "role": "user",
+                "member_id": "member-a",
+                "content": "这个梗 yyds",
+            },
+            {
+                "role": "user",
+                "member_id": "member-b",
+                "content": "yyds 我先笑为敬",
+            },
+            {
+                "role": "user",
+                "member_id": "member-a",
+                "content": "今天中午吃什么",
+            },
+            {
+                "role": "user",
+                "member_id": "member-a",
+                "content": "验证码 abcdef",
+            },
+            {
+                "role": "user",
+                "member_id": "member-b",
+                "content": "验证码 ghijkl",
+            },
+        ]
+        candidates = group_learning.extract_jargon_candidates(messages)
+        terms = {item["term"] for item in candidates}
+        self.assertIn("yyds", terms)
+        self.assertTrue(any("绝绝子" in term for term in terms))
+        self.assertNotIn("什么", terms)
+        self.assertNotIn("验证码", terms)
+        self.assertTrue(
+            all(set(item) == {
+                "term",
+                "occurrences",
+                "member_count",
+                "score",
+            } for item in candidates)
+        )
+
+    def test_jargon_review_approval_and_context_match(self):
+        saved = self.store.upsert_group_jargon_candidates(
+            "qqbot",
+            "group-openid",
+            [
+                {
+                    "term": "绝绝子",
+                    "occurrences": 4,
+                    "member_count": 2,
+                },
+                {
+                    "term": "yyds",
+                    "occurrences": 3,
+                    "member_count": 2,
+                },
+            ],
+        )
+        self.assertEqual(saved, 2)
+        pending = self.store.list_group_jargon()
+        self.assertEqual(len(pending), 2)
+        approved = self.store.update_group_jargon(
+            pending[0]["id"],
+            status="approved",
+            meaning="表示非常喜欢或厉害",
+            example="这波操作绝绝子",
+        )
+        self.assertEqual(approved["status"], "approved")
+        matched = self.store.approved_group_jargon(
+            "qqbot",
+            "group-openid",
+            "这操作绝绝子",
+        )
+        self.assertEqual(matched[0]["term"], "绝绝子")
+        self.assertEqual(
+            self.store.approved_group_jargon(
+                "qqbot",
+                "other-group",
+                "这操作绝绝子",
+            ),
+            [],
+        )
+        self.assertTrue(self.store.delete_group_jargon(approved["id"]))
+
+    def test_service_scans_and_injects_only_approved_group_jargon(self):
+        first_messages = [
+            "今天这个操作真是绝绝子",
+            "绝绝子，这个也太好吃了",
+            "这波发挥真的绝绝子",
+            "不愧是你们，绝绝子",
+        ]
+        for index in range(12):
+            member = f"member-{index % 2}"
+            content = (
+                first_messages[index]
+                if index < 4
+                else f"普通聊天内容 {index}"
+            )
+            self.store.add_group_message(
+                "qqbot",
+                "group-openid",
+                member,
+                member,
+                "user",
+                content,
+                f"jargon-scan-{index}",
+            )
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service._group_jargon_lock = threading.Lock()
+        service._group_jargon_last_scan = {}
+        event = MessageEvent(
+            self_id="bot",
+            user_id="member-0",
+            message_type="group",
+            chat_id="group-openid",
+            message_id="jargon-scan",
+            text="今天这个操作绝绝子",
+            to_me=False,
+            platform="qqbot",
+            group_full=True,
+        )
+        with patch(
+            "errorjiang_agent.service.time.time",
+            return_value=int(time.time()),
+        ):
+            self.assertGreater(service._maybe_scan_group_jargon(event), 0)
+        candidates = self.store.list_group_jargon()
+        self.assertTrue(any("绝绝子" in item["term"] for item in candidates))
+        item = next(
+            item for item in candidates if "绝绝子" in item["term"]
+        )
+        self.store.update_group_jargon(
+            item["id"],
+            status="approved",
+            meaning="表示非常厉害或喜欢",
+        )
+        self.assertIn(
+            "表示非常厉害或喜欢",
+            service.group_jargon_context(
+                "qqbot",
+                "group-openid",
+                "这操作绝绝子",
+            ),
+        )
+        self.assertEqual(
+            service.group_jargon_context(
+                "qqbot",
+                "other-group",
+                "这操作绝绝子",
+            ),
+            "",
+        )
+        self.store.save_settings(
+            "qqbot",
+            "0",
+            {"group_jargon_enabled": False},
+        )
+        service._group_jargon_last_scan = {}
+        with patch(
+            "errorjiang_agent.service.time.time",
+            return_value=int(time.time()) + 700,
+        ):
+            self.assertEqual(service._maybe_scan_group_jargon(event), 0)
+
+    def test_active_activity_level_can_join_lively_group_question(self):
+        with patch(
+            "errorjiang_agent.store.time.time",
+            return_value=1000,
+        ):
+            for index, member in enumerate(
+                ("member-a", "member-b", "member-a"),
+            ):
+                self.store.add_group_message(
+                    "qqbot",
+                    "group-openid",
+                    member,
+                    member,
+                    "user",
+                    f"正在聊天 {index}",
+                    f"active-chat-{index}",
+                )
+        levels = {"value": "active"}
+        policy = GroupConversationPolicy(
+            self.store,
+            lambda _event: {
+                "group_activity_level": levels["value"],
+            },
+        )
+        event = MessageEvent(
+            self_id="bot",
+            user_id="member-c",
+            message_type="group",
+            chat_id="group-openid",
+            message_id="active-question",
+            text="有人推荐附近好吃的吗？",
+            to_me=False,
+            platform="qqbot",
+            group_full=True,
+        )
+        with patch(
+            "errorjiang_agent.routing.time.time",
+            return_value=1010,
+        ), patch(
+            "errorjiang_agent.routing.random.random",
+            return_value=0.1,
+        ):
+            self.assertTrue(policy.wants_reply(event))
+            routed, state = build_group_event_pipeline(
+                policy,
+                SimpleNamespace(
+                    group_enabled=True,
+                    group_ids=frozenset(),
+                    qqbot_group_ids=frozenset(),
+                ),
+            ).run(event)
+            self.assertIsNotNone(routed)
+            self.assertTrue(routed.to_me)
+            self.assertEqual(state.reason, "group_conversation")
+            topic_event = replace(
+                event,
+                message_id="active-topic",
+                text="这个新游戏看起来挺有意思",
+            )
+            self.assertTrue(policy.wants_reply(topic_event))
+        levels["value"] = "balanced"
+        with patch(
+            "errorjiang_agent.routing.time.time",
+            return_value=1010,
+        ):
+            self.assertFalse(policy.wants_reply(event))
+
+
+class AgentOperationalTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.store = AgentStore(Path(self.temp.name) / "agent.db")
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_group_quiet_commands_and_ambient_suppression(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.config = SimpleNamespace(
+            admin_qqs=frozenset({"admin"}),
+        )
+        replies = []
+        service.send_reply = lambda _event, text: replies.append(text)
+        personal = MessageEvent(
+            self_id="bot",
+            user_id="member-a",
+            message_type="group",
+            chat_id="group-openid",
+            message_id="quiet-personal",
+            text="安静 5 分钟",
+            to_me=True,
+            platform="qq",
+        )
+        self.assertTrue(service.handle_group_quiet_command(personal))
+        self.assertIsNotNone(
+            self.store.group_quiet_active(
+                "qq",
+                "group-openid",
+                "member-a",
+            )
+        )
+        self.assertTrue(
+            service.handle_group_quiet_command(
+                replace(personal, message_id="resume", text="恢复")
+            )
+        )
+        self.assertIsNone(
+            self.store.group_quiet_active(
+                "qq",
+                "group-openid",
+                "member-a",
+            )
+        )
+        admin_group = replace(
+            personal,
+            user_id="admin",
+            message_id="quiet-group",
+            text="群里安静 1 小时",
+        )
+        self.assertTrue(service.handle_group_quiet_command(admin_group))
+        state = self.store.group_quiet_active(
+            "qq",
+            "group-openid",
+            "member-b",
+        )
+        self.assertEqual(state["member_id"], "*")
+        non_admin = replace(
+            admin_group,
+            user_id="member-a",
+            message_id="quiet-group-denied",
+        )
+        self.assertTrue(service.handle_group_quiet_command(non_admin))
+        self.assertIn("只有管理员", replies[-1])
+
+        service._group_ambient_lock = threading.Lock()
+        service._group_ambient_state = {}
+        service._group_runtime_settings = lambda _event: {
+            "group_reply_control_enabled": True,
+            "group_reply_max_per_10m": 6,
+        }
+        ambient = replace(
+            personal,
+            message_id="quiet-ambient",
+            text="那这个还有吗？",
+        )
+        self.assertEqual(
+            service._group_auto_reply_suppression_reason(
+                ambient,
+                "group_conversation",
+            ),
+            "quiet",
+        )
+
+    def test_metered_provider_and_diagnostics_payload(self):
+        class Provider:
+            name = "test"
+
+            def chat(self, messages, tools):
+                return {"content": "ok"}
+
+            def web_search(self, query, count=5, original_question=""):
+                return {"results": [{"title": "ok"}]}
+
+            def web_fetch(self, url):
+                return {"content": "page"}
+
+        metered = MeteredProvider(
+            Provider(),
+            self.store.record_agent_metric,
+        )
+        self.assertEqual(metered.chat([], []), {"content": "ok"})
+        self.assertEqual(metered.web_search("测试", 1), {"results": [{"title": "ok"}]})
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.deepseek = metered
+        service.started_at = int(time.time())
+        service.qqbot = SimpleNamespace(
+            status=lambda: {"enabled": True, "connected": True}
+        )
+        for attribute in (
+            "_proactive_thread",
+            "_reminder_thread",
+            "_memory_consolidation_thread",
+        ):
+            setattr(
+                service,
+                attribute,
+                SimpleNamespace(is_alive=lambda: True),
+            )
+        service._qqbot_thread = SimpleNamespace(is_alive=lambda: True)
+        payload = service.diagnostics_payload("search_check")
+        self.assertTrue(payload["search_check"]["ok"])
+        self.assertTrue(payload["threads"]["proactive"]["alive"])
+        self.assertGreaterEqual(payload["metrics"]["total_calls"], 3)
+        self.assertGreater(payload["database"]["size_bytes"], 0)
+
+    def test_quiet_command_is_auto_accepted_by_group_pipeline(self):
+        policy = GroupConversationPolicy(self.store)
+        event = MessageEvent(
+            self_id="bot",
+            user_id="member",
+            message_type="group",
+            chat_id="group",
+            message_id="quiet-route",
+            text="安静一会儿",
+            to_me=False,
+            platform="qqbot",
+            group_full=True,
+        )
+        routed, state = build_group_event_pipeline(
+            policy,
+            SimpleNamespace(
+                group_enabled=True,
+                group_ids=frozenset(),
+                qqbot_group_ids=frozenset(),
+            ),
+        ).run(event)
+        self.assertIsNotNone(routed)
+        self.assertTrue(routed.to_me)
+        self.assertEqual(state.reason, "group_conversation")
 
 
 class HotSearchClientTests(unittest.TestCase):
@@ -4844,6 +6460,76 @@ class AgentInfrastructureTests(unittest.TestCase):
 
 
 class WebResearchTests(unittest.TestCase):
+    def test_search_evidence_flags_official_dates_and_syndication(self):
+        payload = assess_search_evidence(
+            {
+                "results": [
+                    {
+                        "title": "官方公告",
+                        "url": "https://www.gov.cn/notice",
+                        "date": "2026-11-01",
+                        "authority": 9,
+                    },
+                    {
+                        "title": "官方公告",
+                        "url": "https://example.com/repost",
+                        "snippet": "转载内容",
+                        "authority": 3,
+                    },
+                ]
+            },
+            now=datetime(2026, 11, 6, tzinfo=timezone.utc),
+        )
+        first, second = payload["results"]
+        self.assertTrue(first["official_source"])
+        self.assertEqual(first["published_date"], "2026-11-01")
+        self.assertEqual(first["freshness_days"], 5)
+        self.assertGreater(first["source_quality"], second["source_quality"])
+        self.assertTrue(second["possible_syndication"])
+        self.assertEqual(payload["evidence"]["official_sources"], 1)
+        self.assertEqual(payload["evidence"]["undated_sources"], 1)
+        self.assertTrue(payload["evidence"]["warnings"])
+
+    def test_search_router_detects_security_and_structured_identifiers(self):
+        route = route_search_intent(
+            "CVE-2026-12345",
+            "这个漏洞会影响哪些版本？",
+        )
+        self.assertEqual(route.domains[0], "security")
+        self.assertEqual(route.region, "intl")
+        self.assertEqual(route.language, "en")
+        self.assertIn("CVE-2026-12345", route.primary_query)
+        self.assertIn("NVD", route.primary_query)
+        self.assertGreater(route.confidence, 0.5)
+
+    def test_search_router_builds_academic_and_code_queries(self):
+        academic = route_search_intent(
+            "10.48550/arXiv.2501.00001",
+            "帮我找这篇论文的出处",
+        )
+        self.assertEqual(academic.domains[0], "academic")
+        self.assertEqual(academic.language, "en")
+        self.assertTrue(
+            any("paper DOI" in query for query in academic.queries)
+        )
+        code = route_search_intent(
+            "React useEffect 报错",
+            "这个 traceback 怎么解决",
+        )
+        self.assertEqual(code.domains[0], "code")
+        self.assertTrue(
+            any(
+                "official documentation" in query
+                for query in code.queries
+            )
+        )
+
+    def test_search_router_keeps_general_queries_small(self):
+        route = route_search_intent("附近有什么好吃的")
+        self.assertEqual(route.domains, ())
+        self.assertEqual(route.queries, ("附近有什么好吃的",))
+        self.assertEqual(route.label, "通用网页")
+
     def test_research_plans_searches_merges_and_fetches_pages(self):
         class Provider:
             name = "research"
@@ -4949,6 +6635,48 @@ class WebResearchTests(unittest.TestCase):
         self.assertGreaterEqual(len(result["queries"]), 2)
         self.assertEqual(result["results"][0]["title"], "测试主题")
 
+    def test_research_uses_local_domain_queries_and_reports_route(self):
+        class Provider:
+            def __init__(self):
+                self.queries = []
+
+            def chat(self, messages, tools):
+                return {"content": '{"queries":["漏洞影响范围"]}'}
+
+            def web_search(self, query, count=5, original_question=""):
+                self.queries.append(query)
+                return {
+                    "results": [
+                        {
+                            "title": query,
+                            "url": "https://example.com/" + str(len(query)),
+                        }
+                    ]
+                }
+
+            def web_fetch(self, url):
+                return {"content": "page"}
+
+        provider = Provider()
+        result = WebResearchEngine(provider).run(
+            "CVE-2026-12345",
+            "这个漏洞影响哪些版本？",
+        )
+        self.assertEqual(result["route"]["domains"][0], "security")
+        self.assertTrue(
+            any("NVD" in query for query in provider.queries)
+        )
+        self.assertGreaterEqual(
+            len(
+                [
+                    item
+                    for item in result["results"]
+                    if item["title"] == "CVE-2026-12345 NVD official advisory"
+                ]
+            ),
+            1,
+        )
+
     def test_research_reports_when_every_search_fails(self):
         class Provider:
             def chat(self, messages, tools):
@@ -4967,7 +6695,13 @@ class WebResearchTests(unittest.TestCase):
         calls = []
 
         class Research:
-            def run(self, query, original_question, count):
+            def run(
+                self,
+                query,
+                original_question,
+                count,
+                domain_routing_enabled=True,
+            ):
                 calls.append((query, original_question, count))
                 return {"untrusted": True, "results": []}
 
@@ -5172,6 +6906,40 @@ class AgentBrainTests(unittest.TestCase):
         )
         self.assertIn("温柔，少用感叹号", deepseek.seen_systems[0])
         self.assertIn("deepseek_web_search", deepseek.seen_tools[0])
+
+    def test_web_search_tool_applies_and_can_disable_domain_routing(self):
+        deepseek = FakeSearchDeepSeek([])
+        brain = AgentBrain(
+            deepseek,
+            FakeErrorJ(),
+            lambda args, context: {},
+        )
+        context = {
+            "tools_enabled": "1",
+            "web_search_enabled": "1",
+            "web_search_count": "4",
+        }
+        result = brain.tool_registry.execute(
+            "deepseek_web_search",
+            {"query": "CVE-2026-12345"},
+            context,
+            "这个漏洞影响哪些版本？",
+        )
+        self.assertEqual(result["route"]["domains"], ["security"])
+        self.assertIn("NVD", deepseek.search_calls[-1][0])
+
+        context["web_domain_routing_enabled"] = "0"
+        result = brain.tool_registry.execute(
+            "deepseek_web_search",
+            {"query": "CVE-2026-12345"},
+            context,
+            "这个漏洞影响哪些版本？",
+        )
+        self.assertEqual(result["route"]["domains"], [])
+        self.assertEqual(
+            deepseek.search_calls[-1][0],
+            "CVE-2026-12345",
+        )
 
     def test_custom_persona_template_reaches_agent_system_prompt(self):
         deepseek = FakeSearchDeepSeek(
@@ -6199,6 +7967,7 @@ class AgentInternalAuthTests(unittest.TestCase):
                     "caption": "猫猫哭了",
                     "keywords": "猫猫 泪目 哭",
                     "mood": "sad",
+                    "library_id": "lib-work",
                     "data_base64": base64.b64encode(raw).decode("ascii"),
                 }
             )
@@ -6210,6 +7979,7 @@ class AgentInternalAuthTests(unittest.TestCase):
         self.assertEqual(args[1]["caption"], "猫猫哭了")
         self.assertEqual(args[1]["keywords"], "猫猫 泪目 哭")
         self.assertEqual(args[1]["mood"], "sad")
+        self.assertEqual(args[1]["library_id"], "lib-work")
 
     def test_agent_sticker_category_create_and_move_forward(self):
         handler = self.make_handler({})
@@ -6333,6 +8103,84 @@ class AgentInternalAuthTests(unittest.TestCase):
         self.assertEqual(args[1]["platform"], "qq")
         self.assertTrue(args[1]["archived"])
 
+    def test_agent_group_jargon_proxy_forwards_review_action(self):
+        handler = self.make_handler({})
+        handler.is_admin = lambda: True
+        captured = []
+        handler.send_json = lambda status, payload: captured.append(
+            {"status": status, "payload": payload}
+        )
+        with patch.object(
+            app,
+            "agent_internal_request",
+            side_effect=[
+                {"items": [], "pending_count": 0, "approved_count": 0},
+                {
+                    "items": [
+                        {
+                            "id": 3,
+                            "term": "绝绝子",
+                            "status": "approved",
+                        }
+                    ],
+                    "pending_count": 0,
+                    "approved_count": 1,
+                },
+            ],
+        ) as request:
+            handler.api_agent_web_group_jargon()
+            handler.api_agent_web_group_jargon_action(
+                {
+                    "id": 3,
+                    "action": "approve",
+                    "meaning": "表示非常厉害",
+                    "example": "这操作绝绝子",
+                }
+            )
+        self.assertEqual([item["status"] for item in captured], [200, 200])
+        self.assertEqual(request.call_count, 2)
+        self.assertEqual(request.call_args_list[0].args[0], "/internal/group-jargon")
+        action_args = request.call_args_list[1].args
+        self.assertEqual(action_args[0], "/internal/group-jargon")
+        self.assertEqual(action_args[1]["action"], "approve")
+        self.assertEqual(action_args[1]["meaning"], "表示非常厉害")
+
+    def test_agent_diagnostics_proxy_forwards_health_actions(self):
+        handler = self.make_handler({})
+        handler.is_admin = lambda: True
+        captured = []
+        handler.send_json = lambda status, payload: captured.append(
+            {"status": status, "payload": payload}
+        )
+        with patch.object(
+            app,
+            "agent_internal_request",
+            side_effect=[
+                {"ok": True, "threads": {}},
+                {
+                    "ok": True,
+                    "search_check": {
+                        "ok": True,
+                        "results": 1,
+                    },
+                },
+            ],
+        ) as request:
+            handler.api_agent_web_diagnostics()
+            handler.api_agent_web_diagnostics_action(
+                {"action": "search_check"}
+            )
+        self.assertEqual([item["status"] for item in captured], [200, 200])
+        self.assertEqual(request.call_count, 2)
+        self.assertEqual(
+            request.call_args_list[0].args[0],
+            "/internal/diagnostics",
+        )
+        self.assertEqual(
+            request.call_args_list[1].args[1]["action"],
+            "search_check",
+        )
+
     def test_agent_sticker_import_forwards_zip(self):
         handler = self.make_handler({})
         handler.is_admin = lambda: True
@@ -6347,16 +8195,98 @@ class AgentInternalAuthTests(unittest.TestCase):
             return_value={"ok": True, "imported": 2, "duplicates": 1},
         ) as request:
             handler.api_agent_web_sticker_import(
-                {"data_base64": base64.b64encode(raw).decode("ascii")}
+                {
+                    "library_id": "lib-life",
+                    "data_base64": base64.b64encode(raw).decode("ascii"),
+                }
             )
         self.assertEqual(captured["status"], 200)
         self.assertEqual(captured["payload"]["imported"], 2)
         args = request.call_args.args
         self.assertEqual(args[0], "/internal/sticker/import")
+        self.assertEqual(args[1]["library_id"], "lib-life")
         self.assertEqual(
             base64.b64decode(args[1]["data_base64"]),
             raw,
         )
+
+    def test_agent_sticker_library_and_rule_forwarding(self):
+        handler = self.make_handler({})
+        handler.is_admin = lambda: True
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        with patch.object(
+            app,
+            "agent_internal_request",
+            side_effect=[
+                {
+                    "id": "lib-work",
+                    "name": "工作",
+                    "libraries": [{"id": "lib-work", "name": "工作"}],
+                },
+                {
+                    "ok": True,
+                    "scope_type": "group",
+                    "scope_key": "qqbot:group-openid",
+                    "library_ids": ["lib-work"],
+                    "rules": [],
+                },
+            ],
+        ) as request:
+            handler.api_agent_web_sticker_library(
+                {"action": "create", "name": "工作"}
+            )
+            handler.api_agent_web_sticker_rule(
+                {
+                    "scope_type": "group",
+                    "scope_key": "qqbot:group-openid",
+                    "library_ids": ["lib-work"],
+                }
+            )
+        self.assertEqual(captured["status"], 200)
+        self.assertEqual(request.call_count, 2)
+        first = request.call_args_list[0]
+        second = request.call_args_list[1]
+        self.assertEqual(first.args[0], "/internal/sticker/library")
+        self.assertEqual(first.args[1]["action"], "create")
+        self.assertEqual(first.args[1]["name"], "工作")
+        self.assertEqual(second.args[0], "/internal/sticker/rule")
+        self.assertEqual(second.args[1]["library_ids"], ["lib-work"])
+
+    def test_agent_sticker_candidate_review_forwarding(self):
+        handler = self.make_handler({})
+        handler.is_admin = lambda: True
+        captured = {}
+        handler.send_json = lambda status, payload: captured.update(
+            {"status": status, "payload": payload}
+        )
+        with patch.object(
+            app,
+            "agent_internal_request",
+            return_value={
+                "ok": True,
+                "action": "accepted",
+                "candidates": [],
+            },
+        ) as request:
+            handler.api_agent_web_sticker_candidate(
+                {
+                    "id": 9,
+                    "action": "accept",
+                    "category": "笑哭",
+                    "caption": "猫猫笑哭",
+                    "keywords": "猫猫 笑哭",
+                    "mood": "happy",
+                }
+            )
+        self.assertEqual(captured["status"], 200)
+        args = request.call_args.args
+        self.assertEqual(args[0], "/internal/sticker/candidate")
+        self.assertEqual(args[1]["id"], 9)
+        self.assertEqual(args[1]["action"], "accept")
+        self.assertEqual(args[1]["category"], "笑哭")
 
     def test_agent_sticker_export_streams_zip(self):
         handler = self.make_handler({})
@@ -6385,7 +8315,7 @@ class AgentInternalAuthTests(unittest.TestCase):
             os.environ,
             {"ERRORJIANG_AGENT_TOKEN": "test-token"},
         ), patch.object(app, "urlopen", return_value=FakeResponse()):
-            handler.api_agent_web_sticker_export()
+            handler.api_agent_web_sticker_export({})
         self.assertEqual(response_meta["status"], 200)
         self.assertEqual(response_meta["Content-Type"], "application/zip")
         self.assertEqual(handler.wfile.getvalue(), b"PK-sticker-export")
@@ -6815,6 +8745,135 @@ class AgentTimelineApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(completed["ok"])
 
+    def test_internal_group_jargon_can_be_listed_and_approved(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        service = object.__new__(AgentService)
+        service.config = SimpleNamespace(errorjiang_token="internal-token")
+        service.store = AgentStore(Path(temp.name) / "agent.db")
+        service.store.upsert_group_jargon_candidates(
+            "qqbot",
+            "group-openid",
+            [
+                {
+                    "term": "绝绝子",
+                    "occurrences": 4,
+                    "member_count": 2,
+                }
+            ],
+        )
+        server = AgentHttpServer(("127.0.0.1", 0), service)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+
+        def request(method, payload=None):
+            connection = http.client.HTTPConnection(
+                "127.0.0.1",
+                server.server_address[1],
+                timeout=5,
+            )
+            body = (
+                json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                if payload is not None
+                else None
+            )
+            try:
+                connection.request(
+                    method,
+                    "/internal/group-jargon",
+                    body=body,
+                    headers={
+                        "X-ErrorJ-Agent-Token": "internal-token",
+                        "Content-Type": "application/json",
+                    },
+                )
+                response = connection.getresponse()
+                return response.status, json.loads(
+                    response.read().decode("utf-8")
+                )
+            finally:
+                connection.close()
+
+        status, listed = request("GET")
+        self.assertEqual(status, 200)
+        self.assertEqual(listed["pending_count"], 1)
+        item_id = listed["items"][0]["id"]
+        status, approved = request(
+            "POST",
+            {
+                "id": item_id,
+                "action": "approve",
+                "meaning": "表示非常厉害",
+                "example": "这操作绝绝子",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(approved["approved_count"], 1)
+        self.assertEqual(approved["items"][0]["meaning"], "表示非常厉害")
+
+    def test_internal_diagnostics_supports_refresh_and_search_check(self):
+        calls = []
+
+        def diagnostics_payload(action=""):
+            calls.append(action)
+            return {
+                "ok": True,
+                "search_check": (
+                    {"ok": True, "results": 1}
+                    if action == "search_check"
+                    else None
+                ),
+            }
+
+        service = SimpleNamespace(
+            config=SimpleNamespace(errorjiang_token="internal-token"),
+            diagnostics_payload=diagnostics_payload,
+            run_history_cleanup=lambda: {"ran": True},
+        )
+        server = AgentHttpServer(("127.0.0.1", 0), service)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+
+        def request(method, payload=None):
+            connection = http.client.HTTPConnection(
+                "127.0.0.1",
+                server.server_address[1],
+                timeout=5,
+            )
+            body = (
+                json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                if payload is not None
+                else None
+            )
+            try:
+                connection.request(
+                    method,
+                    "/internal/diagnostics",
+                    body=body,
+                    headers={
+                        "X-ErrorJ-Agent-Token": "internal-token",
+                        "Content-Type": "application/json",
+                    },
+                )
+                response = connection.getresponse()
+                return response.status, json.loads(
+                    response.read().decode("utf-8")
+                )
+            finally:
+                connection.close()
+
+        status, payload = request("GET")
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        status, payload = request("POST", {"action": "search_check"})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["search_check"]["ok"])
+        self.assertEqual(calls, ["", "search_check"])
+
     def test_internal_sticker_upload_writes_tagged_global_sticker(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
@@ -6932,6 +8991,47 @@ class AgentConsoleUiTests(unittest.TestCase):
             script,
         )
 
+    def test_agent_exposes_local_search_domain_routing_switch(self):
+        html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
+        script = (app.STATIC_DIR / "agent.js").read_text(encoding="utf-8")
+        self.assertIn('id="settingWebDomainRoutingEnabled"', html)
+        self.assertIn("智能领域检索", html)
+        self.assertIn(
+            "settingWebDomainRoutingEnabled",
+            script,
+        )
+        self.assertIn("web_domain_routing_enabled:", script)
+
+    def test_agent_exposes_group_reply_pacing_controls(self):
+        html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
+        script = (app.STATIC_DIR / "agent.js").read_text(encoding="utf-8")
+        self.assertIn('id="settingGroupReplyControlEnabled"', html)
+        self.assertIn('id="settingGroupActivityLevel"', html)
+        self.assertIn('id="settingGroupReplyMax"', html)
+        self.assertIn('id="settingGroupReplyFatigueRounds"', html)
+        self.assertIn('id="settingGroupMessageMergeSeconds"', html)
+        self.assertIn(
+            'settingValue(\n          "settingGroupReplyControlEnabled",\n'
+            "          settings.group_reply_control_enabled\n        );",
+            script,
+        )
+        self.assertIn("group_reply_max_per_10m:", script)
+        self.assertIn("group_activity_level:", script)
+        self.assertIn("group_reply_fatigue_rounds:", script)
+        self.assertIn("group_message_merge_seconds:", script)
+
+    def test_agent_exposes_group_jargon_review_panel(self):
+        html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
+        script = (app.STATIC_DIR / "agent.js").read_text(encoding="utf-8")
+        self.assertIn('id="settings-jargon"', html)
+        self.assertIn('id="settingGroupJargonEnabled"', html)
+        self.assertIn('id="agentJargonList"', html)
+        self.assertIn('id="agentJargonStatusFilter"', html)
+        self.assertIn("/api/agent/web/group-jargon", script)
+        self.assertIn("function loadGroupJargon()", script)
+        self.assertIn("function updateGroupJargon(item, action)", script)
+        self.assertIn("批准并启用", script)
+
     def test_agent_memory_lifecycle_controls_are_wired(self):
         html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
         script = (app.STATIC_DIR / "agent.js").read_text(encoding="utf-8")
@@ -6948,6 +9048,46 @@ class AgentConsoleUiTests(unittest.TestCase):
         self.assertIn("include_archived=1", script)
         self.assertIn("/api/agent/web/memory-status", script)
         self.assertIn("agent-memory-evidence", script)
+
+    def test_agent_exposes_immediate_memory_cost_controls(self):
+        html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
+        script = (app.STATIC_DIR / "agent.js").read_text(encoding="utf-8")
+        self.assertIn(
+            'id="settingMemoryImmediateExtractionEnabled"',
+            html,
+        )
+        self.assertIn(
+            'id="settingMemoryImmediateDailyLimit"',
+            html,
+        )
+        self.assertIn("即时记忆提取", html)
+        self.assertIn(
+            "memory_immediate_extraction_enabled:",
+            script,
+        )
+        self.assertIn(
+            "memory_immediate_extraction_daily_limit:",
+            script,
+        )
+        self.assertIn(
+            'id="settingPrivateHistoryRetentionDays"',
+            html,
+        )
+        self.assertIn(
+            'id="settingGroupHistoryRetentionDays"',
+            html,
+        )
+
+    def test_agent_exposes_runtime_diagnostics(self):
+        html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
+        script = (app.STATIC_DIR / "agent.js").read_text(encoding="utf-8")
+        self.assertIn('id="settings-diagnostics"', html)
+        self.assertIn('id="agentDiagnosticThreads"', html)
+        self.assertIn('id="agentDiagnosticCounts"', html)
+        self.assertIn('id="agentDiagnosticsSearch"', html)
+        self.assertIn('id="agentDiagnosticsCleanup"', html)
+        self.assertIn("/api/agent/web/diagnostics", script)
+        self.assertIn("function renderDiagnostics(data)", script)
 
     def test_agent_settings_intro_has_no_eyebrow(self):
         html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
@@ -6989,6 +9129,14 @@ class AgentConsoleUiTests(unittest.TestCase):
         self.assertIn('id="agentStickerPendingOnly"', html)
         self.assertIn('id="agentStickerExport"', html)
         self.assertIn('id="agentStickerImportInput"', html)
+        self.assertIn('id="agentStickerLibrary"', html)
+        self.assertIn('id="agentStickerLibraryCreateForm"', html)
+        self.assertIn('id="agentStickerRuleScope"', html)
+        self.assertIn('id="agentStickerRuleLibraries"', html)
+        self.assertIn('id="agentStickerCandidateList"', html)
+        self.assertIn('id="settingStickerAutoCollectEnabled"', html)
+        self.assertIn('id="settingStickerAutoCollectLibrary"', html)
+        self.assertIn('id="agentStickerBulkLibraryMove"', html)
         self.assertIn('id="agentSettingsSave" disabled', html)
         self.assertIn('aria-label="筛选记忆"', html)
         self.assertIn('id="settings-persona"', html)
@@ -7020,7 +9168,11 @@ class AgentConsoleUiTests(unittest.TestCase):
         self.assertIn("/api/agent/web/sticker-update", script)
         self.assertIn("/api/agent/web/sticker-export", script)
         self.assertIn("/api/agent/web/sticker-import", script)
-        self.assertEqual(html.count("data-console-section"), 9)
+        self.assertIn("/api/agent/web/sticker-library", script)
+        self.assertIn("/api/agent/web/sticker-rule", script)
+        self.assertIn("/api/agent/web/sticker-candidate", script)
+        self.assertIn("sticker_auto_collect_enabled", script)
+        self.assertEqual(html.count("data-console-section"), 11)
         self.assertNotIn('id="agentMessages"', html)
         self.assertNotIn('id="agentForm"', html)
         self.assertNotIn('id="agentSettingsDialog"', html)

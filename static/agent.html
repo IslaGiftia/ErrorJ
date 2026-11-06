@@ -71,6 +71,14 @@
           <i data-lucide="message-circle-more"></i>
           <span>群主动</span>
         </a>
+        <a href="#settings-jargon" data-section-link="settings-jargon">
+          <i data-lucide="book-open-text"></i>
+          <span>群黑话</span>
+        </a>
+        <a href="#settings-diagnostics" data-section-link="settings-diagnostics">
+          <i data-lucide="activity"></i>
+          <span>运行诊断</span>
+        </a>
         <a href="#settings-members" data-section-link="settings-members">
           <i data-lucide="users"></i>
           <span>群友档案</span>
@@ -133,6 +141,43 @@
               <input type="checkbox" id="settingMemoryEnabled" data-setting-input>
               <span aria-hidden="true"></span>
             </span>
+          </label>
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
+              <strong>即时记忆提取</strong>
+              <small>只处理偏好、约定和日期；普通闲聊留给每日批量整理</small>
+            </span>
+            <span class="agent-switch">
+              <input type="checkbox" id="settingMemoryImmediateExtractionEnabled" data-setting-input>
+              <span aria-hidden="true"></span>
+            </span>
+          </label>
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
+              <strong>每人每日即时提取上限</strong>
+              <small>超过上限后不再追加模型调用，稍后由批量整理处理</small>
+            </span>
+            <input class="agent-compact-input" type="number"
+                   id="settingMemoryImmediateDailyLimit" min="1" max="100"
+                   data-setting-input>
+          </label>
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
+              <strong>私聊历史保留</strong>
+              <small>按天清理旧对话；0 表示永久保留</small>
+            </span>
+            <input class="agent-compact-input" type="number"
+                   id="settingPrivateHistoryRetentionDays" min="0" max="3650"
+                   data-setting-input>
+          </label>
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
+              <strong>群聊历史保留</strong>
+              <small>先完成记忆和黑话提取，再按天清理旧群消息；0 表示永久保留</small>
+            </span>
+            <input class="agent-compact-input" type="number"
+                   id="settingGroupHistoryRetentionDays" min="0" max="3650"
+                   data-setting-input>
           </label>
           <label class="agent-setting-row">
             <span class="agent-setting-copy">
@@ -227,6 +272,16 @@
           </label>
           <label class="agent-setting-row">
             <span class="agent-setting-copy">
+              <strong>智能领域检索</strong>
+              <small>本地识别金融、学术、安全、代码和法律问题，自动补充专用搜索词</small>
+            </span>
+            <span class="agent-switch">
+              <input type="checkbox" id="settingWebDomainRoutingEnabled" data-setting-input>
+              <span aria-hidden="true"></span>
+            </span>
+          </label>
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
               <strong>每次结果数</strong>
               <small>返回条数不影响单次搜索价格</small>
             </span>
@@ -238,7 +293,7 @@
             </select>
           </label>
         </div>
-        <p class="agent-section-note">支持微博、B站、抖音热搜；Search 与 Fetch 使用现有 DeepSeek Key 并按成功请求次数计费，普通聊天不会自动联网。</p>
+        <p class="agent-section-note">领域检索完全在本地判断，不额外调用模型或第三方搜索 API；Search 与 Fetch 使用现有 DeepSeek Key 并按成功请求次数计费。</p>
       </section>
 
       <section class="agent-console-section" id="settings-proactive" data-console-section>
@@ -271,7 +326,7 @@
       <section class="agent-console-section" id="settings-group-proactive" data-console-section>
         <header class="agent-section-head">
           <span class="agent-section-icon"><i data-lucide="message-circle-more"></i></span>
-          <div><h2>群主动</h2><p>保留每日晨报，也可以让鲸鲸在群聊冷场后自然接一句。</p></div>
+          <div><h2>群主动</h2><p>控制自然接话节奏，也可以保留每日晨报和冷场后的主动消息。</p></div>
         </header>
         <div class="agent-setting-list">
           <label class="agent-setting-row">
@@ -291,6 +346,16 @@
             </span>
             <span class="agent-switch">
               <input type="checkbox" id="settingGroupIdleProactiveEnabled" data-setting-input>
+              <span aria-hidden="true"></span>
+            </span>
+          </label>
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
+              <strong>群聊接话节奏</strong>
+              <small>限制自然接话密度，@、命令、位置和分享卡片不受影响</small>
+            </span>
+            <span class="agent-switch">
+              <input type="checkbox" id="settingGroupReplyControlEnabled" data-setting-input>
               <span aria-hidden="true"></span>
             </span>
           </label>
@@ -316,6 +381,14 @@
           </label>
         </div>
         <div class="agent-setting-grid">
+          <label>
+            <span>群聊活跃度</span>
+            <select id="settingGroupActivityLevel" data-setting-input>
+              <option value="quiet">克制</option>
+              <option value="balanced">标准</option>
+              <option value="active">活跃</option>
+            </select>
+          </label>
           <label>
             <span>默认城市</span>
             <input type="text" id="settingGroupWeatherCity" maxlength="40"
@@ -350,13 +423,99 @@
             <input type="number" id="settingGroupIdleMaxUnanswered"
                    min="1" max="10" data-setting-input>
           </label>
+          <label>
+            <span>10 分钟接话上限</span>
+            <input type="number" id="settingGroupReplyMax" min="3" max="20"
+                   data-setting-input>
+          </label>
+          <label>
+            <span>连续接话疲劳</span>
+            <input type="number" id="settingGroupReplyFatigueRounds"
+                   min="2" max="10" data-setting-input>
+          </label>
+          <label>
+            <span>消息合并等待（秒）</span>
+            <input type="number" id="settingGroupMessageMergeSeconds"
+                   min="0" max="10" data-setting-input>
+          </label>
         </div>
-        <p class="agent-section-note">冷场聊天默认关闭；有真人发言会立即重置计时。连续主动发言没人接话时自动暂停，等群重新活跃后恢复。系统只保存天气城市名，不保存精确坐标。</p>
+        <p class="agent-section-note">活跃模式会在多人正在聊、消息明显在提问或求推荐时更愿意接话，仍然不额外调用判断模型。接话节奏只约束自然加入话题；直接叫名字、@、命令和卡片仍立即处理。</p>
         <p class="agent-section-note" id="agentGroupIdleStatus" aria-live="polite">正在读取冷场聊天状态…</p>
         <div class="agent-idle-groups" id="agentGroupIdleGroups"></div>
         <div class="agent-idle-preview" id="agentGroupIdlePreview" hidden
              aria-live="polite"></div>
         <div class="agent-idle-runs" id="agentGroupIdleRuns"></div>
+      </section>
+
+      <section class="agent-console-section" id="settings-jargon" data-console-section>
+        <header class="agent-section-head">
+          <span class="agent-section-icon"><i data-lucide="book-open-text"></i></span>
+          <div><h2>群黑话</h2><p>从近期群聊里找出重复出现的词，确认含义后才会用于理解消息。</p></div>
+          <span class="agent-section-count" id="agentJargonCount">0 条</span>
+        </header>
+        <label class="agent-setting-row">
+          <span class="agent-setting-copy">
+            <strong>自动发现候选</strong>
+            <small>关闭后不再扫描群消息；已经启用的黑话仍可手动停用或删除</small>
+          </span>
+          <span class="agent-switch">
+            <input type="checkbox" id="settingGroupJargonEnabled" data-setting-input>
+            <span aria-hidden="true"></span>
+          </span>
+        </label>
+        <div class="agent-jargon-toolbar">
+          <label>
+            <span>显示</span>
+            <select id="agentJargonStatusFilter">
+              <option value="pending">待确认</option>
+              <option value="approved">已启用</option>
+              <option value="all">全部</option>
+            </select>
+          </label>
+          <span>只保存词、出现次数和群标识，不保留原始聊天记录</span>
+        </div>
+        <div class="agent-list" id="agentJargonList"></div>
+        <p class="agent-section-note">批准时请填写这个词在本群里的意思。启用后只在消息命中该词时注入，最多同时读取 6 条、1200 字。</p>
+      </section>
+
+      <section class="agent-console-section" id="settings-diagnostics" data-console-section>
+        <header class="agent-section-head">
+          <span class="agent-section-icon"><i data-lucide="activity"></i></span>
+          <div><h2>运行诊断</h2><p>查看后台任务、调用次数、数据库和历史清理状态。</p></div>
+          <span class="agent-section-count" id="agentDiagnosticsUpdated">尚未读取</span>
+        </header>
+        <div class="agent-diagnostics-cards">
+          <div><span>近 7 天调用</span><strong id="agentDiagnosticCalls">0</strong></div>
+          <div><span>失败调用</span><strong id="agentDiagnosticFailures">0</strong></div>
+          <div><span>数据库</span><strong id="agentDiagnosticDb">--</strong></div>
+          <div><span>安静状态</span><strong id="agentDiagnosticQuiet">0</strong></div>
+        </div>
+        <div class="agent-diagnostics-grid">
+          <div>
+            <h3>后台任务</h3>
+            <div class="agent-diagnostics-list" id="agentDiagnosticThreads"></div>
+          </div>
+          <div>
+            <h3>数据概况</h3>
+            <div class="agent-diagnostics-list" id="agentDiagnosticCounts"></div>
+          </div>
+          <div>
+            <h3>历史清理</h3>
+            <div class="agent-diagnostics-list" id="agentDiagnosticCleanup"></div>
+          </div>
+        </div>
+        <p class="agent-section-note" id="agentDiagnosticsSearchResult" aria-live="polite"></p>
+        <div class="agent-diagnostics-actions">
+          <button type="button" id="agentDiagnosticsRefresh">
+            <i data-lucide="refresh-cw"></i><span>刷新诊断</span>
+          </button>
+          <button type="button" id="agentDiagnosticsSearch">
+            <i data-lucide="search-check"></i><span>测试搜索</span>
+          </button>
+          <button type="button" id="agentDiagnosticsCleanup">
+            <i data-lucide="trash-2"></i><span>清理旧历史</span>
+          </button>
+        </div>
       </section>
 
       <section class="agent-console-section" id="settings-members" data-console-section>
@@ -464,6 +623,71 @@
           </label>
         </div>
         <p class="agent-section-note" id="agentStickerFilterSummary">共 0 张表情</p>
+        <div class="agent-sticker-library-bar">
+          <label>
+            <span>当前图库</span>
+            <select id="agentStickerLibrary"></select>
+          </label>
+          <label class="agent-sticker-library-enabled">
+            <input type="checkbox" id="agentStickerLibraryEnabled">
+            <span>参与机器人选图</span>
+          </label>
+          <button type="button" id="agentStickerLibraryAdd">
+            <i data-lucide="folder-plus"></i>
+            <span>新建图库</span>
+          </button>
+        </div>
+        <form class="agent-sticker-library-form" id="agentStickerLibraryCreateForm" hidden>
+          <input id="agentStickerLibraryCreateName" type="text" maxlength="40"
+                 placeholder="图库名称，例如：工作日常" required>
+          <button type="submit">创建</button>
+          <button type="button" id="agentStickerLibraryCreateCancel">取消</button>
+        </form>
+        <form class="agent-sticker-library-form" id="agentStickerLibraryRenameForm">
+          <input id="agentStickerLibraryRename" type="text" maxlength="40"
+                 placeholder="重命名当前图库">
+          <button type="submit">保存名称</button>
+        </form>
+        <div class="agent-sticker-auto-collect">
+          <label>
+            <input type="checkbox" id="settingStickerAutoCollectEnabled"
+                   data-setting-input>
+            <span>自动收集图片到待审核</span>
+          </label>
+          <label>
+            <span>收集到</span>
+            <select id="settingStickerAutoCollectLibrary" data-setting-input></select>
+          </label>
+        </div>
+        <details class="agent-sticker-rules" id="agentStickerRules">
+          <summary>默认 / 群聊 / 人格选图规则</summary>
+          <div class="agent-sticker-rule-grid">
+            <label>
+              <span>规则范围</span>
+              <select id="agentStickerRuleScope">
+                <option value="default">默认</option>
+                <option value="group">指定群聊</option>
+                <option value="persona">指定人格</option>
+              </select>
+            </label>
+            <label id="agentStickerRuleKeyLabel" hidden>
+              <span>规则对象</span>
+              <select id="agentStickerRuleKey"></select>
+            </label>
+          </div>
+          <div class="agent-sticker-rule-libraries" id="agentStickerRuleLibraries"></div>
+          <div class="agent-sticker-rule-actions">
+            <button type="button" id="agentStickerRuleSave">保存当前规则</button>
+            <span id="agentStickerRuleSummary"></span>
+          </div>
+        </details>
+        <section class="agent-sticker-candidate-panel">
+          <header>
+            <strong>待审核表情</strong>
+            <span id="agentStickerCandidateCount">0 张</span>
+          </header>
+          <div class="agent-sticker-candidate-list" id="agentStickerCandidateList"></div>
+        </section>
         <div class="agent-sticker-category-bar">
           <label class="agent-sticker-category">
             <span>分类（可选）</span>
@@ -535,6 +759,13 @@
               <select id="agentStickerBulkCategory"></select>
             </label>
             <button type="button" id="agentStickerBulkMove">移动</button>
+          </div>
+          <div class="agent-sticker-bulk-row agent-sticker-bulk-library">
+            <label>
+              <span>移至图库</span>
+              <select id="agentStickerBulkLibrary"></select>
+            </label>
+            <button type="button" id="agentStickerBulkLibraryMove">移动图库</button>
           </div>
           <div class="agent-sticker-bulk-row agent-sticker-bulk-metadata">
             <input type="text" id="agentStickerBulkCaption" maxlength="200"

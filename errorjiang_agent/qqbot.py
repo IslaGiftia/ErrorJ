@@ -17,6 +17,7 @@ from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
 from .errors import AgentError
+from .media_links import extract_shared_media
 from .onebot import (
     MessageEvent,
     extract_attachment_event,
@@ -120,6 +121,7 @@ def parse_qqbot_event(
         group_full=event_type == "GROUP_MESSAGE_CREATE",
         referenced=referenced,
         mentions_other=mentioned_other,
+        shared_media=tuple(extract_shared_media(text, payload)),
     )
 
 

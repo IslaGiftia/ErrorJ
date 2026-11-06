@@ -7,6 +7,8 @@ import re
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
 
+from .media_links import extract_shared_media
+
 
 CQ_CODE_RE = re.compile(r"\[CQ:[^\]]+\]")
 LOCATION_LAT_KEYS = ("lat", "latitude")
@@ -39,6 +41,7 @@ class MessageEvent:
     group_full: bool = False
     referenced: bool = False
     mentions_other: bool = False
+    shared_media: tuple[dict[str, Any], ...] = ()
 
     @property
     def owner_id(self) -> str:
@@ -505,6 +508,7 @@ def parse_message_event(payload: dict[str, Any]) -> MessageEvent | None:
         attachments=attachments,
         display_name=display_name,
         location=location,
+        shared_media=tuple(extract_shared_media(text, payload)),
     )
 
 
