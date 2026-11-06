@@ -7982,3 +7982,66 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json
              并以四个公网静态文件 SHA256 完全一致确认部署内容
 本地回归  -> 396 项单测通过；Python / JavaScript / JSON / diff 检查通过
 ```
+
+## 168. 2026-11-06 19:14:25 全站界面规范与导航体验升级
+
+来源：使用 `unslop` 审计全站页面后，分三批统一设计规范并修正 Agent、笔记、工作台、参考项目、内容页装饰和地图暗色模式中的实际问题。
+
+完成内容（功能提交 `51eb95e feat: refine interface system and navigation`，37 文件，+1234/−639）：
+
+- 建立共享 UI 令牌：辅助文字最低 12px，桌面控件基准 40px，手机主要操作 44px，图标优先 16px；浅色主题强调色加深以满足白字对比度，并新增全站 `:focus-visible` 焦点环。
+- 鲸鲸设置页由全部设置纵向堆叠改为一次显示一个分区，桌面侧栏切换、手机分组选择器切换并支持深链接；设置标题更新为“鲸鲸设置”。
+- 笔记手机端默认收起排序与标签筛选，筛选按钮在条件生效时保持高亮；工作台手机导航改为显示当前分区名称的选择器，概览统计改为两列紧凑布局；参考项目改为紧凑列表，长说明默认三行并支持逐条展开。
+- 留言、动态、下载、推荐和参考项目页移除持续雨线背景，首页、登录和注册页继续保留品牌雨景；共享侧栏上卡改为自适应高度，辅助字号至少 12px。
+- 地图暗色模式默认使用中文高德底图并添加中性暗色滤镜，Esri 深色改为手动可选的英文图层；移动端地图工具按钮统一到 44px 触控尺寸。
+
+本地验证：
+```text
+单元测试    -> 398 项通过
+Python      -> app.py 编译通过
+JavaScript  -> notes.js、workbench.js、references.js、map.js、agent.js、
+              books.js、messages.js、moments.js、activity.js 检查通过
+JSON        -> config/changelog-seed.json 校验通过
+差异检查    -> git diff --check 干净
+页面验证    -> 本地 1440×1000 与 390×844
+             Agent 分区切换、笔记筛选、工作台选择器、参考项目展开、
+             内容页雨线移除、地图中文暗色底图均通过
+             键盘焦点、触控尺寸、明暗主题和横向溢出检查通过
+```
+
+部署步骤：
+```text
+功能提交：51eb95e feat: refine interface system and navigation
+          本地 = origin/main = 51eb95e
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json
+      本地 / 服务器 SHA256 =
+      96b527fa25ab17ee54617e268bd0b736461bd685a6130185dc1e192360753d27
+备份：/data/errorjiang-backup/20261106-191820
+      inventory.db 9613312 bytes、agent.db 1384448 bytes、
+      auth.json 223 bytes、changelog-seed.json 144434 bytes；无 WAL / SHM
+服务器：stop errorjiang -> 备份 -> git pull --ff-only -> 51eb95e
+      seed 安装；import_changelog_moments.py --date 2026-11-06 --force
+      -> 新增 2 条、覆盖 0 条、跳过 0 条
+      start errorjiang
+```
+
+最终验证：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 主站 /api/health = {"ok": true}
+版本      -> 功能提交在本地、origin/main、服务器均为 51eb95e
+更新日志  -> /api/moments 新增 id 808、kind = log
+             2026-11-06 19:14:25「全站界面规范与导航体验升级」
+静态文件  -> agent.html   SHA256 = 28189115D9238ED44EFE789EF48016238529EF32AC6CFDCFA73F99706CAE0B08
+             agent.css    SHA256 = FA9CBCF1B0960091E8B39673CC5DB9D1423E5937D84BA499C586F4D4B317FA9A
+             agent.js     SHA256 = F8ABD53C64C60D3832AF3E039AFBB374A556E069733CE9ADEF999FD4795802DD
+             notes.html   SHA256 = 12AF1B20315A57D9E61F277DF99FF22BFA8AD33B2C9B2BED822F88DFD49C5626
+             notes.js     SHA256 = 9E1EA91009AC7B988D9412D5CBCF6521C48510A33844EC7F606DE46CAF53AA06
+             workbench.html SHA256 = 5CBA4760D4585F60D7BE8FB99FD9BE64729511C04637958A1B05EBC4DA5146CF
+             workbench.js SHA256 = C1245368FC1B0D49711EAAE65F294FC5C0901D98EBE2EE81DB359A8C42D36512
+             references.html SHA256 = 0C9461947DA1FD7726929FFB0DB1EBC0EB080F11CF66B785880CD4E62B965D26
+             map.js       SHA256 = 6AAF3CC27DE6DCC3D6EEF9765B613711EE4344AD565121195B42754977A93705
+             以上本地标准化内容与公网静态文件逐一一致
+线上页面  -> 公网 Playwright 在等待笔记筛选按钮时超时，未能完成公网交互渲染；
+             已用本地同版页面完成交互验证，并以公网静态文件哈希一致证明部署内容
+```
