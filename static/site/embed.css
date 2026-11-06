@@ -55,7 +55,7 @@ html.is-embed .rec-header-actions a[href="/"] {
  * 和推荐页左上角的悬浮按钮共用 28px 内缩，左右对称），以及同一套「有新内容就呼吸 + 点击跳过去」的逻辑。
  */
 :root {
-  --embed-btn-accent: #7b68ee;
+  --embed-btn-accent: #6554d8;
   --embed-btn-shadow: 0 6px 20px rgba(24, 31, 45, 0.18);
 }
 

@@ -52,6 +52,15 @@
     }
     list.innerHTML = items
       .map(function (item) {
+        var description = String(item.description || "").trim();
+        var descriptionHtml =
+          '<div class="reference-copy-wrap"><p class="reference-copy">' +
+          esc(description) +
+          "</p>" +
+          (description.length > 180
+            ? '<button class="reference-expand" type="button" data-reference-expand aria-expanded="false">展开说明</button>'
+            : "") +
+          "</div>";
         var actions = state.admin
           ? '<span class="reference-item-actions">' +
             '<button type="button" data-reference-edit="' +
@@ -71,12 +80,30 @@
           esc(safeHref(item.url)) +
           '" target="_blank" rel="noopener noreferrer">' +
           esc(item.title) +
-          "</a><p>" +
-          esc(item.description || "") +
-          "</p></article>"
+          "</a>" +
+          descriptionHtml +
+          "</article>"
         );
       })
       .join("");
+  }
+
+  function enhanceStaticDescriptions() {
+    list.querySelectorAll(".reference-item > p").forEach(function (paragraph) {
+      paragraph.classList.add("reference-copy");
+      if (paragraph.textContent.trim().length <= 180) return;
+      var wrap = document.createElement("div");
+      wrap.className = "reference-copy-wrap";
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "reference-expand";
+      button.dataset.referenceExpand = "";
+      button.setAttribute("aria-expanded", "false");
+      button.textContent = "展开说明";
+      paragraph.replaceWith(wrap);
+      wrap.appendChild(paragraph);
+      wrap.appendChild(button);
+    });
   }
 
   function openEditor(item) {
@@ -124,6 +151,14 @@
     if (event.target === overlay) overlay.hidden = true;
   });
   list.addEventListener("click", async function (event) {
+    var expand = event.target.closest("[data-reference-expand]");
+    if (expand) {
+      var copy = expand.parentElement.querySelector(".reference-copy");
+      var expanded = copy.classList.toggle("is-expanded");
+      expand.setAttribute("aria-expanded", expanded ? "true" : "false");
+      expand.textContent = expanded ? "收起说明" : "展开说明";
+      return;
+    }
     var edit = event.target.closest("[data-reference-edit]");
     if (edit) {
       var editItem = state.items.find(function (item) {
@@ -164,5 +199,6 @@
     }
   }
 
+  enhanceStaticDescriptions();
   boot();
 })();

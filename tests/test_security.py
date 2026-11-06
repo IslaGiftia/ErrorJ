@@ -2410,7 +2410,7 @@ class ComplianceWorkflowTests(unittest.TestCase):
         self.assertIn("min-height: 40px;", sidebar_css)
         self.assertIn("button.sb-presence::after", sidebar_css)
         self.assertIn("inset: -6px -4px;", sidebar_css)
-        self.assertIn("height: 40px;", workbench_css)
+        self.assertIn("height: var(--control-height);", workbench_css)
 
         nav = workbench_html.split('<nav class="wb-nav">', 1)[1].split(
             "</nav>",

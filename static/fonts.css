@@ -22,13 +22,22 @@
  * 内置的 ease / ease-in 对刻意的 UI 动效偏软：ease-in 起步慢，正好卡在用户盯着看的那一刻。
  */
 :root {
+  --primary: #6554d8;
+  --primary-strong: #5546c4;
+  --accent: #6554d8;
   --radius-sm: 6px;
   --radius: 8px;
   --radius-lg: 10px;
   --radius-xl: 14px;
   --radius-pill: 999px;
+  --type-caption: 12px;
+  --type-body-sm: 13px;
+  --type-body: 14px;
+  --control-height: 40px;
+  --touch-target: 44px;
+  --focus-ring: #5546c4;
   /*
-   * 实心主色块上的文字。浅色主题用白字（#7B68EE 上 4.15:1）；
+   * 实心主色块上的文字。浅色主题用白字（#6554D8 上约 5.5:1）；
    * 深色主题的品牌紫是浅色的 #A78BFA，白字压上去只有 2.72:1，
    * 所以换深紫字（6.32:1），和登录 / 注册页原有的做法一致。
    */
@@ -61,10 +70,32 @@
 }
 
 :root[data-theme="dark"] {
+  --primary: #a78bfa;
+  --primary-strong: #c4b5fd;
+  --accent: #a78bfa;
   --on-accent: #1f1633;
+  --focus-ring: #c4b5fd;
   --back-top-surface: #262626;
   --back-top-border: #3f3f46;
   --back-top-ink: #f4f4f5;
+}
+
+/*
+ * 键盘焦点是全站通用行为，不再由每个页面各写一套。
+ * 鼠标点击不触发 :focus-visible，因此不会扩大现有 hover / active 反馈。
+ */
+:root :is(
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  summary,
+  [role="button"],
+  [tabindex]:not([tabindex="-1"])
+):focus-visible {
+  outline: 2px solid var(--focus-ring) !important;
+  outline-offset: 2px !important;
 }
 
 /*

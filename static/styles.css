@@ -8,14 +8,14 @@
   --ink-3: #6b7280;
   --line: #e5e7eb;
   /* 品牌主色：全站统一用 #7B68EE（浅色）/ #A78BFA（深色），和其余页面一致 */
-  --accent: #7b68ee;
+  --accent: #6554d8;
   --accent-soft: #efedff;
   --accent-ink: #5d4fd1;
   --warn: #b45309;
   --warn-soft: #fdeed3;
   --danger: #b42318;
   --danger-soft: #fbe4e1;
-  --info: #7b68ee;
+  --info: #6554d8;
   --info-soft: #efedff;
   --shadow: 0 1px 2px rgba(17, 24, 39, 0.06), 0 8px 24px rgba(17, 24, 39, 0.06);
   --topbar-bg: rgba(255, 255, 255, 0.96);
@@ -23,7 +23,7 @@
   --bottomnav-bg: rgba(255, 255, 255, 0.97);
   --backdrop: rgba(17, 24, 39, 0.32);
   --modal-backdrop: rgba(17, 24, 39, 0.5);
-  --btn-primary-hover: #6956e5;
+  --btn-primary-hover: #5546c4;
   --btn-danger-hover: #9f1f15;
   --focus-ring: rgba(123, 104, 238, 0.18);
   --topbar-h: 60px;

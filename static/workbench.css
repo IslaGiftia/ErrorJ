@@ -6,14 +6,14 @@
   --wb-faint: #a4acb9;
   --wb-line: #e3e6eb;
   --wb-hover: #eef0f4;
-  --wb-accent: #7b68ee;
-  --wb-accent-strong: #6956e5;
+  --wb-accent: #6554d8;
+  --wb-accent-strong: #5546c4;
   --wb-accent-soft: #efedff;
   --wb-danger: #d64545;
   --wb-danger-soft: #fff0f0;
   --wb-success: #2f9e66;
   --wb-warning: #c88718;
-  --wb-shadow: 0 10px 30px rgba(24, 31, 45, 0.08);
+  --wb-shadow: 0 1px 3px rgba(24, 31, 45, 0.06);
   color-scheme: light;
 }
 
@@ -32,7 +32,7 @@
   --wb-danger-soft: #3d2020;
   --wb-success: #4ade80;
   --wb-warning: #f2b544;
-  --wb-shadow: 0 12px 34px rgba(0, 0, 0, 0.38);
+  --wb-shadow: 0 1px 4px rgba(0, 0, 0, 0.24);
   color-scheme: dark;
 }
 
@@ -110,6 +110,7 @@ svg {
 
 .wb-brand {
   display: flex;
+  min-height: var(--control-height);
   align-items: center;
   gap: 9px;
   font-size: 16px;
@@ -142,7 +143,7 @@ svg {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 40px;
+  height: var(--control-height);
   padding: 0 12px;
   border: 0;
   border-radius: var(--radius);
@@ -171,13 +172,17 @@ svg {
   height: 16px;
 }
 
+.wb-mobile-nav-picker {
+  display: none;
+}
+
 .wb-btn,
 .wb-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 36px;
+  height: var(--control-height);
   padding: 0 13px;
   border: 1px solid var(--wb-line);
   border-radius: var(--radius);
@@ -194,8 +199,8 @@ svg {
 
 .wb-btn svg,
 .wb-icon-btn svg {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
 }
 
 .wb-btn-primary {
@@ -313,6 +318,9 @@ svg {
 }
 
 .wb-link-btn {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
   border: 0;
   background: transparent;
   color: var(--wb-accent);
@@ -396,7 +404,7 @@ svg {
   align-items: center;
   gap: 8px;
   flex: 1;
-  height: 38px;
+  height: var(--control-height);
   padding: 0 11px;
   border: 1px solid var(--wb-line);
   border-radius: var(--radius);
@@ -488,7 +496,7 @@ svg {
   border-radius: var(--radius-pill);
   background: var(--wb-accent-soft);
   color: var(--wb-accent);
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-weight: 700;
 }
 
@@ -696,20 +704,80 @@ svg {
   }
 
   .wb-nav {
-    order: 3;
+    display: none;
+  }
+
+  .wb-btn,
+  .wb-icon-btn {
+    height: var(--touch-target);
+  }
+
+  .wb-brand {
+    min-height: var(--touch-target);
+  }
+
+  .wb-mobile-nav-picker {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    min-width: 0;
+    min-height: var(--touch-target);
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    border: 1px solid var(--wb-line);
+    border-radius: var(--radius);
+    background: var(--wb-surface);
+    color: var(--wb-muted);
+  }
+
+  .wb-mobile-nav-picker svg {
+    width: 16px;
+    height: 16px;
+    pointer-events: none;
+  }
+
+  .wb-mobile-nav-picker select {
     width: 100%;
-    margin-left: 0;
-    overflow-x: auto;
+    min-width: 0;
+    height: 42px;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    appearance: none;
+    background: transparent;
+    color: var(--wb-text);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .wb-search,
+  .wb-link-btn,
+  .wb-tabs button {
+    min-height: var(--touch-target);
   }
 
   .wb-nav button span {
     display: none;
   }
 
-  .wb-stat-grid,
   .wb-two-column,
   .wb-firmware-grid {
     grid-template-columns: 1fr;
+  }
+
+  .wb-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .wb-stat {
+    padding: 14px;
+  }
+
+  .wb-stat-value {
+    font-size: 26px;
   }
 
   .wb-main {
@@ -790,7 +858,7 @@ svg {
   border-radius: var(--radius-pill);
   background: var(--wb-accent);
   color: var(--on-accent);
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-style: normal;
   font-weight: 700;
   line-height: 18px;
@@ -813,7 +881,7 @@ svg {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 34px;
+  min-height: var(--control-height);
   padding: 0 13px;
   border: 1px solid var(--wb-line);
   border-radius: var(--radius);
@@ -846,7 +914,7 @@ svg {
   border-radius: var(--radius-pill);
   background: var(--wb-accent);
   color: var(--on-accent);
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-style: normal;
 }
 
@@ -908,7 +976,7 @@ svg {
   border-radius: var(--radius-pill);
   background: var(--wb-hover);
   color: var(--wb-muted);
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-weight: 700;
 }
 
@@ -1094,7 +1162,7 @@ svg {
 
 .wb-word em {
   color: var(--wb-muted);
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-style: normal;
 }
 

@@ -5,10 +5,10 @@
   --text: #111827;
   --muted: #6b7280;
   --line: #e5e7eb;
-  /* 品牌主色：全站统一的 #7B68EE 紫（深色下是 #A78BFA） */
-  --primary: #7b68ee;
-  --primary-strong: #5d4fd1;
-  --accent: #7b68ee;
+  /* 品牌紫的可用色档：浅色下加深以满足白字对比度，深色下使用浅紫 */
+  --primary: #6554d8;
+  --primary-strong: #5546c4;
+  --accent: #6554d8;
   --warn: #f2b544;
   --ok: #4caf7d;
   --shadow: 0 10px 30px rgba(17, 24, 39, 0.08);
@@ -384,7 +384,7 @@ html[data-theme="dark"] .theme-glyph__moon {
   position: absolute;
   top: 12px;
   right: 12px;
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-weight: 700;
   padding: 3px 8px;
   border-radius: var(--radius-pill);
@@ -753,7 +753,10 @@ html[data-theme="dark"] .theme-glyph__moon {
 }
 
 .landing-links a {
-  padding: 0;
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  padding: 0 4px;
   color: var(--text);
   font-size: 14px;
   font-weight: 700;
@@ -870,7 +873,7 @@ html[data-theme="dark"] .theme-glyph__moon {
 .landing-record {
   margin: 0;
   color: var(--ink-3, var(--muted));
-  font-size: 11px;
+  font-size: var(--type-caption);
   line-height: 1;
   opacity: 0.58;
 }
@@ -886,6 +889,9 @@ html[data-theme="dark"] .theme-glyph__moon {
 }
 
 .landing-record a {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
   color: inherit;
   text-decoration: none;
 }
@@ -1053,7 +1059,7 @@ html[data-theme="dark"] .theme-glyph__moon {
   display: flex;
   align-items: center;
   width: 100%;
-  min-height: 34px;
+  min-height: var(--control-height);
   padding: 0 9px;
   border: 0;
   border-radius: var(--radius);
@@ -1108,8 +1114,8 @@ html[data-theme="dark"] .theme-glyph__moon {
   right: 12px;
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: var(--control-height);
+  height: var(--control-height);
   border: 0;
   border-radius: var(--radius);
   background: transparent;
@@ -1214,13 +1220,23 @@ html[data-theme="dark"] .theme-glyph__moon {
   }
 
   .auth-status-btn {
-    height: 36px;
+    height: var(--touch-target);
     padding: 0 11px;
   }
 
+  .auth-menu button,
+  .auth-close {
+    min-height: var(--touch-target);
+  }
+
+  .auth-close {
+    width: var(--touch-target);
+    height: var(--touch-target);
+  }
+
   .agent-avatar-entry {
-    width: 36px;
-    height: 36px;
+    width: var(--touch-target);
+    height: var(--touch-target);
   }
 
   .auth-status-btn #authStatusText {
@@ -1228,8 +1244,16 @@ html[data-theme="dark"] .theme-glyph__moon {
   }
 
   .home-controls .theme-float {
-    width: 36px;
-    height: 36px;
+    width: var(--touch-target);
+    height: var(--touch-target);
+  }
+
+  .landing-links a {
+    min-height: var(--touch-target);
+  }
+
+  .landing-record a {
+    min-height: var(--touch-target);
   }
 
   .auth-menu {
@@ -1261,7 +1285,7 @@ html[data-theme="dark"] .theme-glyph__moon {
     width: 32px;
     height: 32px;
     margin-left: -10px;
-    font-size: 11px;
+    font-size: var(--type-caption);
   }
 
   .landing-note {
@@ -1408,7 +1432,7 @@ body[data-page] .under-construction {
   width: 40px;
   height: 40px;
   margin-left: -12px;
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .landing-three .landing-note {

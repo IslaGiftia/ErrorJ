@@ -8,7 +8,6 @@
   <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=4">
   <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=4">
 <link rel="stylesheet" href="/static/site/site.css">
-<link rel="stylesheet" href="/static/site/rain.css">
   <style>
 .reference-page {
 position: relative;
@@ -36,22 +35,25 @@ width: min(980px, 100%);
 
     .reference-list {
       display: grid;
-      gap: 12px;
+      gap: 8px;
     }
 
     .reference-item {
       display: grid;
-      grid-template-columns: minmax(180px, 0.34fr) minmax(0, 1fr);
-      column-gap: 22px;
+      grid-template-columns: minmax(180px, 0.3fr) minmax(0, 1fr);
+      column-gap: 18px;
       row-gap: 8px;
-      padding: 20px 22px;
+      padding: 16px 18px;
       border: 1px solid var(--line);
-      border-radius: var(--radius-xl);
-      background: color-mix(in srgb, var(--panel) 90%, transparent);
-      box-shadow: var(--shadow);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: none;
     }
 
     .reference-item a {
+      display: inline-flex;
+      min-height: 36px;
+      align-items: center;
       color: var(--primary-strong);
       font-weight: 800;
     }
@@ -64,6 +66,30 @@ width: min(980px, 100%);
       margin: 0;
       color: var(--muted);
       line-height: 1.75;
+    }
+
+    .reference-copy-wrap {
+      grid-column: 2;
+      min-width: 0;
+    }
+
+    .reference-copy:not(.is-expanded) {
+      display: -webkit-box;
+      overflow: hidden;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 3;
+    }
+
+    .reference-expand {
+      min-height: 32px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--primary-strong);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
     }
 
     .reference-back {
@@ -89,7 +115,7 @@ width: min(980px, 100%);
       align-items: center;
       justify-content: center;
       gap: 6px;
-      min-height: 36px;
+      min-height: var(--control-height);
       padding: 0 13px;
       border: 1px solid var(--line);
       border-radius: var(--radius);
@@ -121,7 +147,7 @@ width: min(980px, 100%);
     .reference-item-actions button {
       width: auto;
       min-width: 52px;
-      min-height: 32px;
+      min-height: 36px;
       padding: 0 10px;
       white-space: nowrap;
     }
@@ -204,6 +230,19 @@ width: min(980px, 100%);
         grid-template-columns: 1fr;
         gap: 8px;
       }
+
+      .reference-copy-wrap {
+        grid-column: 1;
+      }
+
+      .reference-admin-bar button,
+      .reference-item-actions button,
+      .reference-editor-actions button,
+      .reference-editor input,
+      .reference-editor textarea,
+      .reference-item a {
+        min-height: var(--touch-target);
+      }
     }
   </style>
   <script>
@@ -219,14 +258,9 @@ width: min(980px, 100%);
 <link rel="stylesheet" href="/static/fonts.css">
 </head>
 <body>
-  <div class="rain-scene rain-scene--fixed" id="rainScene" aria-hidden="true">
-    <div class="rain-layer" id="rainLayer"></div>
-    <div class="rain-floor" id="rainFloor"></div>
-  </div>
-
   <main class="reference-page">
     <h1>Error酱参考项目</h1>
-    <p>Error酱并不是从零原创，功能主要参考以下开源项目。这里是开发过程中实际参考或依赖的项目；只借鉴交互、未复制代码的会单独注明，各项目的代码与设计仍遵循其原始许可证。近几轮重构删掉了小游戏模块与站内电子书阅读器，对应的参考条目也一并移除。</p>
+    <p>Error酱参考了以下开源项目。只借鉴交互或设计时会单独说明，实际依赖与许可证以各项目仓库为准。</p>
 
     <div class="reference-admin-bar" id="referenceAdminBar" hidden>
       <button class="primary" id="referenceAddBtn" type="button">新增参考项目</button>
@@ -430,7 +464,6 @@ width: min(980px, 100%);
     </form>
   </div>
 
-  <script src="/static/site/rain.js"></script>
   <script src="/static/site/dialog.js"></script>
   <script src="/static/references.js"></script>
   <script>

@@ -39,6 +39,10 @@
       </label>
 
       <div class="nt-header-actions">
+        <button class="nt-btn nt-icon-btn nt-filter-btn" id="ntFilterToggle" type="button"
+                aria-expanded="false" aria-controls="ntSidebarHead">
+          <i data-lucide="sliders-horizontal"></i><span>筛选</span>
+        </button>
         <button class="nt-btn" id="documentImportBtn" type="button">
           <i data-lucide="file-up"></i><span>导入文档</span>
         </button>
@@ -50,7 +54,7 @@
 
     <div class="nt-layout">
       <aside class="nt-sidebar">
-        <div class="nt-sidebar-head">
+        <div class="nt-sidebar-head" id="ntSidebarHead">
           <div class="nt-sort" id="sortBar">
             <button class="active" type="button" data-sort="updated">最近更新</button>
             <button type="button" data-sort="created">最近创建</button>

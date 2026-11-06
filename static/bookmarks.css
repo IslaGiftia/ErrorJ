@@ -6,11 +6,11 @@
   --pin-faint: #a4acb9;
   --pin-border: #e3e6eb;
   --pin-hover: #eef0f4;
-  --pin-accent: #7b68ee;
-  --pin-accent-hover: #6956e5;
+  --pin-accent: #6554d8;
+  --pin-accent-hover: #5546c4;
   --pin-accent-soft: #efedff;
-  --pin-active: #7b68ee;
-  --pin-active-hover: #6854df;
+  --pin-active: #6554d8;
+  --pin-active-hover: #5546c4;
   --pin-danger: #d64545;
   --pin-danger-soft: #fff0f0;
   --pin-note-bg: color-mix(in srgb, var(--pin-accent) 11%, var(--pin-surface));
@@ -32,8 +32,8 @@
   --pin-accent: #a78bfa;
   --pin-accent-hover: #b8a3ff;
   --pin-accent-soft: #322d4c;
-  --pin-active: #7b68ee;
-  --pin-active-hover: #6854df;
+  --pin-active: #a78bfa;
+  --pin-active-hover: #c4b5fd;
   --pin-danger: #f87171;
   --pin-danger-soft: #3d2020;
   --pin-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
@@ -346,7 +346,7 @@ svg {
 .pin-folder-row.active {
   background: var(--pin-active);
   border-left-color: var(--pin-active-hover);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 

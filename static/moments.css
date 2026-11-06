@@ -10,9 +10,9 @@ html {
   --mo-page-pad: 16px;
   --mo-float-inset: 12px;
   /* 悬浮操作区按钮高度：和留言页 .mg-filter-btn 的实际高度（35px）对齐 */
-  --mo-dock-btn-h: 35px;
+  --mo-dock-btn-h: 40px;
   /* 评论 / 回复输入框与同行「发送」按钮的统一高度 */
-  --mo-input-h: 38px;
+  --mo-input-h: 40px;
   /* 动态卡片头像的尺寸（手机端在下面收一档），也用作头部那一行的最小高度 */
   --mo-avatar: 40px;
   /* 分享卡专辑封面尺寸（手机端在下面收一档），不超出整张分享卡的高度 */
@@ -24,8 +24,8 @@ html {
   --mo-faint: #a4acb9;
   --mo-border: #e3e6eb;
   --mo-hover: #eef0f4;
-  --mo-accent: #7b68ee;
-  --mo-accent-hover: #6956e5;
+  --mo-accent: #6554d8;
+  --mo-accent-hover: #5546c4;
   --mo-accent-soft: #efedff;
   --mo-danger: #d64545;
   --mo-danger-soft: #fff0f0;
@@ -641,7 +641,7 @@ body {
   border-radius: var(--radius-pill);
   background: var(--mo-accent-soft);
   color: var(--mo-accent);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .mo-time {
@@ -1659,6 +1659,11 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
 
 /* 平板竖屏 / 手机横屏（<=1024）也是触摸屏，输入框小于 16px 时 iOS 聚焦同样会放大整页 */
 @media (max-width: 1024px) {
+  :root {
+    --mo-dock-btn-h: var(--touch-target);
+    --mo-input-h: var(--touch-target);
+  }
+
   body[data-notify-module="moments"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
   body[data-notify-module="moments"] textarea,
   body[data-notify-module="moments"] select {
@@ -1701,7 +1706,7 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
 .mo-log-month-num {
   font-style: normal;
   font-weight: 400;
-  font-size: 11.5px;
+  font-size: var(--type-caption);
   color: var(--mo-faint);
 }
 

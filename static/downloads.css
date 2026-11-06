@@ -15,8 +15,8 @@ html {
   --dl-muted: #7b8494;
   --dl-border: #e3e6eb;
   --dl-hover: #eef0f4;
-  --dl-accent: #7b68ee;
-  --dl-accent-hover: #6956e5;
+  --dl-accent: #6554d8;
+  --dl-accent-hover: #5546c4;
   --dl-accent-soft: #efedff;
   /* 悬浮按钮的基础投影：呼吸动画从这里出发（只换 box-shadow，不动位移） */
   --dl-tab-shadow: 0 2px 10px rgba(24, 31, 45, 0.08);
@@ -150,8 +150,8 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 35px;
-  height: 35px;
+  width: var(--control-height);
+  height: var(--control-height);
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--dl-border) 78%, transparent);
   border-radius: var(--radius-lg);
@@ -217,7 +217,7 @@ body {
   border-radius: var(--radius-pill);
   background: var(--dl-accent);
   color: var(--on-accent);
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-style: normal;
   font-weight: 800;
   line-height: 18px;
@@ -275,7 +275,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 35px;
+  height: var(--control-height);
   padding: 0 14px;
   border: 1px solid var(--dl-accent);
   border-radius: var(--radius-lg);
@@ -396,6 +396,15 @@ body {
  * 再叠一次会让按钮整体下移一大截、上面留出一块空白。
  */
 @media (max-width: 640px) {
+  .dl-tab {
+    width: var(--touch-target);
+    height: var(--touch-target);
+  }
+
+  .dl-action {
+    height: var(--touch-target);
+  }
+
   .dl-dock {
     top: 6px;
     padding: 0 12px;

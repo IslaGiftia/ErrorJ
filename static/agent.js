@@ -2277,58 +2277,98 @@
     var sections = Array.prototype.slice.call(
       document.querySelectorAll("[data-console-section]")
     );
-    var nav = document.querySelector(".agent-console-nav");
-    var navigationLockUntil = 0;
-    var framePending = false;
+    var sectionSelect = document.getElementById("agentSectionSelect");
     var activeSectionId = "";
-    function setActive(sectionId, revealLink) {
+
+    if (!links.length || !sections.length) return;
+
+    links.forEach(function (link) {
+      if (!sectionSelect) return;
+      var option = document.createElement("option");
+      option.value = link.getAttribute("data-section-link");
+      option.textContent = link.textContent.trim();
+      sectionSelect.appendChild(option);
+    });
+
+    function sectionExists(sectionId) {
+      return sections.some(function (section) {
+        return section.id === sectionId;
+      });
+    }
+
+    function setActive(sectionId, updateHash, moveToTop) {
+      if (!sectionExists(sectionId)) sectionId = sections[0].id;
       var changed = activeSectionId !== sectionId;
       activeSectionId = sectionId;
+
+      sections.forEach(function (section) {
+        var active = section.id === sectionId;
+        section.classList.toggle("is-active", active);
+        section.setAttribute("aria-hidden", active ? "false" : "true");
+      });
+
       links.forEach(function (link) {
         var active =
           link.getAttribute("data-section-link") === sectionId;
         link.classList.toggle("is-active", active);
         if (active) link.setAttribute("aria-current", "location");
         else link.removeAttribute("aria-current");
-        if (active && changed && revealLink && window.innerWidth <= 900) {
-          nav.scrollLeft = Math.max(
-            0,
-            link.offsetLeft - (nav.clientWidth - link.offsetWidth) / 2
-          );
-        }
       });
+
+      if (sectionSelect && sectionSelect.value !== sectionId) {
+        sectionSelect.value = sectionId;
+      }
+
+      if (updateHash && window.location.hash !== "#" + sectionId) {
+        window.history.replaceState(null, "", "#" + sectionId);
+      }
+
+      if (changed && moveToTop && window.scrollY > 0) {
+        var reduceMotion = window.matchMedia(
+          "(prefers-reduced-motion: reduce)"
+        ).matches;
+        window.scrollTo({
+          top: 0,
+          behavior: reduceMotion ? "auto" : "smooth",
+        });
+      }
     }
-    function syncActiveFromScroll() {
-      framePending = false;
-      if (Date.now() < navigationLockUntil || !sections.length) return;
-      var current = sections[0].id;
-      sections.forEach(function (section) {
-        if (section.getBoundingClientRect().top <= 112) {
-          current = section.id;
-        }
-      });
-      var pageAtBottom =
-        window.scrollY + window.innerHeight >=
-        document.documentElement.scrollHeight - 2;
-      if (pageAtBottom) current = sections[sections.length - 1].id;
-      setActive(current, false);
-    }
-    function requestSync() {
-      if (framePending) return;
-      framePending = true;
-      window.requestAnimationFrame(syncActiveFromScroll);
-    }
+
     links.forEach(function (link) {
-      link.addEventListener("click", function () {
-        var sectionId = link.getAttribute("data-section-link");
-        setActive(sectionId, true);
-        navigationLockUntil = Date.now() + 700;
-        window.setTimeout(syncActiveFromScroll, 720);
+      link.addEventListener("click", function (event) {
+        event.preventDefault();
+        setActive(
+          link.getAttribute("data-section-link"),
+          true,
+          true
+        );
       });
     });
-    window.addEventListener("scroll", requestSync, { passive: true });
-    window.addEventListener("resize", requestSync, { passive: true });
-    requestSync();
+
+    if (sectionSelect) {
+      sectionSelect.addEventListener("change", function () {
+        setActive(sectionSelect.value, true, true);
+      });
+    }
+
+    window.addEventListener("hashchange", function () {
+      setActive(window.location.hash.slice(1), false, true);
+    });
+
+    var initialSectionId = window.location.hash.slice(1);
+    setActive(initialSectionId, false, true);
+    if (initialSectionId) {
+      window.requestAnimationFrame(function () {
+        window.scrollTo(0, 0);
+      });
+      window.addEventListener(
+        "load",
+        function () {
+          window.scrollTo(0, 0);
+        },
+        { once: true }
+      );
+    }
   }
 
   settingsSave.addEventListener("click", saveSettings);

@@ -6,7 +6,7 @@
   --rec-muted: #7b8494;
   --rec-faint: #a4acb9;
   --rec-line: #e3e6eb;
-  --rec-accent: #7b68ee;
+  --rec-accent: #6554d8;
   --rec-accent-2: #16a6a2;
   --rec-accent-3: #e57c3c;
   --rec-danger: #d64545;
@@ -90,6 +90,7 @@ a {
 
 .rec-brand {
   display: inline-flex;
+  min-height: var(--control-height);
   align-items: center;
   gap: 9px;
   min-width: 0;
@@ -127,7 +128,7 @@ a {
   align-items: center;
   gap: 8px;
   width: min(390px, 38vw);
-  height: 38px;
+  height: var(--control-height);
   margin-left: auto;
   padding: 0 11px;
   border: 1px solid var(--rec-line);
@@ -162,7 +163,7 @@ a {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 36px;
+  min-height: var(--control-height);
   padding: 0 13px;
   border: 1px solid var(--rec-line);
   border-radius: var(--radius);
@@ -184,27 +185,28 @@ a {
 .rec-btn-primary,
 .rec-action.primary {
   border-color: transparent;
-  background: #7b68ee;
-  color: #fff;
-  box-shadow: 0 4px 14px rgba(123, 104, 238, 0.26);
+  background: var(--primary);
+  color: var(--on-accent);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--primary) 28%, transparent);
 }
 
 .rec-btn-primary:hover,
 .rec-action.primary:hover {
-  background: #6956e5;
-  color: #fff;
+  background: var(--primary-strong);
+  color: var(--on-accent);
 }
 
 /* 深色主题跟站内其它页面同一颗紫：--mg-accent / --mo-accent 的深色值 */
 [data-theme="dark"] .rec-btn-primary,
 [data-theme="dark"] .rec-action.primary {
-  background: #a78bfa;
+  background: var(--primary);
+  color: var(--on-accent);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.34);
 }
 
 [data-theme="dark"] .rec-btn-primary:hover,
 [data-theme="dark"] .rec-action.primary:hover {
-  background: #b8a3ff;
+  background: var(--primary-strong);
 }
 
 .rec-btn svg {
@@ -233,7 +235,7 @@ a {
 }
 
 .rec-tabs button {
-  min-height: 34px;
+  min-height: var(--control-height);
   padding: 0 13px;
   border: 1px solid var(--rec-line);
   border-radius: var(--radius-pill);
@@ -380,7 +382,7 @@ a {
   border-radius: var(--radius-pill);
   background: rgba(15, 18, 25, 0.68);
   color: #fff;
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 800;
   backdrop-filter: blur(8px);
 }
@@ -409,14 +411,14 @@ a {
 }
 
 .rec-card-actions button {
-  min-width: 30px;
-  min-height: 30px;
+  min-width: 36px;
+  min-height: 36px;
   padding: 0 8px;
   border: 1px solid rgba(255, 255, 255, 0.28);
   border-radius: var(--radius);
   background: rgba(16, 18, 24, 0.7);
   color: #fff;
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-weight: 700;
   cursor: pointer;
   backdrop-filter: blur(8px);
@@ -451,6 +453,12 @@ a {
   font-size: 17px;
   line-height: 1.35;
   white-space: nowrap;
+}
+
+.rec-card-title-row a {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
 }
 
 .rec-subtitle {
@@ -491,7 +499,7 @@ a {
   gap: 7px;
   margin-top: 10px;
   color: var(--rec-muted);
-  font-size: 11px;
+  font-size: var(--type-caption);
   flex-wrap: nowrap;
 }
 
@@ -516,7 +524,7 @@ a {
 
 .rec-tag-row span {
   color: var(--rec-muted);
-  font-size: 11px;
+  font-size: var(--type-caption);
   white-space: nowrap;
 }
 
@@ -536,7 +544,7 @@ a {
 .rec-link-row a {
   display: inline-flex;
   align-items: center;
-  min-height: 32px;
+  min-height: 36px;
   padding: 0 11px;
   border: 1px solid var(--rec-line);
   border-radius: var(--radius);
@@ -560,7 +568,7 @@ a {
 .rec-resource-missing {
   display: inline-flex;
   align-items: center;
-  min-height: 32px;
+  min-height: 36px;
   padding: 0 11px;
   border: 1px dashed var(--rec-line);
   border-radius: var(--radius);
@@ -913,7 +921,7 @@ body[data-notify-module="recommendations"] textarea {
 .rec-bookmark-option span {
   margin-top: 3px;
   color: var(--rec-muted);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .rec-bookmark-option em {
@@ -921,7 +929,7 @@ body[data-notify-module="recommendations"] textarea {
   border-radius: var(--radius-pill);
   background: var(--rec-panel);
   color: var(--rec-muted);
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-style: normal;
 }
 
@@ -1079,8 +1087,35 @@ body[data-notify-module="recommendations"] textarea {
   }
 
   /* 手机上按钮点起来大一点（原来 36px） */
-  .rec-btn {
+  .rec-btn,
+  .rec-action,
+  .rec-tabs button,
+  .rec-card-actions button,
+  .rec-report-btn,
+  .rec-login-only,
+  .rec-link-row a,
+  .rec-resource-missing,
+  .rec-bookmark-option {
     min-height: 44px;
+  }
+
+  .rec-search {
+    height: var(--touch-target);
+  }
+
+  .rec-brand,
+  .rec-card-title-row a {
+    min-height: var(--touch-target);
+  }
+
+  .rec-card-actions button {
+    min-width: 44px;
+  }
+
+  .rec-field input,
+  .rec-field select,
+  .rec-field textarea {
+    min-height: var(--touch-target);
   }
 }
 
@@ -1212,6 +1247,8 @@ body[data-notify-module="recommendations"] textarea {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
+  min-height: 56px;
+  justify-content: center;
   gap: 3px;
   min-width: 0;
   /* 让开右上角的「三个点」 */

@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=4">
   <link rel="stylesheet" href="/static/site/site.css">
   <link rel="stylesheet" href="/static/fonts.css">
-  <link rel="stylesheet" href="/static/agent.css?v=13">
+  <link rel="stylesheet" href="/static/agent.css?v=15">
   <script>
     (function () {
       try {
@@ -97,6 +97,12 @@
         </a>
       </nav>
 
+      <label class="agent-mobile-section-picker">
+        <i data-lucide="sliders-horizontal"></i>
+        <select id="agentSectionSelect" aria-label="设置分组"></select>
+        <i data-lucide="chevron-down"></i>
+      </label>
+
       <section class="agent-console-runtime">
         <div class="agent-console-runtime-head">
           <h2>运行状态</h2>
@@ -118,7 +124,7 @@
     <div class="agent-console-content">
       <header class="agent-console-intro">
         <div>
-          <h1>机器人设置</h1>
+          <h1>鲸鲸设置</h1>
           <p>管理鲸鲸的运行参数、关系档案和内容素材。</p>
         </div>
         <div class="agent-save-note" id="agentSettingsStatus" aria-live="polite">
@@ -126,7 +132,7 @@
         </div>
       </header>
 
-      <section class="agent-console-section" id="settings-basic" data-console-section>
+      <section class="agent-console-section is-active" id="settings-basic" data-console-section>
         <header class="agent-section-head">
           <span class="agent-section-icon"><i data-lucide="sliders-horizontal"></i></span>
           <div><h2>基础设置</h2><p>控制长期记忆、自动整理、闲聊回复节奏和表情包。</p></div>
@@ -790,6 +796,6 @@
   </main>
 
   <script src="/static/vendor/lucide.min.js"></script>
-  <script src="/static/agent.js?v=14"></script>
+  <script src="/static/agent.js?v=17"></script>
 </body>
 </html>

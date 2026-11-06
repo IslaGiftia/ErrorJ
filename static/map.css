@@ -7,8 +7,8 @@
   --mp-faint: #a4acb9;
   --mp-border: #e3e6eb;
   --mp-hover: #eef0f4;
-  --mp-accent: #7b68ee;
-  --mp-accent-hover: #6956e5;
+  --mp-accent: var(--primary);
+  --mp-accent-hover: var(--primary-strong);
   --mp-accent-soft: #efedff;
   --mp-danger: #d64545;
   --mp-danger-soft: #fff0f0;
@@ -233,7 +233,7 @@ body {
   margin-left: auto;
   flex: none;
   color: var(--mp-muted);
-  font-size: 11.5px;
+  font-size: var(--type-caption);
   font-style: normal;
 }
 
@@ -372,7 +372,7 @@ body {
 
 .mp-actions .mp-btn {
   width: 100%;
-  height: 36px;
+  height: var(--control-height);
   min-width: 0;
   padding: 0;
 }
@@ -508,8 +508,8 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border: 1px solid transparent;
   border-radius: var(--radius);
   background: transparent;
@@ -536,7 +536,7 @@ body {
   flex-direction: column;
   gap: 8px;
   /* 工具按钮的统一高度：搜索框也用这个值，两者才会严格等高 */
-  --mp-tools-btn: 40px;
+  --mp-tools-btn: var(--control-height);
 }
 
 /*
@@ -780,6 +780,11 @@ body {
 
 .mp-map.is-darkmap .leaflet-tile-pane {
   filter: brightness(1.2) contrast(1.06);
+}
+
+.mp-map.is-darkmap-amap .leaflet-tile-pane {
+  filter: invert(0.9) hue-rotate(180deg) brightness(1.05) contrast(0.92)
+    saturate(0.72);
 }
 
 .mp-toast {
@@ -1088,13 +1093,13 @@ body {
 .mp-merchant-popup p {
   margin: 0;
   color: var(--mp-muted);
-  font-size: 11.5px;
+  font-size: var(--type-caption);
   line-height: 1.45;
 }
 
 .mp-merchant-add {
   align-self: flex-start;
-  min-height: 28px;
+  min-height: 36px;
   margin-top: 2px;
   padding: 0 10px;
   border: 1px solid var(--mp-accent);
@@ -1102,7 +1107,7 @@ body {
   background: var(--mp-accent-soft);
   color: var(--mp-accent);
   font: inherit;
-  font-size: 11.5px;
+  font-size: var(--type-caption);
   font-weight: 700;
   cursor: pointer;
 }
@@ -1416,7 +1421,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 28px;
+  height: 36px;
   padding: 0 10px;
   border: 1px solid var(--mp-border);
   border-radius: var(--radius);
@@ -1617,7 +1622,7 @@ body {
 .mp-field-hint {
   margin: 2px 0 0;
   color: var(--mp-muted);
-  font-size: 11.5px;
+  font-size: var(--type-caption);
 }
 
 .mp-poi-list {
@@ -1661,7 +1666,7 @@ body {
 
 .mp-poi-item span {
   color: var(--mp-muted);
-  font-size: 11.5px;
+  font-size: var(--type-caption);
 }
 
 .mp-poi-add {
@@ -1786,7 +1791,7 @@ body {
   padding: 2px 0;
   background: rgba(12, 16, 22, 0.68);
   color: #fff;
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-align: center;
 }
 
@@ -1906,6 +1911,7 @@ body {
 
 .mp-cat-addchild {
   align-self: flex-start;
+  min-height: 32px;
   margin-left: 26px;
   padding: 2px 8px;
   border: 1px dashed var(--mp-border);
@@ -1913,7 +1919,7 @@ body {
   background: transparent;
   color: var(--mp-muted);
   font: inherit;
-  font-size: 11.5px;
+  font-size: var(--type-caption);
   cursor: pointer;
 }
 
@@ -1950,8 +1956,8 @@ body {
 }
 
 .mp-cat-actions .mp-icon-btn {
-  width: 30px;
-  height: 30px;
+  width: 36px;
+  height: 36px;
 }
 
 .mp-cat-actions .mp-icon-btn svg {
@@ -2011,6 +2017,20 @@ body {
     transition: opacity var(--dur-fast) ease;
   }
 
+  .mp-link-btn,
+  .mp-merchant-add,
+  .mp-cat-addchild,
+  .mp-icon-btn,
+  .mp-cat-actions .mp-icon-btn {
+    height: var(--touch-target);
+    min-height: var(--touch-target);
+  }
+
+  .mp-icon-btn,
+  .mp-cat-actions .mp-icon-btn {
+    width: var(--touch-target);
+  }
+
   /*
    * 手机端顶部整体压缩：标题行、搜索框、添加者、分类 / 标签都用更小的字号和间距，
    * 腾出来的高度全部给下面的标记点列表。触控高度不低于 32px（搜索框仍然是 16px 字号，
@@ -2035,7 +2055,7 @@ body {
   }
 
   .mp-count {
-    font-size: 10.5px;
+    font-size: var(--type-caption);
   }
 
   .mp-search {
@@ -2081,7 +2101,7 @@ body {
   }
 
   .mp-item-sub {
-    font-size: 11.5px;
+    font-size: var(--type-caption);
   }
 
   .mp-tools {
@@ -2110,8 +2130,7 @@ body {
   }
 
   .mp-tools {
-    /* 手机上工具按钮小一号，搜索框跟着一起变，仍然严格等高 */
-    --mp-tools-btn: 38px;
+    --mp-tools-btn: var(--touch-target);
   }
 
   .mp-toast {
@@ -2380,8 +2399,8 @@ body {
   /* 图标按钮：没有文字，六枚并排也不挤 */
   .mp-actions .mp-btn {
     width: 100%;
-    height: 34px;
-    min-height: 34px;
+    height: var(--control-height);
+    min-height: var(--control-height);
     padding: 0;
     border-radius: var(--radius);
   }

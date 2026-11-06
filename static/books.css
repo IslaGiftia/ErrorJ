@@ -12,7 +12,7 @@ html {
   --bk-faint: #a4acb9;
   --bk-line: #e3e6eb;
   --bk-hover: #eef0f4;
-  --bk-accent: #7b68ee;
+  --bk-accent: #6554d8;
   --bk-accent-soft: #efedff;
   --bk-danger: #d64545;
   --bk-shadow: 0 12px 32px rgba(24, 31, 45, 0.16);
@@ -244,7 +244,7 @@ body {
   background: var(--bk-badge-bg);
   color: var(--bk-badge-ink);
   backdrop-filter: blur(6px);
-  font-size: 10.5px;
+  font-size: var(--type-caption);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0;
@@ -424,7 +424,7 @@ body {
   display: block;
   margin-top: 6px;
   color: var(--bk-faint);
-  font-size: 11.5px;
+  font-size: var(--type-caption);
 }
 
 .bk-field {

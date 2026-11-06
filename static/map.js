@@ -256,7 +256,7 @@
     },
     esriDark: {
       name: "Esri 深色",
-      tag: "深色",
+      tag: "英文",
       dot: "#3d4147",
       gcj: false,
       zoomCap: 16,
@@ -292,7 +292,7 @@
       var id = localStorage.getItem(BASE_STORAGE_PREFIX + themeKey());
       if (id && BASE_LAYERS[id]) return id;
     } catch (err) {}
-    return isDarkTheme() ? "esriDark" : "amap";
+    return "amap";
   }
 
   var map = L.map(mapEl, {
@@ -370,6 +370,10 @@
       map.removeLayer(darkRefLayer);
     }
     mapEl.classList.toggle("is-darkmap", id === "esriDark");
+    mapEl.classList.toggle(
+      "is-darkmap-amap",
+      isDarkTheme() && id === "amap"
+    );
     if (opts.remember) {
       try {
         localStorage.setItem(BASE_STORAGE_PREFIX + themeKey(), id);

@@ -9,8 +9,8 @@
   --mu-faint: #a4acb9;
   --mu-line: #e3e6eb;
   --mu-hover: #eef0f4;
-  --mu-accent: #7b68ee;
-  --mu-accent-hover: #6956e5;
+  --mu-accent: #6554d8;
+  --mu-accent-hover: #5546c4;
   --mu-accent-soft: #efedff;
   --mu-danger: #d64545;
   --mu-shadow: 0 12px 32px rgba(24, 31, 45, 0.16);
@@ -606,7 +606,7 @@ button.mu-row-cover:focus-visible {
   display: block;
   margin-top: 6px;
   color: var(--mu-faint);
-  font-size: 11.5px;
+  font-size: var(--type-caption);
 }
 
 .mu-hint {
@@ -733,7 +733,7 @@ button.mu-row-cover:focus-visible {
   }
 
   .mu-row-time {
-    font-size: 11.5px;
+    font-size: var(--type-caption);
   }
 
   .mu-list.has-actions {

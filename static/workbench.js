@@ -149,6 +149,8 @@
     document.querySelectorAll(".wb-nav button").forEach((button) => {
       button.classList.toggle("active", button.dataset.view === view);
     });
+    const viewSelect = $("wbViewSelect");
+    if (viewSelect && viewSelect.value !== view) viewSelect.value = view;
     const main = document.querySelector(".wb-main");
     if (main) main.scrollTop = 0;
     if (window.history && history.replaceState) {
@@ -558,6 +560,10 @@
     document.querySelectorAll("[data-go-view]").forEach((button) => {
       button.addEventListener("click", () => setView(button.dataset.goView));
     });
+    const viewSelect = $("wbViewSelect");
+    if (viewSelect) {
+      viewSelect.addEventListener("change", () => setView(viewSelect.value));
+    }
     $("headerUploadBtn").addEventListener("click", () => openAssetModal("document"));
     document.querySelectorAll("[data-upload-category]").forEach((button) => {
       button.addEventListener("click", () => openAssetModal(button.dataset.uploadCategory));

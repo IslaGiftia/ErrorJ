@@ -29,7 +29,7 @@
   --sb-faint: #a4acb9;
   --sb-border: #e3e6eb;
   --sb-hover: #eef0f4;
-  --sb-accent: #7b68ee;
+  --sb-accent: #6554d8;
   --sb-accent-soft: #efedff;
   --sb-shadow: 0 1px 3px rgba(24, 31, 45, 0.06);
   color-scheme: light;
@@ -190,7 +190,8 @@
 /* 左上 / 右上：固定成网页的 1/5 */
 .sb-card--top {
   flex: 0 0 auto;
-  height: 20vh;
+  height: auto;
+  min-height: clamp(176px, 20vh, 220px);
 }
 
 /* 左下 / 右下：跟着内容走（条数固定，所以不会无限长） */
@@ -214,7 +215,7 @@
 .sb-card__meta {
   margin-left: auto;
   color: var(--sb-muted);
-  font-size: 0.923em;
+  font-size: max(var(--type-caption), 0.923em);
 }
 
 .sb-card__body {
@@ -274,7 +275,7 @@
 
 .sb-user__role {
   color: var(--sb-muted);
-  font-size: 0.923em;
+  font-size: max(var(--type-caption), 0.923em);
   line-height: 1.5;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -308,7 +309,7 @@
   background: var(--sb-hover);
   color: var(--sb-muted);
   font-family: inherit;
-  font-size: 0.769em;
+  font-size: max(var(--type-caption), 0.923em);
   font-weight: 600;
   line-height: 1.6;
   white-space: nowrap;
@@ -603,7 +604,7 @@ button.sb-presence:focus-visible {
 
 .sb-stat__label {
   color: var(--sb-muted);
-  font-size: 0.846em;
+  font-size: max(var(--type-caption), 0.923em);
   line-height: 1.5;
   white-space: nowrap;
 }
@@ -641,7 +642,7 @@ button.sb-presence:focus-visible {
 
 .sb-user-row__sub {
   color: var(--sb-muted);
-  font-size: 0.846em;
+  font-size: max(var(--type-caption), 0.923em);
   line-height: 1.5;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -771,7 +772,7 @@ a.sb-log {
   flex: 0 0 auto;
   width: 16px;
   color: var(--sb-accent);
-  font-size: 0.923em;
+  font-size: max(var(--type-caption), 0.923em);
   font-weight: 700;
   /* 序号用斜体 */
   font-style: italic;

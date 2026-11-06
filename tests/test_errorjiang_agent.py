@@ -8954,21 +8954,32 @@ class AgentTimelineApiTests(unittest.TestCase):
 
 
 class AgentConsoleUiTests(unittest.TestCase):
-    def test_agent_sidebar_uses_consistent_compact_spacing(self):
+    def test_agent_console_uses_single_active_section_and_shared_tokens(self):
         css = (app.STATIC_DIR / "agent.css").read_text(encoding="utf-8")
+        html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
+        script = (app.STATIC_DIR / "agent.js").read_text(encoding="utf-8")
+
         self.assertIn(".agent-console-nav {\n  display: grid;\n  gap: 4px;", css)
         self.assertIn(
-            "min-height: 44px;\n  align-items: center;\n  gap: 9px;\n  padding: 0 12px;",
+            "min-height: 40px;\n  align-items: center;\n  gap: 8px;\n  padding: 0 12px;",
             css,
         )
         self.assertIn("border-radius: var(--agent-radius);", css)
-        self.assertIn("font-size: 12px;\n  line-height: 1.3;", css)
-        self.assertIn("margin-top: 20px;\n  padding: 12px;", css)
         self.assertIn(
-            "min-height: 42px;\n    padding: 0 12px;\n    font-size: 12px;",
+            "font-size: var(--agent-text-base);\n  line-height: 1.4;",
             css,
         )
-        self.assertIn("scroll-margin-top: 128px;", css)
+        self.assertIn("--agent-control-height: 40px;", css)
+        self.assertIn(".agent-console-section.is-active {\n  display: grid;", css)
+        self.assertIn('id="agentSectionSelect"', html)
+        self.assertIn(
+            'section.classList.toggle("is-active", active);',
+            script,
+        )
+        self.assertIn(
+            "setActive(window.location.hash.slice(1), false, true);",
+            script,
+        )
 
     def test_agent_persona_prompt_allows_long_formatted_templates(self):
         html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
@@ -9091,7 +9102,7 @@ class AgentConsoleUiTests(unittest.TestCase):
 
     def test_agent_settings_intro_has_no_eyebrow(self):
         html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
-        self.assertIn("<h1>机器人设置</h1>", html)
+        self.assertIn("<h1>鲸鲸设置</h1>", html)
         self.assertNotIn("<span>Error酱 / 鲸鲸</span>", html)
 
     def test_moment_log_toggle_has_stable_arrow_and_smaller_motion(self):
@@ -9178,6 +9189,96 @@ class AgentConsoleUiTests(unittest.TestCase):
         self.assertNotIn('id="agentSettingsDialog"', html)
         self.assertNotIn("/api/agent/web/chat", script)
         self.assertIn('aria-current", "location"', script)
+
+    def test_shared_ui_accessibility_tokens_and_controls(self):
+        fonts = (app.STATIC_DIR / "fonts.css").read_text(encoding="utf-8")
+        site = (app.STATIC_DIR / "site" / "site.css").read_text(
+            encoding="utf-8"
+        )
+        sidebar = (app.STATIC_DIR / "site" / "sidebar.css").read_text(
+            encoding="utf-8"
+        )
+        notes = (app.STATIC_DIR / "notes.css").read_text(encoding="utf-8")
+        downloads = (app.STATIC_DIR / "downloads.css").read_text(
+            encoding="utf-8"
+        )
+        recommendations = (app.STATIC_DIR / "recommendations.css").read_text(
+            encoding="utf-8"
+        )
+        references = (app.STATIC_DIR / "references.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("--type-caption: 12px;", fonts)
+        self.assertIn("--touch-target: 44px;", fonts)
+        self.assertIn("--focus-ring: #5546c4;", fonts)
+        self.assertIn("):focus-visible {", fonts)
+        self.assertIn("outline: 2px solid var(--focus-ring) !important;", fonts)
+        self.assertIn("--primary: #6554d8;", site)
+        self.assertIn("min-height: var(--touch-target);", site)
+        self.assertIn(
+            "font-size: max(var(--type-caption), 0.923em);",
+            sidebar,
+        )
+        self.assertIn("height: var(--touch-target);", notes)
+        self.assertIn("min-height: var(--touch-target);", notes)
+        self.assertIn("width: var(--touch-target);", downloads)
+        self.assertIn("background: var(--primary);", recommendations)
+        self.assertIn("color: var(--on-accent);", recommendations)
+        self.assertIn(".reference-item a {", references)
+        self.assertIn("min-height: var(--touch-target);", references)
+
+    def test_second_and_third_ui_batches(self):
+        notes_html = (app.STATIC_DIR / "notes.html").read_text(encoding="utf-8")
+        notes_js = (app.STATIC_DIR / "notes.js").read_text(encoding="utf-8")
+        notes_css = (app.STATIC_DIR / "notes.css").read_text(encoding="utf-8")
+        workbench_html = (app.STATIC_DIR / "workbench.html").read_text(
+            encoding="utf-8"
+        )
+        workbench_js = (app.STATIC_DIR / "workbench.js").read_text(
+            encoding="utf-8"
+        )
+        workbench_css = (app.STATIC_DIR / "workbench.css").read_text(
+            encoding="utf-8"
+        )
+        references_html = (app.STATIC_DIR / "references.html").read_text(
+            encoding="utf-8"
+        )
+        references_js = (app.STATIC_DIR / "references.js").read_text(
+            encoding="utf-8"
+        )
+        map_js = (app.STATIC_DIR / "map.js").read_text(encoding="utf-8")
+        map_css = (app.STATIC_DIR / "map.css").read_text(encoding="utf-8")
+
+        self.assertIn('id="ntFilterToggle"', notes_html)
+        self.assertIn('sidebar.classList.toggle("is-filter-open", open);', notes_js)
+        self.assertIn(".nt-sidebar.is-filter-open .nt-sidebar-head", notes_css)
+        self.assertIn('id="wbViewSelect"', workbench_html)
+        self.assertIn(
+            'viewSelect.addEventListener("change", () => setView(viewSelect.value));',
+            workbench_js,
+        )
+        self.assertIn(".wb-mobile-nav-picker", workbench_css)
+        self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr));", workbench_css)
+        self.assertIn("data-reference-expand", references_js)
+        self.assertIn("enhanceStaticDescriptions", references_js)
+        self.assertIn("-webkit-line-clamp: 3;", references_html)
+        self.assertIn('return "amap";', map_js)
+        self.assertIn(".mp-map.is-darkmap-amap .leaflet-tile-pane", map_css)
+
+        for name in (
+            "moments.html",
+            "messages.html",
+            "downloads.html",
+            "recommendations.html",
+            "references.html",
+        ):
+            html = (app.STATIC_DIR / name).read_text(encoding="utf-8")
+            self.assertNotIn("rainScene", html)
+        home = (app.STATIC_DIR / "site" / "site.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('id="rainScene"', home)
 
 
 class AgentNotificationTests(unittest.TestCase):

@@ -1051,6 +1051,17 @@
     syncListHeadHeights();
   }
 
+  function updateFilterIndicator() {
+    const toggle = $("ntFilterToggle");
+    if (!toggle) return;
+    const active = state.sort !== "updated" || Boolean(state.tag);
+    toggle.classList.toggle("is-active", active);
+    toggle.setAttribute(
+      "aria-label",
+      state.tag ? `筛选，当前标签：${state.tag}` : "筛选"
+    );
+  }
+
   function renderTagFilter() {
     const wrap = $("tagFilter");
     const counts = new Map();
@@ -1062,6 +1073,7 @@
     wrap.classList.toggle("is-expanded", state.tagsExpanded);
     if (!tags.length) {
       $("tagToggle").hidden = true;
+      updateFilterIndicator();
       return;
     }
     const all = document.createElement("button");
@@ -1072,6 +1084,7 @@
       state.tag = "";
       renderTagFilter();
       renderList();
+      updateFilterIndicator();
     });
     wrap.appendChild(all);
     tags.forEach((tag) => {
@@ -1083,10 +1096,12 @@
         state.tag = state.tag === tag ? "" : tag;
         renderTagFilter();
         renderList();
+        updateFilterIndicator();
       });
       wrap.appendChild(chip);
     });
     updateTagToggle();
+    updateFilterIndicator();
   }
 
   async function loadNotes(options = {}) {
@@ -1718,11 +1733,20 @@
         item.classList.toggle("active", item === button);
       });
       renderList();
+      updateFilterIndicator();
     });
 
     $("tagToggle").addEventListener("click", () => {
       state.tagsExpanded = !state.tagsExpanded;
       updateTagToggle();
+    });
+
+    $("ntFilterToggle").addEventListener("click", () => {
+      const sidebar = document.querySelector(".nt-sidebar");
+      const open = !sidebar.classList.contains("is-filter-open");
+      sidebar.classList.toggle("is-filter-open", open);
+      $("ntFilterToggle").setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) syncListHeadHeights();
     });
 
     $("toolbar").addEventListener("click", (event) => {

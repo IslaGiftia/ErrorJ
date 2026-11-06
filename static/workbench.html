@@ -45,6 +45,22 @@
         <button type="button" data-view="uploads" aria-label="上传限制" title="上传限制"><i data-lucide="sliders-horizontal"></i><span>上传限制</span></button>
         <button type="button" data-view="logs" aria-label="日志" title="日志"><i data-lucide="scroll-text"></i><span>日志</span></button>
       </nav>
+      <label class="wb-mobile-nav-picker">
+        <i data-lucide="layout-list"></i>
+        <select id="wbViewSelect" aria-label="工作台分区">
+          <option value="overview">概览</option>
+          <option value="assets">资料</option>
+          <option value="firmware">固件</option>
+          <option value="repairs">维修台账</option>
+          <option value="prompts">提示词</option>
+          <option value="accounts">账号权限</option>
+          <option value="review">留言审核</option>
+          <option value="reports">举报处理</option>
+          <option value="uploads">上传限制</option>
+          <option value="logs">日志</option>
+        </select>
+        <i data-lucide="chevron-down"></i>
+      </label>
     </header>
 
     <main class="wb-main">
