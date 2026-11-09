@@ -8067,4 +8067,39 @@ Python      -> Agent 新模块、服务、配置和测试文件编译通过
 差异检查    -> git diff --check 干净
 ```
 
-部署步骤与最终验证将在本次发布完成后补充。
+部署步骤：
+```text
+提交：9dbe1a376e3c20a00ad58357da6c9b55bc0cdc0e
+      feat: upgrade Jingjing vision and current-event search
+      （fetch -> pull --rebase -> push；local == origin/main == 9dbe1a3）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json
+      本地 / 服务器 SHA256 =
+      bd2c7d639396311aff55bfe9eb9f699a26dd7589e46b2798a6cb1c3ff57f5f2b
+备份：/data/errorjiang-backup/20261109-193332
+      inventory.db 9.6M、agent.db 1.5M、auth.json 223 bytes、
+      changelog-seed.json 142K；无 WAL / SHM
+服务器：stop errorjiang-agent -> stop errorjiang -> 备份
+      -> git pull --ff-only -> 9dbe1a3
+      -> seed 安装；import_changelog_moments.py --date 2026-11-09 --force
+      -> 新增 1 条、覆盖 0 条、跳过 0 条
+      -> start errorjiang -> start errorjiang-agent
+主站数据：reference_projects 新增 geng-skill（id 32，sort_order 23）
+```
+
+最终验证：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 主站 /api/health = {"ok": true}
+             Agent 172.17.0.1:8011/health = {"ok": true}
+版本      -> 本地代码提交 = origin/main = 服务器 HEAD = 9dbe1a3
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+更新日志  -> /api/moments 中 id 809、kind = log
+             2026-11-09 19:30:02「鲸鲸视觉识图、赛事搜索与热梗词典升级」
+参考项目  -> /api/references 返回 geng-skill（id 32）
+视觉实测  -> 部署后的 deepseek-flash 成功识别测试头像主体、主色调和细节
+搜索实测  -> IG GEN S16 优先返回 2026-11-07 当前赛季赛果
+             证据提示未识别到官方或教育域名来源
+静态文件  -> references.html 本地 / 公网 SHA256 =
+             E58867D92FB28C0BDCBF352B0DD8D50006303B55F9BBED5D9BE0C03DD8D4CAC9
+本地回归  -> 406 项单测通过；Python / JavaScript / JSON / diff 检查通过
+```
