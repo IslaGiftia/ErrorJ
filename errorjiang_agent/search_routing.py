@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 import re
 from typing import Any
 
@@ -13,6 +14,7 @@ DOMAIN_LABELS = {
     "legal": "法律与政策",
     "health": "医疗与健康",
     "travel": "旅行与交通",
+    "esports": "电竞与赛事",
     "gaming": "游戏与版本",
     "business": "企业与工商",
     "ip": "知识产权",
@@ -59,6 +61,13 @@ DOMAIN_PATTERNS = {
         r"交通|过境|入境|visa|flight|hotel|travel)",
         re.IGNORECASE,
     ),
+    "esports": re.compile(
+        r"(?:英雄联盟|League of Legends|\bLOL\b|\bLPL\b|\bLCK\b|"
+        r"\bLEC\b|\bLCS\b|\bMSI\b|\bWorlds\b|\bS\d{1,2}\b|"
+        r"\bIG\b|\bGEN(?:\.G)?\b|\bT1\b|\bJDG\b|\bBLG\b|"
+        r"\bWBG\b|\bTES\b|\bFPX\b|\bEDG\b|\bRNG\b)",
+        re.IGNORECASE,
+    ),
     "gaming": re.compile(
         r"(?:游戏|版本更新|角色|攻略|副本|boss|抽卡|装备|"
         r"patch notes|game guide|gameplay)",
@@ -89,6 +98,7 @@ DOMAIN_QUERY_SUFFIXES = {
     "legal": ("官方法规 司法解释 全文",),
     "health": ("临床指南 官方 医学来源",),
     "travel": ("官方 最新 签证 交通 攻略",),
+    "esports": ("最新赛果 官方赛程 当前赛季",),
     "gaming": ("官方公告 版本更新 攻略",),
     "business": ("工商信息 官方公告 数据",),
     "ip": ("国家知识产权局 专利 商标 官方",),
@@ -108,6 +118,8 @@ REGION_INTL_RE = re.compile(
 CVE_RE = re.compile(r"\bCVE-\d{4}-\d{4,}\b", re.IGNORECASE)
 DOI_RE = re.compile(r"\b10\.\d{4,9}/[^\s\"'<>]+", re.IGNORECASE)
 ARXIV_RE = re.compile(r"\b(?:arXiv:)?\d{4}\.\d{4,5}(?:v\d+)?\b", re.IGNORECASE)
+LOL_SEASON_RE = re.compile(r"\bS(?P<season>\d{1,2})\b", re.IGNORECASE)
+YEAR_RE = re.compile(r"\b(?P<year>20\d{2})\b")
 
 
 @dataclass(frozen=True)
@@ -118,6 +130,10 @@ class SearchRoute:
     language: str
     confidence: float
     matched_terms: tuple[str, ...]
+    prefer_recent: bool = False
+    freshness_days: int | None = None
+    target_years: tuple[str, ...] = ()
+    preferred_domains: tuple[str, ...] = ()
 
     @property
     def label(self) -> str:
@@ -137,6 +153,10 @@ class SearchRoute:
             "language": self.language,
             "confidence": self.confidence,
             "matched_terms": list(self.matched_terms),
+            "prefer_recent": self.prefer_recent,
+            "freshness_days": self.freshness_days,
+            "target_years": list(self.target_years),
+            "preferred_domains": list(self.preferred_domains),
         }
 
 
@@ -209,22 +229,60 @@ def route_search_intent(
     ):
         language = "en"
 
-    generated = []
+    esports = "esports" in domains
+    target_years: tuple[str, ...] = ()
+    preferred_domains: tuple[str, ...] = ()
+    freshness_days = None
+    if esports:
+        season = LOL_SEASON_RE.search(source)
+        explicit_year = YEAR_RE.search(source)
+        if season:
+            target_year = 2010 + int(season.group("season"))
+        elif explicit_year:
+            target_year = int(explicit_year.group("year"))
+        else:
+            target_year = datetime.now().year
+        target_years = (str(target_year),)
+        preferred_domains = (
+            "lolesports.com",
+            "lpl.qq.com",
+            "lol.qq.com",
+        )
+        freshness_days = 540
+
+    special = []
     if base_query:
         cve = CVE_RE.search(source)
         if cve:
-            generated.append(f"{cve.group(0).upper()} NVD official advisory")
+            special.append(f"{cve.group(0).upper()} NVD official advisory")
         doi = DOI_RE.search(source)
         if doi:
-            generated.append(f"{doi.group(0)} paper DOI")
+            special.append(f"{doi.group(0)} paper DOI")
         arxiv = ARXIV_RE.search(source)
         if arxiv:
-            generated.append(f"{arxiv.group(0)} arXiv paper")
+            special.append(f"{arxiv.group(0)} arXiv paper")
+
+    generated = []
+    if base_query and esports:
+        season = LOL_SEASON_RE.search(source)
+        season_text = (
+            f"S{int(season.group('season'))}" if season else "英雄联盟"
+        )
+        year = target_years[0]
+        generated.extend(
+            (
+                f"{base_query} {year} {season_text} 最新赛果 官方赛程",
+                f"{base_query} {year} 当前赛季 交手记录",
+                f"site:lolesports.com {base_query} {year}",
+            )
+        )
+    elif base_query:
         for domain in domains:
             for suffix in DOMAIN_QUERY_SUFFIXES.get(domain, ()):
                 generated.append(f"{base_query} {suffix}")
+    if base_query:
         generated.append(base_query)
-    queries = _dedupe_queries(generated, 4)
+    queries = _dedupe_queries([*special, *generated], 4)
     confidence = 0.0
     if scores:
         confidence = min(0.95, 0.55 + scores[0][0] * 0.06)
@@ -235,4 +293,8 @@ def route_search_intent(
         language=language,
         confidence=round(confidence, 2),
         matched_terms=matched_terms,
+        prefer_recent=esports,
+        freshness_days=freshness_days,
+        target_years=target_years,
+        preferred_domains=preferred_domains,
     )

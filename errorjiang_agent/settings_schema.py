@@ -26,18 +26,22 @@ BOOL_SETTINGS = frozenset(
     }
 )
 
+MAX_GROUP_IDLE_MINUTES = 525600
+MAX_GROUP_ACTION_COUNT = 9999
+MAX_GROUP_MERGE_SECONDS = 3600
+
 INT_SETTINGS = {
     "memory_immediate_extraction_daily_limit": (1, 100),
     "proactive_max_per_day": (1, 6),
     "web_search_count": (3, 10),
-    "group_idle_trigger_minutes": (15, 1440),
-    "group_idle_random_min_minutes": (1, 360),
-    "group_idle_random_max_minutes": (1, 720),
-    "group_idle_max_unanswered": (1, 10),
-    "group_idle_max_per_day": (1, 6),
-    "group_reply_max_per_10m": (3, 20),
-    "group_reply_fatigue_rounds": (2, 10),
-    "group_message_merge_seconds": (0, 10),
+    "group_idle_trigger_minutes": (15, MAX_GROUP_IDLE_MINUTES),
+    "group_idle_random_min_minutes": (1, MAX_GROUP_IDLE_MINUTES),
+    "group_idle_random_max_minutes": (1, MAX_GROUP_IDLE_MINUTES),
+    "group_idle_max_unanswered": (1, MAX_GROUP_ACTION_COUNT),
+    "group_idle_max_per_day": (1, MAX_GROUP_ACTION_COUNT),
+    "group_reply_max_per_10m": (3, MAX_GROUP_ACTION_COUNT),
+    "group_reply_fatigue_rounds": (2, MAX_GROUP_ACTION_COUNT),
+    "group_message_merge_seconds": (0, MAX_GROUP_MERGE_SECONDS),
     "private_history_retention_days": (0, 3650),
     "group_history_retention_days": (0, 3650),
 }

@@ -43,6 +43,7 @@ class Config:
     deepseek_api_key: str
     deepseek_base_url: str
     deepseek_model: str
+    deepseek_vision_model: str
     llm_provider: str
     llm_base_url: str
     llm_api_key: str
@@ -107,6 +108,9 @@ class Config:
         deepseek_model = os.environ.get(
             "DEEPSEEK_MODEL", "deepseek-chat"
         ).strip()
+        deepseek_vision_model = os.environ.get(
+            "DEEPSEEK_VISION_MODEL", "deepseek-flash"
+        ).strip()
         llm_provider = os.environ.get("LLM_PROVIDER", "deepseek").strip().lower()
         llm_base_url = os.environ.get("LLM_BASE_URL", "").strip().rstrip("/")
         if not llm_base_url:
@@ -132,6 +136,7 @@ class Config:
             deepseek_api_key=deepseek_api_key,
             deepseek_base_url=deepseek_base_url,
             deepseek_model=deepseek_model,
+            deepseek_vision_model=deepseek_vision_model,
             llm_provider=llm_provider,
             llm_base_url=llm_base_url,
             llm_api_key=llm_api_key,

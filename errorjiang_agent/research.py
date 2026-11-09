@@ -92,7 +92,7 @@ class WebResearchEngine:
             max(3, min(int(count), 10)),
             original_question,
         )
-        merged = self._merge_results(batches)
+        merged = self._merge_results(batches, route)
         if not merged:
             detail = "；".join(errors[:3]) or "没有返回可用结果。"
             raise AgentError(f"全网搜索失败：{detail}")
@@ -116,7 +116,13 @@ class WebResearchEngine:
             "pages": pages,
             "errors": errors[:6],
         }
-        payload = assess_search_evidence(payload)
+        payload = assess_search_evidence(
+            payload,
+            prefer_recent=route.prefer_recent,
+            max_age_days=route.freshness_days,
+            target_years=route.target_years,
+            preferred_domains=route.preferred_domains,
+        )
         return self._fit_payload(payload)
 
     def _plan_queries(
@@ -270,6 +276,7 @@ class WebResearchEngine:
     def _merge_results(
         self,
         batches: list[dict[str, Any]],
+        route: SearchRoute | None = None,
     ) -> list[dict[str, Any]]:
         merged: dict[str, dict[str, Any]] = {}
         for batch in batches:
@@ -303,18 +310,45 @@ class WebResearchEngine:
                     if len(incoming) > len(str(current.get(field) or "")):
                         current[field] = incoming
         results = list(merged.values())
-        results.sort(key=self._result_rank, reverse=True)
+        results.sort(
+            key=lambda item: self._result_rank(item, route),
+            reverse=True,
+        )
         return results
 
     @staticmethod
-    def _result_rank(item: dict[str, Any]) -> tuple[float, float, float, float]:
+    def _result_rank(
+        item: dict[str, Any],
+        route: SearchRoute | None = None,
+    ) -> tuple[float, float, float, float, float, float]:
         def number(value: Any) -> float:
             try:
                 return float(value)
             except (TypeError, ValueError):
                 return 0.0
 
+        text = " ".join(
+            str(item.get(field) or "")
+            for field in ("title", "snippet", "summary")
+        )
+        year_match = 0.0
+        if route and route.target_years:
+            year_match = 1.0 if any(
+                year in text for year in route.target_years
+            ) else 0.0
+        preferred = 0.0
+        if route and route.preferred_domains:
+            try:
+                host = (urlsplit(str(item.get("url") or "")).hostname or "").lower()
+            except ValueError:
+                host = ""
+            preferred = 1.0 if any(
+                host == domain or host.endswith("." + domain)
+                for domain in route.preferred_domains
+            ) else 0.0
         return (
+            year_match,
+            preferred,
             number(item.get("_hits")),
             number(item.get("_query_weight")),
             number(item.get("authority")),

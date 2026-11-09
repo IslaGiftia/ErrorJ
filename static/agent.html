@@ -407,42 +407,42 @@
           <label>
             <span>冷场门槛（分钟）</span>
             <input type="number" id="settingGroupIdleTriggerMinutes"
-                   min="15" max="1440" step="5" data-setting-input>
+                   min="15" max="525600" step="5" data-setting-input>
           </label>
           <label>
             <span>随机等待最短（分钟）</span>
             <input type="number" id="settingGroupIdleRandomMin"
-                   min="1" max="360" data-setting-input>
+                   min="1" max="525600" data-setting-input>
           </label>
           <label>
             <span>随机等待最长（分钟）</span>
             <input type="number" id="settingGroupIdleRandomMax"
-                   min="1" max="720" data-setting-input>
+                   min="1" max="525600" data-setting-input>
           </label>
           <label>
             <span>每群每日最多</span>
             <input type="number" id="settingGroupIdleMaxPerDay"
-                   min="1" max="6" data-setting-input>
+                   min="1" max="9999" data-setting-input>
           </label>
           <label>
             <span>连续未回应上限</span>
             <input type="number" id="settingGroupIdleMaxUnanswered"
-                   min="1" max="10" data-setting-input>
+                   min="1" max="9999" data-setting-input>
           </label>
           <label>
             <span>10 分钟接话上限</span>
-            <input type="number" id="settingGroupReplyMax" min="3" max="20"
+            <input type="number" id="settingGroupReplyMax" min="3" max="9999"
                    data-setting-input>
           </label>
           <label>
             <span>连续接话疲劳</span>
             <input type="number" id="settingGroupReplyFatigueRounds"
-                   min="2" max="10" data-setting-input>
+                   min="2" max="9999" data-setting-input>
           </label>
           <label>
             <span>消息合并等待（秒）</span>
             <input type="number" id="settingGroupMessageMergeSeconds"
-                   min="0" max="10" data-setting-input>
+                   min="0" max="3600" data-setting-input>
           </label>
         </div>
         <p class="agent-section-note">活跃模式会在多人正在聊、消息明显在提问或求推荐时更愿意接话，仍然不额外调用判断模型。接话节奏只约束自然加入话题；直接叫名字、@、命令和卡片仍立即处理。</p>

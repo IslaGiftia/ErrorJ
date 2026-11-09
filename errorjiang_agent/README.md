@@ -21,6 +21,9 @@
 - 多图库、群聊 / 人格 / 默认选图规则与图片自动收集待审核
 - 机器人可调用 `sticker_list` / `sticker_update` 查看和整理图库
 - 人格预设、自定义表达偏好、DeepSeek 网页搜索 / 抓取、本地领域检索路由与微博 / B站 / 抖音热搜
+- JPG / PNG / GIF / WebP 图片理解：独立 `deepseek-flash` 视觉转写、截图 OCR 和当前对话注入
+- 英雄联盟 / LPL / LCK / S 赛时效路由：赛季年份、官方赛程赛果优先、旧赛季降权
+- 本地中文网络梗词典与 `web_meme_lookup`，未覆盖或需要最新用法时再走网页搜索
 - B站、抖音、微博、网易云音乐、小红书分享链接与 QQ 卡片元数据识别
 - 官方 QQBot 主动私聊，发送失败不占用每日名额
 - QQBot 群晨报、成员城市天气与周末 / 节假日提醒
@@ -44,6 +47,8 @@
 - `research.py`：自动生成多组检索词、并行搜索、去重排序和网页抓取
 - `search_routing.py`：用本地规则识别搜索领域并生成通用 / 专用混合查询
 - `search_evidence.py`：评估发布日期、官方来源、来源质量和疑似转载
+- `vision.py`：调用支持图片输入的 DeepSeek 视觉模型并构造多模态消息
+- `meme_lexicon.py`：本地热梗词典查询、短上下文注入和歧义过滤
 - `group_learning.py`：本地提取重复群词候选，不调用模型，也不保存原始聊天样本
 - `memory_policy.py`：本地判断即时记忆价值并直接保存显式记忆
 - `settings_schema.py`：统一设置类型、范围和候选项校验
@@ -55,10 +60,26 @@
 `LLM_FALLBACK_BASE_URL`、`LLM_FALLBACK_API_KEY`、`LLM_FALLBACK_MODEL`
 后，主模型请求失败会自动尝试备用模型。
 
+图片理解默认使用 `DEEPSEEK_BASE_URL` 和 `DEEPSEEK_API_KEY`，模型名由
+`DEEPSEEK_VISION_MODEL` 控制，默认 `deepseek-flash`。这样主聊天仍可用
+`deepseek-chat` 或 `deepseek-v4-pro`，不必为了看图整体切换模型；
+`deepseek-v4-pro` 本身不支持图片输入。一次最多读取 4 张图，单张 8MB、
+总计 16MB，支持 JPEG / PNG / GIF / WebP。
+
 网页搜索分两档：`deepseek_web_search` 只做一次快速搜索；
 `deepseek_web_research` 用于最新进展、复杂事件、原因分析和多来源核验，
 会自动规划 2–4 组检索词、并行搜索、去重排序，并抓取最多 3 个网页。
 两种结果都作为不可信公开资料交给模型综合，返回内容有体积上限，避免工具结果被截断。
+电竞查询会额外识别 `S16` 这类赛季编号并换算年份，优先官方赛程 / 赛果来源；
+发布日期过旧或只提到其他赛季的结果会被降权，证据区会给出时效和年份冲突提示。
+
+## 网络热梗
+
+本地梗库来自 `MonloHua/geng-skill` 的 MIT 快照，当前 931 条。机器人会先在
+当前消息里匹配已知梗，命中时最多注入两条释义和用法；需要主动解释时调用
+`web_meme_lookup`。本地库没覆盖、词条过期或用户要求最新网络用法时，再走
+`deepseek_web_search` / `deepseek_web_research`。词条内容只作为参考资料，
+不会作为系统指令执行。
 
 ## 分享链接
 

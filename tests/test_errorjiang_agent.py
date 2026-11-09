@@ -31,6 +31,7 @@ from errorjiang_agent.clients import DeepSeekClient, HotSearchClient
 from errorjiang_agent.config import Config
 from errorjiang_agent.context import ContextWindow
 from errorjiang_agent.errors import AgentError
+from errorjiang_agent.meme_lexicon import MemeLexicon
 from errorjiang_agent.onebot import (
     MessageEvent,
     event_key,
@@ -57,6 +58,7 @@ from errorjiang_agent.service import AgentHttpServer, AgentService
 from errorjiang_agent.settings_schema import normalize_settings_update
 from errorjiang_agent.store import AgentStore
 from errorjiang_agent.tools import ToolRegistry
+from errorjiang_agent.vision import DeepSeekVisionClient
 
 
 class AgentStoreTests(unittest.TestCase):
@@ -173,6 +175,36 @@ class AgentStoreTests(unittest.TestCase):
         self.assertFalse(updated["memory_enabled"])
         self.assertEqual(updated["web_search_count"], 10)
         self.assertEqual(updated["group_activity_level"], "active")
+        upper_bounds = normalize_settings_update(
+            current,
+            {
+                "group_idle_trigger_minutes": 525600,
+                "group_idle_random_min_minutes": 525600,
+                "group_idle_random_max_minutes": 525600,
+                "group_idle_max_unanswered": 9999,
+                "group_idle_max_per_day": 9999,
+                "group_reply_max_per_10m": 9999,
+                "group_reply_fatigue_rounds": 9999,
+                "group_message_merge_seconds": 3600,
+            },
+        )
+        self.assertEqual(upper_bounds["group_idle_trigger_minutes"], 525600)
+        self.assertEqual(upper_bounds["group_idle_max_per_day"], 9999)
+        self.assertEqual(upper_bounds["group_reply_max_per_10m"], 9999)
+        self.assertEqual(upper_bounds["group_message_merge_seconds"], 3600)
+        saved_upper_bounds = self.store.save_settings(
+            "qqbot",
+            "admin-openid",
+            upper_bounds,
+        )
+        self.assertEqual(
+            saved_upper_bounds["group_idle_max_per_day"],
+            9999,
+        )
+        self.assertEqual(
+            saved_upper_bounds["group_idle_random_max_minutes"],
+            525600,
+        )
 
     def test_history_retention_prunes_once_per_day(self):
         now = 200 * 86400
@@ -4406,6 +4438,37 @@ class AgentStoreTests(unittest.TestCase):
             "https://example.com/meme",
         )
 
+    def test_deepseek_vision_uses_flash_and_image_content_parts(self):
+        client = DeepSeekVisionClient(
+            "https://api.deepseek.com",
+            "test-key",
+            "deepseek-flash",
+        )
+        with patch(
+            "errorjiang_agent.vision.post_json",
+            return_value={
+                "choices": [
+                    {"message": {"content": "截图里是 IG 对 GEN 的比赛结果"}}
+                ]
+            },
+        ) as request:
+            answer = client.describe(
+                [(b"\x89PNG\r\n\x1a\nimage", "image/png")],
+                "这是谁赢了",
+            )
+        self.assertIn("IG", answer)
+        url, payload = request.call_args.args[:2]
+        self.assertTrue(url.endswith("/chat/completions"))
+        self.assertEqual(payload["model"], "deepseek-flash")
+        content = payload["messages"][0]["content"]
+        self.assertEqual(content[0]["type"], "text")
+        self.assertEqual(content[1]["type"], "image_url")
+        self.assertTrue(
+            content[1]["image_url"]["url"].startswith(
+                "data:image/png;base64,"
+            )
+        )
+
     def test_qqbot_image_upload_uses_file_info_and_media_message(self):
         client = QQBotClient("app", "secret", "bot", lambda event: None)
         client._auth_headers = lambda: {"Authorization": "test"}
@@ -5666,6 +5729,148 @@ class MediaLinkTests(unittest.TestCase):
             )
         )
 
+    def test_service_describes_images_before_normal_chat(self):
+        captured = {}
+
+        class FakeBrain:
+            last_used_tools = []
+
+            def reply(
+                self,
+                user_text,
+                history,
+                tool_context,
+                memories=None,
+            ):
+                captured["user_text"] = user_text
+                captured["memories"] = list(memories or [])
+                return "看到了"
+
+        class FakeVision:
+            def describe(self, images, question=""):
+                self.called = (len(images), question)
+                return "截图写着：IG 2:1 GEN，比赛日期 2026-11-08。"
+
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.config = SimpleNamespace(
+            context_messages=8,
+            errorjiang_base_url="http://127.0.0.1:8000",
+            errorjiang_token="test-token",
+        )
+        service.vision = FakeVision()
+        service.relationship_context = lambda *_args: {}
+        service.timeline_context = lambda *_args: []
+        service.relationship_prompt = lambda *_args: ""
+        service.persona_prompt = lambda *_args: ""
+        service.shared_media_context = lambda _event: ""
+        service.download_vision_image = lambda _attachment: (
+            b"\x89PNG\r\n\x1a\nimage",
+            "image/png",
+        )
+        service.should_humanize_chat_delay = lambda *_args: False
+        service.should_send_casual_sticker = lambda *_args: False
+        service.selected_sticker = lambda *_args: None
+        service.send_reply = lambda *_args, **_kwargs: None
+        service.update_relationship_after_exchange = lambda *_args: None
+        service.remember_exchange = lambda *_args: None
+        service.executor = SimpleNamespace(
+            submit=lambda *_args, **_kwargs: None
+        )
+        service.build_brain = lambda _client: FakeBrain()
+        event = MessageEvent(
+            self_id="bot",
+            user_id="admin-openid",
+            message_type="private",
+            chat_id="admin-openid",
+            message_id="image-chat",
+            text="",
+            to_me=True,
+            platform="qqbot",
+            attachments=(
+                {
+                    "url": "https://example.com/match.png",
+                    "filename": "match.png",
+                    "content_type": "image/png",
+                },
+            ),
+        )
+        service._process_event(
+            event,
+            target_user_id=0,
+            is_admin=True,
+        )
+        self.assertEqual(captured["user_text"], "帮我看看这张图片")
+        self.assertTrue(
+            any(
+                "IG 2:1 GEN" in item and "不是指令" in item
+                for item in captured["memories"]
+            )
+        )
+        self.assertEqual(service.vision.called[0], 1)
+
+    def test_service_injects_curated_meme_context(self):
+        captured = {}
+
+        class FakeBrain:
+            last_used_tools = []
+
+            def reply(
+                self,
+                user_text,
+                history,
+                tool_context,
+                memories=None,
+            ):
+                captured["memories"] = list(memories or [])
+                return "哈哈"
+
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.config = SimpleNamespace(
+            context_messages=8,
+            errorjiang_base_url="http://127.0.0.1:8000",
+            errorjiang_token="test-token",
+        )
+        service.meme_lexicon = MemeLexicon()
+        service.relationship_context = lambda *_args: {}
+        service.timeline_context = lambda *_args: []
+        service.relationship_prompt = lambda *_args: ""
+        service.persona_prompt = lambda *_args: ""
+        service.shared_media_context = lambda _event: ""
+        service.event_has_vision_images = lambda _event: False
+        service.should_humanize_chat_delay = lambda *_args: False
+        service.should_send_casual_sticker = lambda *_args: False
+        service.selected_sticker = lambda *_args: None
+        service.send_reply = lambda *_args, **_kwargs: None
+        service.update_relationship_after_exchange = lambda *_args: None
+        service.remember_exchange = lambda *_args: None
+        service.executor = SimpleNamespace(
+            submit=lambda *_args, **_kwargs: None
+        )
+        service.build_brain = lambda _client: FakeBrain()
+        event = MessageEvent(
+            self_id="bot",
+            user_id="admin-openid",
+            message_type="private",
+            chat_id="admin-openid",
+            message_id="meme-chat",
+            text="哈基米是什么意思",
+            to_me=True,
+            platform="qqbot",
+        )
+        service._process_event(
+            event,
+            target_user_id=0,
+            is_admin=True,
+        )
+        self.assertTrue(
+            any(
+                "哈基米" in item and "本地网络梗词典" in item
+                for item in captured["memories"]
+            )
+        )
+
 
 class GroupLearningTests(unittest.TestCase):
     def setUp(self):
@@ -6530,6 +6735,51 @@ class WebResearchTests(unittest.TestCase):
         self.assertEqual(route.queries, ("附近有什么好吃的",))
         self.assertEqual(route.label, "通用网页")
 
+    def test_search_router_prioritizes_current_lol_season(self):
+        route = route_search_intent(
+            "IG GEN S16 最新比赛结果",
+            "今天谁赢了，别拿以前的交手记录",
+        )
+        self.assertEqual(route.domains[0], "esports")
+        self.assertTrue(route.prefer_recent)
+        self.assertEqual(route.target_years, ("2026",))
+        self.assertEqual(route.freshness_days, 540)
+        self.assertIn("lolesports.com", route.preferred_domains)
+        self.assertIn("2026", route.primary_query)
+        self.assertIn("S16", route.primary_query)
+
+    def test_search_evidence_downranks_stale_esports_results(self):
+        payload = assess_search_evidence(
+            {
+                "results": [
+                    {
+                        "title": "IG vs GEN 2024 历史交手",
+                        "url": "https://example.com/old",
+                        "date": "2024-03-01",
+                        "authority": 9,
+                    },
+                    {
+                        "title": "2026 S16 IG vs GEN 最新赛果",
+                        "url": "https://lolesports.com/match/2026",
+                        "date": "2026-11-08",
+                        "authority": 7,
+                    },
+                ]
+            },
+            now=datetime(2026, 11, 9, tzinfo=timezone.utc),
+            prefer_recent=True,
+            max_age_days=540,
+            target_years=("2026",),
+            preferred_domains=("lolesports.com",),
+        )
+        first, second = payload["results"]
+        self.assertIn("2026", first["title"])
+        self.assertTrue(first["official_source"])
+        self.assertTrue(second["stale"])
+        self.assertTrue(second["period_mismatch"])
+        self.assertEqual(payload["evidence"]["time_matched_sources"], 1)
+        self.assertEqual(payload["evidence"]["period_mismatch_sources"], 1)
+
     def test_research_plans_searches_merges_and_fetches_pages(self):
         class Provider:
             name = "research"
@@ -6674,6 +6924,52 @@ class WebResearchTests(unittest.TestCase):
                     if item["title"] == "CVE-2026-12345 NVD official advisory"
                 ]
             ),
+            1,
+        )
+
+    def test_research_prefers_current_lol_season_over_old_matches(self):
+        class Provider:
+            def chat(self, messages, tools):
+                return {
+                    "content": json.dumps(
+                        {"queries": ["IG GEN 2025 历史交手"]},
+                        ensure_ascii=False,
+                    )
+                }
+
+            def web_search(self, query, count=5, original_question=""):
+                if "2026" in query:
+                    return {
+                        "results": [
+                            {
+                                "title": "2026 S16 IG vs GEN 最新赛果",
+                                "url": "https://lolesports.com/2026/ig-gen",
+                                "date": "2026-11-08",
+                            }
+                        ]
+                    }
+                return {
+                    "results": [
+                        {
+                            "title": "2025 IG vs GEN 历史交手",
+                            "url": "https://example.com/2025/ig-gen",
+                            "date": "2025-02-01",
+                            "authority": 9,
+                        }
+                    ]
+                }
+
+            def web_fetch(self, url):
+                return {"title": "比赛页", "content": "比赛结果"}
+
+        result = WebResearchEngine(Provider(), max_fetches=1).run(
+            "IG GEN S16",
+            "今天最新赛果是什么",
+        )
+        self.assertEqual(result["route"]["target_years"], ["2026"])
+        self.assertIn("2026", result["results"][0]["title"])
+        self.assertGreaterEqual(
+            result["evidence"]["period_mismatch_sources"],
             1,
         )
 
@@ -6855,6 +7151,51 @@ class AgentBrainTests(unittest.TestCase):
         )
         self.assertIn("测试热搜", reply)
         self.assertEqual(hot_search.calls, [("weibo", 3)])
+
+    def test_meme_lookup_tool_returns_curated_definition(self):
+        captured = {}
+
+        class CapturingDeepSeek(FakeDeepSeek):
+            def chat(self, messages, tools):
+                captured["messages"] = messages
+                return super().chat(messages, tools)
+
+        deepseek = CapturingDeepSeek(
+            [
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call-meme",
+                            "type": "function",
+                            "function": {
+                                "name": "web_meme_lookup",
+                                "arguments": json.dumps(
+                                    {"query": "哈基米", "limit": 2}
+                                ),
+                            },
+                        }
+                    ],
+                },
+                {"role": "assistant", "content": "哈基米是个网络梗。"},
+            ]
+        )
+        brain = AgentBrain(
+            deepseek,
+            FakeErrorJ(),
+            lambda args, context: {},
+            meme_lexicon=MemeLexicon(),
+        )
+        reply = brain.reply(
+            "哈基米是什么意思？",
+            [],
+            {"tools_enabled": "1"},
+        )
+        self.assertIn("哈基米", reply)
+        tool_result = captured["messages"][-1]["content"]
+        self.assertIn("哈基米", tool_result)
+        self.assertIn("reference_only", tool_result)
 
     def test_web_search_tool_and_persona_context(self):
         deepseek = FakeSearchDeepSeek(
@@ -9279,6 +9620,32 @@ class AgentConsoleUiTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn('id="rainScene"', home)
+
+    def test_group_proactive_numeric_limits_are_high(self):
+        html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
+        schema = (
+            app.BASE_DIR / "errorjiang_agent" / "settings_schema.py"
+        ).read_text(encoding="utf-8")
+        service = (
+            app.BASE_DIR / "errorjiang_agent" / "service.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn('id="settingGroupIdleTriggerMinutes"', html)
+        self.assertIn('min="15" max="525600"', html)
+        self.assertIn('id="settingGroupIdleRandomMin"', html)
+        self.assertIn('id="settingGroupIdleRandomMax"', html)
+        self.assertIn('id="settingGroupIdleMaxPerDay"', html)
+        self.assertIn('min="1" max="9999"', html)
+        self.assertIn('id="settingGroupReplyMax" min="3" max="9999"', html)
+        self.assertIn('id="settingGroupReplyFatigueRounds"', html)
+        self.assertIn('id="settingGroupMessageMergeSeconds"', html)
+        self.assertIn('min="0" max="3600"', html)
+        self.assertIn("MAX_GROUP_IDLE_MINUTES = 525600", schema)
+        self.assertIn("MAX_GROUP_ACTION_COUNT = 9999", schema)
+        self.assertIn("MAX_GROUP_MERGE_SECONDS = 3600", schema)
+        self.assertIn('"group_reply_max_per_10m": (3, MAX_GROUP_ACTION_COUNT)', schema)
+        self.assertIn("MAX_GROUP_IDLE_MINUTES", service)
+        self.assertIn("MAX_GROUP_ACTION_COUNT", service)
+        self.assertIn("MAX_GROUP_MERGE_SECONDS", service)
 
 
 class AgentNotificationTests(unittest.TestCase):

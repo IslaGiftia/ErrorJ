@@ -25,6 +25,9 @@ OFFICIAL_HOSTS = frozenset(
         "edu.cn",
         "gov.cn",
         "learn.microsoft.com",
+        "lolesports.com",
+        "lol.qq.com",
+        "lpl.qq.com",
         "nvd.nist.gov",
         "who.int",
         "www.who.int",
@@ -86,6 +89,10 @@ def assess_search_evidence(
     payload: dict[str, Any],
     *,
     now: datetime | None = None,
+    prefer_recent: bool = False,
+    max_age_days: int | None = None,
+    target_years: tuple[str, ...] = (),
+    preferred_domains: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     result = dict(payload or {})
     current = now or datetime.now(timezone.utc)
@@ -94,8 +101,21 @@ def assess_search_evidence(
     official_count = 0
     dated_count = 0
     undated_count = 0
+    stale_count = 0
+    period_mismatch_count = 0
+    time_matched_count = 0
     latest: datetime | None = None
     seen_titles: dict[str, int] = {}
+    year_targets = {
+        str(value)
+        for value in target_years
+        if re.fullmatch(r"20\d{2}", str(value))
+    }
+    preferred_hosts = tuple(
+        str(value).lower().removeprefix("www.")
+        for value in preferred_domains
+        if str(value).strip()
+    )
     for raw in result.get("results") or []:
         if not isinstance(raw, dict):
             continue
@@ -115,6 +135,7 @@ def assess_search_evidence(
                 f"{item.get('title') or ''} {item.get('snippet') or ''}"
             )
         freshness_days = None
+        stale = False
         if published:
             dated_count += 1
             freshness_days = max(
@@ -124,22 +145,56 @@ def assess_search_evidence(
             latest = max(latest, published) if latest else published
             item["published_date"] = published.date().isoformat()
             item["freshness_days"] = freshness_days
+            stale = bool(
+                max_age_days is not None
+                and freshness_days > max(0, int(max_age_days))
+            )
         else:
             undated_count += 1
+        combined_text = " ".join(
+            str(item.get(field) or "")
+            for field in ("title", "snippet", "summary", "published_date")
+        )
+        item_years = set(re.findall(r"\b(20\d{2})\b", combined_text))
+        period_match = bool(year_targets and item_years & year_targets)
+        period_mismatch = bool(
+            year_targets
+            and item_years
+            and not (item_years & year_targets)
+        )
+        time_matched_count += 1 if period_match else 0
+        period_mismatch_count += 1 if period_mismatch else 0
+        stale_count += 1 if stale else 0
         authority = max(0.0, min(_number(item.get("authority")) / 10, 1.0))
         rerank = max(0.0, min(_number(item.get("rerank_score")), 1.0))
+        recency_window = max(1, int(max_age_days or 365))
         recency = (
-            max(0.0, 1.0 - min(freshness_days, 365) / 365)
+            max(0.0, 1.0 - min(freshness_days, recency_window) / recency_window)
             if freshness_days is not None
             else 0.0
         )
+        preferred = bool(
+            host
+            and any(
+                host == preferred_host
+                or host.endswith("." + preferred_host)
+                for preferred_host in preferred_hosts
+            )
+        )
         item["source_quality"] = round(
-            min(
-                1.0,
-                authority * 0.45
-                + rerank * 0.25
-                + (0.2 if official else 0.0)
-                + recency * 0.1,
+            max(
+                0.0,
+                min(
+                    1.0,
+                    authority * 0.45
+                    + rerank * 0.25
+                    + (0.2 if official else 0.0)
+                    + recency * 0.1
+                    + (0.08 if preferred else 0.0)
+                    + (0.08 if period_match else 0.0)
+                    - (0.25 if period_mismatch else 0.0)
+                    - (0.25 if stale else 0.0),
+                ),
             ),
             3,
         )
@@ -154,7 +209,22 @@ def assess_search_evidence(
                 item["possible_syndication"] = True
         item["official_source"] = official
         item["host"] = host
+        item["preferred_source"] = preferred
+        item["stale"] = stale
+        item["period_match"] = period_match
+        item["period_mismatch"] = period_mismatch
         results.append(item)
+    if prefer_recent:
+        results.sort(
+            key=lambda item: (
+                not bool(item.get("stale")),
+                not bool(item.get("period_mismatch")),
+                bool(item.get("period_match")),
+                _number(item.get("source_quality")),
+                -int(item.get("freshness_days") or 99999),
+            ),
+            reverse=True,
+        )
     result["results"] = results
     warnings = []
     if official_count == 0 and results:
@@ -163,12 +233,21 @@ def assess_search_evidence(
         warnings.append(f"{undated_count} 条结果缺少可识别发布日期")
     if any(item.get("possible_syndication") for item in results):
         warnings.append("存在标题重复，可能为转载或同一通稿")
+    if stale_count:
+        warnings.append(f"{stale_count} 条结果超出当前查询的时效范围")
+    if period_mismatch_count:
+        warnings.append(
+            f"{period_mismatch_count} 条结果只提到其他年份，可能是旧赛季或旧资料"
+        )
     result["evidence"] = {
         "source_count": len(results),
         "unique_domains": len(domains),
         "official_sources": official_count,
         "dated_sources": dated_count,
         "undated_sources": undated_count,
+        "stale_sources": stale_count,
+        "time_matched_sources": time_matched_count,
+        "period_mismatch_sources": period_mismatch_count,
         "latest_date": latest.date().isoformat() if latest else "",
         "warnings": warnings,
         "untrusted": True,
