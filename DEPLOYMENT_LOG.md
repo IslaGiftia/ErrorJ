@@ -8224,4 +8224,52 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json
              截图后已把 is_public 改回 0）、留言页侧栏
 回滚      -> git reset --hard 8e290e5 后重启；is_public 列可保留（默认 0 不影响）
 ```
+## 172. 2026-11-16 20:19:37 修正工作台按钮排版，文件页对齐其它子页
+
+来源：用户反馈上一轮把工作台卡片的横向操作按钮变成了竖排，且「文件」子页多了搜索框、没有上传入口、卡片也不能分享到动态 / 下载。
+
+完成内容（提交 `4636303 fix: align the files tab with the other download subpages`）：
+
+- 工作台按钮竖排的根因：上一轮往 `workbench.css` 追加规则时把换行写成了字面量 `\n`，导致 `.wb-card-actions` 的 `display:flex` 失效。已从 `8e290e5` 恢复原文件，再把「公开角标」「公开勾选框」两条规则按正常换行追加到文件末尾。线上校验 `literal \n = 0`、`.wb-card-actions` 规则完整。
+- 「文件」子页去掉搜索框和分类筛选，改成和其它子页同一套：顶栏只有标题和「+文件」上传按钮（站长可见），列表行右侧是分享 / 下载两颗方形按钮；下载页右上角的常驻「+文件」通过 iframe 调用子页的上传弹窗，上传后直接写入工作台并标为公开。
+- 文件卡片可以分享：`workbench_asset` 加入 `SHARE_CONTENT_TYPES`，`shared_resource_info` 增加文件分支（标题、大小、`/downloads?tab=files&focus=<id>`），分享到动态 / 下载都走原来那套流程；未公开的文件分享时返回 400「先在「公开到下载页」里勾选这个文件，再分享」。动态分享卡的文件图标用 `file-down`。
+- 更新站内更新日志 2026-11-16 20:19:37 那条的文案（去掉「搜索和分类筛选」的说法），README 与参考项目页同步。
+- 新增 4 项单测：文件页上传入口 / 无搜索框、公开文件可分享、未公开文件分享被拒、分享资源信息；全套 416 项通过。
+
+本地验证：
+```text
+单元测试    -> 416 项通过
+Python      -> app.py 编译通过
+JavaScript  -> files.js、downloads.js、share.js、moments.js 检查通过
+本地实测    -> 隔离数据目录跑起服务：上传 demo.apk → 文件页出现卡片 →
+              POST /api/admin/share-content 分享到动态与下载均成功；
+              /api/recommendations 返回 kind=resource、label=文件、page_url 正确
+```
+
+部署步骤：
+```text
+提交：4636303140a3207d4411e5c0666aa6c8407d1d70
+      fix: align the files tab with the other download subpages
+      本地 = origin/main = 服务器 HEAD = 4636303
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json
+      本地 / 服务器 SHA256 =
+      c11d9b35743788df23d30a4fb905152fbf0446026846c49836af4c1704665c50
+备份：/data/errorjiang-backup/20261116-2058
+      inventory.db、agent.db、auth.json、changelog-seed.json
+服务器：stop errorjiang-agent -> stop errorjiang -> 备份
+      -> git pull --ff-only -> 4636303
+      -> seed 安装；init_db；import_changelog_moments.py --date 2026-11-16 --force
+      -> 新增 2 条、覆盖 0 条、跳过 0 条
+      -> start errorjiang -> start errorjiang-agent
+```
+
+最终验证：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 主站与 Agent 健康检查均为 {"ok": true}
+版本      -> 本地 = origin/main = 服务器 HEAD = 4636303
+样式      -> 线上 workbench.css：字面量 \n = 0，.wb-card-actions / .wb-check 规则完整
+文件页    -> 游客打开 /downloads?tab=files 无搜索框、无上传按钮、空状态正常
+更新日志  -> 2026-11-16 两条（id 816 / 817），文案已去掉搜索与筛选
+```
 
