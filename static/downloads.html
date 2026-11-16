@@ -40,11 +40,15 @@
           <i data-lucide="book-open"></i>
           <em class="dl-tab-badge" hidden></em>
         </button>
+        <button class="dl-tab dl-tip" type="button" data-tab="files" data-tip="文件" aria-label="文件" aria-pressed="false">
+          <i data-lucide="file-down"></i>
+          <em class="dl-tab-badge" hidden></em>
+        </button>
         <button class="dl-tab dl-tip" type="button" data-tab="web" data-tip="网页" aria-label="网页" aria-pressed="false">
           <i data-lucide="globe"></i>
           <em class="dl-tab-badge" hidden></em>
         </button>
-        <button class="dl-tab dl-tip" type="button" data-tab="resource" data-tip="站内资源" aria-label="站内资源" aria-pressed="false">
+        <button class="dl-tab dl-tip" type="button" data-tab="resource" data-tip="站内分享" aria-label="站内分享" aria-pressed="false">
           <i data-lucide="layers"></i>
           <em class="dl-tab-badge" hidden></em>
         </button>
@@ -73,11 +77,14 @@
       <section class="dl-panel" data-panel="books" aria-label="书籍">
         <iframe class="dl-frame" data-frame="books" title="书籍" src="/books?embed=1"></iframe>
       </section>
+      <section class="dl-panel" data-panel="files" aria-label="文件">
+        <iframe class="dl-frame" data-frame="files" title="文件" src="/files?embed=1"></iframe>
+      </section>
       <section class="dl-panel" data-panel="web" aria-label="网页">
         <iframe class="dl-frame" data-frame="web" title="网页" src="/recommendations?embed=1&view=web"></iframe>
       </section>
       <section class="dl-panel" data-panel="resource" aria-label="站内资源">
-        <iframe class="dl-frame" data-frame="resource" title="站内资源" src="/recommendations?embed=1&view=resource"></iframe>
+        <iframe class="dl-frame" data-frame="resource" title="站内分享" src="/recommendations?embed=1&view=resource"></iframe>
       </section>
     </div>
 

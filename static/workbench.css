@@ -520,7 +520,7 @@ svg {
   color: var(--wb-muted);
 }
 
-.wb-card-actions {
+.wb-badge.wb-badge-public {\n  background: color-mix(in srgb, var(--wb-success) 16%, transparent);\n  color: var(--wb-success);\n}\n\n.wb-check {\n  grid-template-columns: auto 1fr;\n  align-items: center;\n  column-gap: 8px;\n  cursor: pointer;\n}\n\n.wb-check input {\n  width: 16px;\n  height: 16px;\n  margin: 0;\n  accent-color: var(--wb-accent);\n}\n\n.wb-check small {\n  grid-column: 2;\n  color: var(--wb-muted);\n  font-size: 12px;\n  line-height: 1.5;\n}\n\n.wb-card-actions {
   display: flex;
   align-items: center;
   gap: 5px;
@@ -801,7 +801,7 @@ svg {
     grid-template-columns: 1fr;
   }
 
-  .wb-card-actions {
+  .wb-badge.wb-badge-public {\n  background: color-mix(in srgb, var(--wb-success) 16%, transparent);\n  color: var(--wb-success);\n}\n\n.wb-check {\n  grid-template-columns: auto 1fr;\n  align-items: center;\n  column-gap: 8px;\n  cursor: pointer;\n}\n\n.wb-check input {\n  width: 16px;\n  height: 16px;\n  margin: 0;\n  accent-color: var(--wb-accent);\n}\n\n.wb-check small {\n  grid-column: 2;\n  color: var(--wb-muted);\n  font-size: 12px;\n  line-height: 1.5;\n}\n\n.wb-card-actions {
     justify-content: flex-end;
   }
 

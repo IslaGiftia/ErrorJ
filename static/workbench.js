@@ -250,6 +250,7 @@
           <div class="wb-card-title">
             <strong>${escapeHtml(row.title)}</strong>
             <span class="wb-badge">${escapeHtml(categoryLabel(row.category))}</span>
+            ${row.is_public ? `<span class="wb-badge wb-badge-public">公开</span>` : ""}
           </div>
           <div class="wb-card-meta">
             ${row.version ? `<span>版本 ${escapeHtml(row.version)}</span>` : ""}
@@ -366,6 +367,7 @@
     $("assetBoard").value = asset ? asset.target_board || "" : "";
     $("assetFlashUrl").value = asset ? asset.flash_url || "" : "";
     $("assetNotes").value = asset ? asset.notes || "" : "";
+    $("assetPublic").checked = Boolean(asset && asset.is_public);
     $("assetModal").hidden = false;
     if (window.lucide) lucide.createIcons();
   }
@@ -415,6 +417,7 @@
       target_board: $("assetBoard").value.trim(),
       flash_url: $("assetFlashUrl").value.trim(),
       notes: $("assetNotes").value.trim(),
+      is_public: $("assetPublic").checked,
     };
   }
 
@@ -2423,7 +2426,7 @@
   }
 
   function reportTargetLabel(type) {
-    return { message: "留言", moment: "动态", book: "电子书", recommendation: "推荐", music: "歌曲" }[type] || type;
+    return { message: "留言", moment: "动态", book: "电子书", recommendation: "内容", music: "歌曲" }[type] || type;
   }
 
   function reportHtml() {

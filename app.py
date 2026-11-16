@@ -114,6 +114,7 @@ GUEST_PAGE_RULES = {
     "/messages": "guest:page:messages",
     "/moments": "guest:page:moments",
     "/downloads": "guest:page:downloads",
+    "/files": "guest:page:files",
     "/recommendations": "guest:page:recommendations",
     "/music": "guest:page:music",
     "/books": "guest:page:books",
@@ -123,6 +124,7 @@ GUEST_PAGE_PREFIX_RULES = ()
 GUEST_API_RULES = {
     "/api/site/messages": "guest:page:messages",
     "/api/moments": "guest:page:moments",
+    "/api/site/files": "guest:page:files",
     "/api/recommendations": "guest:page:recommendations",
     "/api/site/music": "guest:page:music",
     "/api/books": "guest:page:books",
@@ -291,7 +293,8 @@ GUEST_PAGE_PERMISSIONS = (
     {"key": "guest:page:messages", "label": "留言"},
     {"key": "guest:page:moments", "label": "动态"},
     {"key": "guest:page:downloads", "label": "下载"},
-    {"key": "guest:page:recommendations", "label": "推荐内容"},
+    {"key": "guest:page:files", "label": "文件"},
+    {"key": "guest:page:recommendations", "label": "内容"},
     {"key": "guest:page:music", "label": "歌单"},
     {"key": "guest:page:books", "label": "书架"},
     {"key": "guest:page:references", "label": "参考项目"},
@@ -451,8 +454,8 @@ PUBLIC_ACTIVITY_LABELS = {
     "moment_update": "更新了动态",
     "book_upload": "上架了一本电子书",
     "music_upload": "上传了一首歌",
-    "recommendation_create": "新增了一条推荐",
-    "recommendation_update": "更新了一条推荐",
+    "recommendation_create": "新增了一条内容",
+    "recommendation_update": "更新了一条内容",
     "music_download": "下载了一首歌",
     "book_download": "下载了一本电子书",
     "map_place_create": "新增了一个足迹",
@@ -475,7 +478,7 @@ REPORT_TARGET_LABELS = {
     "message": "留言",
     "moment": "动态",
     "book": "电子书",
-    "recommendation": "推荐",
+    "recommendation": "内容",
     "music": "歌曲",
 }
 REPORT_REASONS = (
@@ -565,7 +568,7 @@ UPLOAD_LIMIT_SCHEMA = (
     },
     {
         "key": "recommend_image",
-        "label": "推荐封面",
+        "label": "封面",
         "description": "推荐模块封面上传大小。",
         "count": False,
         "total": False,
@@ -656,10 +659,12 @@ WORKBENCH_CATEGORIES = {"source", "firmware", "document", "image", "other"}
 WORKBENCH_REPAIR_STATUSES = {"open", "repairing", "completed", "cancelled"}
 WORKBENCH_EXTENSIONS = {
     ".7z",
+    ".apk",
     ".bin",
     ".brd",
     ".csv",
     ".elf",
+    ".exe",
     ".gif",
     ".gz",
     ".hex",
@@ -1647,6 +1652,7 @@ def init_db():
                 target_board TEXT,
                 flash_url TEXT,
                 notes TEXT,
+                is_public INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -1796,6 +1802,14 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             conn.execute("ALTER TABLE parts ADD COLUMN image_path TEXT")
         if "warehouse_type_id" not in columns:
             conn.execute("ALTER TABLE parts ADD COLUMN warehouse_type_id INTEGER")
+        asset_columns = [
+            row[1] for row in conn.execute("PRAGMA table_info(workbench_assets)").fetchall()
+        ]
+        if "is_public" not in asset_columns:
+            # 「下载 → 文件」只展示勾了「公开到下载页」的工作台文件，默认一律私有。
+            conn.execute(
+                "ALTER TABLE workbench_assets ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0"
+            )
         folder_columns = [
             row[1] for row in conn.execute("PRAGMA table_info(bookmark_folders)").fetchall()
         ]
@@ -2167,6 +2181,22 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             conn.execute(
                 "INSERT INTO app_meta (key, value) VALUES ('role_permissions_v1', ?)",
                 (stamp,),
+            )
+        # 新增「文件」页时补发给游客角色；老库的 role_permissions 早就有 role_permissions_v1
+        # 标记，不会再走上面那段初始化，所以单独补一次（幂等）。
+        files_guest_seed = conn.execute(
+            "SELECT value FROM app_meta WHERE key = 'guest_page_files_v1'"
+        ).fetchone()
+        if not files_guest_seed:
+            conn.execute(
+                """INSERT OR IGNORE INTO role_permissions
+                       (role, permission, granted_by, granted_at)
+                   VALUES (?, ?, ?, ?)""",
+                (ROLE_GUEST, "guest:page:files", "系统初始化", now_text()),
+            )
+            conn.execute(
+                "INSERT INTO app_meta (key, value) VALUES ('guest_page_files_v1', ?)",
+                (now_text(),),
             )
         # 旧费用没有分摊明细时，按当时活动成员全员平均分摊回填。
         conn.execute(
@@ -5789,7 +5819,7 @@ SIDEBAR_ACTIVITY_META = {
     "moment_create": ("更新动态", "moment"),
     "music_upload": ("上传歌曲", "music"),
     "book_upload": ("上传书籍", "book"),
-    "recommendation_create": ("推荐网页", "recommendation"),
+    "recommendation_create": ("新增内容", "recommendation"),
     "map_place_create": ("新增足迹", "map_place"),
 }
 SIDEBAR_ACTIVITY_LIMIT = 11
@@ -5918,13 +5948,13 @@ def sidebar_covers(limit=SIDEBAR_COVER_LIMIT):
 
 
 def sidebar_users(viewer_id=0, masked=False, viewer_is_admin=False):
-    """左下「注册账户」卡片：只放**已通过审核**的账号，最多 5 行。
+    """左下「注册账户」卡片：只放**已通过审核**的账号，最多 9 行。
 
-    - 管理员和普通账号看到同一份前 5 个账号、每行都带状态胶囊，但「注册 N 天 · X 前活跃」
+    - 管理员和普通账号看到同一份前 9 个账号、每行都带状态胶囊，但「注册 N 天 · X 前活跃」
       那一行**只有管理员看得到**（普通账号连自己那行也不显示）。
     - **游客也看得到这张卡**，但用户名脱敏（只保留最后一个字），不显示注册 / 活跃时间，
       也不下发任何人的状态 —— 游客只能看到左上「Error酱」那一枚状态胶囊。
-    - 普通账号如果不在前 5 里，会把自己那行补在最前面，否则他没地方点自己的状态胶囊。
+    - 普通账号如果不在前 9 里，会把自己那行补在最前面，否则他没地方点自己的状态胶囊。
       站长（viewer_id = 0）不在 users 表里，本来就不会也不需要出现在这张卡上。
     """
     rows = query(
@@ -6020,7 +6050,7 @@ USER_STATUS_MAX_LEN = 12
 # 多久之内有过一次真实页面访问就算「在线」
 ONLINE_WINDOW_MINUTES = 10
 # 左下「注册账户」卡片最多显示几行
-SIDEBAR_USER_CARD_LIMIT = 5
+SIDEBAR_USER_CARD_LIMIT = 9
 
 
 def user_status_row(user_id):
@@ -6465,6 +6495,9 @@ def required_permission(path, method):
         return None
     if path.startswith("/api/agent/media/"):
         return ""
+    # 「下载 → 文件」是登录账号都能看的公开页，游客另外走 guest:page:files；下载动作在接口里再判登录。
+    if path == "/files" or path.startswith("/api/site/files"):
+        return ""
     if path.startswith("/agent-stickers/"):
         return None
     if path.startswith("/api/workbench") or path.startswith("/api/prompts"):
@@ -6596,6 +6629,7 @@ GUEST_RULE_PREFIXES = (
     ("/api/moments/", "guest:page:moments"),
     ("/api/recommendations/", "guest:page:recommendations"),
     ("/api/site/music/", "guest:page:music"),
+    ("/api/site/files/", "guest:page:files"),
 )
 
 
@@ -7858,7 +7892,7 @@ def notification_alert_text(module, info):
     if module == "books":
         return "上架了一本电子书" if count == 1 else f"上架了 {count} 本电子书"
     if module == "recommendations":
-        return "新增了一条推荐" if count == 1 else f"新增了 {count} 条推荐"
+        return "新增了一条内容" if count == 1 else f"新增了 {count} 条内容"
     if module == "moments":
         if kind == "comment_reply":
             return "回复了你的评论" if count == 1 else f"有 {count} 条新回复（你的评论）"
@@ -10166,6 +10200,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.send_file("books.html")
             elif path == "/downloads":
                 self.send_file("downloads.html")
+            elif path == "/files":
+                self.send_file("files.html")
             elif path == "/favicon.ico":
                 self.send_file("site/error-chan-favicon.png")
             elif path.startswith("/static/"):
@@ -10287,6 +10323,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_books(query)
             elif re.fullmatch(r"/api/books/\d+/download", path):
                 self.api_book_download(int(path.split("/")[3]))
+            elif path == "/api/site/files":
+                self.api_site_files()
+            elif re.fullmatch(r"/api/site/files/\d+/download", path):
+                self.api_site_file_download(path)
             elif path == "/api/site/links":
                 self.api_site_links(query)
             elif path == "/api/prompts":
@@ -13909,7 +13949,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )
         self.log_activity(
             "recommendation_share",
-            f"分享{info['label']}到推荐：{info['title']}",
+            f"分享{info['label']}到下载：{info['title']}",
             target_type=resource_type,
             target_id=resource_id,
         )
@@ -13918,7 +13958,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             "recommendations",
             recommendation_id,
             "管理员",
-            "新增了一条推荐",
+            "新增了一条内容",
         )
         self.send_json(
             200,
@@ -14132,7 +14172,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         current = current or {}
         kind = str(payload.get("kind", current.get("kind", "site")) or "site").strip().lower()
         if kind not in RECOMMEND_KINDS:
-            raise ValueError("推荐类型不正确。")
+            raise ValueError("内容类型不正确。")
         if kind == "resource":
             raise ValueError("站内资源卡片请用分享按钮生成。")
         bookmark_id_value = payload.get("bookmark_id", current.get("bookmark_id"))
@@ -14155,7 +14195,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             title_source = bookmark["title"]
         title = str(title_source or "").strip()[:160]
         if not title:
-            raise ValueError("推荐标题不能为空。")
+            raise ValueError("内容标题不能为空。")
         subtitle = str(payload.get("subtitle", current.get("subtitle", "")) or "").strip()[:200]
         url_source = payload.get("url", current.get("url", ""))
         if bookmark and not str(url_source or "").strip():
@@ -14252,7 +14292,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )
         self.log_activity(
             "recommendation_create",
-            f"新增推荐：{values[2]}",
+            f"新增内容：{values[2]}",
             target_type="recommendation",
             target_id=recommendation_id,
         )
@@ -14261,7 +14301,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             "recommendations",
             recommendation_id,
             "管理员",
-            "新增了一条推荐",
+            "新增了一条内容",
         )
         self.send_json(200, {"id": recommendation_id})
 
@@ -14276,12 +14316,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
         recommendation_id = int(path.rsplit("/", 1)[1])
         current = query_one("SELECT * FROM recommendations WHERE id = ?", (recommendation_id,))
         if not current:
-            api_error(self, 404, "推荐内容不存在。")
+            api_error(self, 404, "内容不存在。")
             return
         if self.command == "DELETE":
             self.log_activity(
                 "recommendation_delete",
-                f"删除推荐：{current.get('title') or recommendation_id}",
+                f"删除内容：{current.get('title') or recommendation_id}",
                 target_type="recommendation",
                 target_id=recommendation_id,
             )
@@ -14311,7 +14351,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )
         self.log_activity(
             "recommendation_update",
-            f"更新推荐：{values[2]}",
+            f"更新内容：{values[2]}",
             target_type="recommendation",
             target_id=recommendation_id,
         )
@@ -16484,9 +16524,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 (int(target_key),),
             )
             if not row:
-                raise LookupError("推荐内容不存在。")
+                raise LookupError("内容不存在。")
             return (
-                str(row.get("title") or f"推荐 #{row['id']}")[:160],
+                str(row.get("title") or f"内容 #{row['id']}")[:160],
                 {
                     "id": row["id"],
                     "kind": row.get("kind") or "",
@@ -20301,6 +20341,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             original_name,
             str(payload.get("category") or ""),
         )
+        is_public = 1 if payload.get("is_public") in (True, 1, "1", "true", "on") else 0
         max_file_bytes = upload_limit(f"workbench_{category}")["max_file_bytes"]
         if len(raw) > max_file_bytes:
             api_error(
@@ -20348,13 +20389,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
             INSERT INTO workbench_assets (
                 project_id, repair_id, category, title, file_path, original_name,
                 mime_type, size_bytes, sha256, version, target_chip, target_board,
-                flash_url, notes, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                flash_url, notes, is_public, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 project_id, repair_id, category, title or original_name, relative,
                 original_name, mime_type, len(raw), digest, version, target_chip,
-                target_board, flash_url, notes, stamp, stamp,
+                target_board, flash_url, notes, is_public, stamp, stamp,
             ),
         )
         row = query_one("SELECT * FROM workbench_assets WHERE id = ?", (asset_id,))
@@ -20372,6 +20413,54 @@ class InventoryHandler(BaseHTTPRequestHandler):
         self.log_activity(
             "asset_download",
             f"下载资料：{row.get('original_name') or ('#' + str(asset_id))}",
+            target_type="asset",
+            target_id=asset_id,
+        )
+        self.send_data_file(row["file_path"], row.get("original_name") or "download.bin")
+
+    @staticmethod
+    def public_file_payload(row, requires_login):
+        original = row.get("original_name") or ""
+        return {
+            "id": row["id"],
+            "title": row.get("title") or original or ("文件 #" + str(row["id"])),
+            "original_name": original,
+            "category": row.get("category") or "other",
+            "size_bytes": int(row.get("size_bytes") or 0),
+            "created_at": row.get("created_at"),
+            "extension": Path(original).suffix.lower(),
+            "requires_login": requires_login,
+        }
+
+    def api_site_files(self):
+        """「下载 → 文件」：只列工作台里勾了「公开到下载页」的文件；游客能看列表，下载要登录。"""
+        rows = query(
+            """SELECT id, title, original_name, category, size_bytes, created_at
+               FROM workbench_assets
+               WHERE is_public = 1
+               ORDER BY created_at DESC, id DESC"""
+        )
+        requires_login = self.session_identity() is None
+        self.send_json(
+            200, [self.public_file_payload(row, requires_login) for row in rows]
+        )
+
+    def api_site_file_download(self, path):
+        if self.session_identity() is None:
+            api_error(self, 401, "请登录后操作")
+            return
+        asset_id = int(path.split("/")[4])
+        row = query_one(
+            """SELECT file_path, original_name, title FROM workbench_assets
+               WHERE id = ? AND is_public = 1""",
+            (asset_id,),
+        )
+        if not row:
+            api_error(self, 404, "文件不存在。")
+            return
+        self.log_activity(
+            "file_download",
+            f"下载文件：{row.get('original_name') or row.get('title') or ('#' + str(asset_id))}",
             target_type="asset",
             target_id=asset_id,
         )
@@ -20426,6 +20515,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
             except ValueError as exc:
                 api_error(self, 400, str(exc))
                 return
+        if "is_public" in payload:
+            fields.append("is_public = ?")
+            values.append(
+                1 if payload.get("is_public") in (True, 1, "1", "true", "on") else 0
+            )
         if fields:
             fields.append("updated_at = ?")
             values.append(now_text())

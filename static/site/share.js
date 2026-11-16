@@ -42,7 +42,7 @@
     shareModeRow = el("div", "share-modes");
     [
       ["moment", "分享到动态"],
-      ["recommendation", "分享到推荐"],
+      ["recommendation", "分享到下载"],
       ["link", "生成外部下载链接"],
     ].forEach(function (item) {
       var button = el("button", "share-mode", item[1]);
@@ -68,9 +68,9 @@
 
     shareRecommendPanel = el("div", "share-panel");
     shareRecommendPanel.appendChild(
-      el("p", "share-note", "会以「站内资源」分类展示在下载页。")
+      el("p", "share-note", "会以「站内分享」分类展示在下载页。")
     );
-    shareRecommendSubmit = el("button", "share-btn primary", "分享到推荐");
+    shareRecommendSubmit = el("button", "share-btn primary", "分享到下载");
     shareRecommendSubmit.type = "button";
     shareRecommendSubmit.addEventListener("click", function () {
       submitContentShare("recommendation");

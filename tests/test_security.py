@@ -510,7 +510,7 @@ class HomeActivityTests(unittest.TestCase):
     def test_module_permission_labels_match_home_entries(self):
         labels = {item["key"]: item["label"] for item in app.GUEST_PAGE_PERMISSIONS}
         self.assertEqual(labels["guest:page:moments"], "动态")
-        self.assertEqual(labels["guest:page:recommendations"], "推荐内容")
+        self.assertEqual(labels["guest:page:recommendations"], "内容")
 
         groups = {group["key"]: group["label"] for group in app.PERMISSION_GROUPS}
         self.assertEqual(groups["bookmarks"], "书签")
@@ -777,6 +777,96 @@ def query_handler_moments(handler):
     finally:
         handler.send_json = original
     return responses[-1][1]
+
+
+class SiteFilesTests(unittest.TestCase):
+    """「下载 → 文件」：只列公开的工作台文件，游客能看列表、下载要登录。"""
+
+    def setUp(self):
+        self._temp = tempfile.TemporaryDirectory()
+        self._db_patch = patch.object(
+            app, "DB_PATH", Path(self._temp.name) / "inventory.db"
+        )
+        self._db_patch.start()
+        app.RATE_LIMITS.clear()
+        app.init_db()
+        stamp = app.now_text()
+        self.public_id = app.execute(
+            """INSERT INTO workbench_assets
+                   (category, title, file_path, original_name, mime_type, size_bytes,
+                    sha256, is_public, created_at, updated_at)
+               VALUES ('other', '工具安装包', 'workbench/other/tool.apk', 'tool.apk',
+                       'application/octet-stream', 1024, 'x', 1, ?, ?)""",
+            (stamp, stamp),
+        )
+        self.private_id = app.execute(
+            """INSERT INTO workbench_assets
+                   (category, title, file_path, original_name, mime_type, size_bytes,
+                    sha256, is_public, created_at, updated_at)
+               VALUES ('firmware', '内部固件', 'workbench/firmware/fw.hex', 'fw.hex',
+                       'text/plain', 512, 'y', 0, ?, ?)""",
+            (stamp, stamp),
+        )
+
+    def tearDown(self):
+        self._db_patch.stop()
+        self._temp.cleanup()
+
+    def make_handler(self, identity):
+        handler = object.__new__(app.InventoryHandler)
+        handler.session_identity = lambda: identity
+        responses = []
+        handler.send_json = lambda status, payload: responses.append((status, payload))
+        handler.log_activity = lambda *args, **kwargs: None
+        return handler, responses
+
+    def test_workbench_accepts_apk_and_exe(self):
+        self.assertIn(".apk", app.WORKBENCH_EXTENSIONS)
+        self.assertIn(".exe", app.WORKBENCH_EXTENSIONS)
+        self.assertEqual(
+            app.InventoryHandler.workbench_category_for_name("setup.exe"), "other"
+        )
+        self.assertEqual(
+            app.InventoryHandler.workbench_category_for_name("app.apk"), "other"
+        )
+
+    def test_files_page_is_a_guest_page(self):
+        self.assertIn("guest:page:files", app.GUEST_PAGE_PERMISSION_KEYS)
+        labels = {item["key"]: item["label"] for item in app.GUEST_PAGE_PERMISSIONS}
+        self.assertEqual(labels["guest:page:files"], "文件")
+        self.assertEqual(app.GUEST_PAGE_RULES.get("/files"), "guest:page:files")
+        self.assertEqual(
+            app.guest_page_permission_for_path("/api/site/files"), "guest:page:files"
+        )
+        self.assertEqual(
+            app.guest_page_permission_for_path("/api/site/files/3/download"),
+            "guest:page:files",
+        )
+
+    def test_public_file_list_hides_private_files(self):
+        handler, responses = self.make_handler(None)
+        handler.api_site_files()
+        status, items = responses[-1]
+        self.assertEqual(status, 200)
+        self.assertEqual([item["id"] for item in items], [self.public_id])
+        self.assertTrue(items[0]["requires_login"])
+        self.assertEqual(items[0]["extension"], ".apk")
+        # 公开页只下发必要字段，内部路径 / 备注 / 关联对象不能漏出去
+        for leaked in ("file_path", "notes", "project_name", "sha256"):
+            self.assertNotIn(leaked, items[0])
+
+    def test_guest_cannot_download_public_file(self):
+        handler, responses = self.make_handler(None)
+        handler.api_site_file_download(f"/api/site/files/{self.public_id}/download")
+        self.assertEqual(responses[-1][0], 401)
+        self.assertIn("请登录后操作", responses[-1][1]["error"])
+
+    def test_private_file_download_is_not_found(self):
+        handler, responses = self.make_handler(
+            {"kind": "member", "user_id": 7, "username": "reader", "nickname": "读者"}
+        )
+        handler.api_site_file_download(f"/api/site/files/{self.private_id}/download")
+        self.assertEqual(responses[-1][0], 404)
 
 
 class InteractionTests(unittest.TestCase):
@@ -2938,7 +3028,7 @@ class ComplianceWorkflowTests(unittest.TestCase):
             "recommendations",
             self.recommendation_id,
             "管理员",
-            "新增了一条推荐",
+            "新增了一条内容",
         )
         app.add_user_notification(
             self.member_id,
@@ -2946,7 +3036,7 @@ class ComplianceWorkflowTests(unittest.TestCase):
             "recommendations",
             resource_recommendation_id,
             "管理员",
-            "新增了一条推荐",
+            "新增了一条内容",
         )
         handler = self.make_handler(self.member(self.member_id))
         summary = handler.notification_summary()

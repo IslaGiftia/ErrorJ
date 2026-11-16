@@ -1,0 +1,346 @@
+/* 「下载 → 文件」子页：工作台里勾了「公开到下载页」的文件列表。 */
+
+:root {
+  --fl-bg: #f5f6f8;
+  --fl-surface: #ffffff;
+  --fl-line: #e3e6eb;
+  --fl-text: #1f2329;
+  --fl-muted: #6b7280;
+  --fl-accent: #6554d8;
+  --fl-accent-soft: rgba(101, 84, 216, 0.09);
+  --fl-shadow: 0 2px 10px rgba(24, 31, 45, 0.06);
+}
+
+:root[data-theme="dark"] {
+  --fl-bg: #17181b;
+  --fl-surface: #232428;
+  --fl-line: #3a3b41;
+  --fl-text: #f4f4f5;
+  --fl-muted: #a1a1aa;
+  --fl-accent: #a78bfa;
+  --fl-accent-soft: rgba(167, 139, 250, 0.14);
+  --fl-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--fl-bg);
+  color: var(--fl-text);
+}
+
+.fl-top {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: color-mix(in srgb, var(--fl-bg) 82%, transparent);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--fl-line);
+}
+
+.fl-top-inner {
+  max-width: 760px;
+  margin: 0 auto;
+  height: 56px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fl-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fl-text);
+  text-decoration: none;
+  font-size: 15px;
+}
+
+.fl-brand svg {
+  width: 18px;
+  height: 18px;
+}
+
+.fl-brand strong {
+  font-weight: 650;
+}
+
+.fl-brand:hover {
+  color: var(--fl-accent);
+}
+
+.fl-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--fl-muted);
+}
+
+.fl-main {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 18px 16px 80px;
+}
+
+.fl-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.fl-search {
+  flex: 1 1 220px;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fl-text);
+  background: var(--fl-surface);
+  border: 1px solid var(--fl-line);
+  border-radius: var(--radius, 8px);
+  outline: none;
+  transition: border-color var(--dur-fast, 160ms) var(--ease-standard, ease);
+}
+
+.fl-search::placeholder {
+  color: var(--fl-muted);
+}
+
+.fl-search:focus {
+  border-color: var(--fl-accent);
+}
+
+.fl-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fl-chip {
+  height: 32px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--fl-muted);
+  background: var(--fl-surface);
+  border: 1px solid var(--fl-line);
+  border-radius: var(--radius-pill, 999px);
+  cursor: pointer;
+  transition:
+    color var(--dur-fast, 160ms) var(--ease-standard, ease),
+    background var(--dur-fast, 160ms) var(--ease-standard, ease),
+    border-color var(--dur-fast, 160ms) var(--ease-standard, ease);
+}
+
+.fl-chip:hover {
+  color: var(--fl-text);
+}
+
+.fl-chip.is-active {
+  color: var(--on-accent, #fff);
+  background: var(--fl-accent);
+  border-color: transparent;
+}
+
+.fl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fl-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--fl-surface);
+  border: 1px solid var(--fl-line);
+  border-radius: var(--radius-lg, 10px);
+  box-shadow: var(--fl-shadow);
+  transition:
+    transform var(--dur-fast, 160ms) var(--ease-out-strong, ease),
+    border-color var(--dur-fast, 160ms) var(--ease-standard, ease);
+}
+
+.fl-item:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--fl-accent) 40%, var(--fl-line));
+}
+
+.fl-icon {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-lg, 10px);
+  background: var(--fl-accent-soft);
+  color: var(--fl-accent);
+}
+
+.fl-icon svg {
+  width: 19px;
+  height: 19px;
+}
+
+.fl-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.fl-title {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fl-meta {
+  margin-top: 3px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--fl-muted);
+}
+
+.fl-meta span {
+  white-space: nowrap;
+}
+
+.fl-dl {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fl-text);
+  background: transparent;
+  border: 1px solid var(--fl-line);
+  border-radius: var(--radius, 8px);
+  cursor: pointer;
+  transition:
+    transform var(--dur-fast, 160ms) var(--ease-out-strong, ease),
+    background var(--dur-fast, 160ms) var(--ease-standard, ease),
+    border-color var(--dur-fast, 160ms) var(--ease-standard, ease);
+}
+
+.fl-dl svg {
+  width: 15px;
+  height: 15px;
+}
+
+.fl-dl.is-primary {
+  color: var(--on-accent, #fff);
+  background: var(--fl-accent);
+  border-color: transparent;
+}
+
+.fl-dl:hover {
+  transform: translateY(-1px);
+}
+
+.fl-dl.is-primary:hover {
+  background: color-mix(in srgb, var(--fl-accent) 88%, #000);
+}
+
+.fl-dl.is-guest {
+  color: var(--fl-muted);
+}
+
+.fl-dl.is-guest:hover {
+  transform: none;
+  border-color: var(--fl-line);
+}
+
+.fl-empty {
+  padding: 48px 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--fl-muted);
+}
+
+.fl-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  z-index: 30;
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--toast-ink, #fff);
+  background: var(--toast-bg, #20232a);
+  border-radius: var(--radius, 8px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+  animation: site-toast-in var(--dur-fast, 160ms) var(--ease-out-strong, ease);
+}
+
+/* 内嵌到「下载」页：顶栏交给外壳的常驻按钮，这里只留列表本身。 */
+html.is-embed .fl-top {
+  display: none;
+}
+
+html.is-embed body {
+  background: transparent;
+}
+
+html.is-embed .fl-main {
+  max-width: var(--embed-center, 760px);
+  /* 顶部留出一条，刚好让开推荐页那排悬浮按钮 */
+  padding: 62px 16px 64px;
+}
+
+@media (max-width: 560px) {
+  .fl-main {
+    padding: 14px 12px 72px;
+  }
+
+  html.is-embed .fl-main {
+    max-width: none;
+    padding: 50px 12px 56px;
+  }
+
+  .fl-item {
+    padding: 10px 12px;
+    gap: 10px;
+  }
+
+  .fl-icon {
+    width: 36px;
+    height: 36px;
+  }
+
+  .fl-dl span {
+    display: none;
+  }
+
+  .fl-dl {
+    padding: 0 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fl-item,
+  .fl-item:hover,
+  .fl-dl,
+  .fl-dl:hover {
+    transform: none;
+    animation: none;
+  }
+
+  .fl-toast {
+    animation: none;
+  }
+}

@@ -339,7 +339,7 @@
         <label class="wb-file-field span-2" id="assetFileField">
           <input id="assetFile" type="file">
           <span><i data-lucide="file-up"></i><strong id="assetFileLabel">选择文件</strong></span>
-          <small>支持源码压缩包、HEX、BIN、PDF、原理图、图片等，最大 30MB</small>
+          <small>支持源码压缩包、HEX、BIN、APK、EXE、PDF、原理图、图片等，最大 30MB</small>
         </label>
         <label><span>标题</span><input id="assetTitle" maxlength="160" placeholder="默认使用文件名"></label>
         <label><span>分类</span>
@@ -358,6 +358,11 @@
         <label><span>目标开发板</span><input id="assetBoard" maxlength="120" placeholder="例如 Blue Pill"></label>
         <label class="span-2"><span>在线烧录链接</span><input id="assetFlashUrl" maxlength="500" placeholder="https://..."></label>
         <label class="span-2"><span>备注</span><textarea id="assetNotes" rows="3" maxlength="4000"></textarea></label>
+        <label class="wb-check span-2" for="assetPublic">
+          <input id="assetPublic" type="checkbox">
+          <span>公开到下载页</span>
+          <small>勾选后出现在「下载 → 文件」；游客能看到文件名，登录后才能下载。</small>
+        </label>
       </div>
       <div class="wb-modal-actions">
         <button class="wb-btn" type="button" data-close-modal="assetModal">取消</button>

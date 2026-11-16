@@ -18,6 +18,8 @@
   var TABS = [
     { key: "music", label: "歌曲", module: "music", badge: true },
     { key: "books", label: "书籍", module: "books", badge: true },
+    // 文件页是工作台文件的公开目录，没有「新增」入口，也没有未读角标。
+    { key: "files", label: "文件", module: "", badge: false, add: false },
     {
       key: "web",
       label: "网页",
@@ -27,7 +29,7 @@
     },
     {
       key: "resource",
-      label: "站内",
+      label: "站内分享",
       module: "recommendation_resource",
       seen: { module: "recommendations", scope: "resource" },
       badge: true
@@ -135,7 +137,7 @@
     var label = $("dlActionLabel");
     if (!button || !label) return;
     var spec = specOf(key) || TABS[0];
-    if (!isOwner) {
+    if (!isOwner || spec.add === false) {
       button.hidden = true;
       label.textContent = spec.label;
       return;

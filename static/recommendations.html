@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#7b68ee">
   <meta name="tab-name" content="ej-recommendations">
-  <title>推荐</title>
+  <title>内容</title>
   <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=4">
   <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=4">
   <link rel="stylesheet" href="/static/recommendations.css">
@@ -32,19 +32,19 @@
     <header class="rec-header">
       <a class="rec-brand" href="/">
         <span class="rec-brand-icon"><i data-lucide="sparkles"></i></span>
-        <strong>推荐</strong>
+        <strong>内容</strong>
         <span id="recCount">0 项</span>
       </a>
 
       <label class="rec-search">
         <i data-lucide="search"></i>
-        <input id="recSearch" type="search" placeholder="搜索推荐内容、标签或分类">
+        <input id="recSearch" type="search" placeholder="搜索内容、标签或分类">
       </label>
 
       <div class="rec-header-actions">
         <a class="rec-btn" href="/">返回首页</a>
         <button class="rec-btn rec-btn-primary" id="recAddBtn" type="button" hidden>
-          <i data-lucide="plus"></i><span>新增推荐</span>
+          <i data-lucide="plus"></i><span>新增</span>
         </button>
       </div>
     </header>
@@ -56,12 +56,12 @@
           <button type="button" data-tab="web">网站与工具</button>
           <button type="button" data-tab="movie">电影</button>
           <button type="button" data-tab="anime">动漫</button>
-          <button type="button" data-tab="resource">站内资源</button>
+          <button type="button" data-tab="resource">站内分享</button>
         </div>
       </section>
 
       <section class="rec-grid" id="recGrid"></section>
-      <div class="rec-empty" id="recEmpty" hidden>还没有推荐内容。</div>
+      <div class="rec-empty" id="recEmpty" hidden>还没有内容。</div>
     </main>
   </div>
 
@@ -69,8 +69,8 @@
   <div class="rec-modal" id="recPickModal" hidden>
     <div class="rec-dialog" role="dialog" aria-modal="true" aria-labelledby="recPickTitle">
       <button class="rec-dialog-close" id="recPickClose" type="button" aria-label="关闭">×</button>
-      <h2 id="recPickTitle">分享到站内资源</h2>
-      <p class="rec-pick-hint">挑一个站内内容分享出去，卡片会出现在「站内资源」里。</p>
+      <h2 id="recPickTitle">分享到站内</h2>
+      <p class="rec-pick-hint">挑一个站内内容分享出去，卡片会出现在「站内分享」里。</p>
       <div class="rec-pick-tabs" id="recPickTabs">
         <button type="button" data-pick="note" class="active">笔记</button>
         <button type="button" data-pick="music">歌曲</button>
@@ -91,7 +91,7 @@
   <div class="rec-modal" id="recModal" hidden>
     <div class="rec-dialog" role="dialog" aria-modal="true" aria-labelledby="recModalTitle">
       <button class="rec-dialog-close" id="recModalClose" type="button" aria-label="关闭">×</button>
-      <h2 id="recModalTitle">新增推荐</h2>
+      <h2 id="recModalTitle">新增</h2>
       <form id="recForm">
         <div class="rec-form-grid">
           <label class="rec-field">
@@ -167,7 +167,7 @@
 
         <label class="rec-field" data-kinds="site tool movie anime">
           <span>说明</span>
-          <textarea id="recDescription" rows="4" maxlength="2000" placeholder="推荐理由、适用场景或简单介绍"></textarea>
+          <textarea id="recDescription" rows="4" maxlength="2000" placeholder="理由、适用场景或简单介绍"></textarea>
         </label>
 
         <div class="rec-cover-field">
@@ -187,7 +187,7 @@
 
         <label class="rec-check">
           <input id="recPinned" type="checkbox">
-          <span>置顶推荐</span>
+          <span>置顶</span>
         </label>
 
         <div class="rec-form-error" id="recFormError" hidden></div>
@@ -204,7 +204,7 @@
       <div class="rec-picker-head">
         <div>
           <h2 id="recBookmarkPickerTitle">选择书签</h2>
-          <p>关联后推荐页会跟随收藏的标题、网址和图标。</p>
+          <p>关联后下载页会跟随收藏的标题、网址和图标。</p>
         </div>
         <button class="rec-dialog-close" id="recBookmarkPickerClose" type="button" aria-label="关闭">×</button>
       </div>
@@ -232,7 +232,7 @@
   <script src="/static/site/fresh-cards.js"></script>
   <script src="/static/site/dropzone.js"></script>
   <script src="/static/recommendations.js"></script>
-  <script>window.ERRORJ_JUMP = { label: "推荐" };</script>
+  <script>window.ERRORJ_JUMP = { label: "内容" };</script>
   <script src="/static/site/fresh-jump.js"></script>
 
 </body>

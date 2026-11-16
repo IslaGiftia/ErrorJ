@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b68ee">
+  <meta name="tab-name" content="ej-files">
+  <title>文件</title>
+  <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=4">
+  <link rel="apple-touch-icon" href="/static/site/error-chan-touch.png?v=4">
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem("errorSiteTheme") || "auto";
+        var dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (err) {}
+    })();
+  </script>
+  <script src="/static/site/theme.js"></script>
+  <script src="/static/site/tabname.js"></script>
+  <link rel="stylesheet" href="/static/fonts.css">
+  <link rel="stylesheet" href="/static/files.css">
+  <link rel="stylesheet" href="/static/site/embed.css">
+  <script src="/static/site/embed.js"></script>
+</head>
+<body data-notify-module="files">
+  <header class="fl-top">
+    <div class="fl-top-inner">
+      <a class="fl-brand" href="/">
+        <i data-lucide="arrow-left"></i>
+        <strong>文件</strong>
+      </a>
+      <span class="fl-count" id="fileCount"></span>
+    </div>
+  </header>
+
+  <main class="fl-main">
+    <div class="fl-toolbar">
+      <input class="fl-search" id="fileSearch" type="search" placeholder="搜索文件名或说明" autocomplete="off">
+      <div class="fl-filters" id="fileFilters" role="group" aria-label="文件分类"></div>
+    </div>
+    <div class="fl-list" id="fileList" aria-live="polite"></div>
+  </main>
+
+  <div class="fl-toast" id="fileToast" hidden></div>
+
+  <script src="/static/vendor/lucide.min.js"></script>
+  <script src="/static/files.js"></script>
+</body>
+</html>

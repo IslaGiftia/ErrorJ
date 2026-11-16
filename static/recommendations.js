@@ -38,7 +38,7 @@
     tool: "工具",
     movie: "电影",
     anime: "动漫",
-    resource: "站内资源",
+    resource: "站内分享",
   };
   var state = {
     items: [],
@@ -323,7 +323,7 @@
         // report.js 的全局点击委托会接着弹举报框，这里只负责收起菜单
         node.setAttribute("data-report-type", "recommendation");
         node.setAttribute("data-report-key", item.report.id);
-        node.setAttribute("data-report-title", item.report.title || "推荐内容");
+        node.setAttribute("data-report-title", item.report.title || "内容");
         node.addEventListener("click", function () {
           closeAllMoreMenus();
         });
@@ -400,7 +400,7 @@
     } else {
       cover.appendChild(el("span", "rec-cover-fallback", String(item.title || "推").slice(0, 1)));
     }
-    cover.appendChild(el("span", "rec-kind-badge", kindLabels[item.kind] || "推荐"));
+    cover.appendChild(el("span", "rec-kind-badge", kindLabels[item.kind] || "内容"));
     if (isMedia(item) && item.status) {
       cover.appendChild(el("span", "rec-status-badge", item.status));
     }
@@ -470,7 +470,7 @@
       report.type = "button";
       report.setAttribute("data-report-type", "recommendation");
       report.setAttribute("data-report-key", item.id);
-      report.setAttribute("data-report-title", item.title || "推荐内容");
+      report.setAttribute("data-report-title", item.title || "内容");
       links.appendChild(report);
     }
     if (links.childNodes.length) body.appendChild(links);
@@ -598,12 +598,12 @@
     var cards = rows.map(buildCard);
     renderColumns(cards);
     var empty = $("recEmpty");
-    empty.textContent = state.query.trim() ? "没有匹配的推荐。" : "还没有推荐内容。";
+    empty.textContent = state.query.trim() ? "没有匹配的内容。" : "还没有内容。";
     empty.hidden = rows.length > 0;
     markOverflow($("recGrid"));
     // 从更新日志跳进来的那一条：高亮呼吸 + 按钮切成「↓ 更新」
     if (window.ErrorFocus) window.ErrorFocus.apply();
-    // 有新内容还没滚到眼前时，右下角「顶部」按钮切成「↓ 推荐」
+    // 有新内容还没滚到眼前时，右下角「顶部」按钮切成「↓ 内容」
     if (window.ErrorFreshJump) window.ErrorFreshJump.schedule();
   }
 
@@ -820,7 +820,7 @@
     state.editingId = item ? item.id : null;
     state.coverPath = item ? item.cover_path || "" : "";
     state.coverFile = null;
-    $("recModalTitle").textContent = item ? "编辑推荐" : "新增推荐";
+    $("recModalTitle").textContent = item ? "编辑" : "新增";
     $("recKind").value = item ? item.kind : "site";
     $("recTitle").value = item ? item.title || "" : "";
     $("recSubtitle").value = item ? item.subtitle || "" : "";
