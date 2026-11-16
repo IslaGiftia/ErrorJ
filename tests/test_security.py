@@ -843,6 +843,19 @@ class SiteFilesTests(unittest.TestCase):
             "guest:page:files",
         )
 
+    def test_files_tab_sits_between_books_and_web(self):
+        page = (app.STATIC_DIR / "downloads.html").read_text(encoding="utf-8")
+        self.assertIn('data-tab="files"', page)
+        self.assertIn('data-panel="files"', page)
+        self.assertIn("/files?embed=1", page)
+        self.assertLess(
+            page.index('data-tab="books"'), page.index('data-tab="files"')
+        )
+        self.assertLess(page.index('data-tab="files"'), page.index('data-tab="web"'))
+        # 深链接 ?tab=files 要能切过去，不能悄悄落回第一个标签
+        script = (app.STATIC_DIR / "downloads.js").read_text(encoding="utf-8")
+        self.assertIn('key === "files"', script)
+
     def test_public_file_list_hides_private_files(self):
         handler, responses = self.make_handler(None)
         handler.api_site_files()

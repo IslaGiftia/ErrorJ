@@ -332,6 +332,7 @@
     var key = String(value || "").toLowerCase();
     if (key === "music" || key === "song" || key === "songs") return "music";
     if (key === "books" || key === "book") return "books";
+    if (key === "files" || key === "file") return "files";
     if (key === "web" || key === "site" || key === "sites") return "web";
     if (key === "resource" || key === "resources" || key === "recommendations") return "resource";
     return "";
