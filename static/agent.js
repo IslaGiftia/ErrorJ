@@ -11,9 +11,6 @@
   var memorySearch = document.getElementById("agentMemorySearch");
   var memoryArchived = document.getElementById("agentMemoryArchived");
   var memoryCount = document.getElementById("agentMemoryCount");
-  var jargonList = document.getElementById("agentJargonList");
-  var jargonCount = document.getElementById("agentJargonCount");
-  var jargonStatusFilter = document.getElementById("agentJargonStatusFilter");
   var diagnosticsThreads = document.getElementById("agentDiagnosticThreads");
   var diagnosticsCounts = document.getElementById("agentDiagnosticCounts");
   var diagnosticsCleanup = document.getElementById("agentDiagnosticCleanup");
@@ -80,7 +77,6 @@
   var stickerCandidates = [];
   var selectedStickerLibraryId = "default";
   var stickerAutoCollectLibraryValue = "default";
-  var currentJargonItems = [];
   var settingsDirty = false;
   var memorySearchTimer = null;
   var memoryRequestId = 0;
@@ -563,10 +559,6 @@
           settings.group_activity_level || "balanced"
         );
         settingValue(
-          "settingGroupJargonEnabled",
-          settings.group_jargon_enabled
-        );
-        settingValue(
           "settingGroupWeatherEnabled",
           settings.group_weather_enabled
         );
@@ -704,9 +696,6 @@
       group_activity_level: document.getElementById(
         "settingGroupActivityLevel"
       ).value,
-      group_jargon_enabled: document.getElementById(
-        "settingGroupJargonEnabled"
-      ).checked,
       group_weather_enabled: document.getElementById(
         "settingGroupWeatherEnabled"
       ).checked,
@@ -903,173 +892,6 @@
       });
   }
 
-  function jargonStatusLabel(status) {
-    if (status === "approved") return "已启用";
-    if (status === "rejected") return "已忽略";
-    return "待确认";
-  }
-
-  function renderGroupJargon() {
-    var filter = jargonStatusFilter.value || "pending";
-    var items = currentJargonItems.filter(function (item) {
-      return filter === "all" || item.status === filter;
-    });
-    jargonList.innerHTML = "";
-    if (!items.length) {
-      jargonList.innerHTML =
-        '<div class="agent-memory-item"><p>当前没有符合条件的群黑话。</p></div>';
-      return;
-    }
-    items.forEach(function (item) {
-      var status = String(item.status || "pending");
-      var element = document.createElement("div");
-      element.className = "agent-memory-item agent-jargon-item";
-      element.dataset.jargonId = String(item.id);
-      var actions = [
-        '<button type="button" data-jargon-action="save">仅保存含义</button>',
-      ];
-      if (status === "pending") {
-        actions.unshift(
-          '<button type="button" class="is-primary" data-jargon-action="approve">批准并启用</button>'
-        );
-        actions.push(
-          '<button type="button" data-jargon-action="reject">忽略</button>'
-        );
-      } else if (status === "approved") {
-        actions.push(
-          '<button type="button" data-jargon-action="reject">停用</button>'
-        );
-      } else {
-        actions = [
-          '<button type="button" data-jargon-action="reopen">重新打开</button>',
-        ];
-      }
-      actions.push(
-        '<button type="button" data-jargon-action="delete">删除</button>'
-      );
-      element.innerHTML =
-        '<div class="agent-jargon-copy">' +
-          '<div class="agent-jargon-head">' +
-            '<strong class="agent-jargon-term">' +
-              escapeHtml(item.term) +
-            "</strong>" +
-            '<span class="agent-jargon-status ' +
-              (status === "approved" ? "is-approved" : "") +
-            '">' + jargonStatusLabel(status) + "</span>" +
-            '<span class="agent-jargon-meta">' +
-              escapeHtml(item.group_label || item.group_id || "") +
-              " · 出现 " + Number(item.occurrences || 0) + " 次" +
-              " · " + Number(item.member_count || 0) + " 人使用" +
-            "</span>" +
-          "</div>" +
-          '<div class="agent-jargon-editor">' +
-            "<label><span>在群里的意思</span>" +
-              '<input class="agent-jargon-meaning" maxlength="500" ' +
-                'value="' + escapeHtml(item.meaning || "") + '" ' +
-                'placeholder="例如：表示非常赞同或夸张"></label>' +
-            "<label><span>例句（可选）</span>" +
-              '<input class="agent-jargon-example" maxlength="500" ' +
-                'value="' + escapeHtml(item.example || "") + '" ' +
-                'placeholder="例如：这操作真绝绝子"></label>' +
-          "</div>" +
-          '<p class="agent-jargon-hint" aria-live="polite">' +
-            "“批准并启用”后才会让鲸鲸在聊天中识别这个词；仅保存含义不会启用。" +
-          "</p>" +
-          '<div class="agent-jargon-actions">' + actions.join("") + "</div>" +
-        "</div>";
-      jargonList.appendChild(element);
-    });
-  }
-
-  function loadGroupJargon() {
-    return fetch("/api/agent/web/group-jargon", {
-      credentials: "same-origin",
-      cache: "no-store",
-    })
-      .then(readApiResponse)
-      .then(function (data) {
-        currentJargonItems = data.items || [];
-        jargonCount.textContent =
-          Number(data.pending_count || 0) + " 待确认 · " +
-          Number(data.approved_count || 0) + " 已启用";
-        renderGroupJargon();
-      })
-      .catch(function (error) {
-        currentJargonItems = [];
-        jargonList.innerHTML =
-          '<div class="agent-memory-item"><p>' +
-          escapeHtml(error.message) +
-          "</p></div>";
-      });
-  }
-
-  function updateGroupJargon(item, action) {
-    var meaning = item.querySelector(".agent-jargon-meaning").value.trim();
-    var example = item.querySelector(".agent-jargon-example").value.trim();
-    var hint = item.querySelector(".agent-jargon-hint");
-    item.classList.remove("has-error");
-    hint.textContent =
-      "“批准并启用”后才会让鲸鲸在聊天中识别这个词；仅保存含义不会启用。";
-    if (action === "approve" && !meaning) {
-      item.classList.add("has-error");
-      hint.textContent = "请先在“在群里的意思”里填写含义，再点“批准并启用”。";
-      item.querySelector(".agent-jargon-meaning").focus();
-      return;
-    }
-    var buttons = item.querySelectorAll("button");
-    buttons.forEach(function (button) {
-      button.disabled = true;
-    });
-    fetch("/api/agent/web/group-jargon", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: Number(item.dataset.jargonId),
-        action: action,
-        meaning: meaning,
-        example: example,
-      }),
-    })
-      .then(readApiResponse)
-      .then(function (data) {
-        currentJargonItems = data.items || [];
-        if (action === "approve" && jargonStatusFilter.value === "pending") {
-          jargonStatusFilter.value = "approved";
-        } else if (
-          action === "reject" &&
-          jargonStatusFilter.value !== "all"
-        ) {
-          jargonStatusFilter.value = "all";
-        } else if (
-          action === "reopen" &&
-          jargonStatusFilter.value !== "all"
-        ) {
-          jargonStatusFilter.value = "pending";
-        }
-        jargonCount.textContent =
-          Number(data.pending_count || 0) + " 待确认 · " +
-          Number(data.approved_count || 0) + " 已启用";
-        setSettingsStatus(
-          action === "approve"
-            ? "已批准并启用这个群黑话"
-            : action === "save"
-            ? "含义已保存；这个词仍然是待确认状态"
-            : "群黑话状态已更新",
-          settingsDirty
-        );
-        renderGroupJargon();
-      })
-      .catch(function (error) {
-        item.classList.add("has-error");
-        hint.textContent = error.message;
-        setSettingsStatus(error.message, settingsDirty);
-        buttons.forEach(function (button) {
-          button.disabled = false;
-        });
-      });
-  }
-
   function diagnosticsRow(label, value) {
     return (
       '<div class="agent-diagnostics-row"><span>' +
@@ -1144,7 +966,6 @@
       diagnosticsRow("私聊历史", String(counts.messages || 0) + " 条"),
       diagnosticsRow("群聊历史", String(counts.group_messages || 0) + " 条"),
       diagnosticsRow("长期记忆", String(counts.memories || 0) + " 条"),
-      diagnosticsRow("群黑话", String(counts.group_jargon || 0) + " 条"),
       diagnosticsRow("待发送提醒", String(counts.pending_reminders || 0) + " 条"),
     ].join("");
 
@@ -2472,14 +2293,6 @@
   memoryArchived.addEventListener("change", function () {
     loadMemories(memorySearch.value);
   });
-  jargonStatusFilter.addEventListener("change", renderGroupJargon);
-  jargonList.addEventListener("click", function (event) {
-    var button = event.target.closest("[data-jargon-action]");
-    if (!button) return;
-    var item = button.closest("[data-jargon-id]");
-    if (!item) return;
-    updateGroupJargon(item, button.dataset.jargonAction);
-  });
   document
     .getElementById("agentDiagnosticsRefresh")
     .addEventListener("click", function () {
@@ -2632,7 +2445,6 @@
   loadStatus();
   loadSettings();
   loadMemories("");
-  loadGroupJargon();
   loadDiagnostics();
   loadGroupMembers();
   loadTimeline();

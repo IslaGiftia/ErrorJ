@@ -71,10 +71,6 @@
           <i data-lucide="message-circle-more"></i>
           <span>群主动</span>
         </a>
-        <a href="#settings-jargon" data-section-link="settings-jargon">
-          <i data-lucide="book-open-text"></i>
-          <span>群黑话</span>
-        </a>
         <a href="#settings-diagnostics" data-section-link="settings-diagnostics">
           <i data-lucide="activity"></i>
           <span>运行诊断</span>
@@ -252,7 +248,7 @@
             </select>
           </label>
           <label>
-            <span>管理员专属称呼</span>
+            <span>管理员允许的称呼</span>
             <input id="settingOwnerPreferredAddress" maxlength="40"
                    data-setting-input placeholder="例如：爸爸">
           </label>
@@ -263,7 +259,7 @@
                       placeholder="例如：少用感叹号，偶尔用“嗯”开头；不要撒娇过度。"></textarea>
           </label>
         </div>
-        <p class="agent-section-note">人格只影响称呼、语气和措辞，不会覆盖安全、权限、工具规则或事实判断。</p>
+        <p class="agent-section-note">人格只影响称呼、语气和措辞，不会覆盖安全、权限、工具规则或事实判断。管理员允许的称呼不是权限、模式或固定日常称呼；“爸爸”会作为孩子对父亲的亲昵称呼被理解，鲸鲸可以在自己愿意、气氛轻松时偶尔调侃着叫。</p>
         <p class="agent-section-note">“深海蓝鲸女仆（完整版）”已内置完整角色设定、七种人格、外貌与台词素材库；下方自定义补充只用于叠加个人偏好。</p>
       </section>
 
@@ -493,37 +489,6 @@
         <div class="agent-idle-preview" id="agentGroupIdlePreview" hidden
              aria-live="polite"></div>
         <div class="agent-idle-runs" id="agentGroupIdleRuns"></div>
-      </section>
-
-      <section class="agent-console-section" id="settings-jargon" data-console-section>
-        <header class="agent-section-head">
-          <span class="agent-section-icon"><i data-lucide="book-open-text"></i></span>
-          <div><h2>群黑话</h2><p>从近期群聊里找出重复出现的词，确认含义后才会用于理解消息。</p></div>
-          <span class="agent-section-count" id="agentJargonCount">0 条</span>
-        </header>
-        <label class="agent-setting-row">
-          <span class="agent-setting-copy">
-            <strong>自动发现候选</strong>
-            <small>关闭后不再扫描群消息；已经启用的黑话仍可手动停用或删除</small>
-          </span>
-          <span class="agent-switch">
-            <input type="checkbox" id="settingGroupJargonEnabled" data-setting-input>
-            <span aria-hidden="true"></span>
-          </span>
-        </label>
-        <div class="agent-jargon-toolbar">
-          <label>
-            <span>显示</span>
-            <select id="agentJargonStatusFilter">
-              <option value="pending">待确认</option>
-              <option value="approved">已启用</option>
-              <option value="all">全部</option>
-            </select>
-          </label>
-          <span>只保存词、出现次数和群标识，不保留原始聊天记录</span>
-        </div>
-        <div class="agent-list" id="agentJargonList"></div>
-        <p class="agent-section-note">批准时请填写这个词在本群里的意思。启用后只在消息命中该词时注入，最多同时读取 6 条、1200 字。</p>
       </section>
 
       <section class="agent-console-section" id="settings-diagnostics" data-console-section>

@@ -10302,8 +10302,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_agent_web_status()
             elif path == "/api/agent/web/settings":
                 self.api_agent_web_settings()
-            elif path == "/api/agent/web/group-jargon":
-                self.api_agent_web_group_jargon()
             elif path == "/api/agent/web/diagnostics":
                 self.api_agent_web_diagnostics()
             elif path == "/api/agent/web/memories":
@@ -10428,8 +10426,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_agent_web_chat(payload)
             elif path == "/api/agent/web/settings":
                 self.api_agent_web_settings_save(payload)
-            elif path == "/api/agent/web/group-jargon":
-                self.api_agent_web_group_jargon_action(payload)
             elif path == "/api/agent/web/diagnostics":
                 self.api_agent_web_diagnostics_action(payload)
             elif path == "/api/agent/web/group-idle-action":
@@ -18665,49 +18661,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     "platform": "qqbot",
                     "owner_id": "0",
                     "settings": values,
-                },
-                timeout=10,
-            )
-        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
-            api_error(self, 502, str(exc)[:200])
-            return
-        self.send_json(200, data)
-
-    def api_agent_web_group_jargon(self):
-        if not self.is_admin():
-            api_error(self, 403, "只有管理员可以管理鲸鲸的群黑话。")
-            return
-        try:
-            data = agent_internal_request(
-                "/internal/group-jargon",
-                timeout=10,
-            )
-        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
-            api_error(self, 502, str(exc)[:200])
-            return
-        self.send_json(200, data)
-
-    def api_agent_web_group_jargon_action(self, payload):
-        if not self.is_admin():
-            api_error(self, 403, "只有管理员可以管理鲸鲸的群黑话。")
-            return
-        action = str((payload or {}).get("action") or "").strip()
-        if action not in ("save", "approve", "reject", "reopen", "delete"):
-            api_error(self, 400, "未知的群黑话操作。")
-            return
-        try:
-            item_id = int((payload or {}).get("id"))
-        except (TypeError, ValueError):
-            api_error(self, 400, "黑话条目编号不正确。")
-            return
-        try:
-            data = agent_internal_request(
-                "/internal/group-jargon",
-                {
-                    "id": item_id,
-                    "action": action,
-                    "meaning": str((payload or {}).get("meaning") or ""),
-                    "example": str((payload or {}).get("example") or ""),
                 },
                 timeout=10,
             )

@@ -303,25 +303,6 @@ class AgentStore:
                         platform, group_id, role, created_at
                     );
 
-                CREATE TABLE IF NOT EXISTS group_jargon (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    platform TEXT NOT NULL,
-                    group_id TEXT NOT NULL,
-                    term TEXT NOT NULL,
-                    meaning TEXT NOT NULL DEFAULT '',
-                    example TEXT NOT NULL DEFAULT '',
-                    status TEXT NOT NULL DEFAULT 'pending',
-                    occurrences INTEGER NOT NULL DEFAULT 1,
-                    member_count INTEGER NOT NULL DEFAULT 1,
-                    first_seen INTEGER NOT NULL,
-                    last_seen INTEGER NOT NULL,
-                    created_at INTEGER NOT NULL,
-                    updated_at INTEGER NOT NULL,
-                    UNIQUE(platform, group_id, term)
-                );
-                CREATE INDEX IF NOT EXISTS idx_group_jargon_status
-                    ON group_jargon(status, updated_at);
-
                 CREATE TABLE IF NOT EXISTS group_proactive_state (
                     platform TEXT NOT NULL,
                     group_id TEXT NOT NULL,
@@ -1860,149 +1841,6 @@ class AgentStore:
             "last_reply_at": int(row["last_reply_at"] or 0) if row else 0,
         }
 
-    def upsert_group_jargon_candidates(
-        self,
-        platform: str,
-        group_id: str,
-        candidates: list[dict[str, Any]],
-    ) -> int:
-        now = int(time.time())
-        saved = 0
-        with self._lock, self._connection() as conn:
-            for item in candidates[:20]:
-                term = " ".join(str(item.get("term") or "").split()).strip()[:24]
-                if len(term) < 2:
-                    continue
-                occurrences = max(1, int(item.get("occurrences") or 1))
-                member_count = max(1, int(item.get("member_count") or 1))
-                conn.execute(
-                    """INSERT INTO group_jargon
-                       (platform, group_id, term, status, occurrences,
-                        member_count, first_seen, last_seen, created_at,
-                        updated_at)
-                       VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)
-                       ON CONFLICT(platform, group_id, term) DO UPDATE SET
-                           occurrences = MAX(
-                               group_jargon.occurrences,
-                               excluded.occurrences
-                           ),
-                           member_count = MAX(
-                               group_jargon.member_count,
-                               excluded.member_count
-                           ),
-                           last_seen = excluded.last_seen,
-                           updated_at = excluded.updated_at""",
-                    (
-                        platform,
-                        str(group_id),
-                        term,
-                        occurrences,
-                        member_count,
-                        now,
-                        now,
-                        now,
-                        now,
-                    ),
-                )
-                saved += 1
-        return saved
-
-    def list_group_jargon(
-        self,
-        *,
-        include_rejected: bool = False,
-        limit: int = 200,
-    ) -> list[dict]:
-        where = "" if include_rejected else "WHERE status != 'rejected'"
-        with self._connection() as conn:
-            rows = conn.execute(
-                f"""SELECT id, platform, group_id, term, meaning, example,
-                           status, occurrences, member_count, first_seen,
-                           last_seen, created_at, updated_at
-                    FROM group_jargon
-                    {where}
-                    ORDER BY CASE status
-                                 WHEN 'pending' THEN 0
-                                 WHEN 'approved' THEN 1
-                                 ELSE 2
-                             END,
-                             occurrences DESC, updated_at DESC
-                    LIMIT ?""",
-                (max(1, min(int(limit), 500)),),
-            ).fetchall()
-        return [dict(row) for row in rows]
-
-    def update_group_jargon(
-        self,
-        jargon_id: int,
-        *,
-        status: str | None = None,
-        meaning: str | None = None,
-        example: str | None = None,
-    ) -> dict | None:
-        updates: dict[str, Any] = {}
-        if status is not None:
-            if status not in ("pending", "approved", "rejected"):
-                raise ValueError("无效的黑话状态。")
-            updates["status"] = status
-        if meaning is not None:
-            updates["meaning"] = " ".join(str(meaning).split()).strip()[:500]
-        if example is not None:
-            updates["example"] = " ".join(str(example).split()).strip()[:500]
-        if not updates:
-            return None
-        updates["updated_at"] = int(time.time())
-        assignments = ", ".join(f"{key} = ?" for key in updates)
-        with self._lock, self._connection() as conn:
-            cursor = conn.execute(
-                f"""UPDATE group_jargon SET {assignments} WHERE id = ?""",
-                (*updates.values(), int(jargon_id)),
-            )
-            if cursor.rowcount <= 0:
-                return None
-        with self._connection() as conn:
-            row = conn.execute(
-                "SELECT * FROM group_jargon WHERE id = ?",
-                (int(jargon_id),),
-            ).fetchone()
-        return dict(row) if row else None
-
-    def delete_group_jargon(self, jargon_id: int) -> bool:
-        with self._lock, self._connection() as conn:
-            cursor = conn.execute(
-                "DELETE FROM group_jargon WHERE id = ?",
-                (int(jargon_id),),
-            )
-        return cursor.rowcount > 0
-
-    def approved_group_jargon(
-        self,
-        platform: str,
-        group_id: str,
-        text: str,
-        limit: int = 6,
-    ) -> list[dict]:
-        value = str(text or "")[:4000]
-        if not value:
-            return []
-        with self._connection() as conn:
-            rows = conn.execute(
-                """SELECT id, term, meaning, example, occurrences
-                   FROM group_jargon
-                   WHERE platform = ? AND group_id = ?
-                     AND status = 'approved' AND meaning != ''
-                     AND instr(?, term) > 0
-                   ORDER BY LENGTH(term) DESC, occurrences DESC
-                   LIMIT ?""",
-                (
-                    platform,
-                    str(group_id),
-                    value,
-                    max(1, min(int(limit), 12)),
-                ),
-            ).fetchall()
-        return [dict(row) for row in rows]
-
     def clear_group_messages(
         self,
         platform: str,
@@ -2420,7 +2258,6 @@ class AgentStore:
                        (SELECT COUNT(*) FROM messages) AS messages,
                        (SELECT COUNT(*) FROM group_messages) AS group_messages,
                        (SELECT COUNT(*) FROM memories) AS memories,
-                       (SELECT COUNT(*) FROM group_jargon) AS group_jargon,
                        (SELECT COUNT(*) FROM reminders
                         WHERE sent_at IS NULL AND cancelled_at IS NULL)
                            AS pending_reminders,
@@ -2433,7 +2270,6 @@ class AgentStore:
                 "messages",
                 "group_messages",
                 "memories",
-                "group_jargon",
                 "pending_reminders",
                 "proactive_groups",
             )
@@ -2489,7 +2325,6 @@ class AgentStore:
             "group_vision_enabled": True,
             "group_vision_interval_minutes": 5,
             "group_activity_level": "balanced",
-            "group_jargon_enabled": True,
             "group_reply_max_per_10m": 6,
             "group_reply_fatigue_rounds": 3,
             "group_message_merge_seconds": 4,

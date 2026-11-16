@@ -23,7 +23,6 @@ BOOL_SETTINGS = frozenset(
         "group_reply_control_enabled",
         "group_hard_cutoff_enabled",
         "group_vision_enabled",
-        "group_jargon_enabled",
         "voice_enabled",
     }
 )

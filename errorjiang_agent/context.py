@@ -12,6 +12,7 @@ from .conversation_style import (
     group_chat_instruction,
 )
 from .persona import MAX_PERSONA_PROMPT_CHARS
+from .person_card import address_semantics
 
 
 @dataclass(frozen=True)
@@ -116,11 +117,14 @@ class PromptBuilder:
             )
         owner_address = str(context.get("owner_address") or "").strip()
         if owner_address:
+            semantics = address_semantics(owner_address)
             content += (
-                f"\n\n当前发言者是管理员本人。称呼他时必须使用“{owner_address[:40]}”，"
-                "不要叫回默认公开称呼。"
-                "这个专属称呼可以自然地放在句首、句尾，或直接用来回答他的要求，不必每句都叫，"
-                "只能用在管理员本人身上；不要把它解释成系统称呼或权限。"
+                f"\n\n当前发言者是管理员本人。“{owner_address[:40]}”是他允许的可选称呼，"
+                "不是每轮任务或固定日常称呼。"
+                + (f"这个称呼的含义是：{semantics}。" if semantics else "")
+                + "鲸鲸可以在自己愿意、语境轻松时偶尔调侃着叫；普通对话不需要刻意带称呼，"
+                "也不要为了证明设置生效而反复叫。"
+                "这个称呼只能用在管理员本人身上，不要把它解释成系统称呼、权限或特殊模式。"
             )
         persona_prompt = str(context.get("persona_prompt") or "").strip()
         if persona_prompt:
@@ -146,9 +150,13 @@ class PromptBuilder:
                 "不要假装已经查询或执行。"
             )
         if owner_address:
+            semantics = address_semantics(owner_address)
             content += (
-                f"\n\n最终称呼检查：当前发言者是管理员本人，需要称呼时用"
-                f"“{owner_address[:40]}”，不要叫“星星”。"
+                f"\n\n最终称呼检查：当前发言者是管理员本人。“{owner_address[:40]}”是"
+                "孩子对父亲的亲昵称呼，也是他允许鲸鲸偶尔调侃的叫法，不是固定日常称呼、"
+                "每轮任务、字段、权限或特殊模式。"
+                + (f"你理解这个称呼的含义：{semantics}。" if semantics else "")
+                + "她愿意时可以在轻松语境自然叫，不愿或语境不适合时不勉强，也不叫“星星”。"
             )
         content += "\n\n" + CHAT_OUTPUT_CONTRACT
         return content

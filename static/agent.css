@@ -830,128 +830,6 @@
   accent-color: var(--agent-accent);
 }
 
-.agent-jargon-toolbar {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 16px;
-  color: var(--muted);
-  font-size: var(--agent-text-xs);
-}
-
-.agent-jargon-toolbar label {
-  display: grid;
-  width: min(220px, 100%);
-  gap: 6px;
-}
-
-.agent-jargon-toolbar label > span {
-  color: var(--muted);
-}
-
-.agent-jargon-item {
-  align-items: start;
-}
-
-.agent-jargon-copy {
-  display: grid;
-  min-width: 0;
-  gap: 8px;
-}
-
-.agent-jargon-head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.agent-jargon-term {
-  font-size: var(--agent-text-base);
-  font-weight: 600;
-}
-
-.agent-jargon-status,
-.agent-jargon-meta {
-  color: var(--muted);
-  font-size: var(--agent-text-xs);
-}
-
-.agent-jargon-status {
-  padding: 2px 8px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--panel);
-}
-
-.agent-jargon-status.is-approved {
-  border-color: color-mix(in srgb, var(--agent-accent) 40%, var(--line));
-  color: var(--agent-accent);
-}
-
-.agent-jargon-editor {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-  gap: 12px;
-}
-
-.agent-jargon-editor label {
-  display: grid;
-  gap: 6px;
-}
-
-.agent-jargon-editor label > span {
-  color: var(--muted);
-  font-size: var(--agent-text-xs);
-}
-
-.agent-jargon-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.agent-memory-item .agent-jargon-actions button {
-  display: inline-flex;
-  width: auto;
-  height: auto;
-  min-height: 40px;
-  align-items: center;
-  justify-content: center;
-  padding: 0 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--agent-radius-sm);
-  background: var(--panel);
-  color: var(--text);
-  font: inherit;
-  font-size: var(--agent-text-sm);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.agent-memory-item .agent-jargon-actions button.is-primary {
-  border-color: var(--agent-accent);
-  background: var(--agent-accent);
-  color: var(--on-accent);
-}
-
-.agent-memory-item .agent-jargon-actions button:disabled {
-  opacity: 0.58;
-  cursor: wait;
-  transform: none;
-}
-
-.agent-jargon-hint {
-  min-height: 18px;
-  margin: 0;
-  color: var(--muted);
-  font-size: var(--agent-text-xs);
-}
-
-.agent-jargon-item.has-error .agent-jargon-hint {
-  color: var(--danger, #d65b5b);
-}
-
 .agent-diagnostics-cards {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2171,10 +2049,6 @@
   .agent-sticker-bulk,
   .agent-timeline-form-grid,
   .agent-member-editor,
-  .agent-jargon-editor {
-    grid-template-columns: 1fr;
-  }
-
   .agent-inline-primary,
   .agent-sticker-category-form button,
   .agent-sticker-bulk-row button,
@@ -2202,18 +2076,9 @@
   }
 
   .agent-sticker-auto-collect,
-  .agent-sticker-rule-actions,
-  .agent-jargon-toolbar {
+  .agent-sticker-rule-actions {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .agent-jargon-toolbar label {
-    width: 100%;
-  }
-
-  .agent-jargon-actions button {
-    flex: 1 1 40%;
   }
 
   .agent-diagnostics-cards,

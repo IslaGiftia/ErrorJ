@@ -47,7 +47,6 @@ from .conversation_style import (
 from .context import ContextWindow
 from .emotion_state import decay_relationship_state, mood_after_message
 from .errors import AgentError
-from .group_learning import extract_jargon_candidates
 from .media_links import (
     extract_shared_media,
     format_shared_media_context,
@@ -348,8 +347,6 @@ class AgentService:
             str,
             tuple[MessageEvent, bool, str, str],
         ] = {}
-        self._group_jargon_lock = threading.Lock()
-        self._group_jargon_last_scan: dict[str, int] = {}
         self.sticker_dir = config.db_path.parent / "stickers"
         self.sticker_dir.mkdir(parents=True, exist_ok=True)
         self._proactive_stop = threading.Event()
@@ -5456,113 +5453,6 @@ class AgentService:
                 state["streak"] = 0
                 state["last_member"] = ""
 
-    def _maybe_scan_group_jargon(self, event: MessageEvent) -> int:
-        lock = getattr(self, "_group_jargon_lock", None)
-        scan_state = getattr(self, "_group_jargon_last_scan", None)
-        if lock is None or scan_state is None:
-            return 0
-        settings = self._group_runtime_settings(event)
-        if not bool(settings.get("group_jargon_enabled", True)):
-            return 0
-        key = self._group_merge_key(event)
-        now = int(time.time())
-        with lock:
-            if now - int(scan_state.get(key) or 0) < 10 * 60:
-                return 0
-            scan_state[key] = now
-        rows = self.store.get_group_messages(
-            event.platform,
-            str(event.chat_id),
-            100,
-        )
-        if sum(1 for row in rows if row.get("role") == "user") < 12:
-            return 0
-        candidates = extract_jargon_candidates(rows)
-        if not candidates:
-            return 0
-        return self.store.upsert_group_jargon_candidates(
-            event.platform,
-            str(event.chat_id),
-            candidates,
-        )
-
-    def group_jargon_context(
-        self,
-        platform: str,
-        group_id: str,
-        text: str,
-    ) -> str:
-        rows = self.store.approved_group_jargon(
-            platform,
-            group_id,
-            text,
-            6,
-        )
-        lines = []
-        for row in rows:
-            line = f"{row.get('term')}：{row.get('meaning')}"
-            if row.get("example"):
-                line += f"（例：{row['example']}）"
-            lines.append(line)
-        return "\n".join(lines)[:1200]
-
-    def group_jargon_manager_payload(self) -> dict[str, Any]:
-        rows = self.store.list_group_jargon(
-            include_rejected=True,
-            limit=300,
-        )
-        for row in rows:
-            group_id = str(row.get("group_id") or "")
-            row["group_label"] = (
-                f"{'QQBot' if row.get('platform') == 'qqbot' else 'OneBot'}"
-                f" · …{group_id[-8:]}"
-            )
-        return {
-            "items": rows,
-            "pending_count": sum(
-                1 for row in rows if row.get("status") == "pending"
-            ),
-            "approved_count": sum(
-                1 for row in rows if row.get("status") == "approved"
-            ),
-            "rejected_count": sum(
-                1 for row in rows if row.get("status") == "rejected"
-            ),
-        }
-
-    def review_group_jargon(
-        self,
-        jargon_id: int,
-        action: str,
-        *,
-        meaning: str = "",
-        example: str = "",
-    ) -> dict[str, Any]:
-        if action == "delete":
-            deleted = self.store.delete_group_jargon(jargon_id)
-            if not deleted:
-                raise AgentError("黑话条目不存在或已经删除。")
-        elif action in ("save", "approve", "reject", "reopen"):
-            status = {
-                "save": None,
-                "approve": "approved",
-                "reject": "rejected",
-                "reopen": "pending",
-            }[action]
-            if action == "approve" and not str(meaning).strip():
-                raise AgentError("批准前请填写这个词在群里的意思。")
-            updated = self.store.update_group_jargon(
-                jargon_id,
-                status=status,
-                meaning=meaning,
-                example=example,
-            )
-            if updated is None:
-                raise AgentError("黑话条目不存在或没有可保存的内容。")
-        else:
-            raise AgentError("不支持的黑话操作。")
-        return self.group_jargon_manager_payload()
-
     def handle_group_quiet_command(self, event: MessageEvent) -> bool:
         if event.message_type != "group":
             return False
@@ -6355,21 +6245,6 @@ class AgentService:
                     6,
                 )
             )
-            jargon_context = (
-                self.group_jargon_context(
-                    platform,
-                    str(event.chat_id),
-                    text,
-                )
-                if global_settings.get("group_jargon_enabled", True)
-                else ""
-            )
-            if jargon_context:
-                memories.append(
-                    "以下是本群管理员确认过的黑话和用法，"
-                    "只在当前群理解消息时参考：\n"
-                    + jargon_context
-                )
         meme_context = (
             self.meme_lexicon.context_for_text(text)
             if getattr(self, "meme_lexicon", None)
@@ -6722,8 +6597,6 @@ class AgentService:
                     str(event.user_id),
                     content,
                 )
-        if inserted:
-            self._maybe_scan_group_jargon(event)
         return inserted
 
     def send_notification(self, payload: dict[str, Any]) -> None:
@@ -6992,15 +6865,6 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
                 },
             )
             return
-        if path == "/internal/group-jargon":
-            if not self.internal_authorized():
-                self.send_json(403, {"error": "forbidden"})
-                return
-            self.send_json(
-                200,
-                self.service.group_jargon_manager_payload(),
-            )
-            return
         if path == "/internal/diagnostics":
             if not self.internal_authorized():
                 self.send_json(403, {"error": "forbidden"})
@@ -7133,7 +6997,6 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
             "/internal/timeline/delete",
             "/internal/group-member/update",
             "/internal/group-idle-action",
-            "/internal/group-jargon",
             "/internal/diagnostics",
         ):
             if not self.internal_authorized():
@@ -7167,24 +7030,6 @@ class AgentHttpHandler(BaseHTTPRequestHandler):
                             "idle_trigger_minutes"
                         ),
                         max_per_day=payload.get("max_per_day"),
-                    )
-                except AgentError as exc:
-                    self.send_json(400, {"error": str(exc)})
-                    return
-                self.send_json(200, result)
-                return
-            if parsed.path == "/internal/group-jargon":
-                try:
-                    jargon_id = int(payload.get("id"))
-                except (TypeError, ValueError):
-                    self.send_json(400, {"error": "invalid jargon id"})
-                    return
-                try:
-                    result = self.service.review_group_jargon(
-                        jargon_id,
-                        str(payload.get("action") or ""),
-                        meaning=str(payload.get("meaning") or ""),
-                        example=str(payload.get("example") or ""),
                     )
                 except AgentError as exc:
                     self.send_json(400, {"error": str(exc)})

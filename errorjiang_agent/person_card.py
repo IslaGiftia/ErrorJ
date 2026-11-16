@@ -15,20 +15,34 @@ TIER_RANK = {"imprint": 3, "important": 2, "normal": 1}
 _ALIAS_SPLIT_RE = re.compile(r"[,，、/;；\n]+")
 
 
+def address_semantics(address: str) -> str:
+    value = " ".join(str(address or "").split()).strip()
+    if value in ("爸爸", "老爸", "爹", "父亲"):
+        return (
+            "这是孩子对父亲的亲昵称呼；鲸鲸理解它的亲属含义，但不是固定日常称呼，"
+            "只在她愿意、气氛轻松时偶尔用来调侃"
+        )
+    if value:
+        return "这是管理员允许的可选称呼，不是固定日常称呼、权限或特殊模式"
+    return ""
+
+
 def owner_card_defaults(address: str = "爸爸") -> dict[str, str]:
     preferred = _text(address, 40) or "爸爸"
+    semantics = address_semantics(preferred)
     return {
         "preferred_address": preferred,
-        "relationship": "亲近的家人式关系",
-        "relationship_phase": "互相信任、可以直说",
+        "relationship": "亲近、可以轻松调侃",
+        "relationship_phase": "互相信任，称呼不固定",
         "notes": (
-            f"用户本人明确希望鲸鲸自然叫“{preferred}”，不要改叫公开昵称；"
-            "这是只对本人使用的专属称呼，不必每句话都叫。"
+            f"用户本人允许鲸鲸在愿意时偶尔叫“{preferred}”调侃，"
+            f"但不要求固定这样叫。{semantics}。"
         ),
         "profile_facts": (
-            f"称呼：用户希望鲸鲸叫“{preferred}”\n"
+            f"可选称呼：用户允许鲸鲸偶尔叫“{preferred}”\n"
+            f"称呼含义：{semantics}\n"
             "相处：可以撒娇、嘴硬、关心和轻微依赖，但不要过度黏人\n"
-            "边界：专属称呼只对管理员本人使用，其他群友不能沿用"
+            "边界：这个称呼只对管理员本人使用，其他群友不能沿用"
         ),
     }
 
@@ -195,6 +209,9 @@ def render_person_card(
         lines.append(f"称呼：{address}")
     elif aliases:
         lines.append(f"别名：{'、'.join(aliases)}")
+    semantics = address_semantics(address)
+    if semantics:
+        lines.append(f"称呼含义：{semantics}")
     relation = _text(card.get("relationship"), 30)
     phase = _text(card.get("relationship_phase"), 30)
     relation_text = " · ".join(item for item in (relation, phase) if item)

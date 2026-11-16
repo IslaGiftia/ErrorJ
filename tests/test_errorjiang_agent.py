@@ -19,7 +19,7 @@ from unittest.mock import patch
 from urllib.parse import urlencode
 
 import app
-from errorjiang_agent import group_learning, media_links, memory_policy
+from errorjiang_agent import media_links, memory_policy
 from errorjiang_agent.adapters import (
     AdapterRegistry,
     OneBotAdapter,
@@ -422,6 +422,14 @@ class AgentStoreTests(unittest.TestCase):
         self.assertIn("第七部分：深海旧事素材库", prompt)
         self.assertIn("<think> 段落只作结构参考", prompt)
 
+    def test_manual_group_jargon_learning_is_removed(self):
+        settings = self.store.get_settings("qqbot", "admin-openid")
+        self.assertNotIn("group_jargon_enabled", settings)
+        self.assertNotIn("group_jargon", self.store.diagnostic_counts())
+        self.assertFalse(hasattr(self.store, "list_group_jargon"))
+        self.assertFalse(hasattr(self.store, "approved_group_jargon"))
+        self.assertFalse(hasattr(AgentService, "review_group_jargon"))
+
     def test_full_persona_is_not_truncated_and_technical_identity_wins(self):
         persona = compose_persona_prompt(
             {
@@ -468,7 +476,6 @@ class AgentStoreTests(unittest.TestCase):
         settings = self.store.get_settings("qqbot", "admin-openid")
         self.assertTrue(settings["group_reply_control_enabled"])
         self.assertEqual(settings["group_activity_level"], "balanced")
-        self.assertTrue(settings["group_jargon_enabled"])
         self.assertEqual(settings["group_reply_max_per_10m"], 6)
         self.assertEqual(settings["group_reply_fatigue_rounds"], 3)
         self.assertEqual(settings["group_message_merge_seconds"], 4)
@@ -478,7 +485,6 @@ class AgentStoreTests(unittest.TestCase):
             {
                 "group_reply_control_enabled": False,
                 "group_activity_level": "active",
-                "group_jargon_enabled": False,
                 "group_reply_max_per_10m": 8,
                 "group_reply_fatigue_rounds": 4,
                 "group_message_merge_seconds": 2,
@@ -486,7 +492,6 @@ class AgentStoreTests(unittest.TestCase):
         )
         self.assertFalse(updated["group_reply_control_enabled"])
         self.assertEqual(updated["group_activity_level"], "active")
-        self.assertFalse(updated["group_jargon_enabled"])
         self.assertEqual(updated["group_reply_max_per_10m"], 8)
         self.assertEqual(updated["group_reply_fatigue_rounds"], 4)
         self.assertEqual(updated["group_message_merge_seconds"], 2)
@@ -3955,7 +3960,7 @@ class AgentStoreTests(unittest.TestCase):
             owner_card_defaults("爸爸"),
         )
         self.assertEqual(member["preferred_address"], "爸爸")
-        self.assertIn("专属称呼", member["profile_facts"])
+        self.assertIn("可选称呼", member["profile_facts"])
         self.store.update_group_member_profile(
             "qqbot",
             "group-openid",
@@ -3987,7 +3992,7 @@ class AgentStoreTests(unittest.TestCase):
             "owner-openid",
         )
         self.assertEqual(member["preferred_address"], "爸爸")
-        self.assertIn("专属称呼", member["notes"])
+        self.assertIn("允许", member["notes"])
 
     def test_new_message_can_shift_mood_but_neutral_reply_keeps_fresh_tone(self):
         now = datetime(2026, 11, 16, 21, 0)
@@ -6344,190 +6349,13 @@ class MediaLinkTests(unittest.TestCase):
         )
 
 
-class GroupLearningTests(unittest.TestCase):
+class GroupConversationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.store = AgentStore(Path(self.temp.name) / "agent.db")
 
     def tearDown(self):
         self.temp.cleanup()
-
-    def test_extracts_repeated_group_terms_without_raw_messages(self):
-        messages = [
-            {
-                "role": "user",
-                "member_id": "member-a",
-                "content": "这波操作真是绝绝子",
-            },
-            {
-                "role": "user",
-                "member_id": "member-b",
-                "content": "绝绝子，确实厉害",
-            },
-            {
-                "role": "user",
-                "member_id": "member-a",
-                "content": "这个梗 yyds",
-            },
-            {
-                "role": "user",
-                "member_id": "member-b",
-                "content": "yyds 我先笑为敬",
-            },
-            {
-                "role": "user",
-                "member_id": "member-a",
-                "content": "今天中午吃什么",
-            },
-            {
-                "role": "user",
-                "member_id": "member-a",
-                "content": "验证码 abcdef",
-            },
-            {
-                "role": "user",
-                "member_id": "member-b",
-                "content": "验证码 ghijkl",
-            },
-        ]
-        candidates = group_learning.extract_jargon_candidates(messages)
-        terms = {item["term"] for item in candidates}
-        self.assertIn("yyds", terms)
-        self.assertTrue(any("绝绝子" in term for term in terms))
-        self.assertNotIn("什么", terms)
-        self.assertNotIn("验证码", terms)
-        self.assertTrue(
-            all(set(item) == {
-                "term",
-                "occurrences",
-                "member_count",
-                "score",
-            } for item in candidates)
-        )
-
-    def test_jargon_review_approval_and_context_match(self):
-        saved = self.store.upsert_group_jargon_candidates(
-            "qqbot",
-            "group-openid",
-            [
-                {
-                    "term": "绝绝子",
-                    "occurrences": 4,
-                    "member_count": 2,
-                },
-                {
-                    "term": "yyds",
-                    "occurrences": 3,
-                    "member_count": 2,
-                },
-            ],
-        )
-        self.assertEqual(saved, 2)
-        pending = self.store.list_group_jargon()
-        self.assertEqual(len(pending), 2)
-        approved = self.store.update_group_jargon(
-            pending[0]["id"],
-            status="approved",
-            meaning="表示非常喜欢或厉害",
-            example="这波操作绝绝子",
-        )
-        self.assertEqual(approved["status"], "approved")
-        matched = self.store.approved_group_jargon(
-            "qqbot",
-            "group-openid",
-            "这操作绝绝子",
-        )
-        self.assertEqual(matched[0]["term"], "绝绝子")
-        self.assertEqual(
-            self.store.approved_group_jargon(
-                "qqbot",
-                "other-group",
-                "这操作绝绝子",
-            ),
-            [],
-        )
-        self.assertTrue(self.store.delete_group_jargon(approved["id"]))
-
-    def test_service_scans_and_injects_only_approved_group_jargon(self):
-        first_messages = [
-            "今天这个操作真是绝绝子",
-            "绝绝子，这个也太好吃了",
-            "这波发挥真的绝绝子",
-            "不愧是你们，绝绝子",
-        ]
-        for index in range(12):
-            member = f"member-{index % 2}"
-            content = (
-                first_messages[index]
-                if index < 4
-                else f"普通聊天内容 {index}"
-            )
-            self.store.add_group_message(
-                "qqbot",
-                "group-openid",
-                member,
-                member,
-                "user",
-                content,
-                f"jargon-scan-{index}",
-            )
-        service = object.__new__(AgentService)
-        service.store = self.store
-        service._group_jargon_lock = threading.Lock()
-        service._group_jargon_last_scan = {}
-        event = MessageEvent(
-            self_id="bot",
-            user_id="member-0",
-            message_type="group",
-            chat_id="group-openid",
-            message_id="jargon-scan",
-            text="今天这个操作绝绝子",
-            to_me=False,
-            platform="qqbot",
-            group_full=True,
-        )
-        with patch(
-            "errorjiang_agent.service.time.time",
-            return_value=int(time.time()),
-        ):
-            self.assertGreater(service._maybe_scan_group_jargon(event), 0)
-        candidates = self.store.list_group_jargon()
-        self.assertTrue(any("绝绝子" in item["term"] for item in candidates))
-        item = next(
-            item for item in candidates if "绝绝子" in item["term"]
-        )
-        self.store.update_group_jargon(
-            item["id"],
-            status="approved",
-            meaning="表示非常厉害或喜欢",
-        )
-        self.assertIn(
-            "表示非常厉害或喜欢",
-            service.group_jargon_context(
-                "qqbot",
-                "group-openid",
-                "这操作绝绝子",
-            ),
-        )
-        self.assertEqual(
-            service.group_jargon_context(
-                "qqbot",
-                "other-group",
-                "这操作绝绝子",
-            ),
-            "",
-        )
-        self.store.save_settings(
-            "qqbot",
-            "0",
-            {"group_jargon_enabled": False},
-        )
-        service._group_jargon_last_scan = {}
-        with patch(
-            "errorjiang_agent.service.time.time",
-            return_value=int(time.time()) + 700,
-        ):
-            self.assertEqual(service._maybe_scan_group_jargon(event), 0)
 
     def test_active_activity_level_can_join_lively_group_question(self):
         with patch(
@@ -7045,7 +6873,7 @@ class AgentInfrastructureTests(unittest.TestCase):
             }
         )
         self.assertIn("最终称呼检查", prompt)
-        self.assertIn("需要称呼时用“爸爸”", prompt)
+        self.assertIn("他允许的可选称呼", prompt)
         self.assertIn("最终表达约束", prompt)
         self.assertGreater(
             prompt.index("最终表达约束"),
@@ -7153,8 +6981,10 @@ class AgentInfrastructureTests(unittest.TestCase):
         )
         rendered = render_person_card(card)
         self.assertIn("叫「爸爸」", rendered)
-        self.assertIn("专属称呼", rendered)
-        self.assertIn("明确希望", rendered)
+        self.assertIn("允许鲸鲸", rendered)
+        self.assertIn("孩子对父亲的亲昵称呼", rendered)
+        self.assertIn("不是固定日常称呼", rendered)
+        self.assertIn("偶尔用来调侃", rendered)
         prompt = PromptBuilder("base").build(
             {
                 "chat_type": "group",
@@ -7163,9 +6993,13 @@ class AgentInfrastructureTests(unittest.TestCase):
                 "person_card": rendered,
             }
         )
-        self.assertIn("称呼他时必须使用“爸爸”", prompt)
-        self.assertIn("只对管理员本人使用", prompt)
-        self.assertIn("不要叫回默认公开称呼", prompt)
+        self.assertIn("“爸爸”是他允许的可选称呼", prompt)
+        self.assertIn("不是每轮任务或固定日常称呼", prompt)
+        self.assertIn("只能用在管理员本人身上", prompt)
+        self.assertIn("孩子对父亲的亲昵称呼", prompt)
+        self.assertIn("她愿意", rendered)
+        self.assertIn("偶尔用来调侃", rendered)
+        self.assertIn("不勉强", prompt)
 
     def test_group_prompt_identifies_platform_role_without_permission_escalation(self):
         prompt = PromptBuilder("base").build(
@@ -9365,48 +9199,6 @@ class AgentInternalAuthTests(unittest.TestCase):
         self.assertEqual(args[1]["platform"], "qq")
         self.assertTrue(args[1]["archived"])
 
-    def test_agent_group_jargon_proxy_forwards_review_action(self):
-        handler = self.make_handler({})
-        handler.is_admin = lambda: True
-        captured = []
-        handler.send_json = lambda status, payload: captured.append(
-            {"status": status, "payload": payload}
-        )
-        with patch.object(
-            app,
-            "agent_internal_request",
-            side_effect=[
-                {"items": [], "pending_count": 0, "approved_count": 0},
-                {
-                    "items": [
-                        {
-                            "id": 3,
-                            "term": "绝绝子",
-                            "status": "approved",
-                        }
-                    ],
-                    "pending_count": 0,
-                    "approved_count": 1,
-                },
-            ],
-        ) as request:
-            handler.api_agent_web_group_jargon()
-            handler.api_agent_web_group_jargon_action(
-                {
-                    "id": 3,
-                    "action": "approve",
-                    "meaning": "表示非常厉害",
-                    "example": "这操作绝绝子",
-                }
-            )
-        self.assertEqual([item["status"] for item in captured], [200, 200])
-        self.assertEqual(request.call_count, 2)
-        self.assertEqual(request.call_args_list[0].args[0], "/internal/group-jargon")
-        action_args = request.call_args_list[1].args
-        self.assertEqual(action_args[0], "/internal/group-jargon")
-        self.assertEqual(action_args[1]["action"], "approve")
-        self.assertEqual(action_args[1]["meaning"], "表示非常厉害")
-
     def test_agent_diagnostics_proxy_forwards_health_actions(self):
         handler = self.make_handler({})
         handler.is_admin = lambda: True
@@ -10007,74 +9799,6 @@ class AgentTimelineApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(completed["ok"])
 
-    def test_internal_group_jargon_can_be_listed_and_approved(self):
-        temp = tempfile.TemporaryDirectory()
-        self.addCleanup(temp.cleanup)
-        service = object.__new__(AgentService)
-        service.config = SimpleNamespace(errorjiang_token="internal-token")
-        service.store = AgentStore(Path(temp.name) / "agent.db")
-        service.store.upsert_group_jargon_candidates(
-            "qqbot",
-            "group-openid",
-            [
-                {
-                    "term": "绝绝子",
-                    "occurrences": 4,
-                    "member_count": 2,
-                }
-            ],
-        )
-        server = AgentHttpServer(("127.0.0.1", 0), service)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        self.addCleanup(server.server_close)
-        self.addCleanup(server.shutdown)
-
-        def request(method, payload=None):
-            connection = http.client.HTTPConnection(
-                "127.0.0.1",
-                server.server_address[1],
-                timeout=5,
-            )
-            body = (
-                json.dumps(payload, ensure_ascii=False).encode("utf-8")
-                if payload is not None
-                else None
-            )
-            try:
-                connection.request(
-                    method,
-                    "/internal/group-jargon",
-                    body=body,
-                    headers={
-                        "X-ErrorJ-Agent-Token": "internal-token",
-                        "Content-Type": "application/json",
-                    },
-                )
-                response = connection.getresponse()
-                return response.status, json.loads(
-                    response.read().decode("utf-8")
-                )
-            finally:
-                connection.close()
-
-        status, listed = request("GET")
-        self.assertEqual(status, 200)
-        self.assertEqual(listed["pending_count"], 1)
-        item_id = listed["items"][0]["id"]
-        status, approved = request(
-            "POST",
-            {
-                "id": item_id,
-                "action": "approve",
-                "meaning": "表示非常厉害",
-                "example": "这操作绝绝子",
-            },
-        )
-        self.assertEqual(status, 200)
-        self.assertEqual(approved["approved_count"], 1)
-        self.assertEqual(approved["items"][0]["meaning"], "表示非常厉害")
-
     def test_internal_diagnostics_supports_refresh_and_search_check(self):
         calls = []
 
@@ -10257,6 +9981,8 @@ class AgentConsoleUiTests(unittest.TestCase):
         html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
         script = (app.STATIC_DIR / "agent.js").read_text(encoding="utf-8")
         self.assertIn('id="settingOwnerPreferredAddress"', html)
+        self.assertIn("管理员允许的称呼", html)
+        self.assertIn("不是权限、模式或固定日常称呼", html)
         self.assertIn('id="settingGroupVisionEnabled"', html)
         self.assertIn('id="settingGroupHardCutoffEnabled"', html)
         self.assertIn('id="settingGroupHardCutoffRounds"', html)
@@ -10319,23 +10045,13 @@ class AgentConsoleUiTests(unittest.TestCase):
         self.assertIn("group_reply_fatigue_rounds:", script)
         self.assertIn("group_message_merge_seconds:", script)
 
-    def test_agent_exposes_group_jargon_review_panel(self):
+    def test_agent_does_not_expose_manual_group_jargon_review(self):
         html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
         script = (app.STATIC_DIR / "agent.js").read_text(encoding="utf-8")
-        css = (app.STATIC_DIR / "agent.css").read_text(encoding="utf-8")
-        self.assertIn('id="settings-jargon"', html)
-        self.assertIn('id="settingGroupJargonEnabled"', html)
-        self.assertIn('id="agentJargonList"', html)
-        self.assertIn('id="agentJargonStatusFilter"', html)
-        self.assertIn("/api/agent/web/group-jargon", script)
-        self.assertIn("function loadGroupJargon()", script)
-        self.assertIn("function updateGroupJargon(item, action)", script)
-        self.assertIn("批准并启用", script)
-        self.assertIn("仅保存含义", script)
-        self.assertIn("仅保存含义不会启用", script)
-        self.assertIn(".agent-memory-item .agent-jargon-actions button", css)
-        self.assertIn("width: auto;", css)
-        self.assertIn("white-space: nowrap;", css)
+        self.assertNotIn('id="settings-jargon"', html)
+        self.assertNotIn('id="agentJargonList"', html)
+        self.assertNotIn("/api/agent/web/group-jargon", script)
+        self.assertNotIn("loadGroupJargon", script)
 
     def test_agent_memory_lifecycle_controls_are_wired(self):
         html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
@@ -10477,7 +10193,7 @@ class AgentConsoleUiTests(unittest.TestCase):
         self.assertIn("/api/agent/web/sticker-rule", script)
         self.assertIn("/api/agent/web/sticker-candidate", script)
         self.assertIn("sticker_auto_collect_enabled", script)
-        self.assertEqual(html.count("data-console-section"), 11)
+        self.assertEqual(html.count("data-console-section"), 10)
         self.assertNotIn('id="agentMessages"', html)
         self.assertNotIn('id="agentForm"', html)
         self.assertNotIn('id="agentSettingsDialog"', html)
