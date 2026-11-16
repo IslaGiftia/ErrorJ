@@ -8331,3 +8331,65 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json
 回滚      -> git reset --hard 3d26b80 后重启；人物卡新增列可保留默认值
 ```
 
+## 174. 2026-11-16 23:49:00 修复群黑话审批与鲸鲸专属称呼、群聊表达
+
+来源：用户反馈群黑话页的“批准 / 保存”等按钮排版异常，填写后仍像没有批准；同时鲸鲸仍叫“星星”而不是人物卡里的“爸爸”，群聊回复也仍偏复述和整理。功能提交 `737f4aa fix: repair group jargon approval and owner address priority`，本条发布记录随后提交。
+
+完成内容：
+
+- 黑话按钮排版的根因是 `.agent-memory-item button` 把所有后代按钮统一压成 `36×36` 图标按钮；现在只让真正的图标操作沿用该尺寸，黑话文字按钮改为自适应宽度、40px 高、单行不溢出，手机端按两列和整行自动换行。
+- “保存”改名为“仅保存含义”，卡片内明确说明只有“批准并启用”才会生效；未填写群内含义时直接在卡片内提示并聚焦输入框，不再把错误放到页面顶部的远端反馈里。保存成功后提示仍为待确认，批准成功后筛选自动切到“已启用”。
+- “爸爸”失效的根因是系统提示词开头仍硬编码“称呼管理员时必须叫星星”，人物卡与专属称呼设置虽然正确注入，但优先级被旧规则覆盖。现在系统提示只保留默认公开称呼，专属称呼明确优先；管理员群发言者名不再硬编码为“星星”，而使用真实群名片。
+- 专属称呼在人物卡、群聊上下文和系统提示词末尾各校验一次；管理员名称为 Meteor、专属称呼为“爸爸”时，人物卡与最终提示都明确要求称呼“爸爸”，其他群友不能沿用。
+- 群聊连续消息改为“本轮群聊上下文”，明确只回应最后一条，前面的原话只帮助理解指代。最终表达约束后置到提示词末尾，禁止复述原话、逐条接话、整理纪要和客服式总结；自动接话不再仅因“没有新事实可补充”而沉默。
+- `agent.html` 的资源版本更新为 `agent.css?v=16`、`agent.js?v=18`，避免浏览器继续使用旧按钮样式和旧脚本。
+
+本地验证：
+```text
+单元测试    -> 451 项通过（173.8s）
+Python      -> app.py 与 Agent 全部改动文件编译通过
+JavaScript  -> agent.js 语法检查通过（bundled Node）
+JSON        -> config/changelog-seed.json 解析通过
+差异检查    -> git diff --check 干净
+浏览器      -> 桌面 95×40px、手机按钮无横向溢出；
+              无含义批准就地提示；仅保存仍待确认；批准后切到已启用
+提示词      -> 最终称呼检查与最终表达约束均位于人物卡之后
+```
+
+部署步骤：
+```text
+提交：737f4aa1197ae16656d8196b14267e5425dd361e
+      fix: repair group jargon approval and owner address priority
+      本地 = origin/main = 服务器 HEAD = 737f4aa
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json
+      本地 / 服务器 SHA256 =
+      4bbc36f7a2089990af82164a3f1dedb0a9846d26618b7068c22196b31d257931
+备份：/data/errorjiang-backup/20261116-2353
+      inventory.db 11M、agent.db 2.4M、auth.json 223B、changelog-seed.json 146K
+服务器：stop errorjiang-agent -> stop errorjiang -> 备份
+      -> git pull --ff-only -> 737f4aa
+      -> seed 安装；import_changelog_moments.py --date 2026-11-16 --force
+      -> 新增 4 条、覆盖 0 条、跳过 0 条
+      -> start errorjiang -> start errorjiang-agent
+```
+
+最终验证：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 主站与 Agent 健康检查均为 {"ok": true}
+版本      -> 本地 = origin/main = 服务器 HEAD = 737f4aa
+Agent     -> ActiveEnterTimestamp = 2026-11-16 23:54:01 CST
+更新日志  -> 2026-11-16 23:49:00，id 824，kind=log，标题正确
+静态文件  -> 本地 / 服务器 / 公网 SHA256 一致：
+             agent.css 18d5af3b5187、
+             agent.html 2fb23982b25a、agent.js 9be602f88658
+线上 UI   -> 公网静态页面实测按钮 95×40px、无文字溢出；
+             仅保存动作不变更状态，批准后才显示已启用
+提示词    -> 旧“必须叫星星” = 未找到；最终称呼检查 = true；
+             最终表达约束 = true；管理员人物卡“爸爸” = true
+数据库    -> 管理员 Meteor 的 preferred_address = 爸爸；
+             settings 的 web / qq / qqbot 全局记录均为“爸爸 + 深海蓝鲸”
+日志      -> errorjiang-agent 最近 10 分钟无 Traceback / ERROR / WARNING
+回滚      -> git reset --hard 4a74de2 后重启；本次无数据库结构变更
+```
+
