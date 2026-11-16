@@ -911,6 +911,9 @@ class SidebarUserCardLimitTests(unittest.TestCase):
         self.assertEqual(app.SIDEBAR_USER_CARD_LIMIT, 9)
         users = app.sidebar_users(masked=True)
         self.assertEqual(len(users["items"]), 9)
+        # 前端还有一道自己的上限，两处必须一致，否则接口给了 9 行、页面只画 5 行
+        script = (app.STATIC_DIR / "site" / "sidebar.js").read_text(encoding="utf-8")
+        self.assertIn("var USER_LIMIT = 9;", script)
 
 
 class InteractionTests(unittest.TestCase):

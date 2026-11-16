@@ -19,7 +19,7 @@
 
   var CAROUSEL_INTERVAL = 5000;
   var LOG_LIMIT = 11;
-  var USER_LIMIT = 5;
+  var USER_LIMIT = 9;
   var AVATAR_SRC = "/static/site/error-chan-avatar.png?v=1";
   var ACTION_ICONS = {
     music_upload: "music",
