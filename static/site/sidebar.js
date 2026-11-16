@@ -119,7 +119,7 @@
         // 留言 / 动态页：这四个模块没有独立入口，指路到推荐页
         event.preventDefault();
         event.stopPropagation();
-        toast("请在推荐页查看");
+        toast("请在下载页查看");
         return;
       }
       if (!item.url) return;

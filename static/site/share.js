@@ -68,7 +68,7 @@
 
     shareRecommendPanel = el("div", "share-panel");
     shareRecommendPanel.appendChild(
-      el("p", "share-note", "会以「站内资源」分类展示在推荐页。")
+      el("p", "share-note", "会以「站内资源」分类展示在下载页。")
     );
     shareRecommendSubmit = el("button", "share-btn primary", "分享到推荐");
     shareRecommendSubmit.type = "button";
@@ -207,7 +207,7 @@
       });
       if (!response.ok) throw new Error(data.error || "分享失败");
       showShareFeedback(
-        target === "moment" ? "已分享到动态。" : "已分享到推荐页。",
+        target === "moment" ? "已分享到动态。" : "已分享到下载页。",
         data.url || ""
       );
     } catch (err) {

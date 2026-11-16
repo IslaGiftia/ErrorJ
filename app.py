@@ -290,7 +290,7 @@ ROLE_LABELS = {"guest": "游客", "member": "普通账户", "admin": "管理员"
 GUEST_PAGE_PERMISSIONS = (
     {"key": "guest:page:messages", "label": "留言"},
     {"key": "guest:page:moments", "label": "动态"},
-    {"key": "guest:page:downloads", "label": "推荐"},
+    {"key": "guest:page:downloads", "label": "下载"},
     {"key": "guest:page:recommendations", "label": "推荐内容"},
     {"key": "guest:page:music", "label": "歌单"},
     {"key": "guest:page:books", "label": "书架"},

@@ -447,12 +447,12 @@ class HomeActivityTests(unittest.TestCase):
         self.assertNotIn("guest:page:games", keys)
 
     def test_recommend_page_collects_four_subpages(self):
-        """「推荐」页把歌曲 / 书籍 / 网页 / 站内资源四个子页并进一个页面，首页只留一个入口。"""
+        """「下载」页把歌曲 / 书籍 / 网页 / 站内资源四个子页并进一个页面，首页只留一个入口。"""
         home = (app.STATIC_DIR / "site" / "site.html").read_text(encoding="utf-8")
         self.assertIn('href="/downloads"', home)
         self.assertIn('id="downloadsEntry"', home)
         self.assertIn('id="downloadsPending"', home)
-        self.assertIn("推荐", home)
+        self.assertIn("下载", home)
         for gone in ('href="/music"', 'href="/books"', 'href="/recommendations"'):
             self.assertNotIn(gone, home)
         self.assertNotIn("游戏", home)
@@ -473,14 +473,14 @@ class HomeActivityTests(unittest.TestCase):
 
         self.assertEqual(app.GUEST_PAGE_RULES.get("/downloads"), "guest:page:downloads")
         labels = {item["key"]: item["label"] for item in app.GUEST_PAGE_PERMISSIONS}
-        self.assertEqual(labels["guest:page:downloads"], "推荐")
+        self.assertEqual(labels["guest:page:downloads"], "下载")
         for name in ("music.html", "books.html", "recommendations.html"):
             text = (app.STATIC_DIR / name).read_text(encoding="utf-8")
             self.assertIn("/static/site/embed.css", text)
             self.assertIn("/static/site/embed.js", text)
 
     def test_legacy_subpages_redirect_into_recommend_page(self):
-        """歌曲 / 书籍的独立地址只剩 iframe 落点这一个用途，直接打开就送回推荐页。"""
+        """歌曲 / 书籍的独立地址只剩 iframe 落点这一个用途，直接打开就送回下载页。"""
         to_urls = app.legacy_subpage_redirect
         self.assertEqual(to_urls("/books", {}), "/downloads?tab=books")
         self.assertEqual(to_urls("/music", {}), "/downloads?tab=music")
