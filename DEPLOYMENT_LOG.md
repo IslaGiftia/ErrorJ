@@ -8393,3 +8393,64 @@ Agent     -> ActiveEnterTimestamp = 2026-11-16 23:54:01 CST
 回滚      -> git reset --hard 4a74de2 后重启；本次无数据库结构变更
 ```
 
+## 175. 2026-11-17 00:11:00 完整深海蓝鲸预置、模型身份与群黑话清理
+
+来源：用户选择“深海蓝鲸女仆”后仍觉得聊天没有变化，询问模型身份时鲸鲸继续回避；随后确认之前 34KB 的提示词文件没有完整进入预置。另一个反馈指出手动群黑话没有实际价值，允许下线；最后明确“爸爸”只是她愿意时偶尔调侃的叫法，不是固定日常称呼。
+
+完成内容：
+
+- “深海蓝鲸女仆（完整版）”成为内置预置，完整资源文件约 1.25 万字符，包含身份、外貌和尾巴反应、七种人格、台词、画面感、羁绊、每日互动和深海旧事等章节。
+- 人格提示词上限从 7000 字提高到 24000 字，完整预置不再被上下文构造器截断；自定义补充仍保留 6000 字。
+- 运行时读取当前 LLM Provider 和模型标识，并在提示词末尾追加技术身份检查。问“你是什么大模型”时会直接说明 `DeepSeek（deepseek-chat）`，不再用“不能细说”回避。
+- 角色资料里的版本、参数、训练成本、榜单和更新时间被明确标为角色叙事，不作为当前技术事实。
+- 手动群黑话候选、审核、存储、扫描、注入和 Agent 页面入口全部下线；旧数据库表保留作历史留档和回滚，不执行删除。
+- 群聊理解继续使用最近上下文、群共享记忆、人物卡和本地热梗词典，不再维护需要人工写释义的词库。
+- “爸爸”增加亲属语义：鲸鲸知道它是孩子对父亲的亲昵称呼，也知道这是管理员允许她使用的叫法。它不是权限、字段、开关、特殊模式或固定日常称呼。
+- 鲸鲸只在自己愿意、气氛轻松时偶尔调侃着叫“爸爸”，普通对话不刻意带称呼，也不会用于其他群友。
+
+本地验证：
+```text
+单元测试    -> 450 项通过（167.3s）
+Python      -> app.py 与 Agent 改动文件编译通过
+JavaScript  -> agent.js 语法检查通过
+JSON        -> config/changelog-seed.json 解析通过
+差异检查    -> git diff --check 干净
+提示内容    -> 完整预置 1.24 万字符、最终提示约 1.72 万字符；
+             “第七部分：深海旧事素材库”完整保留
+```
+
+部署步骤：
+```text
+提交：6799207 feat: package the complete deep sea persona preset
+      b7f6506 refactor: remove manual jargon review and clarify optional dad address
+      本地 = origin/main = 服务器 HEAD = b7f6506
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json
+      本地 / 服务器 SHA256 =
+      91848ee54e042a422580b1f56092fed9822e85fe644d59240c527fe60aa53323
+备份：/data/errorjiang-backup/20261117-0017
+      inventory.db 11M、agent.db 2.4M、auth.json 223B、changelog-seed.json 147K
+服务器：stop errorjiang-agent -> stop errorjiang -> 备份
+      -> git pull --ff-only -> b7f6506
+      -> seed 安装；import_changelog_moments.py --date 2026-11-17 --force
+      -> 新增 2 条、覆盖 0 条、跳过 0 条
+      -> start errorjiang -> start errorjiang-agent
+```
+
+最终验证：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 主站与 Agent 健康检查均为 {"ok": true}
+版本      -> 本地 = origin/main = 服务器 HEAD = b7f6506
+服务时间  -> errorjiang / errorjiang-agent = 2026-11-17 00:18:31 CST
+更新日志  -> 00:06:23 id 825、00:11:00 id 826，kind=log
+静态文件  -> 本地 / 服务器 / 公网 SHA256 一致：
+             agent.html 963ec1818e6f、agent.js eed52fa5183b、
+             深海蓝鲸资源 11fa76e75acd
+群黑话    -> 公网 Agent HTML “群黑话” 0 处；
+             service.py / agent.js 的 jargon 引用均为 0
+模型回答  -> 底层是 DeepSeek，deepseek-chat 这个配置，保留深海蓝角色层
+爸爸语义  -> 线上真实回复：“行吧，偶尔逗你一下可以，但别指望我天天喊”
+日志      -> errorjiang-agent 最近 10 分钟无 Traceback / ERROR / WARNING
+回滚      -> git reset --hard 29e62f2 后重启；旧群黑话表仍在，可直接恢复
+```
+
