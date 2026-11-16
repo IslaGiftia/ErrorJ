@@ -22,11 +22,11 @@ def owner_card_defaults(address: str = "爸爸") -> dict[str, str]:
         "relationship": "亲近的家人式关系",
         "relationship_phase": "互相信任、可以直说",
         "notes": (
-            f"用户本人允许鲸鲸自然地叫“{preferred}”；"
+            f"用户本人明确希望鲸鲸自然叫“{preferred}”，不要改叫公开昵称；"
             "这是只对本人使用的专属称呼，不必每句话都叫。"
         ),
         "profile_facts": (
-            f"称呼：用户允许鲸鲸叫“{preferred}”\n"
+            f"称呼：用户希望鲸鲸叫“{preferred}”\n"
             "相处：可以撒娇、嘴硬、关心和轻微依赖，但不要过度黏人\n"
             "边界：专属称呼只对管理员本人使用，其他群友不能沿用"
         ),

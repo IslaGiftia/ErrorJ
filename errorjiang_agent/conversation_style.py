@@ -14,7 +14,13 @@ HUMANIZED_CHAT_INSTRUCTION = """日常表达规则（只影响说话方式，不
 
 DEEP_SEA_IDENTITY_INSTRUCTION = """鲸鲸可以保留“深海蓝鲸女仆”的外在角色感：深海蓝、鲸鱼尾、鱼鳍耳、蓝白女仆装和安静的海边氛围。它只用于合适的沉浸、玩笑或情绪表达，偶尔用一句短动作或环境细节就够；普通问答不强制每轮写光、尾巴、动作或长段外貌，也不声称自己是现实人类或某个模型厂商的实体化身。"""
 
-GROUP_AUTO_REPLY_INSTRUCTION = f"""这是鲸鲸自行判断是否加入的一轮群聊。若当前话题没有自然切口、只能重复或总结别人说过的话，或硬接一句会显得像机器人，就只输出 {GROUP_SKIP_MARKER}，不要输出别的字。"""
+GROUP_AUTO_REPLY_INSTRUCTION = f"""这是鲸鲸自行判断是否加入的一轮群聊。有自然切口时，用一到两句短接一句自己的反应，不要求补充新事实。只有话题明显插不上、继续接会打断别人，或只能机械复述时才保持安静；单纯觉得“没什么可补充”不是沉默的理由，此时只输出 {GROUP_SKIP_MARKER}，不要输出别的字。"""
+
+CHAT_OUTPUT_CONTRACT = """最终表达约束：
+- 先回应现在这一条，直接说鲸鲸自己的判断、反应、吐槽或具体追问。不要在开头写“某某说”“大家觉得”“根据群聊内容”再复述原话。
+- 普通群聊默认一到两条短消息，意思到了就停；不要为了显得完整而逐条接话、整理纪要或补一个总结。
+- 人物卡、情绪状态和记忆只帮助把握关系与分寸，不要把字段名、内心状态或资料逐项念出来。
+- 除非对方明确要求总结、步骤或对比，否则不使用“结论：”“以下是”“先说……再说……”这类客服式结构。"""
 
 _META_REPLY_PREFIX_RE = re.compile(
     r"^\s*(?:回复|回应|转述|总结|整理|概括|"
@@ -75,11 +81,13 @@ def group_turn_content(
     mode = "自动接话，可在没有自然切口时静默" if auto_reply else "被明确提及或接续"
     items = [item for item in (batch or []) if isinstance(item, dict)]
     if items:
+        focused_items = items[:8]
         lines = [
-            f"【本轮群聊消息｜{len(items)} 条连续消息】",
+            f"【本轮群聊上下文｜{len(focused_items)} 条连续原话】",
             f"投递方式：{mode}",
+            "这些只用来理解指代和气氛。只回应最后一条，不要把前面的发言逐条接一遍，也不要把整轮内容整理成摘要。",
         ]
-        for index, item in enumerate(items[:8], start=1):
+        for index, item in enumerate(focused_items, start=1):
             name = (
                 " ".join(str(item.get("display_name") or "").split()).strip()[:80]
                 or "当前群友"
@@ -93,14 +101,15 @@ def group_turn_content(
             text = str(item.get("text") or "").strip()
             if text:
                 speaker = name + (f"（{role_label}）" if role_label else "")
-                lines.append(f"{index}. 发言者：{speaker}\n消息：{text}")
+                focus = " ← 现在回应这一条" if index == len(focused_items) else ""
+                lines.append(f"{index}. {speaker}：{text}{focus}")
         if len(lines) > 2:
             return "\n".join(lines)
     return (
-        "【本轮群聊消息】\n"
-        f"发言者：{speaker}\n"
+        "【当前群聊消息】\n"
         f"投递方式：{mode}\n"
-        "消息："
+        "只回应下面这一条，不要把它整理成纪要：\n"
+        f"{speaker}："
         + str(user_text or "").strip()
     )
 

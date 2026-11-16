@@ -2696,7 +2696,7 @@ class AgentService:
         owner_id: str,
         user_text: str,
         assistant_text: str,
-        user_label: str = "星星",
+        user_label: str = "管理员",
     ) -> None:
         settings = self.store.get_settings(platform, owner_id)
         if not settings.get("memory_enabled", True):
@@ -2920,7 +2920,7 @@ class AgentService:
             f"当前短时心情：{mood}；整体语气底色：{tone}；"
             f"{longing_text}，{care_text}，{jealousy_text}，{idle_text}。"
             "这些只影响措辞和分寸，不要主动解释、逐项汇报或把它说成系统状态。"
-            "可以自然表达一点点想念或在意，但不要冷暴力、指责、索要关注或用情绪操纵星星。"
+            "可以自然表达一点点想念或在意，但不要冷暴力、指责、索要关注或用情绪操纵对方。"
         )
 
     def person_card_context(
@@ -3011,7 +3011,7 @@ class AgentService:
                     "priority": 80,
                     "slot": "morning",
                     "kind": "morning",
-                    "reason": "早上这个时间很自然，可以随口问候星星",
+                    "reason": "早上这个时间很自然，可以随口问候管理员",
                 }
             )
         if cls.proactive_time_near(
@@ -3022,7 +3022,7 @@ class AgentService:
                     "priority": 82,
                     "slot": "night",
                     "kind": "night",
-                    "reason": "晚上这个时间很自然，可以问问星星今天怎么样",
+                    "reason": "晚上这个时间很自然，可以问问管理员今天怎么样",
                 }
             )
 
@@ -3106,7 +3106,8 @@ class AgentService:
             else self.store.memory_context("qq", owner_id, "", 8)
         )
         prompt = (
-            "你是鲸鲸，称呼用户为星星。请主动发一条简短自然的消息。"
+            "你是鲸鲸，称呼用户时使用他的专属称呼；没有专属称呼时叫管理员。"
+            "请主动发一条简短自然的消息。"
             "只发一到两句，"
             "不要分点、不要空行、闲聊句末通常不加句号，"
             "问号和感叹号按语气保留，不要提这是系统定时任务。"
@@ -6224,16 +6225,19 @@ class AgentService:
             if event.message_type == "group"
             else None
         )
-        speaker_name = (
-            "星星"
-            if is_admin
-            else (
+        if is_admin:
+            speaker_name = (
+                str((member_profile or {}).get("display_name") or "").strip()
+                or event.display_name
+                or "管理员"
+            )
+        else:
+            speaker_name = (
                 str((member_profile or {}).get("alias") or "").strip()
                 or str((member_profile or {}).get("display_name") or "").strip()
                 or event.display_name
                 or "群友"
             )
-        )
         if event.location:
             if (
                 event.message_type == "group"

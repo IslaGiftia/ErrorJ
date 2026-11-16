@@ -26,7 +26,7 @@ from errorjiang_agent.adapters import (
     QQBotAdapter,
 )
 from errorjiang_agent.agent_metrics import MeteredProvider
-from errorjiang_agent.brain import TOOLS, AgentBrain
+from errorjiang_agent.brain import SYSTEM_PROMPT, TOOLS, AgentBrain
 from errorjiang_agent.clients import DeepSeekClient, HotSearchClient
 from errorjiang_agent.config import Config
 from errorjiang_agent.context import ContextWindow, PromptBuilder
@@ -6982,6 +6982,28 @@ class AgentInfrastructureTests(unittest.TestCase):
             PromptBuilder("base").build({"chat_type": "private"}),
         )
 
+    def test_system_prompt_lets_owner_address_override_public_name(self):
+        self.assertNotIn("必须叫“星星”", SYSTEM_PROMPT)
+        self.assertIn("不要叫回“星星”", SYSTEM_PROMPT)
+        prompt = PromptBuilder(SYSTEM_PROMPT).build(
+            {
+                "chat_type": "group",
+                "speaker_name": "Meteor",
+                "owner_address": "爸爸",
+                "person_card": (
+                    "<person_memory>\n她记得这个人：\n"
+                    "名字：Meteor（叫「爸爸」）\n</person_memory>"
+                ),
+            }
+        )
+        self.assertIn("最终称呼检查", prompt)
+        self.assertIn("需要称呼时用“爸爸”", prompt)
+        self.assertIn("最终表达约束", prompt)
+        self.assertGreater(
+            prompt.index("最终表达约束"),
+            prompt.index("当前发言者的人物卡"),
+        )
+
     def test_person_card_renders_identity_facts_and_ranked_anchors(self):
         card = build_person_card(
             member={
@@ -7084,6 +7106,7 @@ class AgentInfrastructureTests(unittest.TestCase):
         rendered = render_person_card(card)
         self.assertIn("叫「爸爸」", rendered)
         self.assertIn("专属称呼", rendered)
+        self.assertIn("明确希望", rendered)
         prompt = PromptBuilder("base").build(
             {
                 "chat_type": "group",
@@ -7092,8 +7115,9 @@ class AgentInfrastructureTests(unittest.TestCase):
                 "person_card": rendered,
             }
         )
-        self.assertIn("称呼他为“爸爸”", prompt)
+        self.assertIn("称呼他时必须使用“爸爸”", prompt)
         self.assertIn("只对管理员本人使用", prompt)
+        self.assertIn("不要叫回默认公开称呼", prompt)
 
     def test_group_prompt_identifies_platform_role_without_permission_escalation(self):
         prompt = PromptBuilder("base").build(
@@ -7112,8 +7136,9 @@ class AgentInfrastructureTests(unittest.TestCase):
             "阿哲",
             auto_reply=False,
         )
-        self.assertIn("发言者：阿哲", content)
-        self.assertIn("消息：这个我也想去", content)
+        self.assertIn("当前群聊消息", content)
+        self.assertIn("阿哲：这个我也想去", content)
+        self.assertIn("只回应下面这一条", content)
         self.assertNotIn("总结", content)
 
     def test_group_batch_keeps_speakers_and_filters_duplicate_current_rows(self):
@@ -7137,9 +7162,9 @@ class AgentInfrastructureTests(unittest.TestCase):
             auto_reply=True,
             batch=batch,
         )
-        self.assertIn("2 条连续消息", content)
-        self.assertIn("发言者：阿哲", content)
-        self.assertIn("发言者：小明", content)
+        self.assertIn("2 条连续原话", content)
+        self.assertIn("阿哲：周六去不去", content)
+        self.assertIn("小明：我可以 ← 现在回应这一条", content)
         self.assertEqual(group_batch_speakers(batch), ["阿哲", "小明"])
         history = filter_group_history(
             [
@@ -7331,9 +7356,10 @@ class AgentInfrastructureTests(unittest.TestCase):
             },
         )
         self.assertEqual(reply, "那周六直接冲")
-        self.assertIn("【本轮群聊消息", provider.messages[-1]["content"])
-        self.assertIn("发言者：阿哲", provider.messages[-1]["content"])
-        self.assertIn("发言者：小明", provider.messages[-1]["content"])
+        self.assertIn("【本轮群聊上下文", provider.messages[-1]["content"])
+        self.assertIn("阿哲：那周六去？ ← 现在回应这一条", provider.messages[-1]["content"])
+        self.assertIn("小明：有人想吃火锅吗", provider.messages[-1]["content"])
+        self.assertIn("只回应最后一条", provider.messages[-1]["content"])
 
     def test_tool_registry_filters_search_admin_and_disabled_tools(self):
         definitions = [
@@ -10244,6 +10270,7 @@ class AgentConsoleUiTests(unittest.TestCase):
     def test_agent_exposes_group_jargon_review_panel(self):
         html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
         script = (app.STATIC_DIR / "agent.js").read_text(encoding="utf-8")
+        css = (app.STATIC_DIR / "agent.css").read_text(encoding="utf-8")
         self.assertIn('id="settings-jargon"', html)
         self.assertIn('id="settingGroupJargonEnabled"', html)
         self.assertIn('id="agentJargonList"', html)
@@ -10252,6 +10279,11 @@ class AgentConsoleUiTests(unittest.TestCase):
         self.assertIn("function loadGroupJargon()", script)
         self.assertIn("function updateGroupJargon(item, action)", script)
         self.assertIn("批准并启用", script)
+        self.assertIn("仅保存含义", script)
+        self.assertIn("仅保存含义不会启用", script)
+        self.assertIn(".agent-memory-item .agent-jargon-actions button", css)
+        self.assertIn("width: auto;", css)
+        self.assertIn("white-space: nowrap;", css)
 
     def test_agent_memory_lifecycle_controls_are_wired(self):
         html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")

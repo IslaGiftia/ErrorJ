@@ -911,22 +911,45 @@
   gap: 8px;
 }
 
-.agent-jargon-actions button {
-  min-height: 36px;
-  padding: 0 12px;
+.agent-memory-item .agent-jargon-actions button {
+  display: inline-flex;
+  width: auto;
+  height: auto;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
   border: 1px solid var(--line);
   border-radius: var(--agent-radius-sm);
   background: var(--panel);
   color: var(--text);
   font: inherit;
-  font-size: var(--agent-text-xs);
+  font-size: var(--agent-text-sm);
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.agent-jargon-actions button.is-primary {
+.agent-memory-item .agent-jargon-actions button.is-primary {
   border-color: var(--agent-accent);
   background: var(--agent-accent);
   color: var(--on-accent);
+}
+
+.agent-memory-item .agent-jargon-actions button:disabled {
+  opacity: 0.58;
+  cursor: wait;
+  transform: none;
+}
+
+.agent-jargon-hint {
+  min-height: 18px;
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--agent-text-xs);
+}
+
+.agent-jargon-item.has-error .agent-jargon-hint {
+  color: var(--danger, #d65b5b);
 }
 
 .agent-diagnostics-cards {

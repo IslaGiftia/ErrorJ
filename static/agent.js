@@ -926,7 +926,7 @@
       element.className = "agent-memory-item agent-jargon-item";
       element.dataset.jargonId = String(item.id);
       var actions = [
-        '<button type="button" data-jargon-action="save">保存</button>',
+        '<button type="button" data-jargon-action="save">仅保存含义</button>',
       ];
       if (status === "pending") {
         actions.unshift(
@@ -972,6 +972,9 @@
                 'value="' + escapeHtml(item.example || "") + '" ' +
                 'placeholder="例如：这操作真绝绝子"></label>' +
           "</div>" +
+          '<p class="agent-jargon-hint" aria-live="polite">' +
+            "“批准并启用”后才会让鲸鲸在聊天中识别这个词；仅保存含义不会启用。" +
+          "</p>" +
           '<div class="agent-jargon-actions">' + actions.join("") + "</div>" +
         "</div>";
       jargonList.appendChild(element);
@@ -1003,8 +1006,13 @@
   function updateGroupJargon(item, action) {
     var meaning = item.querySelector(".agent-jargon-meaning").value.trim();
     var example = item.querySelector(".agent-jargon-example").value.trim();
+    var hint = item.querySelector(".agent-jargon-hint");
+    item.classList.remove("has-error");
+    hint.textContent =
+      "“批准并启用”后才会让鲸鲸在聊天中识别这个词；仅保存含义不会启用。";
     if (action === "approve" && !meaning) {
-      setSettingsStatus("批准前请填写这个词在群里的意思。", settingsDirty);
+      item.classList.add("has-error");
+      hint.textContent = "请先在“在群里的意思”里填写含义，再点“批准并启用”。";
       item.querySelector(".agent-jargon-meaning").focus();
       return;
     }
@@ -1042,10 +1050,19 @@
         jargonCount.textContent =
           Number(data.pending_count || 0) + " 待确认 · " +
           Number(data.approved_count || 0) + " 已启用";
-        setSettingsStatus("群黑话已更新", settingsDirty);
+        setSettingsStatus(
+          action === "approve"
+            ? "已批准并启用这个群黑话"
+            : action === "save"
+            ? "含义已保存；这个词仍然是待确认状态"
+            : "群黑话状态已更新",
+          settingsDirty
+        );
         renderGroupJargon();
       })
       .catch(function (error) {
+        item.classList.add("has-error");
+        hint.textContent = error.message;
         setSettingsStatus(error.message, settingsDirty);
         buttons.forEach(function (button) {
           button.disabled = false;
