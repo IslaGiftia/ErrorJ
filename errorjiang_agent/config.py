@@ -108,8 +108,9 @@ class Config:
         deepseek_model = os.environ.get(
             "DEEPSEEK_MODEL", "deepseek-chat"
         ).strip()
-        deepseek_vision_model = os.environ.get(
-            "DEEPSEEK_VISION_MODEL", "deepseek-flash"
+        deepseek_vision_model = (
+            os.environ.get("LLM_VISION_MODEL")
+            or os.environ.get("DEEPSEEK_VISION_MODEL", "deepseek-flash")
         ).strip()
         llm_provider = os.environ.get("LLM_PROVIDER", "deepseek").strip().lower()
         llm_base_url = os.environ.get("LLM_BASE_URL", "").strip().rstrip("/")

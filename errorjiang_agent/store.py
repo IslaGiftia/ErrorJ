@@ -269,11 +269,14 @@ class AgentStore:
                     member_id TEXT NOT NULL,
                     display_name TEXT NOT NULL DEFAULT '',
                     alias TEXT NOT NULL DEFAULT '',
+                    preferred_address TEXT NOT NULL DEFAULT '',
                     relationship TEXT NOT NULL DEFAULT '群友',
+                    relationship_phase TEXT NOT NULL DEFAULT '',
                     allow_chat INTEGER NOT NULL DEFAULT 1,
                     allow_tools INTEGER NOT NULL DEFAULT 1,
                     memory_enabled INTEGER NOT NULL DEFAULT 1,
                     notes TEXT NOT NULL DEFAULT '',
+                    profile_facts TEXT NOT NULL DEFAULT '',
                     first_seen INTEGER NOT NULL,
                     last_seen INTEGER NOT NULL,
                     message_count INTEGER NOT NULL DEFAULT 0,
@@ -524,11 +527,14 @@ class AgentStore:
             }
             for name, definition in (
                 ("alias", "TEXT NOT NULL DEFAULT ''"),
+                ("preferred_address", "TEXT NOT NULL DEFAULT ''"),
                 ("relationship", "TEXT NOT NULL DEFAULT '群友'"),
+                ("relationship_phase", "TEXT NOT NULL DEFAULT ''"),
                 ("allow_chat", "INTEGER NOT NULL DEFAULT 1"),
                 ("allow_tools", "INTEGER NOT NULL DEFAULT 1"),
                 ("memory_enabled", "INTEGER NOT NULL DEFAULT 1"),
                 ("notes", "TEXT NOT NULL DEFAULT ''"),
+                ("profile_facts", "TEXT NOT NULL DEFAULT ''"),
             ):
                 if name not in member_columns:
                     conn.execute(
@@ -895,6 +901,30 @@ class AgentStore:
                 )
         return [str(row["content"]) for row in ranked]
 
+    def person_card_memories(
+        self,
+        platform: str,
+        owner_id: str,
+        limit: int = 40,
+    ) -> list[dict]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT id, kind, content, importance, confidence, source,
+                          access_count, strength, pinned, evidence, created_at,
+                          updated_at, last_used_at
+                   FROM memories
+                   WHERE platform = ? AND owner_id = ? AND archived_at IS NULL
+                   ORDER BY pinned DESC, importance DESC, confidence DESC,
+                            strength DESC, updated_at DESC, id DESC
+                   LIMIT ?""",
+                (
+                    platform,
+                    owner_id,
+                    max(1, min(int(limit), 200)),
+                ),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def delete_memory(self, platform: str, owner_id: str, memory_id: int) -> bool:
         with self._lock, self._connection() as conn:
             conn.execute(
@@ -1167,11 +1197,22 @@ class AgentStore:
             return None
         allowed = {
             "alias",
+            "preferred_address",
             "relationship",
+            "relationship_phase",
             "allow_chat",
             "allow_tools",
             "memory_enabled",
             "notes",
+            "profile_facts",
+        }
+        text_limits = {
+            "alias": 80,
+            "preferred_address": 40,
+            "relationship": 80,
+            "relationship_phase": 40,
+            "notes": 300,
+            "profile_facts": 1200,
         }
         updates = {}
         for key in allowed:
@@ -1179,10 +1220,18 @@ class AgentStore:
                 continue
             if key in ("allow_chat", "allow_tools", "memory_enabled"):
                 updates[key] = 1 if bool(values[key]) else 0
+            elif key == "profile_facts":
+                lines = [
+                    " ".join(str(line or "").split()).strip()
+                    for line in str(values[key] or "").splitlines()
+                ]
+                updates[key] = "\n".join(
+                    line for line in lines if line
+                )[: text_limits[key]]
             else:
                 updates[key] = " ".join(
                     str(values[key] or "").split()
-                ).strip()[:300]
+                ).strip()[: text_limits.get(key, 300)]
         if not updates:
             return current
         assignments = ", ".join(f"{key} = ?" for key in updates)
@@ -1198,6 +1247,58 @@ class AgentStore:
                 ),
             )
         return self.get_group_member(platform, group_id, member_id)
+
+    def ensure_group_member_card_defaults(
+        self,
+        platform: str,
+        group_id: str,
+        member_id: str,
+        defaults: dict,
+    ) -> dict | None:
+        current = self.get_group_member(platform, group_id, member_id)
+        if not current:
+            return None
+        values = {}
+        for key, value in defaults.items():
+            existing = str(current.get(key) or "").strip()
+            if key == "relationship" and existing in ("", "群友"):
+                values[key] = value
+            elif key != "relationship" and not existing:
+                values[key] = value
+        if not values:
+            return current
+        return self.update_group_member_profile(
+            platform,
+            group_id,
+            member_id,
+            values,
+        )
+
+    def ensure_member_card_defaults_across_groups(
+        self,
+        platform: str,
+        member_id: str,
+        defaults: dict,
+    ) -> int:
+        with self._connection() as conn:
+            group_ids = [
+                str(row["group_id"])
+                for row in conn.execute(
+                    """SELECT DISTINCT group_id FROM group_members
+                       WHERE platform = ? AND member_id = ?""",
+                    (platform, str(member_id)),
+                ).fetchall()
+            ]
+        updated = 0
+        for group_id in group_ids:
+            self.ensure_group_member_card_defaults(
+                platform,
+                group_id,
+                member_id,
+                defaults,
+            )
+            updated += 1
+        return updated
 
     def add_group_message(
         self,
@@ -1722,7 +1823,8 @@ class AgentStore:
     ) -> list[dict]:
         with self._connection() as conn:
             rows = conn.execute(
-                """SELECT member_id, display_name, role, content, created_at
+                """SELECT member_id, display_name, role, content,
+                          source_message_id, created_at
                    FROM group_messages
                    WHERE platform = ? AND group_id = ?
                    ORDER BY id DESC LIMIT ?""",
@@ -2365,6 +2467,7 @@ class AgentStore:
             "chat_human_delay": True,
             "persona_preset": "冷脸萌",
             "persona_custom_prompt": "",
+            "owner_preferred_address": "爸爸",
             "web_search_enabled": True,
             "web_search_count": 5,
             "web_domain_routing_enabled": True,
@@ -2380,6 +2483,11 @@ class AgentStore:
             "group_idle_max_unanswered": 2,
             "group_idle_max_per_day": 1,
             "group_reply_control_enabled": True,
+            "group_hard_cutoff_enabled": True,
+            "group_hard_cutoff_rounds": 3,
+            "group_hard_cutoff_minutes": 10,
+            "group_vision_enabled": True,
+            "group_vision_interval_minutes": 5,
             "group_activity_level": "balanced",
             "group_jargon_enabled": True,
             "group_reply_max_per_10m": 6,

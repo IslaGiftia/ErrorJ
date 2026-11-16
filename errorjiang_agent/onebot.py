@@ -42,6 +42,8 @@ class MessageEvent:
     referenced: bool = False
     mentions_other: bool = False
     shared_media: tuple[dict[str, Any], ...] = ()
+    group_batch: tuple[dict[str, Any], ...] = ()
+    sender_role: str = ""
 
     @property
     def owner_id(self) -> str:
@@ -497,6 +499,9 @@ def parse_message_event(payload: dict[str, Any]) -> MessageEvent | None:
     display_name = str(
         sender.get("card") or sender.get("nickname") or ""
     ).strip()[:80]
+    sender_role = str(
+        sender.get("role") or payload.get("sender_role") or ""
+    ).strip().lower()
     return MessageEvent(
         self_id=self_id,
         user_id=user_id,
@@ -509,6 +514,7 @@ def parse_message_event(payload: dict[str, Any]) -> MessageEvent | None:
         display_name=display_name,
         location=location,
         shared_media=tuple(extract_shared_media(text, payload)),
+        sender_role=sender_role,
     )
 
 

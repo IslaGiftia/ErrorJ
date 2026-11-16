@@ -14011,6 +14011,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
         self.send_json(200, row)
 
     def api_admin_share_link_create(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以分享内容。")
+            return
         resource_type = str(payload.get("resource_type") or "").strip()
         try:
             resource_id = int(payload.get("resource_id") or 0)

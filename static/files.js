@@ -4,7 +4,7 @@
  * - 游客也能看到列表（文件名 / 分类 / 大小 / 时间），下载按钮点了提示「请登录后操作」；
  * - 登录账号点下载直接走 /api/site/files/<id>/download；
  * - 站长在这里上传的文件直接落进工作台的「其他 / 源码 / 固件…」分类并标为公开；
- * - 分享按钮走和其它子页同一套分享弹窗（动态 / 下载 / 外部链接）。
+ * - 分享按钮只对管理员显示，并走和其它子页同一套分享弹窗（动态 / 下载 / 外部链接）。
  */
 (function () {
   "use strict";
@@ -32,6 +32,7 @@
     files: [],
     requiresLogin: true,
     canUpload: false,
+    canShare: false,
     loaded: false,
     error: "",
   };
@@ -117,6 +118,11 @@
           formatDate(item.created_at),
         ];
         var guest = Boolean(item.requires_login);
+        var shareAction = state.canShare
+          ? '<button class="fl-action" type="button" data-share-file="' +
+            item.id +
+            '" title="分享"><i data-lucide="share-2"></i></button>'
+          : "";
         return (
           '<article class="fl-item" data-focus-id="' + item.id + '">' +
           '<span class="fl-icon"><i data-lucide="' + iconFor(item) + '"></i></span>' +
@@ -136,8 +142,7 @@
           "</div>" +
           "</div>" +
           '<div class="fl-actions">' +
-          '<button class="fl-action" type="button" data-share-file="' + item.id +
-          '" title="分享"><i data-lucide="share-2"></i></button>' +
+          shareAction +
           '<button class="fl-action fl-action-download' + (guest ? " is-guest" : "") +
           '" type="button" data-file-download="' + item.id + '"' +
           (guest ? ' title="请登录后操作"' : ' title="下载"') +
@@ -170,12 +175,14 @@
   function loadAuth() {
     return api("/api/auth/status")
       .then(function (status) {
-        state.canUpload = Boolean(status.owner || status.admin);
+        state.canShare = Boolean(status.owner || status.admin);
+        state.canUpload = state.canShare;
         var button = $("fileUploadBtn");
         if (button) button.hidden = !state.canUpload;
       })
       .catch(function () {
         state.canUpload = false;
+        state.canShare = false;
       });
   }
 
@@ -192,6 +199,7 @@
   }
 
   function share(id) {
+    if (!state.canShare) return;
     var item = state.files.filter(function (row) {
       return Number(row.id) === Number(id);
     })[0];

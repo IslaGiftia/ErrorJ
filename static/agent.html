@@ -245,10 +245,16 @@
             <span>人格预设</span>
             <select id="settingPersonaPreset" data-setting-input>
               <option value="冷脸萌">冷脸萌</option>
+              <option value="深海蓝鲸">深海蓝鲸女仆</option>
               <option value="温柔">温柔</option>
               <option value="理性">理性</option>
               <option value="活力">活力</option>
             </select>
+          </label>
+          <label>
+            <span>管理员专属称呼</span>
+            <input id="settingOwnerPreferredAddress" maxlength="40"
+                   data-setting-input placeholder="例如：爸爸">
           </label>
           <label class="agent-setting-wide">
             <span>自定义补充</span>
@@ -367,6 +373,26 @@
           </label>
           <label class="agent-setting-row">
             <span class="agent-setting-copy">
+              <strong>群聊主动识图</strong>
+              <small>没有被 @ 的图片也可以先看一眼；受下方冷却时间限制</small>
+            </span>
+            <span class="agent-switch">
+              <input type="checkbox" id="settingGroupVisionEnabled" data-setting-input>
+              <span aria-hidden="true"></span>
+            </span>
+          </label>
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
+              <strong>连续接话硬收口</strong>
+              <small>鲸鲸连续自然接话过多后暂停，直到有人再次明确叫它</small>
+            </span>
+            <span class="agent-switch">
+              <input type="checkbox" id="settingGroupHardCutoffEnabled" data-setting-input>
+              <span aria-hidden="true"></span>
+            </span>
+          </label>
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
               <strong>城市天气</strong>
               <small>读取成员主动设置的城市；未设置时使用下方默认城市</small>
             </span>
@@ -443,6 +469,21 @@
             <span>消息合并等待（秒）</span>
             <input type="number" id="settingGroupMessageMergeSeconds"
                    min="0" max="3600" data-setting-input>
+          </label>
+          <label>
+            <span>连续接话硬收口轮数</span>
+            <input type="number" id="settingGroupHardCutoffRounds"
+                   min="2" max="10" data-setting-input>
+          </label>
+          <label>
+            <span>硬收口暂停（分钟）</span>
+            <input type="number" id="settingGroupHardCutoffMinutes"
+                   min="1" max="120" data-setting-input>
+          </label>
+          <label>
+            <span>主动识图冷却（分钟）</span>
+            <input type="number" id="settingGroupVisionInterval"
+                   min="0" max="120" data-setting-input>
           </label>
         </div>
         <p class="agent-section-note">活跃模式会在多人正在聊、消息明显在提问或求推荐时更愿意接话，仍然不额外调用判断模型。接话节奏只约束自然加入话题；直接叫名字、@、命令和卡片仍立即处理。</p>
@@ -527,7 +568,7 @@
       <section class="agent-console-section" id="settings-members" data-console-section>
         <header class="agent-section-head">
           <span class="agent-section-icon"><i data-lucide="users"></i></span>
-          <div><h2>群友档案</h2><p>维护群友别名、关系、备注以及聊天和工具权限。</p></div>
+          <div><h2>群友档案</h2><p>维护称呼、别名、关系阶段、结构化事实以及聊天和工具权限。</p></div>
           <span class="agent-section-count" id="agentGroupMemberCount">0 人</span>
         </header>
         <div class="agent-list" id="agentGroupMemberList"></div>

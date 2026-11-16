@@ -35,7 +35,17 @@ from .clients import (
     OneBotClient,
 )
 from .config import Config
+from .conversation_style import (
+    clean_group_reply,
+    filter_group_history,
+    group_batch_speakers,
+    group_style_hint,
+    is_group_skip,
+    looks_like_group_summary,
+    reply_echoes_current,
+)
 from .context import ContextWindow
+from .emotion_state import decay_relationship_state, mood_after_message
 from .errors import AgentError
 from .group_learning import extract_jargon_candidates
 from .media_links import (
@@ -51,6 +61,11 @@ from .onebot import (
     extract_location_event,
 )
 from .persona import compose_persona_prompt
+from .person_card import (
+    build_person_card,
+    owner_card_defaults,
+    render_person_card,
+)
 from .providers import FallbackLLMProvider, default_provider_registry
 from .qqbot import QQBotClient
 from .routing import (
@@ -89,6 +104,17 @@ STICKER_SAVE_RE = re.compile(
 STICKER_USAGE_PREFIX_RE = re.compile(
     r"^\s*(?:用途|表情|标签)\s*[：:]\s*"
 )
+
+
+def vision_client_options(config: Config) -> tuple[str, str, str]:
+    api_key = config.deepseek_api_key or config.llm_api_key
+    base_url = (
+        config.deepseek_base_url
+        if config.deepseek_api_key
+        else config.llm_base_url
+    )
+    model = config.deepseek_vision_model or "deepseek-flash"
+    return base_url, api_key, model
 
 CONFIRM_RE = re.compile(r"^(?:确认|/confirm)\s+(\d{6})$", re.IGNORECASE)
 BIND_RE = re.compile(r"^(?:绑定|/bind)\s+(\S+)$", re.IGNORECASE)
@@ -277,13 +303,16 @@ class AgentService:
             self.deepseek,
             self._record_agent_metric,
         )
+        vision_base_url, vision_api_key, vision_model = vision_client_options(
+            config
+        )
         self.vision = (
             DeepSeekVisionClient(
-                config.deepseek_base_url,
-                config.deepseek_api_key,
-                config.deepseek_vision_model or "deepseek-flash",
+                vision_base_url,
+                vision_api_key,
+                vision_model,
             )
-            if config.deepseek_api_key
+            if vision_api_key
             else None
         )
         self.errorjiang = ErrorJClient(
@@ -352,11 +381,32 @@ class AgentService:
             self.store.bind_admin("qq", str(qq))
         for openid in config.qqbot_admin_openids:
             self.store.bind_admin("qqbot", openid)
+        self._seed_owner_person_card_defaults()
         self._proactive_thread.start()
         self._reminder_thread.start()
         self._memory_consolidation_thread.start()
         if self._qqbot_thread:
             self._qqbot_thread.start()
+
+    def _seed_owner_person_card_defaults(self) -> None:
+        ensure = getattr(
+            self.store,
+            "ensure_member_card_defaults_across_groups",
+            None,
+        )
+        if not callable(ensure):
+            return
+        for platform in ("qq", "qqbot"):
+            for admin_id in self.store.admin_ids(platform):
+                settings = self.store.get_settings(platform, admin_id)
+                address = str(
+                    settings.get("owner_preferred_address") or "爸爸"
+                ).strip()[:40] or "爸爸"
+                ensure(
+                    platform,
+                    admin_id,
+                    owner_card_defaults(address),
+                )
 
     def build_brain(
         self,
@@ -2776,7 +2826,9 @@ class AgentService:
             traceback.print_exc()
 
     def relationship_context(self, platform: str, owner_id: str) -> dict:
-        state = self.store.get_relationship_state(platform, owner_id)
+        state = decay_relationship_state(
+            self.store.get_relationship_state(platform, owner_id)
+        )
         last_user_at = int(state.get("last_user_at") or 0)
         idle_hours = (
             max(0.0, (time.time() - last_user_at) / 3600)
@@ -2803,22 +2855,13 @@ class AgentService:
         if re.search(r"别的\s*(?:AI|ai|女生|女孩|机器人)|找别人|前任|不理你", text):
             jealousy = min(3, jealousy + 2)
         care = min(10, int(state.get("care") or 6) + 1)
-        hour = datetime.now().hour
-        energy = 9 if 8 <= hour < 23 else 4
-        if jealousy >= 2:
-            mood = "有点吃醋"
-        elif hour >= 22:
-            mood = "有点困但还在"
-        elif re.search(r"想你|喜欢你|晚安|抱抱|亲亲", text):
-            mood = "嘴硬但开心"
-        else:
-            mood = "平静"
+        mood = mood_after_message(state, text)
         return self.store.update_relationship_state(
             platform,
             owner_id,
             {
                 "mood": mood,
-                "energy": energy,
+                "energy": int(state.get("energy") or 7),
                 "care": care,
                 "jealousy": jealousy,
                 "last_topic": text[:120],
@@ -2845,11 +2888,83 @@ class AgentService:
         longing = int(state.get("longing") or 0)
         care = int(state.get("care") or 0)
         jealousy = int(state.get("jealousy") or 0)
+        tone = str(state.get("emotion_tone") or "平静放松")
+        longing_text = (
+            "有一点想念"
+            if longing >= 7
+            else "偶尔会想起"
+            if longing >= 3
+            else "没有明显想念"
+        )
+        care_text = (
+            "很在意对方"
+            if care >= 8
+            else "有关心"
+            if care >= 5
+            else "保持普通分寸"
+        )
+        jealousy_text = (
+            "有一点嘴硬吃醋"
+            if jealousy >= 2
+            else "基本放松"
+        )
+        idle_hours = float(state.get("idle_hours") or 0)
+        idle_text = (
+            "刚聊过不久"
+            if idle_hours < 1
+            else "隔了一小会儿"
+            if idle_hours < 6
+            else "已经有一阵没联系"
+        )
         return (
-            f"当前关系状态：心情{mood}，想念{longing}/10，在意{care}/10，"
-            f"轻微吃醋{jealousy}/3，已 {state.get('idle_hours', 0)} 小时没联系。"
+            f"当前短时心情：{mood}；整体语气底色：{tone}；"
+            f"{longing_text}，{care_text}，{jealousy_text}，{idle_text}。"
+            "这些只影响措辞和分寸，不要主动解释、逐项汇报或把它说成系统状态。"
             "可以自然表达一点点想念或在意，但不要冷暴力、指责、索要关注或用情绪操纵星星。"
         )
+
+    def person_card_context(
+        self,
+        platform: str,
+        member_id: str,
+        member_profile: dict | None,
+        relationship: dict,
+        *,
+        display_name: str = "",
+        memory_enabled: bool = True,
+        is_owner: bool = False,
+        owner_address: str = "爸爸",
+    ) -> str:
+        member = dict(member_profile or {})
+        if display_name and not member.get("display_name"):
+            member["display_name"] = display_name
+        if is_owner:
+            defaults = owner_card_defaults(owner_address)
+            for key, value in defaults.items():
+                if key == "relationship" and str(member.get(key) or "").strip() in (
+                    "",
+                    "群友",
+                ):
+                    member[key] = value
+                elif key != "relationship" and not str(member.get(key) or "").strip():
+                    member[key] = value
+        load_memories = getattr(self.store, "person_card_memories", None)
+        memories = (
+            load_memories(platform, str(member_id), 40)
+            if memory_enabled and callable(load_memories)
+            else []
+        )
+        linked_user_id = None
+        resolver = getattr(self.store, "linked_user_id", None)
+        if callable(resolver):
+            linked_user_id = resolver(platform, str(member_id))
+        card = build_person_card(
+            member=member,
+            memories=memories,
+            linked_user_id=linked_user_id,
+            relationship=relationship,
+        )
+        return render_person_card(card)
 
     @staticmethod
     def proactive_time_near(now: datetime, target: str) -> bool:
@@ -4576,6 +4691,27 @@ class AgentService:
         return not used_tools and random.random() < 0.18
 
     @staticmethod
+    def should_skip_group_reply(
+        event: MessageEvent,
+        auto_reply_reason: str,
+        reply: str,
+        used_tools: list[str],
+    ) -> bool:
+        return bool(
+            event.message_type == "group"
+            and auto_reply_reason in ("group_conversation", "group_vision")
+            and not used_tools
+            and (
+                is_group_skip(reply)
+                or reply_echoes_current(reply, event.text)
+                or looks_like_group_summary(
+                    reply,
+                    list(event.group_batch),
+                )
+            )
+        )
+
+    @staticmethod
     def persona_prompt(settings: dict[str, Any]) -> str:
         return compose_persona_prompt(settings)
 
@@ -4932,14 +5068,17 @@ class AgentService:
     ) -> bool:
         if (
             event.message_type != "group"
-            or auto_reply_reason != "group_conversation"
+            or auto_reply_reason not in (
+                "group_conversation",
+                "group_vision",
+            )
             or event.location
             or event.shared_media
             or event.referenced
         ):
             return False
         text = " ".join(event.text.split()).strip()
-        if not text:
+        if not text and auto_reply_reason != "group_vision":
             return False
         lowered = text.lower()
         if any(alias.lower() in lowered for alias in GROUP_BOT_ALIASES):
@@ -4977,6 +5116,49 @@ class AgentService:
     def _group_merge_key(event: MessageEvent) -> str:
         return f"{event.platform}:{event.chat_id}"
 
+    @staticmethod
+    def _group_batch_item(event: MessageEvent) -> dict[str, str]:
+        return {
+            "message_id": str(event.message_id or event_key(event)),
+            "user_id": str(event.user_id),
+            "display_name": " ".join(str(event.display_name or "").split()).strip()[
+                :80
+            ],
+            "sender_role": str(event.sender_role or "").strip()[:20],
+            "text": " ".join(str(event.text or "").split()).strip()[:1000],
+        }
+
+    @classmethod
+    def _merge_group_batch(
+        cls,
+        previous: MessageEvent | None,
+        event: MessageEvent,
+    ) -> tuple[dict[str, str], ...]:
+        items: list[dict[str, str]] = []
+        if previous is not None:
+            items.extend(
+                dict(item)
+                for item in previous.group_batch
+                if isinstance(item, dict)
+            )
+            if not items:
+                items.append(cls._group_batch_item(previous))
+        items.append(cls._group_batch_item(event))
+        deduped = []
+        seen = set()
+        for item in items:
+            key = (
+                str(item.get("message_id") or ""),
+                str(item.get("user_id") or ""),
+                str(item.get("text") or ""),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            if item.get("text"):
+                deduped.append(item)
+        return tuple(deduped[-8:])
+
     def _submit_message_event(
         self,
         event: MessageEvent,
@@ -5009,6 +5191,18 @@ class AgentService:
             previous = self._group_merge_timers.pop(key, None)
             if previous:
                 previous.cancel()
+            previous_pending = self._group_merge_pending.get(key)
+            previous_event = (
+                previous_pending[0]
+                if previous_pending and len(previous_pending) >= 1
+                else None
+            )
+            batch = self._merge_group_batch(previous_event, event)
+            event = replace(event, group_batch=batch)
+            if previous_pending:
+                activity_observed = bool(
+                    previous_pending[1] or activity_observed
+                )
             self._group_merge_pending[key] = (
                 event,
                 activity_observed,
@@ -5087,9 +5281,35 @@ class AgentService:
         if quiet:
             return "quiet"
         settings = self._group_runtime_settings(event)
+        now = int(time.time())
+        with self._group_ambient_lock:
+            state = dict(
+                self._group_ambient_state.get(
+                    self._group_merge_key(event),
+                    {},
+                )
+            )
+        if (
+            auto_reply_reason == "group_vision"
+            and int(state.get("vision_last_at") or 0)
+            and now - int(state.get("vision_last_at") or 0)
+            < self.bounded_setting(
+                settings,
+                "group_vision_interval_minutes",
+                5,
+                0,
+                120,
+            )
+            * 60
+        ):
+            return "vision_cooldown"
+        if (
+            bool(settings.get("group_hard_cutoff_enabled", True))
+            and int(state.get("hard_cutoff_until") or 0) > now
+        ):
+            return "hard_cutoff"
         if not bool(settings.get("group_reply_control_enabled", True)):
             return ""
-        now = int(time.time())
         max_replies = self.bounded_setting(
             settings,
             "group_reply_max_per_10m",
@@ -5121,13 +5341,6 @@ class AgentService:
             MAX_GROUP_ACTION_COUNT,
         )
         member_id = str(event.user_id)
-        with self._group_ambient_lock:
-            state = dict(
-                self._group_ambient_state.get(
-                    self._group_merge_key(event),
-                    {},
-                )
-            )
         if (
             str(state.get("last_member") or "") == member_id
             and int(state.get("streak") or 0) >= fatigue_rounds
@@ -5136,7 +5349,11 @@ class AgentService:
             return "conversation_fatigue"
         return ""
 
-    def _record_group_ambient_reply(self, event: MessageEvent) -> None:
+    def _record_group_ambient_reply(
+        self,
+        event: MessageEvent,
+        auto_reply_reason: str = "",
+    ) -> None:
         key = self._group_merge_key(event)
         member_id = str(event.user_id)
         now = int(time.time())
@@ -5149,11 +5366,38 @@ class AgentService:
                 streak = int(previous.get("streak") or 0) + 1
             else:
                 streak = 1
-            self._group_ambient_state[key] = {
+            state = {
                 "last_member": member_id,
                 "last_at": now,
                 "streak": streak,
+                "air_streak": int(previous.get("air_streak") or 0) + 1,
+                "hard_cutoff_until": int(
+                    previous.get("hard_cutoff_until") or 0
+                ),
+                "vision_last_at": int(previous.get("vision_last_at") or 0),
             }
+            settings = self._group_runtime_settings(event)
+            if (
+                bool(settings.get("group_hard_cutoff_enabled", True))
+                and state["air_streak"]
+                >= self.bounded_setting(
+                    settings,
+                    "group_hard_cutoff_rounds",
+                    3,
+                    2,
+                    10,
+                )
+            ):
+                state["hard_cutoff_until"] = now + self.bounded_setting(
+                    settings,
+                    "group_hard_cutoff_minutes",
+                    10,
+                    1,
+                    120,
+                ) * 60
+            if auto_reply_reason == "group_vision":
+                state["vision_last_at"] = now
+            self._group_ambient_state[key] = state
 
     def _note_group_human_activity(self, event: MessageEvent) -> None:
         if event.message_type != "group":
@@ -5182,6 +5426,8 @@ class AgentService:
             if state and explicit:
                 state["streak"] = 0
                 state["last_member"] = ""
+                state["air_streak"] = 0
+                state["hard_cutoff_until"] = 0
                 return
             if (
                 state
@@ -5453,10 +5699,17 @@ class AgentService:
                 return
         if (
             event.message_type == "group"
-            and not event.to_me
+            and (
+                not event.to_me
+                or auto_reply_reason == "group_vision"
+            )
             and not event.shared_media
         ):
-            if not explicit_sticker_save and has_sticker_images:
+            if (
+                auto_reply_reason != "group_vision"
+                and not explicit_sticker_save
+                and has_sticker_images
+            ):
                 _enabled, auto_collect, library_id = (
                     self.sticker_auto_collect_target(event)
                 )
@@ -5468,7 +5721,8 @@ class AgentService:
                             library_id,
                         )
                     )
-            return
+            if auto_reply_reason != "group_vision":
+                return
         redeem_match = REDEEM_IDENTITY_BIND_CODE_RE.fullmatch(
             event.text.strip()
         )
@@ -5999,17 +6253,36 @@ class AgentService:
                 self.location_result_reply(result),
             )
             return
+        group_batch: list[dict[str, Any]] = []
         if event.message_type == "group":
+            group_batch = [
+                dict(item)
+                for item in event.group_batch
+                if isinstance(item, dict)
+            ]
+            if not group_batch:
+                group_batch = [self._group_batch_item(event)]
+            current_message_ids = {
+                str(item.get("message_id") or "")
+                for item in group_batch
+                if str(item.get("message_id") or "").strip()
+            }
+            current_message_ids.add(str(event.message_id or ""))
             history = []
-            for item in self.store.get_group_messages(
-                platform,
-                str(event.chat_id),
-                self.config.context_messages,
+            for item in filter_group_history(
+                self.store.get_group_messages(
+                    platform,
+                    str(event.chat_id),
+                    self.config.context_messages + len(group_batch),
+                ),
+                current_message_ids,
             ):
                 name = str(item.get("display_name") or "群友")
                 content = str(item.get("content") or "")
                 if item.get("role") == "user":
                     content = f"{name}：{content}"
+                elif item.get("role") == "assistant":
+                    content = f"鲸鲸：{content}"
                 history.append(
                     {
                         "role": str(item.get("role") or "user"),
@@ -6022,8 +6295,25 @@ class AgentService:
                 str(event.user_id),
                 self.config.context_messages,
             )
+        group_rhythm = group_style_hint(history) if event.message_type == "group" else ""
         settings = self.store.get_settings(platform, str(event.user_id))
         global_settings = self.bot_global_settings(platform, settings)
+        owner_address = str(
+            global_settings.get("owner_preferred_address") or "爸爸"
+        ).strip()[:40] or "爸爸"
+        if is_admin and member_profile:
+            ensure_defaults = getattr(
+                self.store,
+                "ensure_group_member_card_defaults",
+                None,
+            )
+            if callable(ensure_defaults):
+                member_profile = ensure_defaults(
+                    platform,
+                    str(event.chat_id),
+                    str(event.user_id),
+                    owner_card_defaults(owner_address),
+                ) or member_profile
         memory_enabled = bool(settings.get("memory_enabled", True)) and (
             bool((member_profile or {}).get("memory_enabled", 1))
             if event.message_type == "group"
@@ -6070,21 +6360,22 @@ class AgentService:
                 + meme_context
             )
         relationship = self.relationship_context(platform, str(event.user_id))
-        profile_notes = []
-        if event.message_type == "group":
-            relation = str(
-                (member_profile or {}).get("relationship") or "群友"
-            ).strip()
-            notes = str((member_profile or {}).get("notes") or "").strip()
-            profile_notes.append(
-                f"当前群聊发言人是{ speaker_name }，关系：{relation}。"
-                "不要称呼群友为星星，星星只指管理员。"
+        person_card = (
+            self.person_card_context(
+                platform,
+                str(event.user_id),
+                member_profile,
+                relationship,
+                display_name=speaker_name,
+                memory_enabled=memory_enabled,
+                is_owner=is_admin,
+                owner_address=owner_address,
             )
-            if notes:
-                profile_notes.append(f"关于{speaker_name}的档案备注：{notes}")
+            if event.platform in ("qq", "qqbot")
+            else ""
+        )
         memories = (
-            profile_notes
-            + list(memories)
+            list(memories)
             + self.timeline_context(platform, str(event.user_id))
             + [self.relationship_prompt(relationship)]
         )
@@ -6131,6 +6422,9 @@ class AgentService:
             "is_admin": "1" if is_admin else "0",
             "target_user_id": str(target_user_id),
             "speaker_name": speaker_name,
+            "speaker_role": str(event.sender_role or ""),
+            "owner_address": owner_address if is_admin else "",
+            "person_card": person_card,
             "persona_preset": str(
                 global_settings.get("persona_preset") or ""
             ),
@@ -6164,6 +6458,25 @@ class AgentService:
                 else "0"
             ),
             "memory_enabled": "1" if memory_enabled else "0",
+            "group_batch": (
+                json.dumps(group_batch, ensure_ascii=False)
+                if len(group_batch) > 1
+                else "[]"
+            ),
+            "group_batch_speakers": json.dumps(
+                group_batch_speakers(group_batch),
+                ensure_ascii=False,
+            ),
+            "group_style_hint": group_rhythm,
+            "group_auto_reply": (
+                "1"
+                if event.message_type == "group"
+                and auto_reply_reason in (
+                    "group_conversation",
+                    "group_vision",
+                )
+                else "0"
+            ),
         }
         errorjiang = ErrorJClient(
             self.config.errorjiang_base_url,
@@ -6171,14 +6484,9 @@ class AgentService:
             target_user_id,
         )
         brain = self.build_brain(errorjiang)
-        brain_text = (
-            f"{speaker_name}：{text}"
-            if event.message_type == "group"
-            else text
-        )
         try:
             reply = brain.reply(
-                brain_text,
+                text,
                 history,
                 context,
                 memories=memories,
@@ -6193,6 +6501,19 @@ class AgentService:
         delay_tools = [
             name for name in used_tools if name != "fold_sticker_send"
         ]
+        if self.should_skip_group_reply(
+            event,
+            auto_reply_reason,
+            reply,
+            used_tools,
+        ):
+            print(
+                f"[GroupReply] 无自然切口，保持安静 chat={event.chat_id}",
+                flush=True,
+            )
+            return
+        if event.message_type == "group":
+            reply = clean_group_reply(reply, speaker_name)
         human_delay = (
             platform in ("qq", "qqbot")
             and self.should_humanize_chat_delay(
@@ -6280,7 +6601,7 @@ class AgentService:
             human_delay=human_delay,
         )
         if self._is_ambient_group_event(event, auto_reply_reason):
-            self._record_group_ambient_reply(event)
+            self._record_group_ambient_reply(event, auto_reply_reason)
         self.send_selected_content(event, context)
         self.update_relationship_after_exchange(
             platform, str(event.user_id), text

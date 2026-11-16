@@ -25,6 +25,23 @@ GROUP_QUIET_COMMAND_RE = re.compile(
     r"恢复|解除安静|恢复说话|可以说话了)"
     r"(?:\s*\d{1,3}\s*(?:分钟|小时))?\s*$"
 )
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+
+
+def event_has_image_attachment(event: MessageEvent) -> bool:
+    for attachment in event.attachments[:8]:
+        content_type = str(attachment.get("content_type") or "").lower()
+        if content_type.startswith("image/"):
+            return True
+        name = str(
+            attachment.get("filename")
+            or attachment.get("file_name")
+            or attachment.get("name")
+            or ""
+        ).lower()
+        if any(name.endswith(extension) for extension in IMAGE_EXTENSIONS):
+            return True
+    return False
 
 
 class GroupConversationPolicy:
@@ -89,6 +106,15 @@ class GroupConversationPolicy:
         level = str(settings.get("group_activity_level") or "balanced").strip()
         return level if level in ("quiet", "balanced", "active") else "balanced"
 
+    def proactive_vision_enabled(self, event: MessageEvent) -> bool:
+        if not self.settings_provider or not event_has_image_attachment(event):
+            return False
+        try:
+            settings = self.settings_provider(event) or {}
+        except Exception:
+            return False
+        return bool(settings.get("group_vision_enabled", True))
+
     def active_join_candidate(self, event: MessageEvent) -> bool:
         if self.group_activity_level(event) != "active":
             return False
@@ -138,14 +164,16 @@ class GroupConversationPolicy:
     def wants_reply(self, event: MessageEvent) -> bool:
         if event.shared_media:
             return True
+        if event.mentions_other:
+            return False
+        if self.proactive_vision_enabled(event):
+            return True
         text = " ".join(event.text.split()).strip()
         if not text:
             return False
         lowered = text.lower()
         if any(alias in lowered for alias in GROUP_BOT_ALIASES):
             return True
-        if event.mentions_other:
-            return False
         if GROUP_QUIET_COMMAND_RE.match(text):
             return True
         if (
@@ -214,6 +242,28 @@ def build_group_event_pipeline(
         if event.shared_media:
             state.auto_reply = True
             state.reason = "shared_media"
+            return replace(event, to_me=True)
+        if (
+            (
+                (
+                    event.platform == "qqbot"
+                    and event.group_full
+                )
+                or (
+                    event.platform == "qq"
+                    and bool(getattr(config, "group_enabled", False))
+                    and event.chat_id in getattr(
+                        config,
+                        "group_ids",
+                        frozenset(),
+                    )
+                )
+            )
+            and not event.mentions_other
+            and policy.proactive_vision_enabled(event)
+        ):
+            state.auto_reply = True
+            state.reason = "group_vision"
             return replace(event, to_me=True)
         if (
             event.platform == "qqbot"

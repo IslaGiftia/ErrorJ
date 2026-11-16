@@ -122,6 +122,12 @@ def parse_qqbot_event(
         referenced=referenced,
         mentions_other=mentioned_other,
         shared_media=tuple(extract_shared_media(text, payload)),
+        sender_role=str(
+            author.get("member_role")
+            or author.get("role")
+            or payload.get("member_role")
+            or ""
+        ).strip().lower(),
     )
 
 

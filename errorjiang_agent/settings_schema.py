@@ -21,6 +21,8 @@ BOOL_SETTINGS = frozenset(
         "group_holiday_enabled",
         "group_idle_proactive_enabled",
         "group_reply_control_enabled",
+        "group_hard_cutoff_enabled",
+        "group_vision_enabled",
         "group_jargon_enabled",
         "voice_enabled",
     }
@@ -42,6 +44,9 @@ INT_SETTINGS = {
     "group_reply_max_per_10m": (3, MAX_GROUP_ACTION_COUNT),
     "group_reply_fatigue_rounds": (2, MAX_GROUP_ACTION_COUNT),
     "group_message_merge_seconds": (0, MAX_GROUP_MERGE_SECONDS),
+    "group_hard_cutoff_rounds": (2, 10),
+    "group_hard_cutoff_minutes": (1, 120),
+    "group_vision_interval_minutes": (0, 120),
     "private_history_retention_days": (0, 3650),
     "group_history_retention_days": (0, 3650),
 }
@@ -58,12 +63,13 @@ TIME_SETTINGS = frozenset(
 )
 
 CHOICE_SETTINGS = {
-    "persona_preset": frozenset({"冷脸萌", "温柔", "理性", "活力"}),
+    "persona_preset": frozenset({"冷脸萌", "深海蓝鲸", "温柔", "理性", "活力"}),
     "group_activity_level": frozenset({"quiet", "balanced", "active"}),
 }
 
 STRING_LIMITS = {
     "persona_custom_prompt": 6000,
+    "owner_preferred_address": 40,
     "group_weather_city": 40,
     "sticker_auto_collect_library": 64,
 }

@@ -525,6 +525,10 @@
         settingValue("settingChatHumanDelay", settings.chat_human_delay);
         settingValue("settingPersonaPreset", settings.persona_preset);
         settingValue(
+          "settingOwnerPreferredAddress",
+          settings.owner_preferred_address
+        );
+        settingValue(
           "settingPersonaCustomPrompt",
           settings.persona_custom_prompt
         );
@@ -545,6 +549,14 @@
         settingValue(
           "settingGroupReplyControlEnabled",
           settings.group_reply_control_enabled
+        );
+        settingValue(
+          "settingGroupHardCutoffEnabled",
+          settings.group_hard_cutoff_enabled
+        );
+        settingValue(
+          "settingGroupVisionEnabled",
+          settings.group_vision_enabled
         );
         settingValue(
           "settingGroupActivityLevel",
@@ -599,6 +611,18 @@
           "settingGroupMessageMergeSeconds",
           settings.group_message_merge_seconds
         );
+        settingValue(
+          "settingGroupHardCutoffRounds",
+          settings.group_hard_cutoff_rounds
+        );
+        settingValue(
+          "settingGroupHardCutoffMinutes",
+          settings.group_hard_cutoff_minutes
+        );
+        settingValue(
+          "settingGroupVisionInterval",
+          settings.group_vision_interval_minutes
+        );
         settingValue("settingProactiveMax", settings.proactive_max_per_day);
         settingValue("settingMorningTime", settings.morning_time);
         settingValue("settingNightTime", settings.night_time);
@@ -648,6 +672,9 @@
         stickerAutoCollectLibrary.value || "default",
       chat_human_delay: document.getElementById("settingChatHumanDelay").checked,
       persona_preset: document.getElementById("settingPersonaPreset").value,
+      owner_preferred_address: document.getElementById(
+        "settingOwnerPreferredAddress"
+      ).value,
       persona_custom_prompt: document.getElementById(
         "settingPersonaCustomPrompt"
       ).value,
@@ -667,6 +694,12 @@
       ).checked,
       group_reply_control_enabled: document.getElementById(
         "settingGroupReplyControlEnabled"
+      ).checked,
+      group_hard_cutoff_enabled: document.getElementById(
+        "settingGroupHardCutoffEnabled"
+      ).checked,
+      group_vision_enabled: document.getElementById(
+        "settingGroupVisionEnabled"
       ).checked,
       group_activity_level: document.getElementById(
         "settingGroupActivityLevel"
@@ -715,6 +748,18 @@
       group_message_merge_seconds:
         Number(
           document.getElementById("settingGroupMessageMergeSeconds").value
+        ) || 0,
+      group_hard_cutoff_rounds:
+        Number(
+          document.getElementById("settingGroupHardCutoffRounds").value
+        ) || 3,
+      group_hard_cutoff_minutes:
+        Number(
+          document.getElementById("settingGroupHardCutoffMinutes").value
+        ) || 10,
+      group_vision_interval_minutes:
+        Number(
+          document.getElementById("settingGroupVisionInterval").value
         ) || 0,
       proactive_max_per_day:
         Number(document.getElementById("settingProactiveMax").value) || 2,
@@ -1145,7 +1190,10 @@
           var copy = document.createElement("div");
           var name = document.createElement("p");
           name.textContent =
-            member.alias || member.display_name || "未命名群友";
+            member.preferred_address ||
+            member.alias ||
+            member.display_name ||
+            "未命名群友";
           var meta = document.createElement("small");
           var bound = member.user_id
             ? "Error酱 #" + member.user_id
@@ -1154,6 +1202,9 @@
           meta.textContent =
             bound +
             " · " + Number(member.message_count || 0) + " 次发言" +
+            (member.relationship_phase
+              ? " · " + member.relationship_phase
+              : "") +
             " · " + memberTail +
             " · " + timelineDate(member.last_seen);
           copy.append(name, meta);
@@ -1170,14 +1221,23 @@
           editor.className = "agent-member-editor";
           editor.hidden = true;
           editor.innerHTML =
+            '<label><span>鲸鲸怎么称呼</span><input name="preferred_address" maxlength="40" value="' +
+            escapeHtml(member.preferred_address || "") +
+            '"></label>' +
             '<label><span>别名</span><input name="alias" maxlength="80" value="' +
             escapeHtml(member.alias || "") +
             '"></label>' +
             '<label><span>关系</span><input name="relationship" maxlength="80" value="' +
             escapeHtml(member.relationship || "群友") +
             '"></label>' +
-            '<label class="agent-member-notes"><span>档案备注</span><textarea name="notes" rows="2" maxlength="300">' +
+            '<label><span>关系阶段</span><input name="relationship_phase" maxlength="40" placeholder="例如：慢慢熟起来" value="' +
+            escapeHtml(member.relationship_phase || "") +
+            '"></label>' +
+            '<label class="agent-member-notes"><span>相处备注</span><textarea name="notes" rows="2" maxlength="300">' +
             escapeHtml(member.notes || "") +
+            "</textarea></label>" +
+            '<label class="agent-member-notes"><span>结构化事实</span><textarea name="profile_facts" rows="3" maxlength="1200" placeholder="每行一条，例如：喜欢：雨天；忌口：香菜；界限：别在群里提私聊">' +
+            escapeHtml(member.profile_facts || "") +
             "</textarea></label>" +
             '<div class="agent-member-switches">' +
             '<label><input type="checkbox" name="allow_chat"' +
@@ -1198,9 +1258,16 @@
             event.preventDefault();
             var formData = new FormData(editor);
             var values = {
+              preferred_address: String(
+                formData.get("preferred_address") || ""
+              ),
               alias: String(formData.get("alias") || ""),
               relationship: String(formData.get("relationship") || ""),
+              relationship_phase: String(
+                formData.get("relationship_phase") || ""
+              ),
               notes: String(formData.get("notes") || ""),
+              profile_facts: String(formData.get("profile_facts") || ""),
               allow_chat: formData.get("allow_chat") === "on",
               allow_tools: formData.get("allow_tools") === "on",
               memory_enabled: formData.get("memory_enabled") === "on",

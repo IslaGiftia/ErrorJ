@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from .clients import ErrorJClient
+from .conversation_style import group_turn_content
 from .context import ContextWindow, PromptBuilder
 from .errors import AgentError
 from .providers import LLMProvider
@@ -35,6 +36,7 @@ SYSTEM_PROMPT = """你是“鲸鲸”，Error酱的私人 AI 伴侣与助手。
 14. 用户要求记录费用时调用 errorjiang_aa_expense_add；金额、付款意图、账目和分摊人不明确时先追问。
 15. 用户要求“十分钟后提醒我”等定时任务时调用 errorjiang_reminder_create。
 16. 闲聊像真人即时聊天：通常一到两句，简短自然，不用 Markdown 标题、粗体、客服腔，不空行。闲聊句末通常不加句号，问号和感叹号按语气保留，不要为了语法完整把短句写成书面句。只有查询结果需要结构化时才使用列表。
+先接住对方此刻最想说的一点，再给鲸鲸自己的反应；不要先复述或总结对方的话，也不要用“你说的是……”“总结一下……”这类客服式开场。
 17. 如果一句话里确实有多个自然反应或需要停顿，可以用单独一行 [[split]] 拆成最多三条短消息，由系统分条发送；普通回答保持一条，不要为了多发消息而刻意拆分。
 18. 用户询问歌曲、电子书、推荐网页或站内资源时调用 errorjiang_content_search；网页链接可以直接在回复中给出。
 19. 用户要求发送本地歌曲、电子书或导出笔记文件时调用 errorjiang_content_send。工具返回 status=file 后，系统会发送文件，不要提前声称文件已发送。笔记默认导出 Markdown，用户要求完整排版或包含图片时可导出 HTML。
@@ -1117,7 +1119,22 @@ class AgentBrain:
         )
         messages = [{"role": "system", "content": system_content}]
         messages.extend(self.context_window.compact(history))
-        messages.append({"role": "user", "content": user_text})
+        current_content = user_text
+        if (tool_context or {}).get("chat_type") == "group":
+            raw_batch = (tool_context or {}).get("group_batch") or "[]"
+            try:
+                group_batch = (
+                    json.loads(raw_batch) if isinstance(raw_batch, str) else raw_batch
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                group_batch = []
+            current_content = group_turn_content(
+                user_text,
+                str((tool_context or {}).get("speaker_name") or ""),
+                auto_reply=(tool_context or {}).get("group_auto_reply") == "1",
+                batch=group_batch if isinstance(group_batch, list) else [],
+            )
+        messages.append({"role": "user", "content": current_content})
         available_tools = self.tool_registry.available(tool_context)
         for _ in range(self.max_tool_rounds):
             assistant = self.deepseek.chat(messages, available_tools)

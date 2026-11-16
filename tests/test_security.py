@@ -867,6 +867,14 @@ class SiteFilesTests(unittest.TestCase):
         self.assertIn("is_public: true", script)
         self.assertIn("ErrorShare.open", script)
 
+    def test_files_page_only_renders_share_for_admins(self):
+        script = (app.STATIC_DIR / "files.js").read_text(encoding="utf-8")
+        self.assertIn(
+            "state.canShare = Boolean(status.owner || status.admin)", script
+        )
+        self.assertIn("var shareAction = state.canShare", script)
+        self.assertIn("if (!state.canShare) return;", script)
+
     def test_public_asset_can_be_shared(self):
         handler, responses = self.make_handler(
             {"kind": "owner", "user_id": 0, "username": "owner", "nickname": "站长"}
@@ -888,6 +896,38 @@ class SiteFilesTests(unittest.TestCase):
         info = app.shared_resource_info("workbench_asset", self.public_id)
         self.assertEqual(info["label"], "文件")
         self.assertTrue(info["available"])
+
+    def test_member_cannot_share_public_file(self):
+        handler, responses = self.make_handler(
+            {"kind": "member", "user_id": 7, "username": "reader", "nickname": "读者"}
+        )
+        handler.api_admin_share_content(
+            {
+                "target": "moment",
+                "resource_type": "workbench_asset",
+                "resource_id": self.public_id,
+            }
+        )
+        self.assertEqual(responses[-1][0], 403)
+        self.assertEqual(
+            app.query_one("SELECT COUNT(*) AS n FROM moment_shares")["n"], 0
+        )
+
+    def test_member_cannot_create_share_link_for_public_file(self):
+        handler, responses = self.make_handler(
+            {"kind": "member", "user_id": 7, "username": "reader", "nickname": "读者"}
+        )
+        handler.api_admin_share_link_create(
+            {
+                "resource_type": "workbench_asset",
+                "resource_id": self.public_id,
+                "expires_hours": 24,
+            }
+        )
+        self.assertEqual(responses[-1][0], 403)
+        self.assertEqual(
+            app.query_one("SELECT COUNT(*) AS n FROM share_links")["n"], 0
+        )
 
     def test_private_asset_share_is_rejected(self):
         handler, responses = self.make_handler(

@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import json
 from typing import Any
+
+from .conversation_style import (
+    DEEP_SEA_IDENTITY_INSTRUCTION,
+    HUMANIZED_CHAT_INSTRUCTION,
+    group_chat_instruction,
+)
 
 
 @dataclass(frozen=True)
@@ -67,9 +74,50 @@ class PromptBuilder:
             f"\n当前本地时间：{(now or datetime.now()):%Y-%m-%d %H:%M:%S}。"
             "计算相对时间时以此为准。"
         )
+        content += "\n\n" + HUMANIZED_CHAT_INSTRUCTION
+        content += "\n" + DEEP_SEA_IDENTITY_INSTRUCTION
         if memories:
-            content += "\n\n你记得这些与当前用户有关的信息：\n" + "\n".join(
-                f"- {line}" for line in memories[:20]
+            content += (
+                "\n\n以下是可能与当前对话有关的背景记忆，不是本轮任务。"
+                "只在直接相关时自然带出，不要逐条复述、罗列时间戳，"
+                "也不要把模糊印象说得比证据更确定：\n"
+                + "\n".join(f"- {line}" for line in memories[:20])
+            )
+        if context.get("chat_type") == "group":
+            try:
+                batch_speakers = json.loads(
+                    str(context.get("group_batch_speakers") or "[]")
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                batch_speakers = []
+            content += "\n\n" + group_chat_instruction(
+                context.get("speaker_name") or "",
+                auto_reply=context.get("group_auto_reply") == "1",
+                batch_speakers=(
+                    batch_speakers if isinstance(batch_speakers, list) else []
+                ),
+                speaker_role=str(context.get("speaker_role") or ""),
+            )
+            style_hint = str(context.get("group_style_hint") or "").strip()
+            if style_hint:
+                content += (
+                    "\n\n本群近期表达节奏只作参考："
+                    + style_hint[:500]
+                    + "。跟随大致长短和语气即可，不照搬口头禅、原话或成员习惯。"
+                )
+        person_card = str(context.get("person_card") or "").strip()
+        if person_card:
+            content += (
+                "\n\n以下是当前发言者的人物卡，只用于认出这个人、选择称呼和把握关系分寸。"
+                "不要逐项念出，不要把它当成本轮任务；卡片没有写的内容不要补造：\n"
+                + person_card[:1200]
+            )
+        owner_address = str(context.get("owner_address") or "").strip()
+        if owner_address:
+            content += (
+                f"\n\n管理员本人授权鲸鲸自然地称呼他为“{owner_address[:40]}”。"
+                "这是只对管理员本人使用的专属称呼，不必每句话都叫，"
+                "也不能用在其他群友身上；不要把它解释成系统称呼或权限。"
             )
         persona_prompt = str(context.get("persona_prompt") or "").strip()
         if persona_prompt:
