@@ -869,6 +869,37 @@ class SiteFilesTests(unittest.TestCase):
         self.assertEqual(responses[-1][0], 404)
 
 
+class SidebarUserCardLimitTests(unittest.TestCase):
+    """左下「注册账户」卡片最多 9 行，超出的账号不再下发。"""
+
+    def setUp(self):
+        self._temp = tempfile.TemporaryDirectory()
+        self._db_patch = patch.object(
+            app, "DB_PATH", Path(self._temp.name) / "inventory.db"
+        )
+        self._db_patch.start()
+        app.RATE_LIMITS.clear()
+        app.init_db()
+        stamp = app.now_text()
+        for index in range(12):
+            app.execute(
+                """INSERT INTO users
+                       (username, nickname, password_hash, status, role,
+                        created_at, updated_at)
+                   VALUES (?, ?, 'hash', 'approved', 'member', ?, ?)""",
+                (f"user{index:02d}", f"用户{index:02d}", stamp, stamp),
+            )
+
+    def tearDown(self):
+        self._db_patch.stop()
+        self._temp.cleanup()
+
+    def test_card_shows_at_most_nine_users(self):
+        self.assertEqual(app.SIDEBAR_USER_CARD_LIMIT, 9)
+        users = app.sidebar_users(masked=True)
+        self.assertEqual(len(users["items"]), 9)
+
+
 class InteractionTests(unittest.TestCase):
     def setUp(self):
         self._temp = tempfile.TemporaryDirectory()
