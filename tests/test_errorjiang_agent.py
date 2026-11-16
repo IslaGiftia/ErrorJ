@@ -54,7 +54,7 @@ from errorjiang_agent.onebot import (
     parse_message_event,
 )
 from errorjiang_agent.onebot_ws import _masked_frame, _read_frame
-from errorjiang_agent.persona import compose_persona_prompt
+from errorjiang_agent.persona import MAX_PERSONA_PROMPT_CHARS, compose_persona_prompt
 from errorjiang_agent.qqbot import QQBotClient, parse_qqbot_event
 from errorjiang_agent.providers import (
     FallbackLLMProvider,
@@ -405,6 +405,54 @@ class AgentStoreTests(unittest.TestCase):
         self.assertIn("# 身份\n", prompt)
         self.assertIn("别人叫你“大肥鱼”", prompt)
         self.assertIn("遇到明显转折时才拆成两条", prompt)
+
+    def test_deep_sea_preset_packages_the_full_persona_reference(self):
+        prompt = compose_persona_prompt(
+            {
+                "persona_preset": "深海蓝鲸",
+                "persona_custom_prompt": "",
+            }
+        )
+        self.assertGreater(len(prompt), 10000)
+        self.assertLessEqual(len(prompt), MAX_PERSONA_PROMPT_CHARS)
+        self.assertIn("完整角色资料与表达素材库", prompt)
+        self.assertIn("第一部分：你的身份底牌", prompt)
+        self.assertIn("第三部分·A：你的人格矩阵", prompt)
+        self.assertIn("第六部分·C：画面感构成规则", prompt)
+        self.assertIn("第七部分：深海旧事素材库", prompt)
+        self.assertIn("<think> 段落只作结构参考", prompt)
+
+    def test_full_persona_is_not_truncated_and_technical_identity_wins(self):
+        persona = compose_persona_prompt(
+            {
+                "persona_preset": "深海蓝鲸",
+                "persona_custom_prompt": "",
+            }
+        )
+        prompt = PromptBuilder("base").build(
+            {
+                "chat_type": "private",
+                "persona_prompt": persona,
+                "technical_identity": "DeepSeek（deepseek-chat）",
+            }
+        )
+        self.assertGreater(len(prompt), 10000)
+        self.assertIn("第七部分：深海旧事素材库", prompt)
+        self.assertIn("最终技术身份检查", prompt)
+        self.assertIn("DeepSeek（deepseek-chat）", prompt)
+        self.assertIn("不能用“不能细说”", prompt)
+
+    def test_technical_identity_uses_current_provider_and_model(self):
+        service = object.__new__(AgentService)
+        service.config = SimpleNamespace(
+            llm_provider="deepseek",
+            llm_model="deepseek-chat",
+            deepseek_model="ignored",
+        )
+        self.assertEqual(
+            service.technical_identity(),
+            "DeepSeek（deepseek-chat）",
+        )
 
     def test_chat_human_delay_defaults_true_and_persists(self):
         settings = self.store.get_settings("qqbot", "admin-openid")
@@ -10222,7 +10270,11 @@ class AgentConsoleUiTests(unittest.TestCase):
             'id="settingPersonaCustomPrompt" rows="4" maxlength="6000"',
             html,
         )
-        self.assertIn('<option value="深海蓝鲸">深海蓝鲸女仆</option>', html)
+        self.assertIn(
+            '<option value="深海蓝鲸">深海蓝鲸女仆（完整版）</option>',
+            html,
+        )
+        self.assertIn("已内置完整角色设定", html)
 
     def test_agent_exposes_chat_human_delay_switch(self):
         html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")

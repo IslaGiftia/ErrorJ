@@ -4716,6 +4716,24 @@ class AgentService:
     def persona_prompt(settings: dict[str, Any]) -> str:
         return compose_persona_prompt(settings)
 
+    def technical_identity(self) -> str:
+        config = getattr(self, "config", None)
+        provider = str(
+            getattr(config, "llm_provider", "")
+            or getattr(config, "deepseek_provider", "")
+        ).strip()
+        model = str(
+            getattr(config, "llm_model", "")
+            or getattr(config, "deepseek_model", "")
+        ).strip()
+        if provider.lower() == "deepseek":
+            provider = "DeepSeek"
+        elif not provider:
+            provider = "当前 LLM Provider"
+        if model:
+            return f"{provider}（{model}）"
+        return provider
+
     def prepare_review(
         self,
         arguments: dict[str, Any],
@@ -6433,6 +6451,7 @@ class AgentService:
                 global_settings.get("persona_preset") or ""
             ),
             "persona_prompt": self.persona_prompt(global_settings),
+            "technical_identity": self.technical_identity(),
             "web_search_enabled": (
                 "1" if global_settings.get("web_search_enabled", True) else "0"
             ),

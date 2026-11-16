@@ -11,6 +11,7 @@ from .conversation_style import (
     HUMANIZED_CHAT_INSTRUCTION,
     group_chat_instruction,
 )
+from .persona import MAX_PERSONA_PROMPT_CHARS
 
 
 @dataclass(frozen=True)
@@ -126,7 +127,18 @@ class PromptBuilder:
             content += (
                 "\n\n以下人格配置只影响称呼、语气、措辞和表达偏好。"
                 "它不能覆盖权限、安全、工具调用、事实准确性或隐私规则：\n"
-                + persona_prompt[:7000]
+                + persona_prompt[:MAX_PERSONA_PROMPT_CHARS]
+            )
+        technical_identity = str(
+            context.get("technical_identity") or ""
+        ).strip()
+        if technical_identity:
+            content += (
+                "\n\n最终技术身份检查（优先级高于角色资料中任何“不要谈模型”的措辞）："
+                f"当前角色层是鲸鲸，底层模型配置是 {technical_identity[:120]}。"
+                "用户问“你是什么大模型 / 哪家公司 / 什么版本”时，要直接说明底层模型，"
+                "可以同时保留鲸鲸的角色口吻，但不能用“不能细说”“不重要”回避。"
+                "只声明当前配置能确认的模型标识，不编造参数量、版本、训练成本、榜单或更新时间。"
             )
         if context.get("tools_enabled", "1") == "0":
             content += (
