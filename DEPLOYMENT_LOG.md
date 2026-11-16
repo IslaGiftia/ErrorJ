@@ -8190,8 +8190,9 @@ JSON        -> config/changelog-seed.json 解析通过（167 条）
 ```text
 提交：811749fd5121b865ea4029c3f21923647d9e9020
       feat: add file downloads page and let workbench upload apk/exe
-      追加：d856116（补 aria-label + 9 行卡单测）、1744a0e（?tab=files 深链）
-      本地 = origin/main = 服务器 HEAD = 1744a0e
+      追加：d856116（补 aria-label + 9 行卡单测）、1744a0e（?tab=files 深链）、
+      1f7d8f8（前端 USER_LIMIT 也放到 9，否则接口给 9 行、页面只画 5 行）
+      本地 = origin/main = 服务器 HEAD = 1f7d8f8
 seed：SCP 到 /tmp/errorjiang-changelog-seed.json
       本地 / 服务器 SHA256 =
       01d196a3c0335f56c9b675bd07ca5dd38bd7cbd17781e9623ea489c77c43a700
@@ -8210,7 +8211,7 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json
 ```text
 服务      -> errorjiang / errorjiang-agent / nginx active
 健康      -> 主站 /api/health = {"ok": true}；Agent 172.17.0.1:8011/health = {"ok": true}
-版本      -> 本地 = origin/main = 服务器 HEAD = 1744a0e
+版本      -> 本地 = origin/main = 服务器 HEAD = 1f7d8f8
 更新日志  -> /api/moments 中 2026-11-16 两条：19:47:05（id 814）、20:19:37（id 815）
 文件接口  -> 游客 GET /api/site/files = [] 200；GET /api/site/files/1/download = 401
 文件页    -> /downloads 标签顺序 music / books / files / web / resource；
@@ -8218,7 +8219,7 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json
 静态文件  -> 本地 / 公网 SHA256 一致：downloads.html、downloads.js、
              recommendations.html、recommendations.js、share.js、sidebar.js、
              workbench.html、workbench.js、files.html、files.js、files.css
-侧栏卡片  -> 线上 6 个已审核账号现在全部显示（上限已改为 9，原来只显示 5）
+侧栏卡片  -> 线上 6 个已审核账号全部显示（后端上限 9、前端 USER_LIMIT 也改成 9；原来两处都是 5）
 视觉实测  -> 1440×1000 下载页（5 个图标）、文件空状态、文件列表（临时公开 1 个文件，
              截图后已把 is_public 改回 0）、留言页侧栏
 回滚      -> git reset --hard 8e290e5 后重启；is_public 列可保留（默认 0 不影响）
