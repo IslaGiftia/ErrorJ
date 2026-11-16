@@ -25,7 +25,7 @@
   var shareFeedback = null;
   var currentResource = null;
 
-  var CONTENT_SHARE_TYPES = { note: true, book: true, music: true };
+  var CONTENT_SHARE_TYPES = { note: true, book: true, music: true, workbench_asset: true };
 
   function buildShareModal() {
     if (shareOverlay) return;

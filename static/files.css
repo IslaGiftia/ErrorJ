@@ -1,4 +1,4 @@
-/* 「下载 → 文件」子页：工作台里勾了「公开到下载页」的文件列表。 */
+/* 「下载 → 文件」子页：工作台里勾了「公开到下载页」的文件。 */
 
 :root {
   --fl-bg: #f5f6f8;
@@ -8,6 +8,7 @@
   --fl-muted: #6b7280;
   --fl-accent: #6554d8;
   --fl-accent-soft: rgba(101, 84, 216, 0.09);
+  --fl-danger: #d9534f;
   --fl-shadow: 0 2px 10px rgba(24, 31, 45, 0.06);
 }
 
@@ -24,6 +25,10 @@
 
 * {
   box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
 }
 
 body {
@@ -45,7 +50,7 @@ body {
 .fl-top-inner {
   max-width: 760px;
   margin: 0 auto;
-  height: 56px;
+  min-height: 56px;
   padding: 0 16px;
   display: flex;
   align-items: center;
@@ -80,73 +85,54 @@ body {
   color: var(--fl-muted);
 }
 
-.fl-main {
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 18px 16px 80px;
-}
-
-.fl-toolbar {
-  display: flex;
-  flex-wrap: wrap;
+.fl-btn {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-
-.fl-search {
-  flex: 1 1 220px;
-  min-width: 0;
-  height: 40px;
-  padding: 0 12px;
+  gap: 6px;
+  height: var(--control-height, 40px);
+  padding: 0 14px;
   font: inherit;
   font-size: 13px;
   color: var(--fl-text);
   background: var(--fl-surface);
   border: 1px solid var(--fl-line);
   border-radius: var(--radius, 8px);
-  outline: none;
-  transition: border-color var(--dur-fast, 160ms) var(--ease-standard, ease);
-}
-
-.fl-search::placeholder {
-  color: var(--fl-muted);
-}
-
-.fl-search:focus {
-  border-color: var(--fl-accent);
-}
-
-.fl-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.fl-chip {
-  height: 32px;
-  padding: 0 12px;
-  font: inherit;
-  font-size: 12px;
-  color: var(--fl-muted);
-  background: var(--fl-surface);
-  border: 1px solid var(--fl-line);
-  border-radius: var(--radius-pill, 999px);
   cursor: pointer;
   transition:
-    color var(--dur-fast, 160ms) var(--ease-standard, ease),
+    transform var(--dur-fast, 160ms) var(--ease-out-strong, ease),
     background var(--dur-fast, 160ms) var(--ease-standard, ease),
     border-color var(--dur-fast, 160ms) var(--ease-standard, ease);
 }
 
-.fl-chip:hover {
-  color: var(--fl-text);
+.fl-btn svg {
+  width: 15px;
+  height: 15px;
 }
 
-.fl-chip.is-active {
+.fl-btn:hover {
+  transform: translateY(-1px);
+}
+
+.fl-btn-primary {
   color: var(--on-accent, #fff);
   background: var(--fl-accent);
   border-color: transparent;
+}
+
+.fl-btn-primary:hover {
+  background: color-mix(in srgb, var(--fl-accent) 88%, #000);
+}
+
+.fl-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+  transform: none;
+}
+
+.fl-main {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 18px 16px 80px;
 }
 
 .fl-list {
@@ -216,16 +202,19 @@ body {
   white-space: nowrap;
 }
 
-.fl-dl {
+.fl-actions {
   flex: none;
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 6px;
-  height: 34px;
-  padding: 0 12px;
-  font: inherit;
-  font-size: 13px;
-  color: var(--fl-text);
+  gap: 5px;
+}
+
+.fl-action {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  color: var(--fl-muted);
   background: transparent;
   border: 1px solid var(--fl-line);
   border-radius: var(--radius, 8px);
@@ -233,35 +222,22 @@ body {
   transition:
     transform var(--dur-fast, 160ms) var(--ease-out-strong, ease),
     background var(--dur-fast, 160ms) var(--ease-standard, ease),
-    border-color var(--dur-fast, 160ms) var(--ease-standard, ease);
+    color var(--dur-fast, 160ms) var(--ease-standard, ease);
 }
 
-.fl-dl svg {
+.fl-action svg {
   width: 15px;
   height: 15px;
 }
 
-.fl-dl.is-primary {
-  color: var(--on-accent, #fff);
-  background: var(--fl-accent);
-  border-color: transparent;
-}
-
-.fl-dl:hover {
+.fl-action:hover {
   transform: translateY(-1px);
+  color: var(--fl-text);
+  background: var(--fl-accent-soft);
 }
 
-.fl-dl.is-primary:hover {
-  background: color-mix(in srgb, var(--fl-accent) 88%, #000);
-}
-
-.fl-dl.is-guest {
+.fl-action.is-guest {
   color: var(--fl-muted);
-}
-
-.fl-dl.is-guest:hover {
-  transform: none;
-  border-color: var(--fl-line);
 }
 
 .fl-empty {
@@ -271,12 +247,151 @@ body {
   color: var(--fl-muted);
 }
 
+/* ---------------- 上传弹窗 ---------------- */
+
+.fl-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(15, 18, 25, 0.45);
+  animation: fl-fade-in var(--dur-fast, 160ms) var(--ease-out-strong, ease);
+}
+
+.fl-dialog {
+  width: min(460px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  background: var(--fl-surface);
+  border: 1px solid var(--fl-line);
+  border-radius: var(--radius-xl, 14px);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.28);
+  animation: fl-pop-in var(--dur-base, 220ms) var(--ease-out-strong, ease);
+}
+
+.fl-dialog-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fl-dialog-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.fl-icon-btn {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  color: var(--fl-muted);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius, 8px);
+  cursor: pointer;
+}
+
+.fl-icon-btn:hover {
+  background: var(--fl-accent-soft);
+  color: var(--fl-text);
+}
+
+.fl-file-field {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px dashed var(--fl-line);
+  border-radius: var(--radius-lg, 10px);
+  cursor: pointer;
+}
+
+.fl-file-field:hover {
+  border-color: var(--fl-accent);
+}
+
+.fl-file-field input {
+  display: none;
+}
+
+.fl-file-field span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.fl-file-field svg {
+  width: 17px;
+  height: 17px;
+  color: var(--fl-accent);
+}
+
+.fl-file-field small {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fl-muted);
+}
+
+.fl-field {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--fl-muted);
+}
+
+.fl-field > span {
+  font-weight: 700;
+}
+
+.fl-field input,
+.fl-field select {
+  height: 38px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fl-text);
+  background: var(--fl-bg);
+  border: 1px solid var(--fl-line);
+  border-radius: var(--radius, 8px);
+  outline: none;
+}
+
+.fl-field input:focus,
+.fl-field select:focus {
+  border-color: var(--fl-accent);
+}
+
+.fl-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--fl-muted);
+}
+
+.fl-dialog-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fl-spacer {
+  flex: 1;
+}
+
 .fl-toast {
   position: fixed;
   left: 50%;
   bottom: 28px;
   transform: translateX(-50%);
-  z-index: 30;
+  z-index: 60;
   max-width: min(520px, calc(100vw - 32px));
   padding: 10px 16px;
   font-size: 13px;
@@ -285,6 +400,19 @@ body {
   border-radius: var(--radius, 8px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
   animation: site-toast-in var(--dur-fast, 160ms) var(--ease-out-strong, ease);
+}
+
+@keyframes fl-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes fl-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
 }
 
 /* 内嵌到「下载」页：顶栏交给外壳的常驻按钮，这里只留列表本身。 */
@@ -321,25 +449,21 @@ html.is-embed .fl-main {
     width: 36px;
     height: 36px;
   }
-
-  .fl-dl span {
-    display: none;
-  }
-
-  .fl-dl {
-    padding: 0 10px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .fl-item,
   .fl-item:hover,
-  .fl-dl,
-  .fl-dl:hover {
+  .fl-action,
+  .fl-action:hover,
+  .fl-btn,
+  .fl-btn:hover {
     transform: none;
     animation: none;
   }
 
+  .fl-modal,
+  .fl-dialog,
   .fl-toast {
     animation: none;
   }

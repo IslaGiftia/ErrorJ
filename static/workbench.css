@@ -520,7 +520,7 @@ svg {
   color: var(--wb-muted);
 }
 
-.wb-badge.wb-badge-public {\n  background: color-mix(in srgb, var(--wb-success) 16%, transparent);\n  color: var(--wb-success);\n}\n\n.wb-check {\n  grid-template-columns: auto 1fr;\n  align-items: center;\n  column-gap: 8px;\n  cursor: pointer;\n}\n\n.wb-check input {\n  width: 16px;\n  height: 16px;\n  margin: 0;\n  accent-color: var(--wb-accent);\n}\n\n.wb-check small {\n  grid-column: 2;\n  color: var(--wb-muted);\n  font-size: 12px;\n  line-height: 1.5;\n}\n\n.wb-card-actions {
+.wb-card-actions {
   display: flex;
   align-items: center;
   gap: 5px;
@@ -801,7 +801,7 @@ svg {
     grid-template-columns: 1fr;
   }
 
-  .wb-badge.wb-badge-public {\n  background: color-mix(in srgb, var(--wb-success) 16%, transparent);\n  color: var(--wb-success);\n}\n\n.wb-check {\n  grid-template-columns: auto 1fr;\n  align-items: center;\n  column-gap: 8px;\n  cursor: pointer;\n}\n\n.wb-check input {\n  width: 16px;\n  height: 16px;\n  margin: 0;\n  accent-color: var(--wb-accent);\n}\n\n.wb-check small {\n  grid-column: 2;\n  color: var(--wb-muted);\n  font-size: 12px;\n  line-height: 1.5;\n}\n\n.wb-card-actions {
+  .wb-card-actions {
     justify-content: flex-end;
   }
 
@@ -1727,4 +1727,31 @@ a.wb-btn {
   .wb-upload-limit-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* 「公开到下载页」勾选框与卡片上的公开角标 */
+.wb-badge.wb-badge-public {
+  background: color-mix(in srgb, var(--wb-success) 16%, transparent);
+  color: var(--wb-success);
+}
+
+.wb-check {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 8px;
+  cursor: pointer;
+}
+
+.wb-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--wb-accent);
+}
+
+.wb-check small {
+  grid-column: 2;
+  color: var(--wb-muted);
+  font-size: 12px;
+  line-height: 1.5;
 }

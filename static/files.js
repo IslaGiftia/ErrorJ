@@ -1,9 +1,10 @@
 /*
- * 「下载 → 文件」子页：列出工作台里勾了「公开到下载页」的文件。
+ * 「下载 → 文件」子页：工作台里勾了「公开到下载页」的文件。
  *
  * - 游客也能看到列表（文件名 / 分类 / 大小 / 时间），下载按钮点了提示「请登录后操作」；
- * - 登录账号点下载直接走 /api/site/files/<id>/download（服务端仍然只放行公开文件）。
- * - 分类筛选和搜索都在前端做：文件数量不多，不用再打接口。
+ * - 登录账号点下载直接走 /api/site/files/<id>/download；
+ * - 站长在这里上传的文件直接落进工作台的「其他 / 源码 / 固件…」分类并标为公开；
+ * - 分享按钮走和其它子页同一套分享弹窗（动态 / 下载 / 外部链接）。
  */
 (function () {
   "use strict";
@@ -29,9 +30,8 @@
 
   var state = {
     files: [],
-    category: "all",
-    query: "",
     requiresLogin: true,
+    canUpload: false,
     loaded: false,
     error: "",
   };
@@ -51,10 +51,8 @@
     }, 2600);
   }
 
-  function api(path) {
-    return fetch(path, { cache: "no-store", credentials: "same-origin" }).then(function (
-      response
-    ) {
+  function api(path, options) {
+    return fetch(path, options).then(function (response) {
       return response
         .json()
         .catch(function () {
@@ -85,67 +83,33 @@
     return EXT_ICONS[item.extension] || CATEGORY_ICONS[item.category] || "file";
   }
 
-  function visibleFiles() {
-    var query = state.query.trim().toLowerCase();
-    return state.files.filter(function (item) {
-      if (state.category !== "all" && item.category !== state.category) return false;
-      if (!query) return true;
-      return (
-        String(item.title || "").toLowerCase().indexOf(query) >= 0 ||
-        String(item.original_name || "").toLowerCase().indexOf(query) >= 0
-      );
-    });
-  }
-
-  function paintFilters() {
-    var box = $("fileFilters");
-    if (!box) return;
-    var present = {};
-    state.files.forEach(function (item) {
-      present[item.category || "other"] = true;
-    });
-    var keys = Object.keys(CATEGORY_LABELS).filter(function (key) {
-      return present[key];
-    });
-    var html = '<button class="fl-chip' + (state.category === "all" ? " is-active" : "") +
-      '" type="button" data-category="all" aria-pressed="' +
-      (state.category === "all" ? "true" : "false") + '">全部</button>';
-    keys.forEach(function (key) {
-      var active = state.category === key;
-      html +=
-        '<button class="fl-chip' + (active ? " is-active" : "") +
-        '" type="button" data-category="' + key + '" aria-pressed="' +
-        (active ? "true" : "false") + '">' + CATEGORY_LABELS[key] + "</button>";
-    });
-    box.innerHTML = html;
+  function escapeHtml(value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 
   function paintList() {
     var list = $("fileList");
     if (!list) return;
-    var items = visibleFiles();
     var count = $("fileCount");
-    if (count) {
-      count.textContent = state.files.length
-        ? state.files.length + " 个文件"
-        : "";
-    }
+    if (count) count.textContent = state.files.length ? state.files.length + " 个文件" : "";
     if (!state.loaded) {
       list.innerHTML = '<p class="fl-empty">加载中…</p>';
       return;
     }
     if (state.error) {
-      list.innerHTML = '<p class="fl-empty">' + state.error + "</p>";
+      list.innerHTML = '<p class="fl-empty">' + escapeHtml(state.error) + "</p>";
       return;
     }
-    if (!items.length) {
-      list.innerHTML =
-        '<p class="fl-empty">' +
-        (state.files.length ? "没有匹配的文件。" : "还没有公开的文件。") +
-        "</p>";
+    if (!state.files.length) {
+      list.innerHTML = '<p class="fl-empty">还没有公开的文件。</p>';
       return;
     }
-    list.innerHTML = items
+    list.innerHTML = state.files
       .map(function (item) {
         var meta = [
           CATEGORY_LABELS[item.category] || "其他",
@@ -154,10 +118,10 @@
         ];
         var guest = Boolean(item.requires_login);
         return (
-          '<article class="fl-item">' +
+          '<article class="fl-item" data-focus-id="' + item.id + '">' +
           '<span class="fl-icon"><i data-lucide="' + iconFor(item) + '"></i></span>' +
           '<div class="fl-body">' +
-          '<div class="fl-title" title="' + escapeAttr(item.title || "") + '">' +
+          '<div class="fl-title" title="' + escapeHtml(item.title || "") + '">' +
           escapeHtml(item.title || item.original_name || "文件") +
           "</div>" +
           '<div class="fl-meta">' +
@@ -171,10 +135,14 @@
             .join("") +
           "</div>" +
           "</div>" +
-          '<button class="fl-dl' + (guest ? " is-guest" : " is-primary") +
+          '<div class="fl-actions">' +
+          '<button class="fl-action" type="button" data-share-file="' + item.id +
+          '" title="分享"><i data-lucide="share-2"></i></button>' +
+          '<button class="fl-action fl-action-download' + (guest ? " is-guest" : "") +
           '" type="button" data-file-download="' + item.id + '"' +
-          (guest ? ' title="请登录后操作"' : "") + ">" +
-          '<i data-lucide="download"></i><span>下载</span></button>' +
+          (guest ? ' title="请登录后操作"' : ' title="下载"') +
+          "><i data-lucide=\"download\"></i></button>" +
+          "</div>" +
           "</article>"
         );
       })
@@ -182,30 +150,13 @@
     if (window.lucide) lucide.createIcons();
   }
 
-  function escapeHtml(value) {
-    return String(value == null ? "" : value)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
-  }
-
-  function escapeAttr(value) {
-    return escapeHtml(value);
-  }
-
-  function render() {
-    paintFilters();
-    paintList();
-  }
-
-  function load() {
+  function loadFiles() {
     return api("/api/site/files")
       .then(function (data) {
-        var items = Array.isArray(data) ? data : [];
-        state.files = items;
-        state.requiresLogin = items.length ? Boolean(items[0].requires_login) : false;
+        state.files = Array.isArray(data) ? data : [];
+        state.requiresLogin = state.files.length
+          ? Boolean(state.files[0].requires_login)
+          : false;
         state.loaded = true;
         state.error = "";
       })
@@ -213,7 +164,19 @@
         state.loaded = true;
         state.error = err.message || "加载失败";
       })
-      .then(render);
+      .then(paintList);
+  }
+
+  function loadAuth() {
+    return api("/api/auth/status")
+      .then(function (status) {
+        state.canUpload = Boolean(status.owner || status.admin);
+        var button = $("fileUploadBtn");
+        if (button) button.hidden = !state.canUpload;
+      })
+      .catch(function () {
+        state.canUpload = false;
+      });
   }
 
   function download(id) {
@@ -228,33 +191,119 @@
     location.href = "/api/site/files/" + item.id + "/download";
   }
 
+  function share(id) {
+    var item = state.files.filter(function (row) {
+      return Number(row.id) === Number(id);
+    })[0];
+    if (!item) return;
+    if (!window.ErrorShare) return;
+    window.ErrorShare.open(
+      "workbench_asset",
+      item.id,
+      item.title || item.original_name || "文件"
+    );
+  }
+
+  /* ---------------- 上传（只有站长看得到入口） ---------------- */
+
+  function readFileBase64(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        var result = String(reader.result || "");
+        resolve(result.slice(result.indexOf(",") + 1));
+      };
+      reader.onerror = function () {
+        reject(new Error("读取文件失败"));
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function openUpload() {
+    if (!state.canUpload) return;
+    var modal = $("uploadModal");
+    if (!modal) return;
+    $("uploadFiles").value = "";
+    $("uploadName").value = "";
+    $("uploadCategory").value = "other";
+    $("uploadFileLabel").textContent = "选择文件";
+    $("uploadHint").textContent = "上传后直接出现在这个页面，登录账号可以下载。";
+    modal.hidden = false;
+    if (window.ErrorEmbed) window.ErrorEmbed.notifyDialog(true);
+    if (window.lucide) lucide.createIcons();
+  }
+
+  function closeUpload() {
+    var modal = $("uploadModal");
+    if (modal) modal.hidden = true;
+    if (window.ErrorEmbed) window.ErrorEmbed.notifyDialog(false);
+  }
+
+  function submitUpload() {
+    var file = $("uploadFiles").files[0];
+    if (!file) {
+      toast("请选择文件");
+      return;
+    }
+    var payload = {
+      file_name: file.name,
+      title: $("uploadName").value.trim(),
+      category: $("uploadCategory").value,
+      is_public: true,
+    };
+    var button = $("uploadSubmit");
+    button.disabled = true;
+    readFileBase64(file)
+      .then(function (dataBase64) {
+        payload.data_base64 = dataBase64;
+        return api("/api/workbench/assets", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      })
+      .then(function () {
+        closeUpload();
+        toast("文件已上传");
+        return loadFiles();
+      })
+      .catch(function (err) {
+        toast(err.message || "上传失败");
+      })
+      .finally(function () {
+        button.disabled = false;
+      });
+  }
+
   function bind() {
-    var search = $("fileSearch");
-    if (search) {
-      search.addEventListener("input", function () {
-        state.query = search.value || "";
-        paintList();
-      });
-    }
-    var filters = $("fileFilters");
-    if (filters) {
-      filters.addEventListener("click", function (event) {
-        var button = event.target.closest("[data-category]");
-        if (!button) return;
-        state.category = button.getAttribute("data-category") || "all";
-        render();
-      });
-    }
+    $("fileUploadBtn").addEventListener("click", openUpload);
+    $("uploadClose").addEventListener("click", closeUpload);
+    $("uploadCancel").addEventListener("click", closeUpload);
+    $("uploadSubmit").addEventListener("click", submitUpload);
+    $("uploadFiles").addEventListener("change", function () {
+      var file = $("uploadFiles").files[0];
+      $("uploadFileLabel").textContent = file ? file.name : "选择文件";
+    });
     var list = $("fileList");
-    if (list) {
-      list.addEventListener("click", function (event) {
-        var button = event.target.closest("[data-file-download]");
-        if (!button) return;
-        download(button.getAttribute("data-file-download"));
-      });
-    }
+    list.addEventListener("click", function (event) {
+      var downloadButton = event.target.closest("[data-file-download]");
+      if (downloadButton) {
+        download(downloadButton.getAttribute("data-file-download"));
+        return;
+      }
+      var shareButton = event.target.closest("[data-share-file]");
+      if (shareButton) {
+        event.stopPropagation();
+        share(shareButton.getAttribute("data-share-file"));
+      }
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !$("uploadModal").hidden) closeUpload();
+    });
   }
 
   bind();
-  load();
+  loadAuth().then(loadFiles);
+  window.ErrorRecommendTab = { key: "files", openAdd: openUpload };
 })();

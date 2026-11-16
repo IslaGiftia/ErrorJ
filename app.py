@@ -703,8 +703,8 @@ NOTE_IMAGE_EXTENSIONS = {
     "image/bmp": ".bmp",
 }
 RECOMMEND_KINDS = {"site", "tool", "movie", "anime", "resource"}
-SHARE_CONTENT_TYPES = {"note", "book", "music"}
-SHARE_CONTENT_LABELS = {"note": "笔记", "book": "电子书", "music": "歌曲"}
+SHARE_CONTENT_TYPES = {"note", "book", "music", "workbench_asset"}
+SHARE_CONTENT_LABELS = {"note": "笔记", "book": "电子书", "music": "歌曲", "workbench_asset": "文件"}
 BOOKMARK_CHECK_LOCK = threading.Lock()
 BOOKMARK_FAVICON_SEMAPHORE = threading.BoundedSemaphore(4)
 BOOKMARK_FAVICON_LOCKS = {}
@@ -7984,6 +7984,26 @@ def shared_resource_info(resource_type, resource_id):
                     "available": True,
                 }
             )
+    elif resource_type == "workbench_asset":
+        row = query_one(
+            """SELECT id, title, original_name, category, size_bytes, is_public
+               FROM workbench_assets WHERE id = ?""",
+            (resource_id,),
+        )
+        if row:
+            info.update(
+                {
+                    "title": row.get("title")
+                    or row.get("original_name")
+                    or f"文件 #{resource_id}",
+                    "subtitle": format_upload_limit_bytes(
+                        int(row.get("size_bytes") or 0)
+                    ),
+                    "url": f"/api/site/files/{resource_id}/download",
+                    "page_url": f"/downloads?tab=files&focus={resource_id}",
+                    "available": bool(row.get("is_public")),
+                }
+            )
     return info
 
 
@@ -13893,6 +13913,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 400, "这种内容暂时不能分享到站内。")
             return
         info = shared_resource_info(resource_type, resource_id)
+        if not info.get("available") and resource_type == "workbench_asset":
+            api_error(self, 400, "先在「公开到下载页」里勾选这个文件，再分享。")
+            return
         if not info.get("available"):
             api_error(self, 404, "要分享的内容不存在。")
             return

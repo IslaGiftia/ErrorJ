@@ -20,6 +20,8 @@
   <script src="/static/site/theme.js"></script>
   <script src="/static/site/tabname.js"></script>
   <link rel="stylesheet" href="/static/fonts.css">
+  <link rel="stylesheet" href="/static/site/progress.css">
+  <link rel="stylesheet" href="/static/site/share.css">
   <link rel="stylesheet" href="/static/files.css">
   <link rel="stylesheet" href="/static/site/embed.css">
   <script src="/static/site/embed.js"></script>
@@ -32,20 +34,55 @@
         <strong>文件</strong>
       </a>
       <span class="fl-count" id="fileCount"></span>
+      <button class="fl-btn fl-btn-primary" id="fileUploadBtn" type="button" hidden>
+        <i data-lucide="plus"></i><span>文件</span>
+      </button>
     </div>
   </header>
 
   <main class="fl-main">
-    <div class="fl-toolbar">
-      <input class="fl-search" id="fileSearch" type="search" placeholder="搜索文件名或说明" autocomplete="off">
-      <div class="fl-filters" id="fileFilters" role="group" aria-label="文件分类"></div>
-    </div>
     <div class="fl-list" id="fileList" aria-live="polite"></div>
   </main>
+
+  <div class="fl-modal" id="uploadModal" hidden>
+    <div class="fl-dialog" role="dialog" aria-modal="true" aria-labelledby="uploadTitle">
+      <header class="fl-dialog-head">
+        <h2 id="uploadTitle">上传文件</h2>
+        <button class="fl-icon-btn" id="uploadClose" type="button" aria-label="关闭">
+          <i data-lucide="x"></i>
+        </button>
+      </header>
+      <label class="fl-file-field">
+        <input id="uploadFiles" type="file">
+        <span><i data-lucide="file-up"></i><strong id="uploadFileLabel">选择文件</strong></span>
+        <small>支持源码压缩包、HEX、BIN、APK、EXE、PDF、原理图、图片等，单个不超过 30MB。</small>
+      </label>
+      <label class="fl-field"><span>标题（可留空）</span><input id="uploadName" maxlength="160" placeholder="默认使用文件名"></label>
+      <label class="fl-field"><span>分类</span>
+        <select id="uploadCategory">
+          <option value="other">其他</option>
+          <option value="source">源码与工程</option>
+          <option value="firmware">固件</option>
+          <option value="document">文档</option>
+          <option value="image">图片</option>
+        </select>
+      </label>
+      <p class="fl-hint" id="uploadHint">上传后直接出现在这个页面，登录账号可以下载。</p>
+      <div class="fl-dialog-actions">
+        <span class="fl-spacer"></span>
+        <button class="fl-btn" id="uploadCancel" type="button">取消</button>
+        <button class="fl-btn fl-btn-primary" id="uploadSubmit" type="button">开始上传</button>
+      </div>
+    </div>
+  </div>
 
   <div class="fl-toast" id="fileToast" hidden></div>
 
   <script src="/static/vendor/lucide.min.js"></script>
+  <script src="/static/site/progress.js"></script>
+  <script src="/static/site/share.js"></script>
+  <script src="/static/site/upload-limits.js"></script>
+  <script src="/static/site/focus-target.js"></script>
   <script src="/static/files.js"></script>
 </body>
 </html>

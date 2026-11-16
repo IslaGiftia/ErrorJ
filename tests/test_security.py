@@ -856,6 +856,53 @@ class SiteFilesTests(unittest.TestCase):
         script = (app.STATIC_DIR / "downloads.js").read_text(encoding="utf-8")
         self.assertIn('key === "files"', script)
 
+    def test_files_page_has_upload_entry(self):
+        page = (app.STATIC_DIR / "files.html").read_text(encoding="utf-8")
+        self.assertIn('id="fileUploadBtn"', page)
+        self.assertIn('id="uploadModal"', page)
+        # 其它子页都没有搜索框，这一页也不该多一个
+        self.assertNotIn('type="search"', page)
+        script = (app.STATIC_DIR / "files.js").read_text(encoding="utf-8")
+        self.assertIn("ErrorRecommendTab", script)
+        self.assertIn("is_public: true", script)
+        self.assertIn("ErrorShare.open", script)
+
+    def test_public_asset_can_be_shared(self):
+        handler, responses = self.make_handler(
+            {"kind": "owner", "user_id": 0, "username": "owner", "nickname": "站长"}
+        )
+        handler.api_admin_share_content(
+            {
+                "target": "recommendation",
+                "resource_type": "workbench_asset",
+                "resource_id": self.public_id,
+            }
+        )
+        self.assertEqual(responses[-1][0], 200)
+        row = app.query_one(
+            "SELECT kind, resource_type FROM recommendations WHERE id = ?",
+            (responses[-1][1]["recommendation_id"],),
+        )
+        self.assertEqual(row["kind"], "resource")
+        self.assertEqual(row["resource_type"], "workbench_asset")
+        info = app.shared_resource_info("workbench_asset", self.public_id)
+        self.assertEqual(info["label"], "文件")
+        self.assertTrue(info["available"])
+
+    def test_private_asset_share_is_rejected(self):
+        handler, responses = self.make_handler(
+            {"kind": "owner", "user_id": 0, "username": "owner", "nickname": "站长"}
+        )
+        handler.api_admin_share_content(
+            {
+                "target": "moment",
+                "resource_type": "workbench_asset",
+                "resource_id": self.private_id,
+            }
+        )
+        self.assertEqual(responses[-1][0], 400)
+        self.assertIn("公开到下载页", responses[-1][1]["error"])
+
     def test_public_file_list_hides_private_files(self):
         handler, responses = self.make_handler(None)
         handler.api_site_files()

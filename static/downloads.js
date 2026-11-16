@@ -18,8 +18,8 @@
   var TABS = [
     { key: "music", label: "歌曲", module: "music", badge: true },
     { key: "books", label: "书籍", module: "books", badge: true },
-    // 文件页是工作台文件的公开目录，没有「新增」入口，也没有未读角标。
-    { key: "files", label: "文件", module: "", badge: false, add: false },
+    // 文件页没有未读角标；上传入口就是右上角的「+文件」，和其它子页一样。
+    { key: "files", label: "文件", module: "", badge: false },
     {
       key: "web",
       label: "网页",

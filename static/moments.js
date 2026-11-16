@@ -623,6 +623,7 @@
   function shareIconName(type) {
     if (type === "book") return "book-open";
     if (type === "music") return "music";
+    if (type === "workbench_asset") return "file-down";
     return "notebook-pen";
   }
 
