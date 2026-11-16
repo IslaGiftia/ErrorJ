@@ -8103,3 +8103,61 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json
              E58867D92FB28C0BDCBF352B0DD8D50006303B55F9BBED5D9BE0C03DD8D4CAC9
 本地回归  -> 406 项单测通过；Python / JavaScript / JSON / diff 检查通过
 ```
+## 170. 2026-11-16 19:47:05 「推荐」入口改名「下载」
+
+来源：用户要求把「推荐」入口的文案改成「下载」，覆盖首页、浏览器标签页与页面内指代该页面的提示。
+
+完成内容（功能提交 `03cf6f0 feat: rename the site's recommendation entry to download`，9 文件，+37/−37）：
+
+- 首页公共入口按钮由「推荐」改为「下载」；`/downloads` 的 `<title>` 与左上角标签组的无障碍名称改为「下载」「下载分类」。
+- 页面内指代该页的地方同步为「下载」：侧栏「请在下载页查看」、分享面板的落点说明与成功提示、账号权限里的游客页面名（`guest:page:downloads`）。
+- 说明与文档同步：`static/references.html` 的模块清单改为「下载（歌曲 / 书籍 / 网页 / 站内资源）」，并把当年「下载改推荐」那句改成「「推荐」页（现已改回「下载」）」保留历史；`static/reporting.html` 改为「下载页面」；README 的入口名、页面名与标签页规则一并更新。
+- 有意保留内容语义的「推荐」：新增 / 编辑 / 置顶推荐、推荐理由、推荐内容、推荐度、分享到推荐、`/recommendations` 独立页标题与「推荐封面」等。
+- 更新的单测：首页入口断言与 `guest:page:downloads` 标签断言改为「下载」。
+
+本地验证：
+```text
+单元测试    -> 406 项通过（123.99s）
+Python      -> app.py 编译通过
+JavaScript  -> share.js、sidebar.js 检查通过
+JSON        -> config/changelog-seed.json 解析通过（166 条）
+差异检查    -> git diff --check 干净
+```
+
+部署步骤：
+```text
+提交：03cf6f0d22d62e54b5965954875ddb197212bbf5
+      feat: rename the site's recommendation entry to download
+      （fetch -> pull --rebase -> push；local == origin/main == 03cf6f0）
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json
+      本地 / 服务器 SHA256 =
+      641fe5ed356c952b0b9fb090136fdd31486bcc162339f6dc1f39c93d3c9b587c
+备份：/data/errorjiang-backup/20261116-1951
+      inventory.db 11018240 bytes、agent.db 2379776 bytes、
+      auth.json 223 bytes、changelog-seed.json 146306 bytes；无 WAL / SHM
+服务器：stop errorjiang-agent -> stop errorjiang -> 备份
+      -> git pull --ff-only -> 03cf6f0
+      -> seed 安装；import_changelog_moments.py --date 2026-11-16 --force
+      -> 新增 1 条、覆盖 0 条、跳过 0 条
+      -> start errorjiang -> start errorjiang-agent
+```
+
+最终验证：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active（19:50:35 重启）
+健康      -> 主站 /api/health = {"ok": true}
+             Agent 172.17.0.1:8011/health = {"ok": true}
+版本      -> 本地代码提交 = origin/main = 服务器 HEAD = 03cf6f0
+             服务器工作区仅保留既有未跟踪 data.before-upload-20260929-183359/
+更新日志  -> /api/moments 中 id 813、kind = log
+             2026-11-16 19:47:05「推荐」入口改名「下载」
+首页实测  -> https://zhexiyan.cc/ 入口文案依次为 留言 / 动态 / 下载 / 计算器
+             页面源码中不再出现 landing-module-text">推荐
+标签页    -> /downloads 的 <title> = 下载，标签组 aria-label = 下载分类
+静态文件  -> 本地 / 公网 SHA256 一致：
+             site.html 4209fe5c6583、downloads.html 6a873a2da185、
+             share.js 19474e221d6e、sidebar.js e7d986358955、
+             references.html c050275fb99f
+             reporting.html 线上含「下载页面」（本地工作区为 CRLF，字节哈希与仓库 LF 版本不同）
+视觉实测  -> 1280×900 首页 / 下载页、390×844 首页均正常
+```
