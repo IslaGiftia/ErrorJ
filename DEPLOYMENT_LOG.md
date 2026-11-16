@@ -8273,3 +8273,61 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json
 更新日志  -> 2026-11-16 两条（id 816 / 817），文案已去掉搜索与筛选
 ```
 
+## 173. 2026-11-16 23:22:05 鲸鲸群聊拟人与人物卡，文件分享收紧为管理员
+
+来源：用户要求继续升级鲸鲸的群聊参与、修复主动识图，并把管理员称呼“爸爸”和深海蓝鲸女仆提示词落到人物卡与人格配置；同时普通账户不应看到或调用文件页分享。功能提交 `d1e6498 feat: humanize jingjing and secure file sharing`，本条发布记录随后提交。
+
+完成内容：
+
+- 群聊回复先回应本轮发言者；群历史和当前批次分离，当前消息不再重复注入，连续群消息会合并为带成员归属的批次。
+- 稳定真人表达规则会阻止纯复述、多人纪要和客服式开场；未点名的自动接话允许静默，发送前会拦截明显复读或群聊摘要。
+- 群主 / 群管理员 / 普通成员身份进入提示词，但不会增加 Error酱 权限；连续三次自然接话后进入十分钟硬收口，显式 @、叫名字和命令仍然有效。
+- 未 @ 的群图片可以进入主动识图，默认五分钟冷却；没有独立 DeepSeek Key 时复用主 `LLM_API_KEY` / `LLM_BASE_URL`，并支持 `LLM_VISION_MODEL`。
+- 群友档案升级为 420 字以内人物卡：称呼、别名、关系阶段、相处备注、结构化事实和刻骨 / 记得 / 印象记忆锚点。管理员专属称呼默认预填“爸爸”，只对管理员本人使用，可编辑。
+- 新增“深海蓝鲸女仆”人格和身份底色；短时心情、困倦和吃醋会按半衰期回落，关系提示改用语气词，不向用户播报内部评分。
+- 文件页分享按钮只对管理员渲染；普通账户不能分享内容或生成外链，服务端处理器补充二次管理员校验。
+
+本地验证：
+```text
+单元测试    -> 450 项通过
+Python      -> app.py、Agent 全部改动文件编译通过
+JavaScript  -> agent.js、files.js 及关联页面脚本检查通过
+JSON        -> config/changelog-seed.json 解析通过
+差异检查    -> git diff --check 干净
+```
+
+部署步骤：
+```text
+提交：d1e64986dbcc05eb6516808d4275ea719778f5ca
+      feat: humanize jingjing and secure file sharing
+      本地 = origin/main = 服务器功能提交 HEAD = d1e6498
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json
+      本地 / 服务器 SHA256 =
+      ecdfb4923921c47a686ec66e552e0bd463d6eddda6806add978568c0f4597652
+备份：/data/errorjiang-backup/20261116-2326
+      inventory.db、agent.db、auth.json、changelog-seed.json；无 WAL / SHM
+服务器：stop errorjiang-agent -> stop errorjiang -> 备份
+      -> git pull --ff-only -> d1e6498
+      -> app.init_db；AgentStore(agent.db) 迁移 group_members 人物卡字段
+      -> seed 安装；import_changelog_moments.py --date 2026-11-16 --force
+      -> 新增 3 条、覆盖 0 条、跳过 0 条
+      -> start errorjiang -> start errorjiang-agent
+```
+
+最终验证：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 主站与 Agent 健康检查均为 {"ok": true}
+数据库    -> preferred_address / relationship_phase / profile_facts 已迁移；
+             管理员群成员人物卡预填“爸爸”数量 = 1
+更新日志  -> 2026-11-16 23:22:05，id 820，kind=log，标题正确
+静态文件  -> 本地 / 公网 Git blob hash 一致：
+             agent.html c7be2165、agent.js 528a3573、
+             files.js 078f1d3c、references.html 05d5822c
+文件权限  -> 游客 /files 实测：1 个文件、分享按钮 0、下载按钮 1；
+             390px 无横向溢出；游客 POST /api/admin/share-content = 401
+日志      -> errorjiang-agent 最近 5 分钟无 warning
+视觉      -> 文件页 390×844 实测无溢出
+回滚      -> git reset --hard 3d26b80 后重启；人物卡新增列可保留默认值
+```
+
