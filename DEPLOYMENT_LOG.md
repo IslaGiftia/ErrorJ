@@ -8161,3 +8161,66 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json
              reporting.html 线上含「下载页面」（本地工作区为 CRLF，字节哈希与仓库 LF 版本不同）
 视觉实测  -> 1280×900 首页 / 下载页、390×844 首页均正常
 ```
+## 171. 2026-11-16 20:19:37 下载页新增文件子页、工作台支持 APK / EXE
+
+来源：用户要求工作台能上传 `.apk` / `.exe`，并在「下载」页的「书籍」和「网页」之间新增「文件」子页；同时把「推荐内容」这一套文案统一简化、「站内资源」改名「站内分享」、左下「注册账户」卡从 5 行放宽到 9 行。
+
+完成内容（功能提交 `811749f feat: add file downloads page and let workbench upload apk/exe`，17 文件，+932/−71；后续两个小修提交 `d856116`、`1744a0e`）：
+
+- 工作台：`WORKBENCH_EXTENSIONS` 增加 `.apk` / `.exe`（落到「其他」分类），上传弹窗的提示文案补上这两种类型。
+- 工作台每个文件新增 `is_public` 字段与「公开到下载页」开关（默认关）；老库由 `init_db()` 自动 `ALTER TABLE` 补列并给游客角色补发 `guest:page:files`。
+- 新增 `/files` 页面与 `/api/site/files`、`/api/site/files/<id>/download`：列表只回公开文件且只带必要字段（不含路径 / 备注 / 关联对象），游客可读列表，下载要求登录；下载记一条内容事件。
+- 下载页新增第 3 个子页「文件」（歌曲 / 书籍 / 文件 / 网页 / 站内分享），`?tab=files` 可直接深链；该子页没有「新增」按钮和未读角标。
+- 内容文案：新增推荐 / 编辑推荐 / 置顶推荐 / 推荐理由 / 推荐内容 / 推荐封面 / 分享到推荐 改为 新增 / 编辑 / 置顶 / 理由 / 内容 / 封面 / 分享到下载；活动与通知里的「新增了一条推荐」「推荐网页」同步改成「内容」；`REPORT_TARGET_LABELS` 与工作台类型名改为「内容」。
+- 「站内资源」改名「站内分享」（tab、aria-label、分类标签、分享提示、内容页页签），独立页 `/recommendations` 的标题与页头改为「内容」。
+- 侧栏「注册账户」卡上限 5 → 9（`SIDEBAR_USER_CARD_LIMIT`），新增单测覆盖。
+- 新增 6 项单测：扩展名、游客权限、列表脱敏、游客下载 401、私有文件 404、文件 tab 顺序与深链。
+
+本地验证：
+```text
+单元测试    -> 411 项通过（135s）
+Python      -> app.py 编译通过
+JavaScript  -> files.js、downloads.js、recommendations.js、share.js、
+              workbench.js、sidebar.js 检查通过
+JSON        -> config/changelog-seed.json 解析通过（167 条）
+差异检查    -> git diff --check 干净
+```
+
+部署步骤：
+```text
+提交：811749fd5121b865ea4029c3f21923647d9e9020
+      feat: add file downloads page and let workbench upload apk/exe
+      追加：d856116（补 aria-label + 9 行卡单测）、1744a0e（?tab=files 深链）
+      本地 = origin/main = 服务器 HEAD = 1744a0e
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json
+      本地 / 服务器 SHA256 =
+      01d196a3c0335f56c9b675bd07ca5dd38bd7cbd17781e9623ea489c77c43a700
+备份：/data/errorjiang-backup/20261116-2023
+      inventory.db 11042816 bytes、agent.db 2379776 bytes、
+      auth.json 223 bytes、changelog-seed.json 146996 bytes；无 WAL / SHM
+服务器：stop errorjiang-agent -> stop errorjiang -> 备份
+      -> git pull --ff-only -> 811749f
+      -> runuser -u errorjiang -- python3 -c 'import app; app.init_db()'（补 is_public 列）
+      -> seed 安装；import_changelog_moments.py --date 2026-11-16 --force
+      -> 新增 2 条、覆盖 0 条、跳过 0 条（19:47:05 重建、20:19:37 新增）
+      -> start errorjiang -> start errorjiang-agent
+```
+
+最终验证：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 主站 /api/health = {"ok": true}；Agent 172.17.0.1:8011/health = {"ok": true}
+版本      -> 本地 = origin/main = 服务器 HEAD = 1744a0e
+更新日志  -> /api/moments 中 2026-11-16 两条：19:47:05（id 814）、20:19:37（id 815）
+文件接口  -> 游客 GET /api/site/files = [] 200；GET /api/site/files/1/download = 401
+文件页    -> /downloads 标签顺序 music / books / files / web / resource；
+             /files <title> = 文件；?tab=files 深链正常
+静态文件  -> 本地 / 公网 SHA256 一致：downloads.html、downloads.js、
+             recommendations.html、recommendations.js、share.js、sidebar.js、
+             workbench.html、workbench.js、files.html、files.js、files.css
+侧栏卡片  -> 线上 6 个已审核账号现在全部显示（上限已改为 9，原来只显示 5）
+视觉实测  -> 1440×1000 下载页（5 个图标）、文件空状态、文件列表（临时公开 1 个文件，
+             截图后已把 is_public 改回 0）、留言页侧栏
+回滚      -> git reset --hard 8e290e5 后重启；is_public 列可保留（默认 0 不影响）
+```
+
