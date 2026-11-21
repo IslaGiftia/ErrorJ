@@ -8552,3 +8552,41 @@ JSON        -> config/changelog-seed.json 解析通过
                进度条位于按钮内部且尺寸不变
 ```
 
+部署步骤：
+```text
+提交：155b6525b1ca3ed5c3d3e0eb50790cd65ef1fffa
+      feat: refine message uploads and moments composer
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json
+      本地 / 服务器 SHA256 =
+      5f4895a84b66c9ef3fb4f29e6c6f3c16f45a023a895a587c2f4b1e8e4833f6c8
+备份：/data/errorjiang-backup/20261121-143527
+      inventory.db、WAL / SHM（若存在）、changelog-seed.json、
+      nginx-errorjiang.conf
+服务器：stop errorjiang -> 备份
+      -> git pull --ff-only -> 155b652
+      -> app.init_db 新增 site_message_files.purpose
+      -> seed 安装；import_changelog_moments.py --date 2026-11-21 --force
+      -> 活动 Nginx 配置 84m -> 720m、120s -> 600s
+      -> start errorjiang
+```
+
+最终验证：
+```text
+服务      -> errorjiang / nginx active
+健康      -> {"ok": true}
+版本      -> 本地 = origin/main = 服务器 HEAD = 155b652
+数据库    -> site_message_files.purpose = true
+更新日志  -> 2026-11-21 14:33:52，id 829，kind=log
+上传限制  -> 附件 3 个 / 524288000 字节；
+             配图 9 张 / 每张 5242880 字节 / 合计 15728640 字节
+静态文件  -> messages.html / messages.js / moments.js /
+             references.html / upload-limits.js 的本地与公网 SHA256 一致；
+             messages.css 的本地与服务器 Git blob 一致（仅工作区 CRLF 差异）
+线上页面  -> 桌面 1440px、手机 390px：
+             留言页存在独立附件与配图入口，无横向溢出；
+             动态评论和三点同行，默认无可见评论输入框；
+             两页编辑卡最小高度均为 186px / 198px
+回滚      -> git reset --hard 05d6497 后重启；
+             purpose 列可保留，数据库与 Nginx 配置已备份
+```
+
