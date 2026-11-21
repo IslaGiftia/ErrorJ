@@ -1458,19 +1458,33 @@ class InteractionTests(unittest.TestCase):
             site_html,
         )
 
-    def test_moment_comments_reuse_message_reply_layout(self):
+    def test_message_and_moment_only_keep_like_interaction(self):
         moments_js = (app.STATIC_DIR / "moments.js").read_text(encoding="utf-8")
         moments_css = (app.STATIC_DIR / "moments.css").read_text(
             encoding="utf-8"
         )
-        self.assertIn('el("button", "mo-link-btn", "评论")', moments_js)
-        self.assertIn("form.hidden = true", moments_js)
-        self.assertIn("bindCommentToggle(commentBtn, rootCommentForm)", moments_js)
-        self.assertIn("body.append(actions, commentsBox)", moments_js)
-        self.assertNotIn("head.appendChild(buildMoreMenu(menuItems))", moments_js)
-        self.assertNotIn('buildCommentForm(moment, null, "写评论…")', moments_js)
-        self.assertIn(".mo-item-actions", moments_css)
-        self.assertIn(".mo-comment-form[hidden]", moments_css)
+        messages_js = (app.STATIC_DIR / "messages.js").read_text(encoding="utf-8")
+        messages_css = (app.STATIC_DIR / "messages.css").read_text(
+            encoding="utf-8"
+        )
+        moments_html = (app.STATIC_DIR / "moments.html").read_text(
+            encoding="utf-8"
+        )
+        messages_html = (app.STATIC_DIR / "messages.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("buildLikeControl", messages_js)
+        self.assertIn("buildMomentLike", moments_js)
+        self.assertNotIn("comment", moments_js.lower())
+        self.assertNotIn("reply", messages_js.lower())
+        self.assertNotIn(".mo-comment-form", moments_css)
+        self.assertNotIn(".mg-reply-form", messages_css)
+        self.assertNotIn('data-mo-filter="commented"', moments_html)
+        self.assertNotIn('data-mg-filter="replied"', messages_html)
+        self.assertIn(".mo-item-social", moments_css)
+        self.assertIn(".mg-item-social", messages_css)
+        self.assertIn('el("div", "mo-item-social")', moments_js)
+        self.assertIn('el("div", "mg-item-social")', messages_js)
         self.assertIn("bottom: calc(100% + 6px)", moments_css)
 
     def test_message_uploads_split_private_attachments_and_public_images(self):
@@ -1512,8 +1526,8 @@ class InteractionTests(unittest.TestCase):
         self.assertIn('document.title = "财务"', script)
         self.assertNotIn("计算器", home + page + script)
 
-    def test_nested_reply_does_not_push_webhook(self):
-        """楼中楼（回复某条回复）只在站内提醒，不推 Webhook；回复顶层留言照常推。"""
+    def test_message_reply_creation_is_disabled(self):
+        """留言只允许独立发布，parent_id 回复提交会被拒绝。"""
         stamp = app.now_text()
         root_id = app.execute(
             """INSERT INTO site_messages
@@ -1531,31 +1545,15 @@ class InteractionTests(unittest.TestCase):
             reply_handler.api_site_message_create(
                 {"content": "回复顶层留言", "parent_id": root_id}
             )
-        self.assertEqual(reply_responses[-1][0], 200)
-        self.assertEqual(pushed.call_count, 1)
-        self.assertEqual(pushed.call_args[0][0], "message")
-        self.assertIn("新的回复", pushed.call_args[0][1])
-        reply_id = reply_responses[-1][1]["id"]
-
-        nested_handler, nested_responses = self.make_handler(
-            self.author_id, username="author1"
-        )
-        with patch.object(app, "rate_allow", return_value=True), patch.object(
-            app, "notify_async"
-        ) as nested_pushed:
-            nested_handler.api_site_message_create(
-                {"content": "回复那条回复", "parent_id": reply_id}
-            )
-        self.assertEqual(nested_responses[-1][0], 200)
-        nested_pushed.assert_not_called()
-        # 站内提醒仍然要有：只是不再推 Webhook
+        self.assertEqual(reply_responses[-1][0], 400)
+        self.assertIn("回复功能已关闭", reply_responses[-1][1]["error"])
+        pushed.assert_not_called()
         self.assertEqual(
             app.query_one(
-                """SELECT COUNT(*) AS n FROM user_notifications
-                   WHERE user_id = ? AND kind = 'message_reply'""",
-                (self.other_id,),
+                "SELECT COUNT(*) AS n FROM site_messages WHERE parent_id = ?",
+                (root_id,),
             )["n"],
-            1,
+            0,
         )
 
     def test_top_level_message_still_pushes_webhook(self):
@@ -1669,35 +1667,11 @@ class InteractionTests(unittest.TestCase):
             )
         )
 
-    def test_nested_moment_reply_does_not_push_webhook(self):
-        """动态的楼中楼回复同理：站内提醒保留，Webhook 不推。"""
-        moment_id = app.execute(
-            "INSERT INTO moments (content, kind, created_at) VALUES (?, 'post', ?)",
-            ("动态内容", app.now_text()),
-        )
-        handler, responses = self.make_handler(self.other_id, username="other1")
-        with patch.object(app, "notify_async") as first:
-            handler.api_moment_comment_create(moment_id, {"content": "评论一条"})
-        self.assertEqual(responses[-1][0], 200)
-        self.assertEqual(first.call_count, 1)
-        self.assertEqual(first.call_args[0][0], "moment_comment")
-        comment_id = responses[-1][1]["id"]
-
-        with patch.object(app, "notify_async") as second:
-            handler.api_moment_comment_create(
-                moment_id, {"content": "回复那条评论", "parent_id": comment_id}
-            )
-        self.assertEqual(responses[-1][0], 200)
-        # 回复顶层评论属于「评论了动态」，仍然推
-        self.assertEqual(second.call_count, 1)
-        reply_id = responses[-1][1]["id"]
-
-        with patch.object(app, "notify_async") as nested:
-            handler.api_moment_comment_create(
-                moment_id, {"content": "回复那条回复", "parent_id": reply_id}
-            )
-        self.assertEqual(responses[-1][0], 200)
-        nested.assert_not_called()
+    def test_moment_comment_routes_are_removed(self):
+        source = (app.BASE_DIR / "app.py").read_text(encoding="utf-8")
+        self.assertNotIn("self.api_moment_comment_create(", source)
+        self.assertNotIn("self.api_moment_comment_delete(", source)
+        self.assertNotIn('{"key": "moment_comment"', source)
 
     def test_sidebar_log_hides_entries_whose_target_is_gone(self):
         """更新日志：内容被删掉的条目整条不显示，让位给更早的记录。"""
@@ -2073,37 +2047,7 @@ class InteractionTests(unittest.TestCase):
         )
         self.assertTrue(moment_id > 0)
 
-    def test_moment_comment_reply_notifies_parent_author(self):
-        stamp = app.now_text()
-        moment_id = app.execute(
-            """INSERT INTO moments (content, created_at)
-               VALUES (?, ?)""",
-            ("动态内容", stamp),
-        )
-        parent_id = app.execute(
-            """INSERT INTO moment_comments
-                   (moment_id, parent_id, user_id, actor, content, created_at)
-               VALUES (?, NULL, ?, ?, ?, ?)""",
-            (moment_id, self.author_id, "作者甲", "第一条评论", stamp),
-        )
-        handler, responses = self.make_handler(self.other_id, username="other1")
-        handler.api_moment_comment_create(
-            moment_id, {"content": "回复一下", "parent_id": parent_id}
-        )
-        self.assertTrue(responses[-1][1]["id"] > 0)
-        notifications = app.query(
-            """SELECT kind, module, target_id FROM user_notifications
-               WHERE user_id = ? AND kind = 'comment_reply'""",
-            (self.author_id,),
-        )
-        self.assertEqual(len(notifications), 1)
-        self.assertEqual(notifications[0]["module"], "moments")
-        # 提醒落在「新回复」这条评论上（带着评论 id 才能精确高亮 / 定位）
-        self.assertEqual(
-            int(notifications[0]["target_id"]), int(responses[-1][1]["id"])
-        )
-
-    def test_comment_like_notifies_author_and_shows_names(self):
+    def test_comment_like_target_is_rejected(self):
         stamp = app.now_text()
         moment_id = app.execute(
             "INSERT INTO moments (content, created_at) VALUES (?, ?)",
@@ -2119,31 +2063,18 @@ class InteractionTests(unittest.TestCase):
         handler.api_site_like_toggle(
             {"target_type": "comment", "target_id": comment_id}
         )
-        self.assertEqual(responses[-1][1], {"liked": True, "count": 1})
+        self.assertEqual(responses[-1][0], 400)
+        self.assertIn("点赞对象不正确", responses[-1][1]["error"])
         notifications = app.query(
             """SELECT kind, module, target_id, text FROM user_notifications
                WHERE user_id = ? AND kind = 'comment_like'""",
             (self.author_id,),
         )
-        self.assertEqual(len(notifications), 1)
-        self.assertEqual(notifications[0]["module"], "moments")
-        self.assertEqual(int(notifications[0]["target_id"]), moment_id)
-        self.assertEqual(notifications[0]["text"], "点赞了你的评论")
+        self.assertEqual(notifications, [])
+        self.assertGreater(moment_id, 0)
 
-        viewer_handler, viewer_responses = self.make_handler(
-            self.author_id, username="author1"
-        )
-        viewer_handler.api_moments({})
-        moments = viewer_responses[-1][1]
-        target = [row for row in moments if int(row["id"]) == moment_id][0]
-        self.assertEqual(target["like_users"], [])
-        comment = target["comments"][0]
-        self.assertEqual(comment["like_count"], 1)
-        self.assertEqual(comment["like_users"], ["other1"])
-        self.assertTrue(comment["liked"] is False)
-
-    def test_guest_sees_moments_comments_with_masked_names(self):
-        """游客能看动态正文和评论 / 回复，但普通账号的名字只保留最后一个字。"""
+    def test_moment_payload_omits_comment_data(self):
+        """动态接口不再下发评论内容或评论相关字段。"""
         stamp = app.now_text()
         moment_id = app.execute(
             "INSERT INTO moments (content, created_at) VALUES (?, ?)",
@@ -2177,14 +2108,9 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(target["content"], "动态内容")
         # 点赞者名字只保留最后一个字
         self.assertEqual(target["like_users"], [app.mask_username("other1")])
-        self.assertEqual(target["comment_count"], 2)
-        comments = {int(row["id"]): row for row in target["comments"]}
-        self.assertEqual(comments[comment_id]["content"], "给游客看的评论")
-        self.assertEqual(comments[comment_id]["actor"], app.mask_username("评论乙"))
-        reply = [row for row in target["comments"] if int(row["id"]) != comment_id][0]
-        self.assertEqual(reply["content"], "给游客看的回复")
-        # 脱敏后的名字不能再从响应里还原出原文
-        self.assertEqual(reply["actor"], app.mask_username("作者甲"))
+        self.assertNotIn("comments", target)
+        self.assertNotIn("comment_count", target)
+        self.assertFalse(target["liked_by_me"])
         self.assertNotIn("评论乙", json.dumps(payload, ensure_ascii=False))
         self.assertNotIn("作者甲", json.dumps(payload, ensure_ascii=False))
 
@@ -2205,84 +2131,42 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(target["like_count"], 1)
         self.assertEqual(target["like_users"], ["other1"])
 
-    def test_moment_comment_notifies_owner(self):
+    def test_comment_notifications_are_hidden_from_unread_badges(self):
         stamp = app.now_text()
         moment_id = app.execute(
             "INSERT INTO moments (content, created_at) VALUES (?, ?)",
             ("动态内容", stamp),
         )
-        handler, responses = self.make_handler(self.other_id, username="other1")
-        handler.api_moment_comment_create(moment_id, {"content": "来评论一下"})
-        parent_id = responses[-1][1]["id"]
-        owner_rows = app.query(
-            """SELECT kind, text FROM user_notifications
-               WHERE user_id = 0 AND module = 'moments'"""
+        app.add_user_notification(
+            0, "moment_comment", "moments", moment_id, "普通用户", "评论了你的动态"
         )
-        self.assertEqual(len(owner_rows), 1)
-        self.assertEqual(owner_rows[0]["kind"], "moment_comment")
-        self.assertEqual(owner_rows[0]["text"], "评论了你的动态")
-
-        author_handler, author_responses = self.make_handler(
-            self.author_id, username="author1"
+        app.add_user_notification(
+            0, "comment_reply", "moments", moment_id, "普通用户", "回复了你的评论"
         )
-        author_handler.api_moment_comment_create(
-            moment_id, {"content": "回复这条评论", "parent_id": parent_id}
+        app.add_user_notification(
+            0, "comment_like", "moments", moment_id, "普通用户", "点赞了你的评论"
         )
-        reply_id = int(author_responses[-1][1]["id"])
-        self.assertEqual(
-            app.query_one(
-                """SELECT COUNT(*) AS n FROM user_notifications
-                   WHERE user_id = 0 AND kind = 'moment_comment'"""
-            )["n"],
-            2,
-        )
-        parent_rows = app.query(
-            """SELECT text FROM user_notifications
-               WHERE user_id = ? AND kind = 'comment_reply'""",
-            (self.other_id,),
-        )
-        self.assertEqual([row["text"] for row in parent_rows], ["回复了你的评论"])
-
         owner_handler, owner_responses = self.make_handler(0, kind="owner")
         owner_handler.api_site_moments_unread()
         payload = owner_responses[-1][1]
-        self.assertEqual(payload["unread"], 2)
-        # 两条提醒分别指向两条评论；target_kinds 用来区分「动态本体」和「评论」
-        self.assertEqual(payload["targets"], [parent_id, reply_id])
-        self.assertEqual(
-            payload["target_kinds"],
-            {str(parent_id): "moment_comment", str(reply_id): "moment_comment"},
-        )
+        self.assertEqual(payload["unread"], 0)
+        self.assertEqual(payload["targets"], [])
 
-        owner_handler.api_site_activity()
-        items = owner_responses[-1][1]["items"]
-        self.assertTrue(
-            any(
-                item.get("alert")
-                and "动态" in str(item.get("text"))
-                and "评论" in str(item.get("text"))
-                for item in items
-            )
+    def test_disabled_reply_notifications_are_excluded(self):
+        app.add_user_notification(
+            self.author_id,
+            "message_reply",
+            "messages",
+            self.message_id,
+            "other1",
+            "回复了你的留言",
         )
-
-    def test_reply_to_message_notifies_author(self):
-        handler, responses = self.make_handler(self.other_id, username="other1")
-        handler.api_site_message_create(
-            {
-                "content": "回复内容",
-                "parent_id": self.message_id,
-                "files": [],
-            }
+        handler, responses = self.make_handler(
+            self.author_id, username="author1"
         )
-        reply_id = responses[-1][1]["id"]
-        self.assertTrue(reply_id > 0)
-        notifications = app.query(
-            """SELECT kind, module FROM user_notifications
-               WHERE user_id = ? AND kind = 'message_reply'""",
-            (self.author_id,),
-        )
-        self.assertEqual(len(notifications), 1)
-        self.assertEqual(notifications[0]["module"], "messages")
+        handler.api_site_messages_unread()
+        self.assertEqual(responses[-1][1]["unread"], 0)
+        self.assertEqual(responses[-1][1]["targets"], [])
 
     def test_member_message_badge_reports_unread_likes(self):
         handler, responses = self.make_handler(self.other_id, username="other1")
@@ -2310,15 +2194,23 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(target["like_users"], ["other1"])
         self.assertEqual(target["like_count"], 1)
 
-    def test_guest_sees_message_replies_with_masked_names(self):
-        """游客能看留言正文和回复，但普通账号的名字只保留最后一个字。"""
+    def test_message_payload_omits_replies(self):
+        """留言接口只下发独立留言，历史回复不再返回。"""
         handler, _ = self.make_handler(self.other_id, username="other1")
         handler.api_site_like_toggle(
             {"target_type": "message", "target_id": self.message_id}
         )
-        reply_handler, _ = self.make_handler(self.author_id, username="author1")
-        reply_handler.api_site_message_create(
-            {"content": "给游客看的回复", "parent_id": self.message_id, "files": []}
+        app.execute(
+            """INSERT INTO site_messages
+                   (nickname, content, parent_id, user_id, status, created_at)
+               VALUES (?, ?, ?, ?, 'approved', ?)""",
+            (
+                "作者甲",
+                "给游客看的历史回复",
+                self.message_id,
+                self.author_id,
+                app.now_text(),
+            ),
         )
         guest = object.__new__(app.InventoryHandler)
         guest.session_identity = lambda: None
@@ -2331,51 +2223,24 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(target["content"], "测试留言")
         self.assertEqual(target["nickname"], app.mask_username("author1"))
         self.assertEqual(target["like_users"], [app.mask_username("other1")])
-        self.assertEqual(len(target["replies"]), 1)
-        self.assertEqual(target["replies"][0]["content"], "给游客看的回复")
-        self.assertEqual(
-            target["replies"][0]["nickname"], app.mask_username("author1")
-        )
+        self.assertEqual(target["replies"], [])
+        self.assertNotIn("给游客看的历史回复", json.dumps(roots, ensure_ascii=False))
         # 脱敏后的名字不能再从响应里还原出原文
         self.assertNotIn("author1", json.dumps(roots, ensure_ascii=False))
 
-    def test_reply_to_reply_is_grouped_and_notifies(self):
-        handler, responses = self.make_handler(self.other_id, username="other1")
-        handler.api_site_message_create(
-            {"content": "第一条回复", "parent_id": self.message_id, "files": []}
+    def test_comment_notification_kinds_are_not_rendered_as_alerts(self):
+        self.assertNotIn(
+            "moment_comment",
+            {item["key"] for item in app.NOTIFY_EVENTS},
         )
-        reply_id = responses[-1][1]["id"]
-        author_handler, author_responses = self.make_handler(
-            self.author_id, username="author1"
+        self.assertNotIn("message_reply", app.NOTIFICATION_ACTIVITY_ACTIONS)
+        self.assertNotIn("comment", app.LIKE_TARGET_TYPES)
+        self.assertEqual(
+            app.notification_alert_text(
+                "moments", {"kind": "comment_reply", "count": 1}
+            ),
+            "更新了动态",
         )
-        author_handler.api_site_message_create(
-            {"content": "回复那条回复", "parent_id": reply_id, "files": []}
-        )
-        nested_id = author_responses[-1][1]["id"]
-        notifications = app.query(
-            """SELECT text FROM user_notifications
-               WHERE user_id = ? AND kind = 'message_reply'""",
-            (self.other_id,),
-        )
-        self.assertTrue(
-            any(str(row["text"]) == "回复了你" for row in notifications)
-        )
-
-        admin_handler, admin_responses = self.make_handler(0, kind="owner")
-        admin_handler.api_site_messages({})
-        root = [
-            row
-            for row in admin_responses[-1][1]
-            if int(row["id"]) == self.message_id
-        ][0]
-        reply_ids = [int(row["id"]) for row in root["replies"]]
-        self.assertIn(reply_id, reply_ids)
-        self.assertIn(nested_id, reply_ids)
-        nested = [
-            row for row in root["replies"] if int(row["id"]) == nested_id
-        ][0]
-        self.assertEqual(int(nested["parent_id"]), reply_id)
-        self.assertEqual(nested["reply_to"], "other1")
 
     def test_unread_targets_clear_per_card(self):
         handler, _ = self.make_handler(self.other_id, username="other1")
@@ -2394,31 +2259,22 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(member_responses[-1][1]["targets"], [])
         self.assertEqual(member_responses[-1][1]["unread"], 0)
 
-    def test_owner_mark_seen_clears_moment_comment_alert(self):
+    def test_comment_notifications_do_not_create_unread_badges(self):
         stamp = app.now_text()
         moment_id = app.execute(
             "INSERT INTO moments (content, created_at) VALUES (?, ?)",
             ("动态内容", stamp),
         )
-        handler, _ = self.make_handler(self.other_id, username="other1")
-        handler.api_moment_comment_create(moment_id, {"content": "评论一下"})
-        owner_handler, owner_responses = self.make_handler(0, kind="owner")
-        owner_handler.api_site_moments_unread()
-        self.assertEqual(owner_responses[-1][1]["targets"], [moment_id])
-        self.assertEqual(owner_responses[-1][1]["unread"], 1)
-
-        owner_handler.api_site_notifications_seen(
-            {"module": "moments", "target_id": moment_id}
+        app.add_user_notification(
+            0, "moment_comment", "moments", moment_id, "普通用户", "评论了你的动态"
         )
+        app.add_user_notification(
+            0, "comment_reply", "moments", moment_id, "普通用户", "回复了你的评论"
+        )
+        owner_handler, owner_responses = self.make_handler(0, kind="owner")
         owner_handler.api_site_moments_unread()
         self.assertEqual(owner_responses[-1][1]["targets"], [])
         self.assertEqual(owner_responses[-1][1]["unread"], 0)
-        self.assertIsNotNone(
-            app.query_one(
-                """SELECT seen_at FROM user_notifications
-                   WHERE user_id = 0 AND module = 'moments'"""
-            )["seen_at"]
-        )
 
     def test_map_interaction_feature_is_offline(self):
         """标记点的点赞 / 打卡整体下线：接口与互动字段都不再存在。"""
@@ -2520,7 +2376,7 @@ class InteractionTests(unittest.TestCase):
             0,
         )
 
-    def test_message_filters_mark_like_and_reply_on_replies(self):
+    def test_message_filters_ignore_likes_on_historical_replies(self):
         stamp = app.now_text()
         reply_id = app.execute(
             """INSERT INTO site_messages
@@ -2539,21 +2395,8 @@ class InteractionTests(unittest.TestCase):
             row for row in responses[-1][1] if int(row["id"]) == self.message_id
         ][0]
         self.assertTrue(root["mine"])
-        self.assertTrue(root["liked_by_me"])
-        self.assertFalse(root["replied_by_me"])
-        self.assertFalse(root["replies"][0]["mine"])
-
-        handler.api_site_message_create(
-            {"content": "作者自己的回复", "parent_id": self.message_id, "files": []}
-        )
-        handler.api_site_messages({})
-        root = [
-            row for row in responses[-1][1] if int(row["id"]) == self.message_id
-        ][0]
-        self.assertTrue(root["replied_by_me"])
-        self.assertTrue(
-            any(reply.get("mine") for reply in root["replies"])
-        )
+        self.assertFalse(root["liked_by_me"])
+        self.assertEqual(root["replies"], [])
 
         other_handler, other_responses = self.make_handler(
             self.other_id, username="other1"
@@ -2566,10 +2409,9 @@ class InteractionTests(unittest.TestCase):
         ][0]
         self.assertFalse(other_root["mine"])
         self.assertFalse(other_root["liked_by_me"])
-        self.assertTrue(other_root["replied_by_me"])
-        self.assertTrue(other_root["replies"][0]["mine"])
+        self.assertEqual(other_root["replies"], [])
 
-    def test_moment_filters_mark_likes_and_comments(self):
+    def test_moment_filters_ignore_likes_on_historical_comments(self):
         stamp = app.now_text()
         moment_id = app.execute(
             "INSERT INTO moments (content, created_at) VALUES (?, ?)",
@@ -2589,18 +2431,9 @@ class InteractionTests(unittest.TestCase):
         handler, responses = self.make_handler(self.author_id, username="author1")
         handler.api_moments({})
         row = [item for item in responses[-1][1] if int(item["id"]) == moment_id][0]
-        self.assertTrue(row["liked_by_me"])
-        self.assertFalse(row["commented_by_me"])
-
-        other_handler, other_responses = self.make_handler(
-            self.other_id, username="other1"
-        )
-        other_handler.api_moments({})
-        other_row = [
-            item for item in other_responses[-1][1] if int(item["id"]) == moment_id
-        ][0]
-        self.assertTrue(other_row["commented_by_me"])
-        self.assertTrue(other_row["comments"][0]["mine"])
+        self.assertFalse(row["liked_by_me"])
+        self.assertNotIn("comments", row)
+        self.assertNotIn("commented_by_me", row)
 
     def test_moment_notification_reuses_public_activity_row(self):
         stamp = app.now_text()
@@ -2642,50 +2475,26 @@ class InteractionTests(unittest.TestCase):
         self.assertFalse(matching[0]["alert"])
         self.assertFalse(any(item.get("alert") for item in items))
 
-    def test_message_reply_notification_reuses_public_activity_row(self):
+    def test_message_reply_rejection_creates_no_activity_or_notification(self):
         handler, responses = self.make_handler(self.other_id, username="other1")
         handler.api_site_message_create(
             {"content": "回复内容", "parent_id": self.message_id, "files": []}
         )
-        reply_id = responses[-1][1]["id"]
-        app.write_activity(
-            {"kind": "member", "user_id": self.other_id, "username": "other1"},
-            "message_reply",
-            "回复留言：回复内容",
-            target_type="message",
-            target_id=reply_id,
+        self.assertEqual(responses[-1][0], 400)
+        self.assertEqual(
+            app.query_one(
+                """SELECT COUNT(*) AS n FROM user_notifications
+                   WHERE kind = 'message_reply'"""
+            )["n"],
+            0,
         )
-        notification = app.query_one(
-            """SELECT target_id FROM user_notifications
-               WHERE user_id = ? AND kind = 'message_reply'""",
-            (self.author_id,),
+        self.assertEqual(
+            app.query_one(
+                """SELECT COUNT(*) AS n FROM activity_log
+                   WHERE action = 'message_reply'"""
+            )["n"],
+            0,
         )
-        self.assertEqual(int(notification["target_id"]), int(reply_id))
-
-        member_handler, member_responses = self.make_handler(
-            self.author_id, username="author1"
-        )
-        member_handler.api_site_activity()
-        items = member_responses[-1][1]["items"]
-        matching = [
-            item
-            for item in items
-            if item.get("text") == app.PUBLIC_ACTIVITY_LABELS["message_reply"]
-        ]
-        self.assertEqual(len(matching), 1)
-        self.assertTrue(matching[0]["alert"])
-        self.assertFalse(any(item.get("id") == "notify-messages" for item in items))
-
-        app.mark_notifications_seen(self.author_id, "messages")
-        member_handler.api_site_activity()
-        items = member_responses[-1][1]["items"]
-        matching = [
-            item
-            for item in items
-            if item.get("text") == app.PUBLIC_ACTIVITY_LABELS["message_reply"]
-        ]
-        self.assertEqual(len(matching), 1)
-        self.assertFalse(matching[0]["alert"])
 
     def test_message_like_does_not_mark_public_message_row(self):
         app.write_activity(
@@ -3749,7 +3558,7 @@ class ComplianceWorkflowTests(unittest.TestCase):
         self.assertIn("PULSE_MS = 1200", script)
         self.assertIn("entry.onVisible(entry.node)", script)
         self.assertIn("errorj-recommend-visibility", script)
-        for module, replay in (
+        for module, removed_replay in (
             ("messages", "replayReplyBlink"),
             ("moments", "replayCommentBlink"),
         ):
@@ -3758,11 +3567,12 @@ class ComplianceWorkflowTests(unittest.TestCase):
             )
             self.assertNotIn('addEventListener("touchstart", clear', page_script)
             self.assertNotIn('addEventListener("mouseenter", clear', page_script)
-            self.assertIn(replay, page_script)
+            self.assertNotIn(removed_replay, page_script)
+            self.assertIn("ErrorFreshVisibility.watch", page_script)
         for stylesheet in ("messages.css", "moments.css"):
             css = (app.STATIC_DIR / stylesheet).read_text(encoding="utf-8")
             self.assertIn("1.2s ease-in-out 3", css)
-            self.assertIn("1s ease-in-out 3", css)
+            self.assertNotIn("1s ease-in-out 3", css)
         fresh_cards = (app.STATIC_DIR / "site" / "fresh-cards.js").read_text(
             encoding="utf-8"
         )
@@ -3853,7 +3663,12 @@ class ComplianceWorkflowTests(unittest.TestCase):
         self.assertNotIn("网页字体为 vivo Sans", html)
         css = (app.STATIC_DIR / "site" / "site.css").read_text(encoding="utf-8")
         self.assertIn(".landing-three .landing-credit-block", css)
-        self.assertIn("bottom: var(--dock-bottom)", css)
+        start = css.index(".landing-three .landing-credit-block")
+        end = css.index("}", start)
+        footer_rule = css[start:end]
+        self.assertNotIn("position: fixed", footer_rule)
+        self.assertNotIn("bottom:", footer_rule)
+        self.assertIn("text-align: center", footer_rule)
 
     def test_notification_summary_includes_all_admin_queues(self):
         stamp = app.now_text()
@@ -3891,6 +3706,12 @@ class ComplianceWorkflowTests(unittest.TestCase):
         )
         app.add_user_notification(
             self.member_id, "moment_comment", "moments", self.moment_id, "用户乙", "评论了你的动态"
+        )
+        app.add_user_notification(
+            self.member_id, "message_like", "messages", self.message_id, "用户乙", "点赞了你的留言"
+        )
+        app.add_user_notification(
+            self.member_id, "moment_new", "moments", self.moment_id, "管理员", "更新了动态"
         )
         handler = self.make_handler(self.member(self.member_id))
         summary = handler.notification_summary()
@@ -3976,11 +3797,12 @@ class ComplianceWorkflowTests(unittest.TestCase):
         self.assertTrue(all("爸爸" not in row[0] for row in rows))
         self.assertNotIn("7000 字", rows[0][0])
 
-    def test_moments_mobile_comment_layout_is_scoped(self):
+    def test_moments_mobile_layout_has_no_comment_controls(self):
         css = (app.STATIC_DIR / "moments.css").read_text(encoding="utf-8")
         script = (app.STATIC_DIR / "moments.js").read_text(encoding="utf-8")
         self.assertIn(".mo-compose-toolbar", css)
-        self.assertIn(".mo-comment-submit", css)
+        self.assertNotIn(".mo-comment-submit", css)
+        self.assertNotIn("CommentForm", script)
         self.assertIn("scrollIntoView", script)
 
     def test_relative_time_is_shared_with_exact_time_tooltip(self):

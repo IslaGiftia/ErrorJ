@@ -879,13 +879,9 @@ html[data-theme="dark"] .theme-glyph__moon {
 }
 
 .landing-three .landing-credit-block {
-  position: fixed;
-  left: 50%;
-  bottom: var(--dock-bottom);
-  z-index: 69;
-  width: max-content;
-  margin: 0;
-  transform: translateX(-50%);
+  width: 100%;
+  margin: 18px 0 0;
+  text-align: center;
 }
 
 .landing-record a {

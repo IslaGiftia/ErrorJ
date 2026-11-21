@@ -810,72 +810,6 @@
     return wrap;
   }
 
-  /*
-   * 回复框：形态照搬动态页评论框——左边输入框、右边「发送」，两个控件同高。
-   * 没有独立的「取消」按钮（再次点「回复」即收起），也不再带「公开 IP 属地」勾选：
-   * 属地只有「发留言」编辑区那一个入口，回复一律不带。
-   */
-  function buildReplyForm(parentId, placeholder) {
-    var form = el("form", "mg-reply-form");
-    form.hidden = true;
-
-    var textArea = document.createElement("textarea");
-    textArea.maxLength = 1000;
-    textArea.rows = 1;
-    textArea.placeholder = placeholder || "回复一下…";
-
-    var sendBtn = el("button", "mg-btn mg-btn-primary mg-reply-send", "发送");
-    sendBtn.type = "submit";
-
-    form.append(textArea, sendBtn);
-
-    form.addEventListener("submit", function (event) {
-      event.preventDefault();
-      var content = textArea.value.trim();
-      if (!content) {
-        toast("回复内容不能为空。");
-        return;
-      }
-      sendBtn.disabled = true;
-      api("/api/site/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: content, parent_id: parentId }),
-      }).then(function () {
-        applyQuota(dailyLimit, Math.max(0, (Number(dailyRemaining) || 0) - 1));
-        toast("回复已发布");
-        return loadMessages();
-      }).catch(function (err) {
-        toast(err.message);
-      }).then(function () {
-        sendBtn.disabled = !isNaN(dailyRemaining) && dailyRemaining <= 0;
-      });
-    });
-
-    return form;
-  }
-
-  /* 点「回复」展开 / 收起回复框，展开时按钮变主题色（和动态页的评论回复一致） */
-  function bindReplyToggle(btn, form) {
-    btn.setAttribute("aria-expanded", "false");
-    btn.addEventListener("click", function () {
-      var open = form.hidden;
-      form.hidden = !open;
-      btn.classList.toggle("is-active", open);
-      btn.setAttribute("aria-expanded", open ? "true" : "false");
-      if (!open) return;
-      var area = form.querySelector("textarea");
-      if (area) area.focus();
-    });
-  }
-
-  /* 游客看到的「回复」只是占位：点击提示先登录，不展开输入框 */
-  function bindGuestReply(btn) {
-    btn.addEventListener("click", function () {
-      toast("请登录后操作");
-    });
-  }
-
   function buildLikeControl(targetType, target) {
     var wrap = el("div", "mg-like");
     var btn = el("button", "mg-like-btn");
@@ -939,9 +873,8 @@
   }
 
   /*
-   * 新互动提醒：整张留言卡片方框呼吸，新回复的正文额外高亮闪烁；
-   * 右下角不再单独放「↓ 新回复」按钮，而是复用页面共用的「顶部」按钮——
-   * 有未读时切成「↓ + 回复 / 点赞」并带呼吸，没有未读时是普通「↑ 顶部」。
+   * 新点赞提醒：整张留言卡片方框呼吸；有未读时复用页面共用的
+   * 「顶部」按钮，切成「↓ 点赞」并带呼吸，没有未读时是普通「↑ 顶部」。
    */
   function freshCards() {
     return Array.prototype.slice.call(
@@ -966,12 +899,6 @@
   function clearFreshCard(card, ids) {
     card.classList.remove("is-fresh");
     if (window.ErrorFreshVisibility) window.ErrorFreshVisibility.unwatch(card);
-    Array.prototype.forEach.call(
-      card.querySelectorAll(".mg-reply-text.is-new-reply"),
-      function (node) {
-        node.classList.remove("is-new-reply");
-      }
-    );
     updateJumpButton();
     if (!canPost) return;
     ids.forEach(function (id) {
@@ -983,31 +910,16 @@
     });
   }
 
-  function markFreshCard(card, ids, kind) {
+  function markFreshCard(card, ids) {
     if (!ids.length) return;
     card.classList.add("is-fresh");
-    card.dataset.freshKind = kind;
+    card.dataset.freshKind = "like";
     card.dataset.freshIds = ids.join(",");
     if (window.ErrorFreshVisibility) {
-      window.ErrorFreshVisibility.watch(
-        card,
-        function () {
-          clearFreshCard(card, ids);
-        },
-        function () {
-          if (kind === "reply") replayReplyBlink(card);
-        }
-      );
+      window.ErrorFreshVisibility.watch(card, function () {
+        clearFreshCard(card, ids);
+      });
     }
-  }
-
-  // 新回复进入视口时重放三次闪烁；桌面和移动端规则一致。
-  function replayReplyBlink(card) {
-    var text = card.querySelector(".mg-reply-text.is-new-reply");
-    if (!text) return;
-    text.classList.remove("is-new-reply");
-    void text.offsetWidth;
-    text.classList.add("is-new-reply");
   }
 
   function popLikeButton(card) {
@@ -1023,10 +935,8 @@
 
   function jumpToFreshCard(card) {
     if (!card) return;
-    var kind = card.dataset.freshKind === "reply" ? "reply" : "like";
     card.scrollIntoView({ behavior: "smooth", block: "center" });
-    if (kind === "reply") replayReplyBlink(card);
-    else popLikeButton(card);
+    popLikeButton(card);
   }
 
   var lastPendingKey = null;
@@ -1042,11 +952,10 @@
     if (key === lastPendingKey) return;
     lastPendingKey = key;
     if (card) {
-      var isReply = card.dataset.freshKind === "reply";
       api.setPending({
         active: true,
-        label: isReply ? "回复" : "点赞",
-        title: isReply ? "跳到新回复" : "跳到新点赞",
+        label: "点赞",
+        title: "跳到新点赞",
         onActivate: function () {
           jumpToFreshCard(freshCardBelow() || card);
         },
@@ -1172,104 +1081,22 @@
     if (files.length) {
       item.appendChild(buildFiles(files));
     }
+    var social = el("div", "mg-item-social");
     if (!message.pending_review && !message.rejected) {
-      item.appendChild(buildLikeControl("message", message));
+      social.appendChild(buildLikeControl("message", message));
     }
-
-    var repliesBox = el("div", "mg-replies");
-    var rootForm = null;
     var canDelete = Boolean(message.can_delete);
     var canReport = message.status === "approved" && !message.mine;
-    // 游客也要保留「回复」入口占位，点了再提示登录，所以这里带上 can_reply
-    if (canPost || canDelete || canReport || message.can_reply) {
-      var actions = el("div", "mg-item-actions");
-      if (message.can_reply) {
-        var replyBtn = el("button", "mg-link-btn", "回复");
-        replyBtn.type = "button";
-        actions.append(replyBtn);
-        if (canPost) {
-          rootForm = buildReplyForm(
-            message.id,
-            "回复 " + (message.nickname || "这条留言") + "…"
-          );
-          bindReplyToggle(replyBtn, rootForm);
-        } else {
-          bindGuestReply(replyBtn);
-        }
-      }
-      /*
-       * 举报 / 删除收进右下角的「三个点」，和「回复」同一行；自己发的不能举报，
-       * 只有管理员或作者本人能删。游客这一排只剩这一个入口。
-       */
-      if (canDelete || canReport) {
-        actions.append(buildMoreMenu(message, canDelete, canReport));
-      }
-      item.appendChild(actions);
+    if (canDelete || canReport) {
+      social.appendChild(buildMoreMenu(message, canDelete, canReport));
     }
-    var freshReplyIds = [];
-    var replies = message.replies || [];
-    replies.forEach(function (reply) {
-      var row = el("div", "mg-reply " + (reply.can_save ? "can-save" : "no-save"));
-      var replyHead = el("div", "mg-item-head");
-      replyHead.appendChild(el("span", "mg-nick", reply.nickname || "匿名"));
-      if (Number(reply.parent_id) !== Number(message.id)) {
-        replyHead.appendChild(
-          el("span", "mg-reply-to", "回复 @" + (reply.reply_to || "某人"))
-        );
-      }
-      replyHead.appendChild(timeNode("mg-time", reply.created_at));
-      if (reply.region) {
-        replyHead.appendChild(el("span", "mg-region", reply.region));
-      }
-      row.appendChild(replyHead);
-      if (reply.content) {
-        var replyText = el("p", "mg-reply-text", reply.content);
-        // 新回复：正文变主题色并闪烁（不再给回复那一行加方框呼吸）
-        if (freshTargets[String(reply.id)]) {
-          replyText.classList.add("is-new-reply");
-          freshReplyIds.push(reply.id);
-        }
-        row.appendChild(replyText);
-      }
-      var replyFiles = reply.files || [];
-      if (replyFiles.length) {
-        row.appendChild(buildFiles(replyFiles));
-      }
-      // 游客同样保留「回复」占位按钮，点了提示登录
-      if (canPost || reply.can_reply) {
-        var replyActions = el("div", "mg-item-actions");
-        var subReplyBtn = el("button", "mg-link-btn", "回复");
-        subReplyBtn.type = "button";
-        replyActions.appendChild(subReplyBtn);
-        row.appendChild(replyActions);
-        if (canPost) {
-          var subForm = buildReplyForm(
-            reply.id,
-            "回复 " + (reply.nickname || "这条回复") + "…"
-          );
-          bindReplyToggle(subReplyBtn, subForm);
-          row.appendChild(subForm);
-        } else {
-          bindGuestReply(subReplyBtn);
-        }
-      }
-      repliesBox.appendChild(row);
-    });
-
-    item.appendChild(repliesBox);
-    // 整张卡片的方框呼吸：自己收到新点赞，或卡里的某条回复是新的
+    if (social.childElementCount) {
+      item.appendChild(social);
+    }
+    // 整张卡片的方框呼吸：自己收到新点赞
     var rootFresh = Boolean(freshTargets[String(message.id)]);
-    if (rootFresh || freshReplyIds.length) {
-      var freshIds = freshReplyIds.slice();
-      if (rootFresh) freshIds.unshift(message.id);
-      markFreshCard(
-        item,
-        freshIds,
-        freshReplyIds.length ? "reply" : "like"
-      );
-    }
-    if (rootForm) {
-      item.appendChild(rootForm);
+    if (rootFresh) {
+      markFreshCard(item, [message.id]);
     }
     return item;
   }
@@ -1291,15 +1118,16 @@
       var payload = result[0] || {};
       latestMessageRows = Array.isArray(payload) ? payload : (payload.messages || []);
       freshTargets = {};
+      var visibleIds = {};
+      latestMessageRows.forEach(function (row) {
+        visibleIds[String(row.id)] = true;
+      });
       (result[1] || []).forEach(function (id) {
-        freshTargets[String(id)] = true;
+        if (visibleIds[String(id)]) freshTargets[String(id)] = true;
       });
       var newest = 0;
       latestMessageRows.forEach(function (row) {
         newest = Math.max(newest, Number(row.id) || 0);
-        (row.replies || []).forEach(function (reply) {
-          newest = Math.max(newest, Number(reply.id) || 0);
-        });
       });
       if (isAdmin) {
         api("/api/site/messages/seen", {
@@ -1329,7 +1157,7 @@
         if (
           previous !== null &&
           count !== previous &&
-          !document.querySelector(".mg-reply-form:not([hidden])")
+          !document.querySelector(".mg-more.is-open")
         ) {
           loadMessages();
         }
@@ -1341,17 +1169,15 @@
   }
 
   // ---------- 筛选 ----------
-  var FILTER_VALUES = ["all", "mine", "replied", "liked"];
+  var FILTER_VALUES = ["all", "mine", "liked"];
   var FILTER_LABELS = {
     all: "全部留言",
     mine: "我的",
-    replied: "评论",
     liked: "点赞",
   };
   var FILTER_EMPTY_TEXT = {
     mine: "你还没有发表过留言。",
     liked: "还没有你点赞过的留言。",
-    replied: "还没有你评论过的留言。",
   };
   var currentMessageFilter = "all";
   var latestMessageRows = [];
@@ -1404,7 +1230,6 @@
   function messageMatchesFilter(row) {
     if (currentMessageFilter === "mine") return Boolean(row.mine);
     if (currentMessageFilter === "liked") return Boolean(row.liked_by_me);
-    if (currentMessageFilter === "replied") return Boolean(row.replied_by_me);
     return true;
   }
 
@@ -1538,10 +1363,6 @@
     var rows = filterRows(latestMessageRows);
     if (window.ErrorFreshVisibility) window.ErrorFreshVisibility.reset();
     list.innerHTML = "";
-    var total = 0;
-    rows.forEach(function (row) {
-      total += 1 + (row.replies || []).length;
-    });
     if (!rows.length) {
       list.appendChild(el("div", "mg-empty", messageEmptyText()));
       return;

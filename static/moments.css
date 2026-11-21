@@ -11,8 +11,6 @@ html {
   --mo-float-inset: 12px;
   /* 悬浮操作区按钮高度：和留言页 .mg-filter-btn 的实际高度（35px）对齐 */
   --mo-dock-btn-h: 40px;
-  /* 评论 / 回复输入框与同行「发送」按钮的统一高度 */
-  --mo-input-h: 40px;
   /* 动态卡片头像的尺寸（手机端在下面收一档），也用作头部那一行的最小高度 */
   --mo-avatar: 40px;
   /* 分享卡专辑封面尺寸（手机端在下面收一档），不超出整张分享卡的高度 */
@@ -765,31 +763,11 @@ body .mo-composer #momentContent:focus-visible {
   -webkit-touch-callout: none;
 }
 
-.mo-link-btn {
-  padding: 3px 8px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--mo-muted);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.mo-link-btn:hover {
-  background: var(--mo-hover);
-  color: var(--mo-text);
-}
-
-.mo-link-btn.is-danger:hover {
-  background: var(--mo-danger-soft);
-  color: var(--mo-danger);
-}
-
-.mo-item-actions {
+.mo-item-social {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  min-height: 30px;
   margin-top: 12px;
 }
 
@@ -797,7 +775,7 @@ body .mo-composer #momentContent:focus-visible {
   margin-top: 8px;
 }
 
-/* ---------- 点赞与评论 ---------- */
+/* ---------- 点赞与分享 ---------- */
 .mo-share {
   display: flex;
   align-items: center;
@@ -969,7 +947,8 @@ button.mo-share:hover {
   display: flex;
   align-items: center;
   gap: 5px;
-  margin-top: 10px;
+  min-width: 0;
+  margin-top: 0;
 }
 
 .mo-like-btn {
@@ -1039,128 +1018,6 @@ button.mo-share:hover {
   white-space: nowrap;
 }
 
-.mo-comments {
-  margin-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.mo-comments:empty {
-  display: none;
-}
-
-.mo-comment-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--mo-border);
-}
-
-.mo-comment {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.mo-comment-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.mo-comment-actor {
-  color: var(--mo-text);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.mo-comment-time {
-  color: var(--mo-faint);
-  font-size: 12px;
-}
-
-.mo-comment-text {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 13.5px;
-  line-height: 1.6;
-}
-
-.mo-comment-actions {
-  display: flex;
-  gap: 4px;
-}
-
-.mo-comment-actions:empty {
-  display: none;
-}
-
-/* 「回复」按钮展开中时给个主题色，和下面的行内回复框对上 */
-.mo-comment-actions .mo-link-btn.is-active,
-.mo-item-actions .mo-link-btn.is-active {
-  color: var(--mo-accent);
-}
-
-/* 子回复：往右缩进一档，左侧一条细线把「评论 → 回复」的关系画出来 */
-.mo-comment-replies {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-left: 8px;
-  padding-left: 10px;
-  border-left: 2px solid color-mix(in srgb, var(--mo-border) 80%, transparent);
-}
-
-.mo-comment-reply-to {
-  color: var(--mo-accent);
-  font-size: 12.5px;
-}
-
-.mo-comment-form {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.mo-comment-form[hidden] {
-  display: none;
-}
-
-.mo-comment-form textarea {
-  flex: 1;
-  min-width: 0;
-  /* 和右边的「发送」按钮同高：单行高度，内容长了在框内滚动 */
-  height: 38px;
-  min-height: 38px;
-  max-height: 140px;
-  padding: 6px 10px;
-  border: 1px solid var(--mo-border);
-  border-radius: var(--radius);
-  background: var(--mo-surface);
-  color: var(--mo-text);
-  font: inherit;
-  font-size: 13.5px;
-  resize: vertical;
-  scroll-margin-block: 120px 40px;
-}
-
-.mo-comment-form textarea:focus {
-  outline: none;
-  border-color: var(--mo-accent);
-}
-
-.mo-comment-submit {
-  flex: 0 0 auto;
-  height: 38px;
-  min-height: 38px;
-  padding: 0 14px;
-}
-
 /* ---------- 新互动提醒：和首页模块按钮一样的呼吸 ---------- */
 .mo-item.is-fresh {
   --mo-fresh-base: var(--mo-shadow);
@@ -1181,23 +1038,6 @@ button.mo-share:hover {
   }
 }
 
-/* 新评论：正文变主题色，进入视口后统一闪烁 3 次 */
-.mo-comment-text.is-new-comment {
-  color: var(--mo-accent);
-  animation: moCommentBlink 1s ease-in-out 3;
-}
-
-@keyframes moCommentBlink {
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0.35;
-  }
-}
-
 /* ============================================================
  * 右下角「顶部」按钮：落在卡片内侧右下角，和左上角悬浮按钮共用
  * --mo-float-inset，左右完全对称（同留言页）。按钮本身的长相来自 fonts.css
@@ -1210,7 +1050,7 @@ body[data-notify-module="moments"] .site-back-top {
   bottom: calc(var(--site-back-top-bottom, 22px) + 28px);
 }
 
-/* 有新评论 / 新动态时：箭头翻向下、文案换成「评论 / 动态」、沿用同一套呼吸 */
+/* 有新动态时：箭头翻向下、文案换成「动态」、沿用同一套呼吸 */
 body[data-notify-module="moments"] .site-back-top.is-pending {
   border-color: color-mix(in srgb, var(--mo-accent) 55%, transparent);
   --mo-fresh-base: 0 6px 20px rgba(24, 31, 45, 0.18);
@@ -1224,7 +1064,6 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
   }
 
   .mo-item.is-fresh,
-  .mo-comment-text.is-new-comment,
   .mo-like-btn.is-pop,
   .mo-share.is-playing .mo-share-cover,
   body[data-notify-module="moments"] .site-back-top {
@@ -1446,7 +1285,7 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
   display: none;
 }
 
-/* ---------- 卡片右下角「三个点」菜单（和「评论」同一行，同留言页） ---------- */
+/* ---------- 卡片右下角「三个点」菜单（同留言页） ---------- */
 .mo-more {
   position: relative;
   display: flex;
@@ -1607,32 +1446,6 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
     width: min(100%, 288px);
   }
 
-  .mo-comment-form {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 6px;
-  }
-
-  /* 手机上把评论框压扁：字号仍守 16px（小于它 iOS 聚焦会自动放大整页），高度和内边距收紧 */
-  .mo-comment-form textarea {
-    height: 38px;
-    min-height: 38px;
-    max-height: 96px;
-    padding: 4px 8px;
-    overflow-y: auto;
-    resize: none;
-  }
-
-  /* 「发送」跟着输入框走：不能再用 .mo-btn 的 44px 最小高度，否则比输入框高一截 */
-  .mo-comment-form .mo-comment-submit {
-    width: auto;
-    height: 38px;
-    min-height: 38px;
-    margin-left: 0;
-    padding: 0 12px;
-    font-size: 12.5px;
-  }
 }
 
 /* 超窄屏（360px 及以下）：把这一行的内边距和间距各收一档，别让按钮被迫换行 */
@@ -1658,7 +1471,6 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
 @media (max-width: 1024px) {
   :root {
     --mo-dock-btn-h: var(--touch-target);
-    --mo-input-h: var(--touch-target);
   }
 
   body[data-notify-module="moments"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),

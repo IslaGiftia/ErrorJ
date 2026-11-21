@@ -484,23 +484,11 @@
   }
 
   /*
-   * 新互动提醒（同留言页）：整张卡片方框呼吸，新评论的正文额外高亮闪烁；
-   * 右下角不再单独放「↓」按钮，而是复用页面共用的「顶部」按钮——
-   * 有未读时切成「↓ 评论 / ↓ 动态」并带呼吸，没有未读时是普通「↑ 顶部」。
+   * 新动态 / 新点赞提醒：整张卡片方框呼吸；有未读时复用页面共用的
+   * 「顶部」按钮，切成「↓ 动态」并带呼吸，没有未读时是普通「↑ 顶部」。
    */
   function freshCards() {
     return Array.prototype.slice.call(document.querySelectorAll(".mo-item.is-fresh"));
-  }
-
-  // 评论类提醒的目标是「评论 id」，其它（新动态）指向动态本身
-  var MOMENT_COMMENT_KINDS = {
-    moment_comment: 1,
-    comment_reply: 1,
-    comment_like: 1,
-  };
-
-  function isCommentFresh(id) {
-    return Boolean(MOMENT_COMMENT_KINDS[freshTargets[String(id)]]);
   }
 
   function freshCardBelow() {
@@ -520,12 +508,6 @@
   function clearFreshCard(card, ids) {
     card.classList.remove("is-fresh");
     if (window.ErrorFreshVisibility) window.ErrorFreshVisibility.unwatch(card);
-    Array.prototype.forEach.call(
-      card.querySelectorAll(".mo-comment-text.is-new-comment"),
-      function (node) {
-        node.classList.remove("is-new-comment");
-      }
-    );
     updateJumpButton();
     if (!canInteract) return;
     ids.forEach(function (id) {
@@ -537,31 +519,16 @@
     });
   }
 
-  function markFreshCard(card, ids, kind) {
+  function markFreshCard(card, ids) {
     if (!ids.length) return;
     card.classList.add("is-fresh");
-    card.dataset.freshKind = kind;
+    card.dataset.freshKind = "moment";
     card.dataset.freshIds = ids.join(",");
     if (window.ErrorFreshVisibility) {
-      window.ErrorFreshVisibility.watch(
-        card,
-        function () {
-          clearFreshCard(card, ids);
-        },
-        function () {
-          if (kind === "comment") replayCommentBlink(card);
-        }
-      );
+      window.ErrorFreshVisibility.watch(card, function () {
+        clearFreshCard(card, ids);
+      });
     }
-  }
-
-  // 新评论进入视口时重放三次闪烁；桌面和移动端规则一致。
-  function replayCommentBlink(card) {
-    var text = card.querySelector(".mo-comment-text.is-new-comment");
-    if (!text) return;
-    text.classList.remove("is-new-comment");
-    void text.offsetWidth;
-    text.classList.add("is-new-comment");
   }
 
   function popLikeButton(card) {
@@ -577,15 +544,8 @@
 
   function jumpToFreshCard(card) {
     if (!card) return;
-    var kind = card.dataset.freshKind === "comment" ? "comment" : "moment";
-    var target = card;
-    if (kind === "comment") {
-      target = card.querySelector(".mo-comment-text.is-new-comment") || card;
-      replayCommentBlink(card);
-    } else {
-      popLikeButton(card);
-    }
-    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    popLikeButton(card);
+    card.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
   var lastPendingKey = null;
@@ -598,11 +558,10 @@
     if (key === lastPendingKey) return;
     lastPendingKey = key;
     if (card) {
-      var isComment = card.dataset.freshKind === "comment";
       api.setPending({
         active: true,
-        label: isComment ? "评论" : "动态",
-        title: isComment ? "跳到新评论" : "跳到新动态",
+        label: "动态",
+        title: "跳到新动态",
         onActivate: function () {
           jumpToFreshCard(freshCardBelow() || card);
         },
@@ -885,176 +844,6 @@
     return more;
   }
 
-  function buildCommentForm(moment, parentId, placeholder) {
-    var form = el("form", "mo-comment-form");
-    form.hidden = true;
-    var area = document.createElement("textarea");
-    area.maxLength = 1000;
-    area.rows = 1;
-    area.placeholder = placeholder || "写评论…";
-    var submit = el("button", "mo-btn mo-btn-primary mo-comment-submit", "发送");
-    submit.type = "submit";
-    form.appendChild(area);
-    form.appendChild(submit);
-    form.addEventListener("submit", function (event) {
-      event.preventDefault();
-      var text = area.value.trim();
-      if (!text) {
-        toast("回复内容不能为空。");
-        return;
-      }
-      submit.disabled = true;
-      api("/api/moments/" + moment.id + "/comments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: text, parent_id: parentId || null }),
-      }).then(function () {
-        toast(parentId ? "回复已发布" : "评论已发布");
-        return loadMoments();
-      }).catch(function (err) {
-        toast(err.message || "发布失败");
-        submit.disabled = false;
-      });
-    });
-    return form;
-  }
-
-  /* 和留言页回复一致：再次点击即收起，展开时按钮变主题色并聚焦输入框。 */
-  function bindCommentToggle(btn, form) {
-    btn.setAttribute("aria-expanded", "false");
-    btn.addEventListener("click", function () {
-      var open = form.hidden;
-      form.hidden = !open;
-      btn.classList.toggle("is-active", open);
-      btn.setAttribute("aria-expanded", open ? "true" : "false");
-      if (!open) return;
-      var area = form.querySelector("textarea");
-      if (area) area.focus();
-    });
-  }
-
-  function bindGuestComment(btn) {
-    btn.addEventListener("click", function () {
-      toast("请登录后操作");
-    });
-  }
-
-  /*
-   * 评论树：后端 moment_comments 用 parent_id 记录「回复了谁」。
-   * 这里拍平成两层显示——顶层评论 + 挂在它下面的子回复，回复的回复也挂回顶层，
-   * 避免出现第三层缩进把卡片撑乱。
-   */
-  function groupComments(comments) {
-    var byId = {};
-    (comments || []).forEach(function (comment) {
-      byId[String(comment.id)] = comment;
-    });
-    var roots = [];
-    var replies = {};
-    (comments || []).forEach(function (comment) {
-      var parent = comment.parent_id ? byId[String(comment.parent_id)] : null;
-      if (!parent) {
-        roots.push(comment);
-        return;
-      }
-      var guard = 0;
-      while (parent.parent_id && byId[String(parent.parent_id)] && guard < 50) {
-        parent = byId[String(parent.parent_id)];
-        guard += 1;
-      }
-      var key = String(parent.id);
-      if (!replies[key]) replies[key] = [];
-      replies[key].push(comment);
-    });
-    return { roots: roots, replies: replies, byId: byId };
-  }
-
-  /*
-   * 单条评论：正文 + 「回复」（就地展开行内回复框）+ 作者 / 管理员可用的「删除」。
-   * 展开 / 收起逻辑和留言页回复一致。
-   */
-  function buildCommentNode(moment, comment, freshIds, grouped) {
-    var row = el("div", "mo-comment");
-    row.dataset.commentId = String(comment.id);
-    var head = el("div", "mo-comment-head");
-    head.appendChild(el("span", "mo-comment-actor", comment.actor || "匿名"));
-    var parent = comment.parent_id ? grouped.byId[String(comment.parent_id)] : null;
-    if (parent) {
-      // 回复：带上被回复人，肉眼能看出这条挂在谁下面
-      head.appendChild(
-        el("span", "mo-comment-reply-to", "回复 @" + (parent.actor || "匿名"))
-      );
-    }
-    head.appendChild(timeNode("mo-comment-time", comment.created_at));
-    row.appendChild(head);
-    var text = el("p", "mo-comment-text", comment.content);
-    // 新评论：正文变主题色并闪烁（不再给评论行加方框呼吸）
-    if (isCommentFresh(comment.id)) {
-      text.classList.add("is-new-comment");
-      freshIds.push(comment.id);
-    }
-    row.appendChild(text);
-    /*
-     * 行动区二选一：自己写的（管理员自己评论 / 回复的内容）能删，
-     * 别人的评论只给「回复」——不在别人的评论下面挂删除按钮。
-     */
-    if (canInteract) {
-      var actions = el("div", "mo-comment-actions");
-      if (comment.mine) {
-        var deleteBtn = el("button", "mo-link-btn is-danger", "删除");
-        deleteBtn.type = "button";
-        deleteBtn.setAttribute("data-hold-confirm", "");
-        deleteBtn.title = "长按删除";
-        deleteBtn.addEventListener("click", function () {
-          api("/api/site/moment-comments/" + comment.id, { method: "DELETE" })
-            .then(function () {
-              toast("评论已删除");
-              return loadMoments();
-            })
-            .catch(function (err) {
-              toast(err.message || "删除失败");
-            });
-        });
-        actions.appendChild(deleteBtn);
-        row.appendChild(actions);
-      } else {
-        var replyBtn = el("button", "mo-link-btn", "回复");
-        replyBtn.type = "button";
-        actions.appendChild(replyBtn);
-        row.appendChild(actions);
-        var form = buildCommentForm(
-          moment,
-          comment.id,
-          "回复 @" + (comment.actor || "匿名") + "…"
-        );
-        bindCommentToggle(replyBtn, form);
-        row.appendChild(form);
-      }
-    }
-    return row;
-  }
-
-  function buildComments(moment, freshIds) {
-    var comments = moment.comments || [];
-    var box = el("div", "mo-comments");
-    var grouped = groupComments(comments);
-    if (comments.length) {
-      var list = el("div", "mo-comment-list");
-      grouped.roots.forEach(function (comment) {
-        list.appendChild(buildCommentNode(moment, comment, freshIds, grouped));
-        var children = grouped.replies[String(comment.id)] || [];
-        if (!children.length) return;
-        var nest = el("div", "mo-comment-replies");
-        children.forEach(function (child) {
-          nest.appendChild(buildCommentNode(moment, child, freshIds, grouped));
-        });
-        list.appendChild(nest);
-      });
-      box.appendChild(list);
-    }
-    return box;
-  }
-
   function buildMoment(moment) {
     var item = el("article", "mo-card mo-item " + (moment.can_save ? "can-save" : "no-save"));
     item.dataset.focusId = String(moment.id || "");
@@ -1091,13 +880,8 @@
       body.appendChild(buildShareCard(moment.share));
     }
 
-    body.appendChild(buildMomentLike(moment));
-
-    var freshCommentIds = [];
-    var commentsBox = buildComments(moment, freshCommentIds);
-
     /*
-     * 底部「评论」和右下角「⋯」同一行：举报（别人发的动态）
+     * 右下角「⋯」：举报（别人发的动态）
      * 或 置顶 / 编辑 / 删除（管理员），和留言页一样收进菜单。
      */
     var menuItems = [];
@@ -1167,33 +951,18 @@
       // 别人发的动态（含游客看到的）都能举报：游客这一排就只剩这一个入口
       menuItems.push({ label: "举报", report: moment });
     }
-    var actions = el("div", "mo-item-actions");
-    var commentBtn = el("button", "mo-link-btn", "评论");
-    commentBtn.type = "button";
-    actions.appendChild(commentBtn);
-
-    var rootCommentForm = null;
-    if (canInteract) {
-      rootCommentForm = buildCommentForm(moment, null, "评论…");
-      bindCommentToggle(commentBtn, rootCommentForm);
-    } else {
-      bindGuestComment(commentBtn);
-    }
+    var social = el("div", "mo-item-social");
+    social.appendChild(buildMomentLike(moment));
     if (menuItems.length) {
-      actions.appendChild(buildMoreMenu(menuItems));
+      social.appendChild(buildMoreMenu(menuItems));
     }
-    body.append(actions, commentsBox);
-    if (rootCommentForm) body.appendChild(rootCommentForm);
+    body.appendChild(social);
 
     item.appendChild(body);
 
-    // 整张卡片的方框呼吸：自己收到新评论，或卡片本身就是新的
-    var rootFresh =
-      Boolean(freshTargets[String(moment.id)]) && !isCommentFresh(moment.id);
-    if (rootFresh || freshCommentIds.length) {
-      var freshIds = freshCommentIds.slice();
-      if (rootFresh) freshIds.unshift(moment.id);
-      markFreshCard(item, freshIds, freshCommentIds.length ? "comment" : "moment");
+    // 整张卡片的方框呼吸：卡片本身有未读更新
+    if (freshTargets[String(moment.id)]) {
+      markFreshCard(item, [moment.id]);
     }
     return item;
   }
@@ -1212,10 +981,7 @@
     return Promise.all([api("/api/moments"), targetsRequest]).then(function (result) {
       var payload = result[0] || {};
       latestMomentRows = Array.isArray(payload) ? payload : (payload.items || []);
-      /*
-       * freshTargets: 目标 id → 提醒类型。动态 id 和评论 id 是两张表的自增主键，
-       * 可能撞号，所以一定要靠 kind 区分「动态本体」和「某条评论」。
-       */
+      // freshTargets: 未读提醒对应的动态 id。
       freshTargets = {};
       var unread = result[1] || {};
       var targetKinds = unread.target_kinds || {};
@@ -1244,7 +1010,7 @@
         if (
           previous !== null &&
           count !== previous &&
-          !document.querySelector(".mo-comment-form textarea:focus, .mo-edit")
+          !document.querySelector(".mo-edit")
         ) {
           loadMoments();
         }
@@ -1256,11 +1022,10 @@
   }
 
   // ---------- 筛选 ----------
-  var MOMENT_FILTER_VALUES = ["all", "share", "commented", "liked"];
+  var MOMENT_FILTER_VALUES = ["all", "share", "liked"];
   var MOMENT_FILTER_LABELS = {
     all: "全部动态",
     share: "分享",
-    commented: "评论",
     liked: "点赞",
   };
   var MOMENT_KIND_VALUES = ["post", "log"];
@@ -1273,22 +1038,14 @@
   var canManageMoments = false;
   var MOMENT_FILTER_EMPTY_TEXT = {
     share: "还没有从 Error酱分享过的资源。",
-    commented: "还没有被评论过的动态。",
     liked: "还没有被点赞过的动态。",
   };
   var currentMomentFilter = "all";
   var latestMomentRows = [];
 
   function momentMatchesFilter(row) {
-    // 分享 = 从 Error酱分享过去的资源；评论 / 点赞 = 任何用户（含管理员）动过的动态
+    // 分享 = 从 Error酱分享过去的资源；点赞 = 任何用户（含管理员）点过赞的动态
     if (currentMomentFilter === "share") return Boolean(row.share);
-    // has_comments / has_likes 是后端按行算好的标记；静态文件先上线、后端还没重启时，
-    // 用同一份响应里的 comments / like_count 兜底，避免筛出来一片空白。
-    if (currentMomentFilter === "commented") {
-      return typeof row.has_comments === "boolean"
-        ? row.has_comments
-        : Boolean((row.comments || []).length);
-    }
     if (currentMomentFilter === "liked") {
       return typeof row.has_likes === "boolean"
         ? row.has_likes
@@ -1401,7 +1158,7 @@
 
   /*
    * 栏位开关（我的动态 / 开发日志）常驻；筛选和「写动态」只在「我的动态」下出现——
-   * 开发日志没有点赞 / 评论可筛，也不能发布。发布框本身也只对管理员显示。
+   * 开发日志没有点赞可筛，也不能发布。发布框本身也只对管理员显示。
    */
   function applyKindVisibility() {
     var composer = $("momentForm");
@@ -1685,11 +1442,11 @@
   function renderMomentRows() {
     var list = $("momentList");
     if (!list) return;
-    // 先按 kind 分流，再套用「全部 / 分享 / 评论 / 点赞」的筛选
+    // 先按 kind 分流，再套用「全部 / 分享 / 点赞」的筛选
     var rows = latestMomentRows.filter(function (row) {
       return (row.kind || "post") === currentMomentKind;
     });
-    // 开发日志不参与筛选（日志没有分享 / 点赞 / 评论），否则切到日志会整页空白
+    // 开发日志不参与筛选（日志没有分享 / 点赞），否则切到日志会整页空白
     if (currentMomentKind !== "log" && currentMomentFilter !== "all") {
       rows = rows.filter(momentMatchesFilter);
     }

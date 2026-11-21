@@ -387,7 +387,6 @@ NOTIFY_EVENTS = (
     {"key": "attachment", "label": "新的待审核留言", "default": True},
     {"key": "report", "label": "新的内容举报", "default": True},
     {"key": "message", "label": "新的留言", "default": True},
-    {"key": "moment_comment", "label": "新的动态评论", "default": True},
     {"key": "place", "label": "新的标记点", "default": True},
     {"key": "security", "label": "安全提醒（登录失败 / 敏感词拦截）", "default": True},
 )
@@ -6627,11 +6626,6 @@ def required_permission(path, method):
         return ""
     if path == "/api/site/moments/unread" and method == "GET":
         return ""
-    if re.fullmatch(r"/api/moments/\d+/comments", path) and method == "POST":
-        # 动态评论：登录账号可用，发布动态本身仍仅管理员
-        return ""
-    if re.fullmatch(r"/api/site/moment-comments/\d+", path) and method == "DELETE":
-        return ""
     if path == "/api/moments" or path.startswith("/api/moments/"):
         # 动态：游客和普通账号只能浏览，发布/编辑/置顶/删除仅管理员。
         if method in ("POST", "PATCH", "DELETE"):
@@ -7691,19 +7685,17 @@ def mark_messages_seen(user_id):
     return seen
 
 
-LIKE_TARGET_TYPES = {"message", "moment", "comment"}
+LIKE_TARGET_TYPES = {"message", "moment"}
 NOTIFICATION_MODULES = {"messages", "moments", "map", "music", "books", "recommendations"}
 NOTIFICATION_ACTIVITY_ACTIONS = {
     "moment_new": {"moment_create"},
-    "message_reply": {"message_reply"},
     "music_new": {"music_upload"},
     "book_new": {"book_upload"},
     "recommendation_new": {"recommendation_create"},
 }
 NOTIFICATION_TARGET_TABLES = {
     "messages": "site_messages",
-    # 动态模块的提醒有两种落点：动态本身（新动态）和具体评论（新评论 / 回复 / 点赞）
-    "moments": ("moments", "moment_comments"),
+    "moments": "moments",
     "map": "map_places",
     "music": "site_music",
     "books": "books",
@@ -7789,6 +7781,10 @@ def unseen_notifications(user_id):
                   MAX(id) AS last_id
            FROM user_notifications
            WHERE user_id = ? AND seen_at IS NULL
+             AND kind NOT IN (
+                 'message_reply', 'moment_comment',
+                 'comment_reply', 'comment_like'
+             )
            GROUP BY module""",
         (user_id,),
     )
@@ -7818,6 +7814,10 @@ def unseen_notification_targets(user_id, module):
     rows = query(
         """SELECT DISTINCT target_id FROM user_notifications
            WHERE user_id = ? AND module = ? AND seen_at IS NULL
+             AND kind NOT IN (
+                 'message_reply', 'moment_comment',
+                 'comment_reply', 'comment_like'
+             )
              AND target_id > 0""",
         (user_id, module),
     )
@@ -7825,29 +7825,26 @@ def unseen_notification_targets(user_id, module):
 
 
 def unseen_notification_target_kinds(user_id, module):
-    """未读提醒的 target_id → kind。
-
-    动态模块里「动态 id」和「评论 id」来自两张自增表，可能撞号；前端要靠 kind
-    判断这个目标指向的是动态本体还是某条评论。评论类 kind 优先。
-    """
+    """未读提醒的 target_id → kind。"""
     if user_id is None:
         return {}
     user_id = int(user_id)
     if user_id < 0 or module not in NOTIFICATION_MODULES:
         return {}
-    comment_kinds = {"moment_comment", "comment_reply", "comment_like"}
     result = {}
     for row in query(
         """SELECT target_id, kind FROM user_notifications
            WHERE user_id = ? AND module = ? AND seen_at IS NULL
+             AND kind NOT IN (
+                 'message_reply', 'moment_comment',
+                 'comment_reply', 'comment_like'
+             )
              AND target_id > 0
            ORDER BY id""",
         (user_id, module),
     ):
         target = int(row["target_id"])
         kind = str(row.get("kind") or "")
-        if result.get(target) in comment_kinds:
-            continue
         result[target] = kind
     return result
 
@@ -7863,6 +7860,10 @@ def unseen_notification_rows(user_id):
         """SELECT id, kind, module, target_id, actor, text, created_at
            FROM user_notifications
            WHERE user_id = ? AND seen_at IS NULL
+             AND kind NOT IN (
+                 'message_reply', 'moment_comment',
+                 'comment_reply', 'comment_like'
+             )
            ORDER BY id""",
         (user_id,),
     )
@@ -7950,7 +7951,6 @@ def prune_notification_targets(user_id, module, table):
 def notification_alert_text(module, info):
     """把未读提醒汇总成首页左下角的一行提示。"""
     count = max(1, int((info or {}).get("count") or 0))
-    kind = str((info or {}).get("kind") or "")
     if module == "map":
         # 标记点的点赞 / 打卡已下线，这条分支只用来展示历史遗留的未读提醒
         return str((info or {}).get("text") or "标记点有未读提醒")
@@ -7961,17 +7961,7 @@ def notification_alert_text(module, info):
     if module == "recommendations":
         return "新增了一条内容" if count == 1 else f"新增了 {count} 条内容"
     if module == "moments":
-        if kind == "comment_reply":
-            return "回复了你的评论" if count == 1 else f"有 {count} 条新回复（你的评论）"
-        if kind == "comment_like":
-            return "点赞了你的评论" if count == 1 else f"有 {count} 个新点赞（你的评论）"
-        if kind == "moment_comment":
-            return "评论了你的动态" if count == 1 else f"有 {count} 条新评论（你的动态）"
         return "更新了动态" if count == 1 else f"更新了 {count} 条动态"
-    if kind == "message_reply":
-        if count == 1:
-            return str((info or {}).get("text") or "回复了你的留言")
-        return f"有 {count} 条新回复"
     return "点赞了你的留言" if count == 1 else f"有 {count} 个新点赞（你的留言）"
 
 
@@ -10565,10 +10555,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_site_notifications_seen(payload)
             elif path == "/api/moments":
                 self.api_moment_create(payload)
-            elif re.fullmatch(r"/api/moments/\d+/comments", path):
-                self.api_moment_comment_create(
-                    int(path.split("/")[3]), payload
-                )
             elif path == "/api/map/categories":
                 self.api_map_category_create(payload)
             elif path == "/api/map/places":
@@ -10771,8 +10757,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_bookmark_folder_item(path)
             elif re.fullmatch(r"/api/site/messages/\d+", path):
                 self.api_site_message_delete(path)
-            elif re.fullmatch(r"/api/site/moment-comments/\d+", path):
-                self.api_moment_comment_delete(int(path.rsplit("/", 1)[1]))
             elif re.fullmatch(r"/api/moments/\d+", path):
                 self.api_moment_item(path)
             elif re.fullmatch(r"/api/map/categories/\d+", path):
@@ -12507,10 +12491,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
         return str(row.get("nickname") or "").strip()[:16] or "普通用户"
 
     def message_daily_used(self, user_id):
-        """统计该账号今天（服务器本地日期）已发布的留言和回复数量。"""
+        """统计该账号今天（服务器本地日期）已发布的独立留言数量。"""
         start = datetime.now().strftime("%Y-%m-%d 00:00:00")
         row = query_one(
-            "SELECT COUNT(*) AS n FROM site_messages WHERE user_id = ? AND created_at >= ?",
+            """SELECT COUNT(*) AS n FROM site_messages
+               WHERE user_id = ? AND parent_id IS NULL AND created_at >= ?""",
             (user_id, start),
         )
         return int(row["n"] if row else 0)
@@ -12797,14 +12782,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
             row = query_one(
                 "SELECT id, user_id, status FROM site_messages WHERE id = ?", (target_id,)
             )
-        elif target_type == "moment":
-            row = query_one("SELECT id FROM moments WHERE id = ?", (target_id,))
         else:
-            row = query_one(
-                """SELECT id, user_id, moment_id
-                   FROM moment_comments WHERE id = ?""",
-                (target_id,),
-            )
+            row = query_one("SELECT id FROM moments WHERE id = ?", (target_id,))
         if not row:
             api_error(self, 404, "要点赞的内容不存在。")
             return
@@ -12843,17 +12822,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
                         self.notification_actor_name(identity),
                         "点赞了你的留言",
                     )
-            elif target_type == "comment":
-                author_id = int(row.get("user_id") or 0)
-                if author_id and author_id != user_id:
-                    add_user_notification(
-                        author_id,
-                        "comment_like",
-                        "moments",
-                        int(row.get("id") or 0),
-                        self.notification_actor_name(identity),
-                        "点赞了你的评论",
-                    )
         count = query_one(
             """SELECT COUNT(*) AS n FROM content_likes
                WHERE target_type = ? AND target_id = ?""",
@@ -12864,7 +12832,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_site_messages(self, params):
         """
         留言板：公开留言对所有访客可见，待审核留言只返回给管理员和作者；
-        普通账号的名字只保留最后一个字，发布 / 回复 / 点赞 / 删除按钮由前端对游客隐藏。
+        普通账号的名字只保留最后一个字，发布 / 点赞 / 删除按钮由前端对游客隐藏。
         """
         identity = self.session_identity()
         viewer_signed_in = identity is not None
@@ -12991,9 +12959,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
             row["device_info"] = str(row.get("device_info") or "")
             row["pending_review"] = row.get("status") == "pending"
             row["rejected"] = row.get("status") == "rejected"
-            row["can_reply"] = bool(
-                is_admin or row.get("status") == "approved" or int(row["id"]) in my_ids
-            )
             if not is_admin:
                 row.pop("review_note", None)
                 row.pop("reviewed_by", None)
@@ -13003,35 +12968,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
             row.pop("ip_region", None)
             row.pop("show_region", None)
         roots = [row for row in rows if not row.get("parent_id")]
-        replies = [row for row in rows if row.get("parent_id")]
-        by_id = {int(row["id"]): row for row in rows}
-
-        def thread_root(row):
-            current = row
-            guard = 0
-            while current and current.get("parent_id") and guard < 50:
-                guard += 1
-                current = by_id.get(int(current["parent_id"]))
-            return current
-
         for root in roots:
             root["replies"] = []
             root["mine"] = int(root["id"]) in my_ids
             root["liked_by_me"] = int(root["id"]) in liked_ids
-            root["replied_by_me"] = False
-        for reply in replies:
-            root = thread_root(reply)
-            if root and int(root.get("id") or 0) != int(reply.get("id") or 0):
-                root.setdefault("replies", []).append(reply)
-                if int(reply["id"]) in liked_ids:
-                    root["liked_by_me"] = True
-                if int(reply["id"]) in my_ids:
-                    root["replied_by_me"] = True
-            reply["mine"] = int(reply["id"]) in my_ids
-        for root in roots:
-            root["replies"] = sorted(
-                root.get("replies") or [], key=lambda item: int(item["id"])
-            )
+            root.pop("reply_to", None)
         self.send_json(200, roots)
 
     def message_attachments(self, payload):
@@ -13115,7 +13056,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def api_site_message_create(self, payload):
         """
-        发布留言 / 回复。设备平台要不要公开由 show_device 决定（默认不公开），
+        发布独立留言。设备平台要不要公开由 show_device 决定（默认不公开），
         文案按 User-Agent 自动识别，不接受客户端自定义设备名称。
         """
         identity = self.session_identity()
@@ -13148,11 +13089,11 @@ class InventoryHandler(BaseHTTPRequestHandler):
             nickname = ""
         content = str(payload.get("content") or "").strip()
         parent_id = payload.get("parent_id")
-        content_has_sensitive = bool(content and sensitive_contains(content))
-        if parent_id and content_has_sensitive:
-            maybe_alert_sensitive("留言内容", content, nickname)
-            api_error(self, 400, "留言内容包含不允许的词汇，请修改后再发。")
+        if parent_id not in (None, "", 0, "0"):
+            api_error(self, 400, "留言回复功能已关闭。")
             return
+        parent_id = None
+        content_has_sensitive = bool(content and sensitive_contains(content))
         if len(content) > 1000:
             api_error(self, 400, "留言内容不能超过 1000 字。")
             return
@@ -13175,25 +13116,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if not content and not prepared:
             api_error(self, 400, "留言内容和附件不能同时为空。")
             return
-        if parent_id:
-            parent = query_one(
-                """SELECT id, user_id AS author_id, parent_id, status
-                   FROM site_messages WHERE id = ?""",
-                (parent_id,),
-            )
-            if not parent:
-                api_error(self, 400, "要回复的留言不存在。")
-                return
-            if prepared:
-                api_error(self, 400, "回复暂不支持附件。")
-                return
-            if (
-                parent.get("status") != "approved"
-                and int(parent.get("author_id") or 0) != int(user_id)
-                and not self.is_admin()
-            ):
-                api_error(self, 403, "这条留言还在审核中，暂时不能回复。")
-                return
         created_at = now_text()
         client_ip = self.client_ip()
         show_region = 1 if payload.get("show_region") is True else 0
@@ -13216,10 +13138,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 400, str(exc))
             return
         uploader_id = user_id
-        needs_review = bool(
-            not parent_id
-            and (content_has_sensitive or attachment_has_sensitive)
-        )
+        needs_review = bool(content_has_sensitive or attachment_has_sensitive)
         message_status = "pending" if needs_review else "approved"
         file_status = message_status
 
@@ -13232,7 +13151,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 (
                     nickname,
                     content,
-                    parent_id or None,
+                    None,
                     user_id,
                     client_ip,
                     ip_region,
@@ -13270,60 +13189,27 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 remove_data_file(relative)
             raise
         self.log_activity(
-            "message_reply" if parent_id else "message_create",
-            f"{'回复' if parent_id else '发布'}留言：{(content[:60] if content else '（仅附件）')}",
+            "message_create",
+            f"发布留言：{(content[:60] if content else '（仅附件）')}",
             target_type="message",
             target_id=row_id,
             actor=identity,
             ip=client_ip,
             ip_region=ip_region,
         )
-        if parent_id:
-            target_user = int((parent or {}).get("author_id") or 0)
-            if target_user and target_user != user_id:
-                add_user_notification(
-                    target_user,
-                    "message_reply",
-                    "messages",
-                    row_id,
-                    self.notification_actor_name(identity),
-                    "回复了你" if (parent or {}).get("parent_id") else "回复了你的留言",
-                )
-        if parent_id:
-            nested_reply = bool((parent or {}).get("parent_id"))
-            # 楼中楼（回复某条回复）只在站内提醒，不再往 Webhook 推 —— 那是两个人之间的对话，
-            # 推到微信只会变成噪音；回复顶层留言照常推送。
-            if not nested_reply:
-                parent_author = int((parent or {}).get("author_id") or 0)
-                if parent_author:
-                    author_row = query_one(
-                        "SELECT username FROM users WHERE id = ?", (parent_author,)
-                    )
-                    parent_name = str(
-                        (author_row or {}).get("username") or "普通用户"
-                    )
-                else:
-                    parent_name = "管理员"
-                notify_async(
-                    "message",
-                    "Error酱：新的回复",
-                    f"{nickname} 回复了「{parent_name}」的留言"
-                    f"：{(content[:60] if content else '（仅附件）')}",
-                )
+        excerpt = content[:60] if content else "（仅附件）"
+        if needs_review:
+            notify_async(
+                "attachment",
+                "Error酱：新的待审核留言",
+                f"{nickname} 提交了一条留言，请到工作台「留言审核」处理。",
+            )
         else:
-            excerpt = content[:60] if content else "（仅附件）"
-            if needs_review:
-                notify_async(
-                    "attachment",
-                    "Error酱：新的待审核留言",
-                    f"{nickname} 提交了一条留言，请到工作台「留言审核」处理。",
-                )
-            else:
-                notify_async(
-                    "message",
-                    "Error酱：新的留言",
-                    f"{nickname}：{excerpt}",
-                )
+            notify_async(
+                "message",
+                "Error酱：新的留言",
+                f"{nickname}：{excerpt}",
+            )
         self.send_json(
             200,
             {
@@ -13446,7 +13332,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def api_moments(self, params):
         """
         动态：游客也能看全部动态（正文、图片、属地），但普通账号的名字只保留最后一个字，
-        评论 / 回复区照常下发（评论人同样脱敏），点赞、评论输入和分享卡的操作按钮由前端对游客隐藏。
+        点赞和分享卡的敏感操作由前端对游客隐藏。
         """
         identity = self.session_identity()
         viewer_signed_in = identity is not None
@@ -13464,9 +13350,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
             )
         files = self.moment_files_map([row["id"] for row in rows])
         moment_ids = [int(row["id"]) for row in rows]
-        comments, comment_moment_ids = self.moment_comments_map(
-            moment_ids, viewer_id, can_manage, viewer_signed_in
-        )
         share_ids = {}
         if moment_ids:
             placeholders = ",".join("?" for _ in moment_ids)
@@ -13514,13 +13397,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                         (region, row["id"]),
                     )
                     row["ip_region"] = region
-        comment_counts = {
-            moment_id: len(items) for moment_id, items in comments.items()
-        }
         for row in rows:
             row["files"] = files.get(row["id"], [])
-            row["comments"] = comments.get(row["id"], [])
-            row["comment_count"] = comment_counts.get(int(row["id"]), 0)
             share = share_ids.get(int(row["id"]))
             share_info = shared_resource_info(share[0], share[1]) if share else None
             if share_info and not viewer_signed_in:
@@ -13532,13 +13410,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             row["share"] = share_info
             row["like_count"] = like_count_map.get(int(row["id"]), 0)
             row["liked"] = int(row["id"]) in liked_set
-            row["liked_by_me"] = row["liked"] or any(
-                comment.get("liked") for comment in row["comments"]
-            )
-            row["commented_by_me"] = int(row["id"]) in comment_moment_ids
-            # 「评论 / 点赞」两个筛选看的是「有没有任何用户（含管理员）动过」，
-            # 不再只看自己——所以这里直接给出行级的布尔标记。
-            row["has_comments"] = bool(row["comments"])
+            row["liked_by_me"] = row["liked"]
             row["has_likes"] = int(row["like_count"] or 0) > 0
             row["like_users"] = like_user_map.get(int(row["id"]), [])[:12]
             row["pinned"] = bool(row["pinned"])
