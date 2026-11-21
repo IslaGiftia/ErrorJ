@@ -109,7 +109,7 @@
   pointer-events: none;
 }
 
-.fx-liquid-host > :not(.fx-liquid-layer):not(.fx-state-mark) {
+.fx-liquid-host > :not(.fx-liquid-layer):not(.fx-state-mark):not(.pg-fill) {
   position: relative;
   z-index: 1;
 }

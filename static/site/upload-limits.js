@@ -5,6 +5,11 @@
   var DEFAULTS = {
     message_file: {
       max_count: 3,
+      max_file_bytes: 500 * 1024 * 1024,
+      max_total_bytes: 500 * 1024 * 1024,
+    },
+    message_image: {
+      max_count: 9,
       max_file_bytes: 5 * 1024 * 1024,
       max_total_bytes: 15 * 1024 * 1024,
     },

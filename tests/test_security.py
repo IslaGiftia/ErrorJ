@@ -574,11 +574,12 @@ class MessageAttachmentTests(unittest.TestCase):
 
         self.assertEqual(error, "")
         self.assertEqual(len(prepared), 1)
-        display_name, content, mime_type, stored_name = prepared[0]
+        display_name, content, mime_type, stored_name, purpose = prepared[0]
         self.assertEqual(display_name, "camera.png")
         self.assertEqual(content, raw)
         self.assertEqual(mime_type, "image/jpeg")
         self.assertEqual(stored_name, "camera.jpg")
+        self.assertEqual(purpose, "image")
 
     def test_invalid_image_content_is_rejected(self):
         payload = {
@@ -594,6 +595,218 @@ class MessageAttachmentTests(unittest.TestCase):
 
         self.assertIsNone(prepared)
         self.assertIn("图片内容无法识别", error)
+
+    def test_workbench_file_formats_are_allowed_as_private_attachments(self):
+        self.assertTrue(app.WORKBENCH_EXTENSIONS <= app.MESSAGE_FILE_EXTENSIONS)
+        payload = {
+            "files": [
+                {
+                    "name": "firmware.bin",
+                    "kind": "attachment",
+                    "data_base64": base64.b64encode(b"\x00\x01firmware").decode(
+                        "ascii"
+                    ),
+                }
+            ]
+        }
+
+        prepared, error = self.handler.message_attachments(payload)
+
+        self.assertEqual(error, "")
+        self.assertEqual(prepared[0][0], "firmware.bin")
+        self.assertEqual(prepared[0][4], "attachment")
+
+    def test_image_extension_sent_as_attachment_stays_private(self):
+        payload = {
+            "files": [
+                {
+                    "name": "package.png",
+                    "kind": "attachment",
+                    "data_base64": base64.b64encode(b"private payload").decode(
+                        "ascii"
+                    ),
+                }
+            ]
+        }
+
+        prepared, error = self.handler.message_attachments(payload)
+
+        self.assertEqual(error, "")
+        self.assertEqual(prepared[0][4], "attachment")
+
+
+class MessageAttachmentVisibilityTests(unittest.TestCase):
+    def setUp(self):
+        self._temp = tempfile.TemporaryDirectory()
+        self._db_patch = patch.object(
+            app, "DB_PATH", Path(self._temp.name) / "inventory.db"
+        )
+        self._db_patch.start()
+        app.init_db()
+        stamp = app.now_text()
+        self.owner_id = app.execute(
+            """INSERT INTO users
+                   (username, nickname, password_hash, status, role,
+                    created_at, updated_at)
+               VALUES (?, ?, 'hash', 'approved', 'member', ?, ?)""",
+            ("uploader", "上传者", stamp, stamp),
+        )
+        self.other_id = app.execute(
+            """INSERT INTO users
+                   (username, nickname, password_hash, status, role,
+                    created_at, updated_at)
+               VALUES (?, ?, 'hash', 'approved', 'member', ?, ?)""",
+            ("other", "其他人", stamp, stamp),
+        )
+        self.message_id = app.execute(
+            """INSERT INTO site_messages
+                   (nickname, content, user_id, status, created_at)
+               VALUES ('上传者', '带文件和配图', ?, 'approved', ?)""",
+            (self.owner_id, stamp),
+        )
+        self.attachment_id = app.execute(
+            """INSERT INTO site_message_files
+                   (message_id, file_name, file_path, file_size, mime_type,
+                    purpose, status, uploaded_by, created_at)
+               VALUES (?, 'archive.zip', 'site_message_files/archive.zip',
+                       128, 'application/zip', 'attachment', 'approved', ?, ?)""",
+            (self.message_id, self.owner_id, stamp),
+        )
+        self.image_id = app.execute(
+            """INSERT INTO site_message_files
+                   (message_id, file_name, file_path, file_size, mime_type,
+                    purpose, status, uploaded_by, created_at)
+               VALUES (?, 'photo.png', 'site_message_files/photo.png',
+                       256, 'image/png', 'image', 'approved', ?, ?)""",
+            (self.message_id, self.owner_id, stamp),
+        )
+
+    def tearDown(self):
+        self._db_patch.stop()
+        self._temp.cleanup()
+
+    def handler(self, user_id=None, admin=False):
+        handler = object.__new__(app.InventoryHandler)
+        identity = (
+            None
+            if user_id is None
+            else {"kind": "member", "user_id": user_id, "username": "member"}
+        )
+        handler.session_identity = lambda: identity
+        handler.is_admin = lambda: admin
+        handler.responses = []
+        handler.send_json = lambda status, payload: handler.responses.append(
+            (status, payload)
+        )
+        handler.file_responses = []
+        handler.send_data_file = (
+            lambda *args, **kwargs: handler.file_responses.append((args, kwargs))
+        )
+        return handler
+
+    def test_public_users_only_receive_published_images(self):
+        uploader_files = self.handler(self.owner_id).site_message_files_map(
+            [self.message_id]
+        )[self.message_id]
+        other_files = self.handler(self.other_id).site_message_files_map(
+            [self.message_id]
+        )[self.message_id]
+        guest_files = self.handler().site_message_files_map([self.message_id])[
+            self.message_id
+        ]
+        admin_files = self.handler(admin=True).site_message_files_map(
+            [self.message_id]
+        )[self.message_id]
+
+        self.assertEqual({item["purpose"] for item in uploader_files}, {"attachment", "image"})
+        self.assertEqual([item["purpose"] for item in other_files], ["image"])
+        self.assertEqual([item["purpose"] for item in guest_files], ["image"])
+        self.assertEqual({item["purpose"] for item in admin_files}, {"attachment", "image"})
+
+    def test_private_attachment_download_is_limited_to_uploader_and_admin(self):
+        path = f"/api/site/message-files/{self.attachment_id}"
+        for handler in (
+            self.handler(self.other_id),
+            self.handler(),
+        ):
+            handler.api_site_message_file(path)
+            self.assertEqual(handler.responses[-1][0], 403)
+            self.assertFalse(handler.file_responses)
+
+        admin = self.handler(admin=True)
+        admin.api_site_message_file(path)
+        self.assertEqual(admin.responses, [])
+        self.assertEqual(admin.file_responses[0][1]["download_name"], "archive.zip")
+        self.assertTrue(admin.file_responses[0][1]["allow_range"])
+
+        uploader = self.handler(self.owner_id)
+        uploader.api_site_message_file(path)
+        self.assertEqual(uploader.responses, [])
+        self.assertEqual(
+            uploader.file_responses[0][1]["download_name"], "archive.zip"
+        )
+
+    def test_public_image_download_remains_available(self):
+        guest = self.handler()
+        guest.api_site_message_file(
+            f"/api/site/message-files/{self.image_id}"
+        )
+        self.assertEqual(guest.responses, [])
+        self.assertNotIn("download_name", guest.file_responses[0][1])
+        self.assertTrue(guest.file_responses[0][1]["allow_range"])
+
+    @patch.object(app, "rate_allow", return_value=True)
+    @patch.object(app, "notify_async", return_value=False)
+    def test_message_create_persists_attachment_and_image_purpose(
+        self, _notify, _rate
+    ):
+        handler = self.handler(self.owner_id)
+        handler.session_identity = lambda: {
+            "kind": "member",
+            "user_id": self.owner_id,
+            "username": "uploader",
+            "nickname": "上传者",
+        }
+        handler.client_ip = lambda: "127.0.0.1"
+        handler.message_daily_used = lambda _user_id: 0
+        handler.message_limit_for_user = lambda _user_id: 9
+        handler.log_activity = lambda *args, **kwargs: None
+        counter = {"value": 0}
+
+        def save(raw, name, folder, max_bytes):
+            counter["value"] += 1
+            return f"{folder}/{counter['value']}_{name}"
+
+        handler.save_data_file = save
+        png = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+        )
+        handler.api_site_message_create(
+            {
+                "content": "混合上传",
+                "files": [
+                    {
+                        "name": "firmware.bin",
+                        "kind": "attachment",
+                        "data_base64": base64.b64encode(b"\x00\x01").decode("ascii"),
+                    },
+                    {
+                        "name": "tiny.png",
+                        "kind": "image",
+                        "data_base64": base64.b64encode(png).decode("ascii"),
+                    },
+                ],
+            }
+        )
+        self.assertEqual(handler.responses[-1][0], 200)
+        rows = app.query(
+            """SELECT f.purpose
+               FROM site_message_files f
+               JOIN site_messages m ON m.id = f.message_id
+               WHERE m.content = '混合上传'
+               ORDER BY f.id"""
+        )
+        self.assertEqual([row["purpose"] for row in rows], ["attachment", "image"])
 
 
 class ContentShareTests(unittest.TestCase):
@@ -1104,6 +1317,11 @@ class InteractionTests(unittest.TestCase):
         )
         self.assertEqual(content, "普通动态")
         self.assertIsNone(tags)
+        long_content, tags = handler.moment_payload(
+            {"content": "长" * 5000}
+        )
+        self.assertEqual(len(long_content), 5000)
+        self.assertIsNone(tags)
         content, tags = handler.moment_payload(
             {"content": "日志正文"},
             {"content": "旧日志", "kind": "log", "tags": "更新日志"},
@@ -1135,6 +1353,119 @@ class InteractionTests(unittest.TestCase):
             moments_html,
         )
         self.assertIn('aria-label="动态内容"', moments_html)
+
+    def test_composers_use_compact_bilibili_style_toolbar_and_visibility_toggles(self):
+        moments_html = (app.STATIC_DIR / "moments.html").read_text(
+            encoding="utf-8"
+        )
+        messages_html = (app.STATIC_DIR / "messages.html").read_text(
+            encoding="utf-8"
+        )
+        moments_js = (app.STATIC_DIR / "moments.js").read_text(
+            encoding="utf-8"
+        )
+        messages_js = (app.STATIC_DIR / "messages.js").read_text(
+            encoding="utf-8"
+        )
+        moments_css = (app.STATIC_DIR / "moments.css").read_text(
+            encoding="utf-8"
+        )
+        messages_css = (app.STATIC_DIR / "messages.css").read_text(
+            encoding="utf-8"
+        )
+        for html in (moments_html, messages_html):
+            self.assertIn('placeholder="键道万古如长夜，键来！"', html)
+        self.assertNotIn('maxlength="2000"', moments_html)
+        for html in (moments_html, messages_html):
+            self.assertIn('aria-haspopup="listbox"', html)
+        self.assertIn('id="momentCharCount"', moments_html)
+        self.assertIn('id="messageCharCount"', messages_html)
+        self.assertNotIn("momentSettingsPanel", moments_html)
+        self.assertNotIn("messageSettingsPanel", messages_html)
+        self.assertNotIn("momentDeviceInput", moments_html)
+        self.assertNotIn("msgDeviceInput", messages_html)
+        self.assertNotIn("messageQuota", messages_html)
+        self.assertIn('id="momentShowRegionBtn"', moments_html)
+        self.assertIn('id="momentShowDeviceBtn"', moments_html)
+        self.assertIn('id="msgShowRegionBtn"', messages_html)
+        self.assertIn('id="msgShowDeviceBtn"', messages_html)
+        for html in (moments_html, messages_html):
+            self.assertIn('data-lucide="map-pin"', html)
+            self.assertIn('data-lucide="monitor"', html)
+            self.assertNotIn('<i data-lucide="send"></i><span>发布', html)
+        self.assertIn("momentContentInput.addEventListener", moments_js)
+        self.assertIn("messageContentInput.addEventListener", messages_js)
+        self.assertIn("bindVisibilityToggle", moments_js)
+        self.assertIn("bindVisibilityToggle", messages_js)
+        self.assertIn(".mo-compose-icon", moments_css)
+        self.assertIn(".mg-compose-icon", messages_css)
+        self.assertIn('.mo-compose-icon[aria-pressed="true"]', moments_css)
+        self.assertIn('.mg-compose-icon[aria-pressed="true"]', messages_css)
+        self.assertIn("min-height: 186px", moments_css)
+        self.assertIn("min-height: 186px", messages_css)
+        self.assertIn("min-height: 198px", moments_css)
+        self.assertIn("min-height: 198px", messages_css)
+        self.assertIn(".mo-btn.mo-compose-publish", moments_css)
+        self.assertIn("margin-left: 0", moments_css)
+        self.assertIn("flex: 0 0 68px", moments_css)
+        self.assertIn("flex: 0 0 68px", messages_css)
+        self.assertIn("background: transparent", moments_css)
+        self.assertIn("background: transparent", messages_css)
+        self.assertIn("background: var(--mo-surface)", moments_css)
+        self.assertIn("background: var(--mg-surface)", messages_css)
+        self.assertIn("body .mo-composer #momentContent:focus-visible", moments_css)
+        self.assertIn(
+            "body #messageComposerPanel #msgContent:focus-visible", messages_css
+        )
+        self.assertIn("outline: none !important", moments_css)
+        self.assertIn("outline: none !important", messages_css)
+        self.assertIn("scrollbar-width: none", moments_css)
+        self.assertIn("scrollbar-width: none", messages_css)
+        progress_css = (app.STATIC_DIR / "site" / "progress.css").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("max-width: 100%", progress_css)
+        button_effects_css = (
+            app.STATIC_DIR / "site" / "button-effects.css"
+        ).read_text(encoding="utf-8")
+        self.assertIn(":not(.pg-fill)", button_effects_css)
+
+    def test_moment_comments_reuse_message_reply_layout(self):
+        moments_js = (app.STATIC_DIR / "moments.js").read_text(encoding="utf-8")
+        moments_css = (app.STATIC_DIR / "moments.css").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('el("button", "mo-link-btn", "评论")', moments_js)
+        self.assertIn("form.hidden = true", moments_js)
+        self.assertIn("bindCommentToggle(commentBtn, rootCommentForm)", moments_js)
+        self.assertIn("body.append(actions, commentsBox)", moments_js)
+        self.assertNotIn("head.appendChild(buildMoreMenu(menuItems))", moments_js)
+        self.assertNotIn('buildCommentForm(moment, null, "写评论…")', moments_js)
+        self.assertIn(".mo-item-actions", moments_css)
+        self.assertIn(".mo-comment-form[hidden]", moments_css)
+        self.assertIn("bottom: calc(100% + 6px)", moments_css)
+
+    def test_message_uploads_split_private_attachments_and_public_images(self):
+        messages_html = (app.STATIC_DIR / "messages.html").read_text(
+            encoding="utf-8"
+        )
+        messages_js = (app.STATIC_DIR / "messages.js").read_text(
+            encoding="utf-8"
+        )
+        upload_limits_js = (
+            app.STATIC_DIR / "site" / "upload-limits.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn('id="imageInput"', messages_html)
+        self.assertIn('id="pickImageBtn"', messages_html)
+        self.assertIn('data-lucide="image-plus"', messages_html)
+        self.assertIn(".bin", messages_html)
+        self.assertIn(".zip", messages_html)
+        self.assertIn("pendingAttachments", messages_js)
+        self.assertIn("pendingImages", messages_js)
+        self.assertIn('kind: "attachment"', messages_js)
+        self.assertIn('kind: "image"', messages_js)
+        self.assertIn("500 * 1024 * 1024", messages_js)
+        self.assertIn("message_image", upload_limits_js)
 
     def test_finance_module_uses_finance_name_across_visible_entry_points(self):
         permission_group = next(
@@ -2610,9 +2941,22 @@ class UploadLimitTests(unittest.TestCase):
             app.MESSAGE_FILE_TOTAL_MAX_BYTES,
         )
         self.assertEqual(
+            defaults["message_image"]["max_count"], app.MESSAGE_IMAGE_MAX_COUNT
+        )
+        self.assertEqual(
+            defaults["message_image"]["max_file_bytes"],
+            app.MESSAGE_IMAGE_MAX_BYTES,
+        )
+        self.assertEqual(
+            defaults["message_image"]["max_total_bytes"],
+            app.MESSAGE_IMAGE_TOTAL_MAX_BYTES,
+        )
+        self.assertEqual(
             defaults["moment_image"]["max_total_bytes"],
             app.MOMENT_IMAGE_TOTAL_MAX_BYTES,
         )
+        self.assertEqual(app.MESSAGE_FILE_MAX_BYTES, 500 * 1024 * 1024)
+        self.assertEqual(app.UPLOAD_LIMIT_HARD_MAX_BYTES, 500 * 1024 * 1024)
 
     def test_normalize_rejects_values_beyond_hard_limits(self):
         with self.assertRaises(ValueError):
@@ -3001,7 +3345,7 @@ class ComplianceWorkflowTests(unittest.TestCase):
     def test_log_retention_default_is_six_months(self):
         self.assertEqual(app.LOG_RETENTION_DAYS, 180)
 
-    def test_device_info_label_and_normalize(self):
+    def test_device_info_label(self):
         """UA 自动识别只认系统：鸿蒙 / Android / iOS 优先，其次 ChromeOS / Windows / macOS / Linux。"""
         windows = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0"
         android = "Mozilla/5.0 (Linux; Android 14; Pixel 7) Mobile Safari/537.36"
@@ -3041,20 +3385,11 @@ class ComplianceWorkflowTests(unittest.TestCase):
         self.assertEqual(app.device_info_label("harmonyos"), "来自 鸿蒙")
         self.assertEqual(app.device_info_label(""), "来自 Web")
 
-        # 管理员自定义：补「来自 」前缀、压掉换行与多余空格、超长截断
-        self.assertEqual(app.normalize_device_info("iQOO 12 Pro"), "来自 iQOO 12 Pro")
-        self.assertEqual(app.normalize_device_info("  来自 iOS\n"), "来自 iOS")
-        self.assertEqual(app.normalize_device_info("iPad\nPro"), "来自 iPad Pro")
-        self.assertEqual(app.normalize_device_info(""), "")
-        self.assertEqual(
-            len(app.normalize_device_info("X" * 80)), app.DEVICE_INFO_MAX_CHARS
-        )
-
     @patch.object(app, "rate_allow", return_value=True)
-    def test_message_device_info_auto_for_members_and_custom_for_admin(self, _rate):
+    def test_message_device_info_is_always_auto(self, _rate):
         """
         留言的设备平台：默认不公开（落空串），勾了 show_device 才按 UA 自动识别；
-        普通账号伪造 device_info 会被忽略，只有管理员能用自定义名称。
+        任何账号传入的 device_info 都会被忽略。
         """
         auto = self.make_handler(self.member(self.member_id), method="POST")
         with patch.object(app, "notify_async", return_value=False):
@@ -3102,7 +3437,7 @@ class ComplianceWorkflowTests(unittest.TestCase):
                     "device_info": "iQOO 12 Pro",
                 }
             )
-            # 填了自定义名称但只有空格 → 退回自动识别
+            # 自定义名称已经下线 → 一律使用自动识别
             admin.api_site_message_create(
                 {
                     "content": "管理员留空",
@@ -3124,7 +3459,7 @@ class ComplianceWorkflowTests(unittest.TestCase):
                 "SELECT device_info FROM site_messages WHERE content = ?",
                 ("管理员留言",),
             )["device_info"],
-            "来自 iQOO 12 Pro",
+            "来自 Web",
         )
         self.assertEqual(
             app.query_one(
@@ -3146,65 +3481,21 @@ class ComplianceWorkflowTests(unittest.TestCase):
         board.api_site_messages({})
         rows = board.responses[-1][1]
         target = [row for row in rows if row["content"] == "管理员留言"][0]
-        self.assertEqual(target["device_info"], "来自 iQOO 12 Pro")
+        self.assertEqual(target["device_info"], "来自 Web")
         auto_row = [row for row in rows if row["content"] == "伪造设备"][0]
         self.assertEqual(auto_row["device_info"], "来自 Web")
 
     @patch.object(app, "rate_allow", return_value=True)
-    def test_custom_device_name_permission_can_be_granted(self, _rate):
-        """「自定义设备平台名称」是账号权限里的一项：开了就能填，没开只能用自动识别。"""
-        self.assertIn("site:device_name", app.PERMISSION_LABELS)
-        self.assertIn("site:device_name", app.GRANTABLE_PERMISSIONS)
-        # 可以整批授予「普通账户」这个角色，但默认不发给任何人
-        self.assertIn("site:device_name", app.MEMBER_ROLE_PERMISSIONS)
-        self.assertNotIn("site:device_name", app.DEFAULT_MEMBER_PERMISSIONS)
+    def test_custom_device_name_permission_is_removed(self, _rate):
+        """设备平台只保留自动识别，账号权限里不再提供自定义名称能力。"""
+        self.assertNotIn("site:device_name", app.PERMISSION_LABELS)
+        self.assertNotIn("site:device_name", app.GRANTABLE_PERMISSIONS)
+        self.assertNotIn("site:device_name", app.MEMBER_ROLE_PERMISSIONS)
 
-        without = self.make_handler(self.member(self.member_id), method="POST")
-        with patch.object(app, "notify_async", return_value=False):
-            without.api_site_message_create(
-                {
-                    "content": "没权限",
-                    "files": [],
-                    "show_device": True,
-                    "device_info": "iQOO 12 Pro",
-                }
-            )
-        self.assertEqual(
-            app.query_one(
-                "SELECT device_info FROM site_messages WHERE content = ?",
-                ("没权限",),
-            )["device_info"],
-            "来自 Web",
-        )
-
-        # 单独给这个账号开放权限
-        app.execute(
-            """INSERT INTO user_permissions (user_id, permission, mode, granted_by, granted_at)
-               VALUES (?, ?, 'allow', 'owner', ?)""",
-            (self.other_id, "site:device_name", app.now_text()),
-        )
-        granted = self.make_handler(self.member(self.other_id), method="POST")
-        with patch.object(app, "notify_async", return_value=False):
-            granted.api_site_message_create(
-                {
-                    "content": "有权限",
-                    "files": [],
-                    "show_device": True,
-                    "device_info": "iQOO 12 Pro",
-                }
-            )
-        self.assertEqual(
-            app.query_one(
-                "SELECT device_info FROM site_messages WHERE content = ?",
-                ("有权限",),
-            )["device_info"],
-            "来自 iQOO 12 Pro",
-        )
-
-    def test_moment_device_info_requires_admin_and_survives_other_edits(self):
+    def test_moment_device_info_is_auto_and_survives_other_edits(self):
         """
-        动态的设备平台：默认不公开；public 开关 + 管理员自定义名称；不带这两个字段的编辑
-        （例如置顶）不会覆盖原值。
+        动态的设备平台：默认不公开；public 开关只控制自动识别结果是否公开；
+        不带 show_device 的编辑（例如置顶）不会覆盖原值。
         """
         admin_identity = {"kind": "owner", "user_id": 0, "nickname": "管理员"}
         member = self.make_handler(self.member(self.member_id), method="POST")
@@ -3250,7 +3541,7 @@ class ComplianceWorkflowTests(unittest.TestCase):
             app.query_one(
                 "SELECT device_info FROM moments WHERE id = ?", (moment_id,)
             )["device_info"],
-            "来自 iQOO 12 Pro",
+            "来自 Web",
         )
 
         def patch_moment(payload):
@@ -3259,15 +3550,15 @@ class ComplianceWorkflowTests(unittest.TestCase):
                 editor.api_moment_item(f"/api/moments/{moment_id}")
             self.assertEqual(editor.responses[-1][0], 200)
 
-        # 只改置顶：payload 里没有 device_info，自定义名称保持不变
+        # 只改置顶：payload 里没有 show_device，原设备信息保持不变
         patch_moment({"content": "管理员动态", "pinned": True})
         self.assertEqual(
             app.query_one(
                 "SELECT device_info FROM moments WHERE id = ?", (moment_id,)
             )["device_info"],
-            "来自 iQOO 12 Pro",
+            "来自 Web",
         )
-        # 编辑表单明确留空自定义名称 → 回到自动识别
+        # 客户端仍传 device_info 也会被忽略，重新按 UA 自动识别
         patch_moment({"content": "管理员动态", "show_device": True, "device_info": ""})
         self.assertEqual(
             app.query_one(
@@ -3617,7 +3908,7 @@ class ComplianceWorkflowTests(unittest.TestCase):
     def test_moments_mobile_comment_layout_is_scoped(self):
         css = (app.STATIC_DIR / "moments.css").read_text(encoding="utf-8")
         script = (app.STATIC_DIR / "moments.js").read_text(encoding="utf-8")
-        self.assertIn(".mo-composer-foot .mo-btn-primary", css)
+        self.assertIn(".mo-compose-toolbar", css)
         self.assertIn(".mo-comment-submit", css)
         self.assertIn("scrollIntoView", script)
 

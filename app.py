@@ -17,6 +17,7 @@ import posixpath
 import queue
 import re
 import secrets
+import shutil
 import socket
 import sqlite3
 import ssl
@@ -98,9 +99,8 @@ NOTE_IMPORT_FORMATS = {
 TEXT_NOTE_IMPORT_EXTENSIONS = {".txt", ".md", ".markdown"}
 WORKBENCH_FILE_MAX_BYTES = 30 * 1024 * 1024
 RECOMMEND_IMAGE_MAX_BYTES = 15 * 1024 * 1024
-# 上传走 JSON + base64，体积约为原文件的 1.37 倍：60MB 的音乐大约 80MB 请求体，
-# 30MB 的固件大约 41MB，所以这里要留出足够余量（nginx 的 client_max_body_size 同步为 84m）。
-MAX_REQUEST_BYTES = 84 * 1024 * 1024
+# 上传走 JSON + base64，500MB 文件编码后约 667MB，需要给 JSON 元数据留出余量。
+MAX_REQUEST_BYTES = 720 * 1024 * 1024
 AUTH_PATH = DATA_DIR / "auth.json"
 AUTH_COOKIE = "errorjiang_session"
 # 会话签名密钥在数据库里的存放键（见 stored_auth_secret）
@@ -255,10 +255,6 @@ PERMISSION_GROUPS = (
             {"key": "books:write", "label": "上传、编辑、删除书架电子书"},
             {"key": "links:write", "label": "管理宝藏网站链接"},
             {"key": "photos:write", "label": "管理照片墙"},
-            {
-                "key": "site:device_name",
-                "label": "自定义「设备平台」名称（留言 / 动态）",
-            },
         ),
     },
     {
@@ -468,11 +464,13 @@ REFERENCE_ITEM_RE = re.compile(
 )
 SHARE_RESOURCE_TYPES = {"book", "music", "workbench_asset"}
 DOWNLOAD_RESOURCE_TYPES = {"book", "music"}
-MESSAGE_FILE_MAX_BYTES = 5 * 1024 * 1024
-MESSAGE_FILE_TOTAL_MAX_BYTES = 15 * 1024 * 1024
+MESSAGE_FILE_MAX_BYTES = 500 * 1024 * 1024
+MESSAGE_FILE_TOTAL_MAX_BYTES = 500 * 1024 * 1024
 MESSAGE_FILE_MAX_COUNT = 3
+MESSAGE_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+MESSAGE_IMAGE_TOTAL_MAX_BYTES = 15 * 1024 * 1024
+MESSAGE_IMAGE_MAX_COUNT = 9
 MESSAGE_DAILY_LIMIT = 9
-DEVICE_INFO_MAX_CHARS = 40
 REPORT_TARGET_TYPES = ("message", "moment", "book", "recommendation", "music")
 REPORT_TARGET_LABELS = {
     "message": "留言",
@@ -490,7 +488,6 @@ REPORT_REASONS = (
     "其他",
 )
 REPORT_SLA_HOURS = 24
-MOMENT_CONTENT_MAX_CHARS = 2000
 MOMENT_COMMENT_MAX_CHARS = 500
 MOMENT_IMAGE_MAX_BYTES = 5 * 1024 * 1024
 MAP_PHOTO_MAX_BYTES = 8 * 1024 * 1024
@@ -516,18 +513,28 @@ BOOK_EXTENSIONS = {
 }
 MOMENT_IMAGE_TOTAL_MAX_BYTES = 15 * 1024 * 1024
 MOMENT_IMAGE_MAX_COUNT = 9
-UPLOAD_LIMIT_HARD_MAX_BYTES = 60 * 1024 * 1024
+UPLOAD_LIMIT_HARD_MAX_BYTES = 500 * 1024 * 1024
 UPLOAD_LIMIT_HARD_MAX_COUNT = 100
 UPLOAD_LIMIT_SCHEMA = (
     {
         "key": "message_file",
         "label": "留言附件",
-        "description": "单条留言允许上传的附件数量、单个大小和合计大小。",
+        "description": "单条留言允许上传的私有附件数量、单个大小和合计大小。",
         "count": True,
         "total": True,
         "max_count": MESSAGE_FILE_MAX_COUNT,
         "max_file_bytes": MESSAGE_FILE_MAX_BYTES,
         "max_total_bytes": MESSAGE_FILE_TOTAL_MAX_BYTES,
+    },
+    {
+        "key": "message_image",
+        "label": "留言配图",
+        "description": "单条留言允许公开展示的图片数量、单张大小和合计大小。",
+        "count": True,
+        "total": True,
+        "max_count": MESSAGE_IMAGE_MAX_COUNT,
+        "max_file_bytes": MESSAGE_IMAGE_MAX_BYTES,
+        "max_total_bytes": MESSAGE_IMAGE_TOTAL_MAX_BYTES,
     },
     {
         "key": "moment_image",
@@ -651,9 +658,29 @@ UPLOAD_LIMIT_SCHEMA = (
 )
 MESSAGE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 MESSAGE_FILE_EXTENSIONS = MESSAGE_IMAGE_EXTENSIONS | {
+    ".7z",
+    ".apk",
+    ".bin",
+    ".brd",
+    ".csv",
+    ".elf",
+    ".exe",
+    ".gz",
+    ".hex",
+    ".json",
+    ".kicad_pcb",
+    ".kicad_sch",
     ".pdf",
+    ".pcb",
+    ".rar",
+    ".sch",
+    ".tar",
+    ".tgz",
     ".txt",
     ".md",
+    ".xls",
+    ".xlsx",
+    ".zip",
 }
 WORKBENCH_CATEGORIES = {"source", "firmware", "document", "image", "other"}
 WORKBENCH_REPAIR_STATUSES = {"open", "repairing", "completed", "cancelled"}
@@ -1180,6 +1207,7 @@ def init_db():
                 file_path TEXT NOT NULL,
                 file_size INTEGER NOT NULL DEFAULT 0,
                 mime_type TEXT,
+                purpose TEXT NOT NULL DEFAULT 'attachment',
                 status TEXT NOT NULL DEFAULT 'pending',
                 uploaded_by INTEGER,
                 reviewed_by TEXT,
@@ -2003,6 +2031,7 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             row["name"]
             for row in conn.execute("PRAGMA table_info(site_message_files)").fetchall()
         }
+        purpose_added = "purpose" not in message_file_columns
         for column, ddl in (
             (
                 "status",
@@ -2012,9 +2041,21 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
             ("uploaded_by", "ALTER TABLE site_message_files ADD COLUMN uploaded_by INTEGER"),
             ("reviewed_by", "ALTER TABLE site_message_files ADD COLUMN reviewed_by TEXT"),
             ("reviewed_at", "ALTER TABLE site_message_files ADD COLUMN reviewed_at TEXT"),
+            (
+                "purpose",
+                "ALTER TABLE site_message_files ADD COLUMN purpose TEXT NOT NULL DEFAULT 'attachment'",
+            ),
         ):
             if column not in message_file_columns:
                 conn.execute(ddl)
+        if purpose_added:
+            for extension in sorted(MESSAGE_IMAGE_EXTENSIONS):
+                conn.execute(
+                    """UPDATE site_message_files
+                       SET purpose = 'image'
+                       WHERE lower(file_name) LIKE ?""",
+                    (f"%{extension}",),
+                )
         message_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(site_messages)").fetchall()
         }
@@ -5577,6 +5618,7 @@ def api_error(handler, status, message):
 
 
 GZIP_MIN_BYTES = 1024
+STREAM_FILE_THRESHOLD_BYTES = 8 * 1024 * 1024
 GZIP_TYPES = (
     "text/",
     "application/javascript",
@@ -6881,19 +6923,6 @@ def device_info_label(user_agent):
     if re.search(r"Linux", text, re.I):
         return "来自 Linux"
     return "来自 Web"
-
-
-def normalize_device_info(value):
-    """
-    管理员自定义的设备名称：压掉换行与多余空格、限长，并补上「来自 」前缀，
-    保证和自动识别出来的文案是同一个形状。空值返回空串（表示退回自动识别）。
-    """
-    text = re.sub(r"\s+", " ", str(value or "")).strip()[:DEVICE_INFO_MAX_CHARS]
-    if not text:
-        return ""
-    if not text.startswith("来自"):
-        text = "来自 " + text
-    return text[:DEVICE_INFO_MAX_CHARS]
 
 
 def write_activity(
@@ -12303,6 +12332,29 @@ class InventoryHandler(BaseHTTPRequestHandler):
             self.send_header("ETag", etag)
             self.end_headers()
             return
+        if total_size >= STREAM_FILE_THRESHOLD_BYTES:
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Accept-Ranges", "bytes")
+                if download_name:
+                    encoded_name = quote(os.path.basename(download_name))
+                    self.send_header(
+                        "Content-Disposition",
+                        f"attachment; filename*=UTF-8''{encoded_name}",
+                    )
+                self.send_header("Content-Length", str(total_size))
+                self.send_header("Cache-Control", cache_control)
+                self.send_header("ETag", etag)
+                self.end_headers()
+                with full.open("rb") as handle:
+                    shutil.copyfileobj(handle, self.wfile, length=1024 * 1024)
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                pass
+            except OSError:
+                api_error(self, 404, "文件不存在。")
+            return
         body = full.read_bytes()
         encoding = self.maybe_gzip(body, content_type)
         if encoding:
@@ -12356,7 +12408,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def site_message_files_map(self, message_ids):
         """
         按留言 ID 分组返回附件，供列表接口一次性取回。
-        游客也能看到留言里的图片，非图片附件只给一个「登录后可查看」的锁定占位。
+        配图按公开规则展示；附件只返回给上传者本人和管理员。
         """
         if not message_ids:
             return {}
@@ -12368,7 +12420,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         placeholders = ",".join("?" for _ in message_ids)
         rows = query(
             f"""SELECT f.id, f.message_id, f.file_name, f.file_path, f.file_size,
-                       f.mime_type, f.status, f.uploaded_by,
+                       f.mime_type, f.purpose, f.status, f.uploaded_by,
                        m.status AS message_status, m.user_id AS message_user_id
                 FROM site_message_files f
                 LEFT JOIN site_messages m ON m.id = f.message_id
@@ -12380,28 +12432,39 @@ class InventoryHandler(BaseHTTPRequestHandler):
         grouped = {}
         for row in rows:
             extension = os.path.splitext(row.get("file_name") or "")[1].lower()
+            purpose = str(row.get("purpose") or "").strip().lower()
+            if purpose not in {"attachment", "image"}:
+                purpose = (
+                    "image" if extension in MESSAGE_IMAGE_EXTENSIONS else "attachment"
+                )
             file_status = row.get("status") or "approved"
             message_status = row.get("message_status") or "approved"
             approved = file_status == "approved" and message_status == "approved"
+            uploader_id = row.get("uploaded_by")
+            if uploader_id is None:
+                uploader_id = row.get("message_user_id")
             owned = (
                 viewer_id is not None
-                and (
-                    row.get("uploaded_by") == viewer_id
-                    or row.get("message_user_id") == viewer_id
-                )
+                and uploader_id is not None
+                and int(uploader_id) == int(viewer_id)
             )
+            if purpose == "attachment" and not (is_admin or owned):
+                continue
             visible = approved or is_admin or owned
-            is_image = extension in MESSAGE_IMAGE_EXTENSIONS
+            if purpose == "image" and not visible:
+                continue
+            is_image = purpose == "image"
             entry = {
                 "id": row["id"],
                 "status": file_status,
                 "message_status": message_status,
+                "purpose": purpose,
                 "is_image": is_image,
                 "visible": visible,
                 "can_save": bool(is_admin or owned),
                 "locked": False,
             }
-            if visible and (viewer_signed_in or is_image):
+            if purpose == "attachment":
                 entry.update(
                     {
                         "file_name": row["file_name"],
@@ -12409,16 +12472,17 @@ class InventoryHandler(BaseHTTPRequestHandler):
                         "mime_type": row["mime_type"],
                         "url": f"/api/site/message-files/{row['id']}",
                         "pending": not approved,
+                        "private_attachment": True,
                     }
                 )
-            elif visible:
-                # 游客：图片之外的附件只给占位，想看内容要登录
+            elif visible and (viewer_signed_in or is_image):
                 entry.update(
                     {
                         "file_name": row["file_name"],
                         "file_size": row["file_size"],
                         "mime_type": row["mime_type"],
-                        "locked": True,
+                        "url": f"/api/site/message-files/{row['id']}",
+                        "pending": not approved,
                     }
                 )
             grouped.setdefault(row["message_id"], []).append(entry)
@@ -12966,26 +13030,44 @@ class InventoryHandler(BaseHTTPRequestHandler):
         self.send_json(200, roots)
 
     def message_attachments(self, payload):
-        """校验并解出附件，返回 (展示名、内容、MIME、存储名) 列表和错误信息。"""
-        limits = upload_limit("message_file")
-        max_count = limits["max_count"]
-        max_file_bytes = limits["max_file_bytes"]
-        max_total_bytes = limits["max_total_bytes"]
+        """校验留言附件和配图，返回待落库文件列表和错误信息。"""
+        limits_by_kind = {
+            "attachment": upload_limit("message_file"),
+            "image": upload_limit("message_image"),
+        }
         raw_files = payload.get("files") or []
         if not isinstance(raw_files, list):
             return None, "附件格式不正确。"
-        if len(raw_files) > max_count:
-            return None, f"每条留言最多上传 {max_count} 个附件。"
         prepared = []
-        total_bytes = 0
+        counts = {"attachment": 0, "image": 0}
+        total_bytes = {"attachment": 0, "image": 0}
         for item in raw_files:
             if not isinstance(item, dict):
                 return None, "附件格式不正确。"
+            purpose = str(item.get("kind") or "").strip().lower()
+            if purpose not in limits_by_kind:
+                extension = os.path.splitext(str(item.get("name") or ""))[1].lower()
+                purpose = (
+                    "image" if extension in MESSAGE_IMAGE_EXTENSIONS else "attachment"
+                )
+            limits = limits_by_kind[purpose]
+            max_count = int(limits["max_count"])
+            max_file_bytes = int(limits["max_file_bytes"])
+            max_total_bytes = int(limits["max_total_bytes"])
+            counts[purpose] += 1
+            if counts[purpose] > max_count:
+                label = "配图" if purpose == "image" else "附件"
+                return None, f"每条留言最多上传 {max_count} 个{label}。"
             name = os.path.basename(str(item.get("name") or "file")).strip()
             if not name:
                 return None, "附件缺少文件名。"
             extension = os.path.splitext(name)[1].lower()
-            if extension not in MESSAGE_FILE_EXTENSIONS:
+            allowed_extensions = (
+                MESSAGE_IMAGE_EXTENSIONS
+                if purpose == "image"
+                else MESSAGE_FILE_EXTENSIONS
+            )
+            if extension not in allowed_extensions:
                 return None, f"不支持的附件类型：{name}"
             try:
                 raw = base64.b64decode(str(item.get("data_base64") or ""), validate=True)
@@ -12995,7 +13077,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 return None, f"附件内容为空：{name}"
             mime_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
             stored_name = name
-            if extension in MESSAGE_IMAGE_EXTENSIONS:
+            if purpose == "image":
                 detected_mime = detect_image_type(raw)
                 if not detected_mime:
                     return None, f"图片内容无法识别：{name}"
@@ -13003,24 +13085,14 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 stored_name = (
                     os.path.splitext(name)[0] + NOTE_IMAGE_EXTENSIONS[detected_mime]
                 )
-            elif extension == ".pdf":
-                if not raw.startswith(b"%PDF-"):
-                    return None, f"不是有效的 PDF 文件：{name}"
-            else:
-                if b"\x00" in raw[:4096]:
-                    return None, f"文本附件包含二进制内容：{name}"
-                try:
-                    raw[:4096].decode("utf-8")
-                except UnicodeDecodeError:
-                    return None, f"文本附件不是 UTF-8 编码：{name}"
             if len(raw) > max_file_bytes:
                 limit_text = format_upload_limit_bytes(max_file_bytes)
                 return None, f"单个附件不能超过 {limit_text}：{name}"
-            total_bytes += len(raw)
-            if total_bytes > max_total_bytes:
+            total_bytes[purpose] += len(raw)
+            if total_bytes[purpose] > max_total_bytes:
                 limit_text = format_upload_limit_bytes(max_total_bytes)
                 return None, f"附件总大小不能超过 {limit_text}。"
-            prepared.append((name, raw, mime_type, stored_name))
+            prepared.append((name, raw, mime_type, stored_name, purpose))
         return prepared, ""
 
     def device_info_for(self, payload):
@@ -13029,23 +13101,17 @@ class InventoryHandler(BaseHTTPRequestHandler):
         要不要公开由提交时的 show_device 开关决定（和「IP属地」一样是可选项，默认不公开，
         不公开时落空串、卡片上不显示）；文案一律由服务端按 User-Agent 自动识别
         （来自 Windows / macOS / Linux / 鸿蒙 / Android / iOS / ChromeOS，认不出记「来自 Web」）；
-        只有具备 `site:device_name` 权限的账号
-        （管理员天然具备，也可以在「工作台 → 账号权限」里单独开放给普通账号）
-        能用 payload 里的 device_info 覆盖成自定义名称，其他人传了也一律忽略，
-        防止普通账号或游客伪造设备名称。
+        不再接受 payload 里的自定义 device_info，防止伪造或出现不一致的设备名称。
         """
         payload = payload or {}
         if payload.get("show_device") is not True:
             return ""
-        auto = device_info_label(self.headers.get("User-Agent"))
-        if not self.can("site:device_name"):
-            return auto
-        return normalize_device_info(payload.get("device_info")) or auto
+        return device_info_label(self.headers.get("User-Agent"))
 
     def api_site_message_create(self, payload):
         """
         发布留言 / 回复。设备平台要不要公开由 show_device 决定（默认不公开），
-        文案按 User-Agent 自动识别，只有管理员能用 device_info 自定义（其他人传了也会被丢掉）。
+        文案按 User-Agent 自动识别，不接受客户端自定义设备名称。
         """
         identity = self.session_identity()
         if not identity:
@@ -13090,7 +13156,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 400, error)
             return
         attachment_has_sensitive = False
-        for name, raw, _mime, _stored in prepared:
+        for name, raw, _mime, _stored, _purpose in prepared:
             if sensitive_contains(name):
                 attachment_has_sensitive = True
                 continue
@@ -13129,18 +13195,18 @@ class InventoryHandler(BaseHTTPRequestHandler):
         ip_region = lookup_ip_region(client_ip) if show_region else ""
         device_info = self.device_info_for(payload)
         saved = []
-        storage_limit = upload_limit("message_file")["max_file_bytes"]
+        storage_limit = UPLOAD_LIMIT_HARD_MAX_BYTES
         try:
-            for name, raw, _mime_type, stored_name in prepared:
+            for name, raw, _mime_type, stored_name, purpose in prepared:
                 relative = self.save_data_file(
                     raw,
                     stored_name,
                     "site_message_files",
                     max_bytes=storage_limit,
                 )
-                saved.append((name, relative, len(raw), _mime_type))
+                saved.append((name, relative, len(raw), _mime_type, purpose))
         except ValueError as exc:
-            for _name, relative, _size, _mime_type in saved:
+            for _name, relative, _size, _mime_type, _purpose in saved:
                 remove_data_file(relative)
             api_error(self, 400, str(exc))
             return
@@ -13172,18 +13238,19 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 ),
             )
             message_id = cursor.lastrowid
-            for name, relative, size, mime_type in saved:
+            for name, relative, size, mime_type, purpose in saved:
                 conn.execute(
                     """INSERT INTO site_message_files
                        (message_id, file_name, file_path, file_size, mime_type,
-                        status, uploaded_by, created_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        purpose, status, uploaded_by, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         message_id,
                         name,
                         relative,
                         size,
                         mime_type,
+                        purpose,
                         file_status,
                         uploader_id,
                         created_at,
@@ -13194,7 +13261,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         try:
             row_id = transaction(write)
         except Exception:
-            for _name, relative, _size, _mime_type in saved:
+            for _name, relative, _size, _mime_type, _purpose in saved:
                 remove_data_file(relative)
             raise
         self.log_activity(
@@ -13587,8 +13654,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def moment_payload(self, payload, current=None):
         current = current or {}
         content = str(payload.get("content", current.get("content", "")) or "").strip()
-        if len(content) > MOMENT_CONTENT_MAX_CHARS:
-            raise ValueError(f"说说内容不能超过 {MOMENT_CONTENT_MAX_CHARS} 字。")
         # 动态不再提供用户标签功能；仅保留开发日志的内部标签。
         tags = (
             str(current.get("tags") or "").strip()[:200]
@@ -13982,11 +14047,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
         stamp = now_text()
         if target == "moment":
             content = str((payload or {}).get("content") or "").strip()
-            if len(content) > MOMENT_CONTENT_MAX_CHARS:
-                api_error(
-                    self, 400, f"说说内容不能超过 {MOMENT_CONTENT_MAX_CHARS} 字。"
-                )
-                return
             moment_id = execute(
                 """INSERT INTO moments
                        (content, tags, pinned, ip, ip_region, show_region, kind, created_at)
@@ -16166,8 +16226,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def api_site_message_file(self, path):
         """
-        留言附件：已通过的留言附件都能看；游客额外只放行图片，
-        非图片附件（PDF / 文本等）仍然要求登录；待审附件只有作者和管理员看得到。
+        留言配图按公开规则查看；私有附件只允许上传者本人和管理员下载。
         """
         file_id = int(path.rsplit("/", 1)[1])
         row = query_one(
@@ -16185,13 +16244,30 @@ class InventoryHandler(BaseHTTPRequestHandler):
         viewer_id = None
         if identity:
             viewer_id = 0 if identity.get("kind") == "owner" else identity.get("user_id")
+        extension = os.path.splitext(row.get("file_name") or "")[1].lower()
+        purpose = str(row.get("purpose") or "").strip().lower()
+        if purpose not in {"attachment", "image"}:
+            purpose = (
+                "image" if extension in MESSAGE_IMAGE_EXTENSIONS else "attachment"
+            )
+        uploader_id = row.get("uploaded_by")
+        if uploader_id is None:
+            uploader_id = row.get("message_user_id")
         owned = bool(
             viewer_id is not None
-            and (
-                row.get("uploaded_by") == viewer_id
-                or row.get("message_user_id") == viewer_id
-            )
+            and uploader_id is not None
+            and int(uploader_id) == int(viewer_id)
         )
+        if purpose == "attachment":
+            if not (is_admin or owned):
+                api_error(self, 403, "只有上传者本人和管理员可以下载附件。")
+                return
+            self.send_data_file(
+                row["file_path"],
+                download_name=row.get("file_name") or "attachment",
+                allow_range=True,
+            )
+            return
         approved = (
             (row.get("status") or "approved") == "approved"
             and (row.get("message_status") or "approved") == "approved"
@@ -16201,11 +16277,10 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 api_error(self, 403, "附件正在审核中。")
                 return
         if identity is None:
-            extension = os.path.splitext(row.get("file_name") or "")[1].lower()
             if extension not in MESSAGE_IMAGE_EXTENSIONS:
                 api_error(self, 401, "请登录后操作")
                 return
-        self.send_data_file(row["file_path"])
+        self.send_data_file(row["file_path"], allow_range=True)
 
     # ---------- 首页公开动态 ----------
     def api_site_activity(self):
@@ -19625,7 +19700,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if status_filter in ("pending", "all"):
             legacy_rows = query(
                 """SELECT f.id, f.message_id, f.file_name, f.file_size, f.mime_type,
-                          f.status, f.uploaded_by, f.created_at,
+                          f.purpose, f.status, f.uploaded_by, f.created_at,
                           m.nickname AS message_nickname, m.content AS message_content,
                           m.created_at AS message_created_at, m.user_id AS message_user_id
                    FROM site_message_files f
@@ -19636,8 +19711,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                    LIMIT 200"""
             )
         for row in legacy_rows:
-            extension = os.path.splitext(row.get("file_name") or "")[1].lower()
-            row["is_image"] = extension in MESSAGE_IMAGE_EXTENSIONS
+            row["is_image"] = (row.get("purpose") or "") == "image"
             row["url"] = f"/api/site/message-files/{row['id']}"
             row["message_author"] = self.message_display_name(
                 {

@@ -35,43 +35,42 @@
   <div class="mg-app">
     <main class="mg-main">
       <section class="mg-panel" id="messageComposerPanel" hidden>
-        <h1>留言</h1>
         <p class="mg-hint" id="messageUploadHint" hidden></p>
         <form id="messageForm">
           <div class="mg-field">
-            <textarea id="msgContent" maxlength="1000" aria-label="留言内容"></textarea>
+            <textarea id="msgContent" maxlength="1000" aria-label="留言内容"
+                      placeholder="键道万古如长夜，键来！"></textarea>
           </div>
-          <input type="file" id="fileInput" multiple hidden>
-          <!--
-            底部一行：左边两个勾选项（IP属地 / 设备平台），今日额度用 margin-left:auto 靠右，
-            右边缘和上面「发布留言」按钮对齐。
-          -->
-          <div class="mg-compose-row">
-            <button class="mg-btn mg-btn-ghost" id="pickFileBtn" type="button">
-              <i data-lucide="paperclip"></i><span>添加附件</span>
+          <input type="file" id="fileInput" multiple hidden
+                 accept=".7z,.apk,.bin,.brd,.csv,.elf,.exe,.gif,.gz,.hex,.jpeg,.jpg,.json,.kicad_pcb,.kicad_sch,.md,.pdf,.pcb,.png,.rar,.sch,.tar,.tgz,.txt,.webp,.xls,.xlsx,.zip,.bmp">
+          <input type="file" id="imageInput" accept="image/*" multiple hidden>
+          <input type="checkbox" id="msgShowRegion" hidden>
+          <input type="checkbox" id="msgShowDevice" hidden>
+          <ul class="mg-file-list" id="pendingList"></ul>
+          <div class="mg-compose-toolbar">
+            <button class="mg-compose-icon" id="pickFileBtn" type="button"
+                    title="附件" aria-label="附件">
+              <i data-lucide="paperclip"></i>
+            </button>
+            <button class="mg-compose-icon" id="pickImageBtn" type="button"
+                    title="配图" aria-label="配图">
+              <i data-lucide="image-plus"></i>
+            </button>
+            <button class="mg-compose-icon mg-compose-toggle" id="msgShowRegionBtn"
+                    type="button" title="IP属地：不展示" aria-label="IP属地：不展示"
+                    aria-pressed="false">
+              <i data-lucide="map-pin"></i>
+            </button>
+            <button class="mg-compose-icon mg-compose-toggle" id="msgShowDeviceBtn"
+                    type="button" title="设备平台：不展示" aria-label="设备平台：不展示"
+                    aria-pressed="false">
+              <i data-lucide="monitor"></i>
             </button>
             <span class="mg-attach-hint" id="attachHint" hidden></span>
+            <span class="mg-char-count" id="messageCharCount">0</span>
             <button class="mg-btn mg-btn-primary mg-send-btn" id="submitBtn" type="submit">
-              <i data-lucide="send"></i><span>发布留言</span>
+              <span>发布</span>
             </button>
-          </div>
-          <ul class="mg-file-list" id="pendingList"></ul>
-          <div class="mg-compose-row mg-compose-meta">
-            <label class="mg-region-toggle">
-              <input type="checkbox" id="msgShowRegion">
-              <span>IP属地</span>
-            </label>
-            <!-- 设备平台：勾了才公开这一条的设备来源；管理员还能在右边填一个自定义名称 -->
-            <label class="mg-region-toggle mg-device-toggle">
-              <input type="checkbox" id="msgShowDevice">
-              <span>设备平台</span>
-            </label>
-            <!-- 自定义名称只有管理员看得到 -->
-            <div class="mg-device-field" id="msgDeviceField" hidden>
-              <input class="mg-device-input" id="msgDeviceInput" type="text" maxlength="40"
-                     placeholder="例如 iQOO 12 Pro">
-            </div>
-            <p class="mg-quota" id="messageQuota" hidden></p>
           </div>
         </form>
       </section>

@@ -15,6 +15,8 @@
   var jumpFrame = null;
   var lastMomentUnread = null;
   var momentPollBusy = false;
+  var momentContentInput = null;
+  var momentCharCount = null;
 
   function imageLimitLabel() {
     return window.ErrorUploadLimits
@@ -24,6 +26,11 @@
 
   function imageHintText() {
     return "最多 " + MAX_IMAGES + " 张，单张 " + imageLimitLabel();
+  }
+
+  function updateMomentCharCount() {
+    if (!momentContentInput || !momentCharCount) return;
+    momentCharCount.textContent = String(momentContentInput.value.length);
   }
 
   function applyUploadLimits() {
@@ -37,6 +44,26 @@
 
   function $(id) {
     return document.getElementById(id);
+  }
+
+  function bindVisibilityToggle(buttonId, checkboxId, label) {
+    var button = $(buttonId);
+    var checkbox = $(checkboxId);
+    if (!button || !checkbox) return;
+
+    function render() {
+      var visible = checkbox.checked;
+      var text = label + "：" + (visible ? "展示" : "不展示");
+      button.setAttribute("aria-pressed", visible ? "true" : "false");
+      button.title = text;
+      button.setAttribute("aria-label", text);
+    }
+
+    button.addEventListener("click", function () {
+      checkbox.checked = !checkbox.checked;
+      render();
+    });
+    render();
   }
 
   function el(tag, className, text) {
@@ -248,31 +275,6 @@
     return publishBusy.fill;
   }
 
-  /*
-   * 设备平台：「设备平台」勾选项对所有人开放（勾了才公开这条的设备来源，和「IP属地」同一套），
-   * 具体文案由后端按 UA 自动识别；只有管理员能额外填一个自定义名称，留空就回到自动识别。
-   */
-
-  function deviceInfoValue() {
-    var box = $("momentShowDevice");
-    var input = $("momentDeviceInput");
-    if (!canManageMoments || !box || !input || !box.checked) return "";
-    return input.value.trim();
-  }
-
-  function resetDeviceInfoField() {
-    if ($("momentDeviceInput")) $("momentDeviceInput").value = "";
-  }
-
-  if ($("momentDeviceInput")) {
-    // 管理员填了自定义名称就自动勾上「设备平台」，省得再点一下
-    $("momentDeviceInput").addEventListener("input", function (event) {
-      if (event.target.value.trim() && $("momentShowDevice")) {
-        $("momentShowDevice").checked = true;
-      }
-    });
-  }
-
   $("momentForm").addEventListener("submit", function (event) {
     event.preventDefault();
     if (publishBusy.active) return;
@@ -306,11 +308,8 @@
         content: content,
         images: images,
         show_region: $("momentShowRegion").checked,
-        // 设备平台是否公开：对所有人开放的勾选项，默认不勾选
         show_device: $("momentShowDevice").checked,
       };
-      // 自定义设备名称只有管理员能带（空串 = 让后端按 UA 自动识别）
-      if (canManageMoments) payload.device_info = deviceInfoValue();
       if (!withImages) {
         return api("/api/moments", {
           method: "POST",
@@ -322,10 +321,10 @@
       var task = ErrorProgress.upload("/api/moments", {
         payload: payload,
         onProgress: function (ratio) {
-          fill.set(ratio, "取消发布 " + ErrorProgress.percentText(ratio));
+          fill.set(ratio, "发布");
         },
         onUploaded: function () {
-          fill.busy("发布中…");
+          fill.busy("发布");
         },
       });
       publishBusy.abort = task.abort;
@@ -333,7 +332,7 @@
     }).then(function () {
       if (window.ErrorButtons) window.ErrorButtons.success(button, { label: "已发布" });
       $("momentContent").value = "";
-      resetDeviceInfoField();
+      updateMomentCharCount();
       pendingImages = [];
       renderPending();
       toast("已发布");
@@ -871,39 +870,24 @@
     return more;
   }
 
-  /* 手机上聚焦评论框时把它滚到键盘上方（桌面端浏览器自己会处理） */
-  function focusCommentArea(area) {
-    if (!window.matchMedia("(max-width: 640px)").matches) return;
-    window.setTimeout(function () {
-      if (document.activeElement !== area) return;
-      var viewportHeight = window.visualViewport
-        ? window.visualViewport.height
-        : window.innerHeight;
-      var rect = area.getBoundingClientRect();
-      if (rect.bottom > viewportHeight - 24 || rect.top < 16) {
-        area.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-    }, 320);
-  }
-
   function buildCommentForm(moment, parentId, placeholder) {
     var form = el("form", "mo-comment-form");
+    form.hidden = true;
     var area = document.createElement("textarea");
-    area.maxLength = 500;
+    area.maxLength = 1000;
     area.rows = 1;
     area.placeholder = placeholder || "写评论…";
     var submit = el("button", "mo-btn mo-btn-primary mo-comment-submit", "发送");
     submit.type = "submit";
     form.appendChild(area);
     form.appendChild(submit);
-    if (parentId) form.hidden = true;
-    area.addEventListener("focus", function () {
-      focusCommentArea(area);
-    });
     form.addEventListener("submit", function (event) {
       event.preventDefault();
       var text = area.value.trim();
-      if (!text) return;
+      if (!text) {
+        toast("回复内容不能为空。");
+        return;
+      }
       submit.disabled = true;
       api("/api/moments/" + moment.id + "/comments", {
         method: "POST",
@@ -918,6 +902,26 @@
       });
     });
     return form;
+  }
+
+  /* 和留言页回复一致：再次点击即收起，展开时按钮变主题色并聚焦输入框。 */
+  function bindCommentToggle(btn, form) {
+    btn.setAttribute("aria-expanded", "false");
+    btn.addEventListener("click", function () {
+      var open = form.hidden;
+      form.hidden = !open;
+      btn.classList.toggle("is-active", open);
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      if (!open) return;
+      var area = form.querySelector("textarea");
+      if (area) area.focus();
+    });
+  }
+
+  function bindGuestComment(btn) {
+    btn.addEventListener("click", function () {
+      toast("请登录后操作");
+    });
   }
 
   /*
@@ -952,9 +956,9 @@
 
   /*
    * 单条评论：正文 + 「回复」（就地展开行内回复框）+ 作者 / 管理员可用的「删除」。
-   * 回复框由 ctx 统一管着，同一时间只展开一个。
+   * 展开 / 收起逻辑和留言页回复一致。
    */
-  function buildCommentNode(moment, comment, freshIds, grouped, ctx) {
+  function buildCommentNode(moment, comment, freshIds, grouped) {
     var row = el("div", "mo-comment");
     row.dataset.commentId = String(comment.id);
     var head = el("div", "mo-comment-head");
@@ -1001,19 +1005,14 @@
       } else {
         var replyBtn = el("button", "mo-link-btn", "回复");
         replyBtn.type = "button";
-        replyBtn.setAttribute("aria-expanded", "false");
-        replyBtn.addEventListener("click", function () {
-          ctx.toggleReply(comment, replyBtn);
-        });
         actions.appendChild(replyBtn);
         row.appendChild(actions);
-        // 回复框挂在被回复的评论下面，提交后由 loadMoments() 重新渲染出子回复
         var form = buildCommentForm(
           moment,
           comment.id,
           "回复 @" + (comment.actor || "匿名") + "…"
         );
-        ctx.replies[String(comment.id)] = form;
+        bindCommentToggle(replyBtn, form);
         row.appendChild(form);
       }
     }
@@ -1024,54 +1023,19 @@
     var comments = moment.comments || [];
     var box = el("div", "mo-comments");
     var grouped = groupComments(comments);
-    var ctx = { replies: {}, active: null };
-    ctx.closeReply = function () {
-      var active = ctx.active;
-      if (!active) return;
-      active.form.hidden = true;
-      active.form.reset();
-      active.btn.classList.remove("is-active");
-      active.btn.setAttribute("aria-expanded", "false");
-      ctx.active = null;
-    };
-    ctx.toggleReply = function (comment, btn) {
-      var key = String(comment.id);
-      var form = ctx.replies[key];
-      if (!form) return;
-      if (ctx.active && ctx.active.key === key) {
-        ctx.closeReply();
-        return;
-      }
-      ctx.closeReply();
-      ctx.active = { key: key, form: form, btn: btn };
-      form.hidden = false;
-      btn.classList.add("is-active");
-      btn.setAttribute("aria-expanded", "true");
-      var area = form.querySelector("textarea");
-      if (!area) return;
-      try {
-        area.focus({ preventScroll: true });
-      } catch (err) {
-        area.focus();
-      }
-      area.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    };
     if (comments.length) {
       var list = el("div", "mo-comment-list");
       grouped.roots.forEach(function (comment) {
-        list.appendChild(buildCommentNode(moment, comment, freshIds, grouped, ctx));
+        list.appendChild(buildCommentNode(moment, comment, freshIds, grouped));
         var children = grouped.replies[String(comment.id)] || [];
         if (!children.length) return;
         var nest = el("div", "mo-comment-replies");
         children.forEach(function (child) {
-          nest.appendChild(buildCommentNode(moment, child, freshIds, grouped, ctx));
+          nest.appendChild(buildCommentNode(moment, child, freshIds, grouped));
         });
         list.appendChild(nest);
       });
       box.appendChild(list);
-    }
-    if (canInteract) {
-      box.appendChild(buildCommentForm(moment, null, "写评论…"));
     }
     return box;
   }
@@ -1115,11 +1079,11 @@
     body.appendChild(buildMomentLike(moment));
 
     var freshCommentIds = [];
-    body.appendChild(buildComments(moment, freshCommentIds));
+    var commentsBox = buildComments(moment, freshCommentIds);
 
     /*
-     * 右上角「⋯」（和 Error酱 / 时间 / 属地同一行）：举报（别人发的动态）
-     * 或 置顶 / 编辑 / 删除（管理员），和留言页一样收进菜单，不平铺按钮。
+     * 底部「评论」和右下角「⋯」同一行：举报（别人发的动态）
+     * 或 置顶 / 编辑 / 删除（管理员），和留言页一样收进菜单。
      */
     var menuItems = [];
 
@@ -1139,7 +1103,6 @@
       if (body.querySelector(".mo-edit")) return;
       var box = el("div", "mo-edit");
       var area = document.createElement("textarea");
-      area.maxLength = 2000;
       area.value = moment.content || "";
       var row = el("div", "mo-edit-actions");
       var cancel = el("button", "mo-btn mo-btn-ghost", "取消");
@@ -1189,9 +1152,23 @@
       // 别人发的动态（含游客看到的）都能举报：游客这一排就只剩这一个入口
       menuItems.push({ label: "举报", report: moment });
     }
-    if (menuItems.length) {
-      head.appendChild(buildMoreMenu(menuItems));
+    var actions = el("div", "mo-item-actions");
+    var commentBtn = el("button", "mo-link-btn", "评论");
+    commentBtn.type = "button";
+    actions.appendChild(commentBtn);
+
+    var rootCommentForm = null;
+    if (canInteract) {
+      rootCommentForm = buildCommentForm(moment, null, "评论…");
+      bindCommentToggle(commentBtn, rootCommentForm);
+    } else {
+      bindGuestComment(commentBtn);
     }
+    if (menuItems.length) {
+      actions.appendChild(buildMoreMenu(menuItems));
+    }
+    body.append(actions, commentsBox);
+    if (rootCommentForm) body.appendChild(rootCommentForm);
 
     item.appendChild(body);
 
@@ -1709,11 +1686,17 @@
   }
 
   renderPending();
+  momentContentInput = $("momentContent");
+  momentCharCount = $("momentCharCount");
+  momentContentInput.addEventListener("input", updateMomentCharCount);
+  updateMomentCharCount();
   setMomentFilter(new URLSearchParams(location.search).get("filter") || "all");
   setMomentKind(new URLSearchParams(location.search).get("kind") || "post");
   initMomentKinds();
   $("momentShowRegion").checked = false;
   $("momentShowDevice").checked = false;
+  bindVisibilityToggle("momentShowRegionBtn", "momentShowRegion", "IP属地");
+  bindVisibilityToggle("momentShowDeviceBtn", "momentShowDevice", "设备平台");
   refreshIcons();
 
   var momentList = $("momentList");
@@ -1791,7 +1774,6 @@
   api("/api/auth/status").then(function (status) {
     canManageMoments = Boolean(status.admin);
     canInteract = Boolean(status.authenticated);
-    $("momentDeviceField").hidden = !canManageMoments;
     viewerLikeName = status.owner
       ? "管理员"
       : String(status.username || status.nickname || "");
@@ -1801,7 +1783,6 @@
     return loadMoments().then(pollMomentNotifications);
   }).catch(function () {
     canManageMoments = false;
-    $("momentDeviceField").hidden = true;
     applyKindVisibility();
     return loadMoments();
   });

@@ -118,6 +118,23 @@ body {
   padding: 18px;
 }
 
+#messageComposerPanel {
+  position: relative;
+  display: flex;
+  min-height: 186px;
+  flex-direction: column;
+  padding: 14px;
+  background: var(--mg-surface);
+  box-shadow: none;
+}
+
+#messageForm {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
 .mg-panel h1 {
   margin: 0 0 4px;
   font-size: 18px;
@@ -129,44 +146,20 @@ body {
   font-size: 13px;
 }
 
-.mg-region-toggle {
-  display: flex;
-  /* 单行文案：勾选框和文字居中对齐，也不给换行（「IP属地」四个字要整块显示） */
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  color: var(--mg-muted);
-  font-size: 12.5px;
-  line-height: 1.5;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.mg-region-toggle input {
-  margin: 0;
-  accent-color: var(--mg-accent);
-}
-
 .mg-region {
   color: var(--mg-muted);
   font-size: 12px;
 }
 
-.mg-quota {
-  margin: 0;
-  margin-left: auto;
-  color: var(--mg-muted);
-  font-size: 12.5px;
-  text-align: right;
-  /* 额度文案整块显示不折行；这一行放不下时整块换到下一行（仍然靠右） */
-  white-space: nowrap;
-}
-
 .mg-field {
   display: flex;
+  min-height: 0;
+  flex: 1;
   flex-direction: column;
-  gap: 6px;
-  margin-bottom: 12px;
+  gap: 0;
+  margin-bottom: 8px;
+  background: transparent;
+  box-shadow: none;
 }
 
 .mg-field label {
@@ -177,97 +170,117 @@ body {
 .mg-field input,
 .mg-field textarea {
   width: 100%;
-  padding: 9px 11px;
-  border: 1px solid var(--mg-border);
-  border-radius: var(--radius);
-  background: var(--mg-bg);
+  padding: 2px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--mg-text);
   font: inherit;
+  font-weight: 400;
 }
 
 .mg-field textarea {
   min-height: 108px;
-  resize: vertical;
+  max-height: 220px;
+  overflow-y: auto;
+  resize: none;
   line-height: 1.65;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
-.mg-field input:focus,
-.mg-field textarea:focus {
-  outline: 2px solid var(--mg-accent);
-  outline-offset: -1px;
-  border-color: var(--mg-accent);
+.mg-field textarea::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
-.mg-compose-row {
+body .mg-field input:focus,
+body .mg-field input:focus-visible,
+body #messageComposerPanel #msgContent:focus,
+body #messageComposerPanel #msgContent:focus-visible {
+  border: 0;
+  outline: none !important;
+  outline-offset: 0;
+  background: transparent;
+  box-shadow: none !important;
+}
+
+.mg-compose-toolbar {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-/* 「发布留言」贴到「添加附件」同一行的右侧，撤掉原来的独立操作行 */
-.mg-compose-row .mg-send-btn {
-  margin-left: auto;
-}
-
-/* 底部一行：左边两个勾选项（IP属地 / 设备平台），今日额度靠右、和「发布留言」按钮对齐 */
-.mg-compose-meta {
-  align-items: center;
-  margin-top: 10px;
-}
-
-/* 自定义设备名称的输入框：只有管理员看得到（勾选项「设备平台」本身对所有人开放） */
-.mg-device-field {
-  display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 8px;
-  min-width: 0;
+  margin-top: 8px;
+  flex-wrap: nowrap;
 }
 
-/*
- * 上面这条作者样式的 display 会盖掉 [hidden] 自带的 display: none，
- * 结果普通账号也能看到「设备平台」输入框 —— 这里补一条，只有管理员才显示。
- */
-.mg-device-field[hidden] {
-  display: none;
-}
-
-.mg-device-toggle {
-  display: flex;
+.mg-compose-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  padding: 0;
   align-items: center;
-  gap: 8px;
-  margin: 0;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
   color: var(--mg-muted);
-  font-size: 12.5px;
-  line-height: 1.5;
-  white-space: nowrap;
+  font: inherit;
   cursor: pointer;
 }
 
-.mg-device-toggle input {
-  margin: 0;
-  accent-color: var(--mg-accent);
-}
-
-.mg-device-input {
-  width: 180px;
-  min-width: 0;
-  padding: 5px 8px;
-  border: 1px solid var(--mg-border);
-  border-radius: var(--radius);
-  background: var(--mg-surface);
+.mg-compose-icon:hover,
+.mg-compose-icon:focus-visible {
+  background: var(--mg-hover);
   color: var(--mg-text);
-  font: inherit;
-  font-size: 12.5px;
-  /* 这个输入框里不要出现滚动条：超出的文字用省略号收尾 */
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.mg-device-input:focus {
-  border-color: var(--mg-accent);
-  outline: 0;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mg-accent) 13%, transparent);
+.mg-compose-icon[aria-pressed="true"] {
+  background: var(--mg-accent-soft);
+  color: var(--mg-accent);
+}
+
+.mg-compose-icon[aria-pressed="true"]:hover {
+  color: var(--mg-accent-hover);
+}
+
+.mg-compose-toggle[aria-pressed="false"],
+.mg-compose-toggle[aria-pressed="false"]:hover,
+.mg-compose-toggle[aria-pressed="false"]:focus-visible {
+  color: var(--mg-muted);
+}
+
+.mg-compose-icon:focus-visible {
+  outline: 2px solid var(--mg-accent);
+  outline-offset: 1px;
+}
+
+.mg-compose-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.mg-char-count {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--mg-faint);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mg-compose-toolbar .mg-send-btn {
+  position: relative;
+  flex: 0 0 68px;
+  width: 68px;
+  min-width: 68px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 12px;
+  justify-content: center;
+  overflow: hidden;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 /* 卡片头部：设备信息和时间同一套小灰字 */
@@ -369,6 +382,13 @@ body {
   height: 26px;
   border-radius: var(--radius-sm);
   object-fit: cover;
+}
+
+.mg-pending-file > svg {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  color: var(--mg-muted);
 }
 
 .mg-pending-name {
@@ -1408,30 +1428,6 @@ button.mg-file {
     max-width: 170px;
   }
 
-  /* 手机：附件提示、属地说明各占满一行，发布留言仍和添加附件同一行 */
-  .mg-compose-row .mg-attach-hint {
-    order: 3;
-    flex: 1 1 100%;
-  }
-
-  .mg-compose-row .mg-send-btn {
-    order: 2;
-  }
-
-  .mg-compose-meta .mg-region-toggle {
-    flex: 1 1 100%;
-  }
-
-  /* 手机：设备信息整行铺开，输入框自己占满剩下的宽度 */
-  .mg-device-field {
-    flex: 1 1 100%;
-  }
-
-  .mg-device-input {
-    flex: 1;
-    width: auto;
-  }
-
   /* 回复框在手机上换成「输入框 + 发送」两列，两个控件同高同中线 */
   .mg-reply-form {
     display: grid;
@@ -1497,6 +1493,15 @@ button.mg-file {
   /* 手机上主按钮点起来大一点（原来约 38px） */
   .mg-btn {
     min-height: 44px;
+  }
+
+  .mg-compose-toolbar .mg-send-btn {
+    height: 44px;
+    min-height: 44px;
+  }
+
+  #messageComposerPanel {
+    min-height: 198px;
   }
 }
 

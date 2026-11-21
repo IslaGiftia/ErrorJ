@@ -109,110 +109,124 @@ body {
 }
 
 .mo-composer {
-  padding: 16px;
+  position: relative;
+  display: flex;
+  min-height: 186px;
+  flex-direction: column;
+  padding: 14px;
+  background: var(--mo-surface);
+  box-shadow: none;
 }
 
 .mo-composer textarea {
+  flex: 1;
   width: 100%;
   min-height: 92px;
-  padding: 10px 12px;
-  border: 1px solid var(--mo-border);
-  border-radius: var(--radius);
-  background: var(--mo-bg);
+  max-height: 220px;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--mo-text);
   font: inherit;
+  font-weight: 400;
   line-height: 1.7;
-  resize: vertical;
+  overflow-y: auto;
+  resize: none;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
-.mo-composer textarea:focus {
-  outline: 2px solid var(--mo-accent);
-  outline-offset: -1px;
-  border-color: var(--mo-accent);
+.mo-composer textarea::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
-.mo-composer-foot {
+body .mo-composer #momentContent:focus,
+body .mo-composer #momentContent:focus-visible {
+  border: 0;
+  outline: none !important;
+  outline-offset: 0;
+  background: transparent;
+  box-shadow: none !important;
+}
+
+.mo-compose-toolbar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 12px;
-  flex-wrap: wrap;
-}
-
-/* 「发布」贴到「配图」同一行的右侧 */
-.mo-composer-foot .mo-btn-primary {
-  margin-left: auto;
-}
-
-/* 第二行：公开 IP 属地（和留言页的属地行对齐方式一致） */
-.mo-composer-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 8px;
-  flex-wrap: wrap;
-}
-
-.mo-region-toggle {
-  display: flex;
-  align-items: flex-start;
   gap: 8px;
-  margin-top: 0;
+  margin-top: 10px;
+  flex-wrap: nowrap;
+}
+
+.mo-compose-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
   color: var(--mo-muted);
-  font-size: 12.5px;
-  line-height: 1.5;
-  cursor: pointer;
-}
-
-.mo-region-toggle input {
-  margin: 2px 0 0;
-  accent-color: var(--mo-accent);
-}
-
-/* 自定义设备名称的输入框：只有管理员看得到（勾选项「设备平台」本身对所有人开放） */
-.mo-device-field {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.mo-device-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  color: var(--mo-muted);
-  font-size: 12.5px;
-  line-height: 1.5;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.mo-device-toggle input {
-  margin: 0;
-  accent-color: var(--mo-accent);
-}
-
-.mo-device-input {
-  width: 180px;
-  min-width: 0;
-  padding: 5px 8px;
-  border: 1px solid var(--mo-border);
-  border-radius: var(--radius);
-  background: var(--mo-surface);
-  color: var(--mo-text);
   font: inherit;
-  font-size: 12.5px;
-  /* 这个输入框里不要出现滚动条：超出的文字用省略号收尾 */
-  overflow: hidden;
-  text-overflow: ellipsis;
+  cursor: pointer;
 }
 
-.mo-device-input:focus {
-  border-color: var(--mo-accent);
-  outline: 0;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mo-accent) 13%, transparent);
+.mo-compose-icon:hover,
+.mo-compose-icon:focus-visible {
+  background: var(--mo-hover);
+  color: var(--mo-text);
+}
+
+.mo-compose-icon[aria-pressed="true"] {
+  background: var(--mo-accent-soft);
+  color: var(--mo-accent);
+}
+
+.mo-compose-icon[aria-pressed="true"]:hover {
+  color: var(--mo-accent-hover);
+}
+
+.mo-compose-toggle[aria-pressed="false"],
+.mo-compose-toggle[aria-pressed="false"]:hover,
+.mo-compose-toggle[aria-pressed="false"]:focus-visible {
+  color: var(--mo-muted);
+}
+
+.mo-compose-icon:focus-visible {
+  outline: 2px solid var(--mo-accent);
+  outline-offset: 1px;
+}
+
+.mo-compose-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.mo-char-count {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--mo-faint);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mo-btn.mo-compose-publish {
+  position: relative;
+  flex: 0 0 68px;
+  width: 68px;
+  min-width: 68px;
+  height: 32px;
+  min-height: 32px;
+  margin-left: 0;
+  padding: 0 12px;
+  justify-content: center;
+  overflow: hidden;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 /* 卡片头部：设备信息和时间同一套小灰字 */
@@ -289,6 +303,10 @@ body {
   gap: 8px;
   margin: 12px 0 0;
   padding: 0;
+}
+
+.mo-pending:empty {
+  display: none;
 }
 
 .mo-pending:empty {
@@ -755,6 +773,13 @@ body {
   color: var(--mo-danger);
 }
 
+.mo-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+}
+
 .mo-edit {
   margin-top: 8px;
 }
@@ -1008,6 +1033,10 @@ button.mo-share:hover {
   gap: 8px;
 }
 
+.mo-comments:empty {
+  display: none;
+}
+
 .mo-comment-list {
   display: flex;
   flex-direction: column;
@@ -1058,7 +1087,8 @@ button.mo-share:hover {
 }
 
 /* 「回复」按钮展开中时给个主题色，和下面的行内回复框对上 */
-.mo-comment-actions .mo-link-btn.is-active {
+.mo-comment-actions .mo-link-btn.is-active,
+.mo-item-actions .mo-link-btn.is-active {
   color: var(--mo-accent);
 }
 
@@ -1081,14 +1111,19 @@ button.mo-share:hover {
   display: flex;
   align-items: flex-end;
   gap: 8px;
+  margin-top: 10px;
+}
+
+.mo-comment-form[hidden] {
+  display: none;
 }
 
 .mo-comment-form textarea {
   flex: 1;
   min-width: 0;
   /* 和右边的「发送」按钮同高：单行高度，内容长了在框内滚动 */
-  height: var(--mo-input-h);
-  min-height: var(--mo-input-h);
+  height: 38px;
+  min-height: 38px;
   max-height: 140px;
   padding: 6px 10px;
   border: 1px solid var(--mo-border);
@@ -1108,8 +1143,8 @@ button.mo-share:hover {
 
 .mo-comment-submit {
   flex: 0 0 auto;
-  height: var(--mo-input-h);
-  min-height: var(--mo-input-h);
+  height: 38px;
+  min-height: 38px;
   padding: 0 14px;
 }
 
@@ -1398,7 +1433,7 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
   display: none;
 }
 
-/* ---------- 卡片右上角「三个点」菜单（和 Error酱 / 时间 / 属地同一行，同留言页） ---------- */
+/* ---------- 卡片右下角「三个点」菜单（和「评论」同一行，同留言页） ---------- */
 .mo-more {
   position: relative;
   display: flex;
@@ -1459,8 +1494,7 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
 .mo-more-menu {
   position: absolute;
   right: 0;
-  /* 按钮在卡片右上角，菜单只能往下开，否则会顶出卡片外面 */
-  top: calc(100% + 6px);
+  bottom: calc(100% + 6px);
   z-index: 6;
   display: flex;
   flex-direction: column;
@@ -1533,16 +1567,6 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
     background: var(--mo-surface);
   }
 
-  /* 手机：设备信息整行铺开，输入框自己占满剩下的宽度 */
-  .mo-device-field {
-    flex: 1 1 100%;
-  }
-
-  .mo-device-input {
-    flex: 1;
-    width: auto;
-  }
-
   .mo-item {
     grid-template-columns: var(--mo-avatar) minmax(0, 1fr);
     gap: 10px;
@@ -1570,15 +1594,6 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
     width: min(100%, 288px);
   }
 
-  .mo-composer-foot .mo-hint {
-    order: 3;
-    flex: 1 1 100%;
-  }
-
-  .mo-composer-foot .mo-btn-primary {
-    margin-left: auto;
-  }
-
   .mo-comment-form {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -1588,8 +1603,8 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
 
   /* 手机上把评论框压扁：字号仍守 16px（小于它 iOS 聚焦会自动放大整页），高度和内边距收紧 */
   .mo-comment-form textarea {
-    height: var(--mo-input-h);
-    min-height: var(--mo-input-h);
+    height: 38px;
+    min-height: 38px;
     max-height: 96px;
     padding: 4px 8px;
     overflow-y: auto;
@@ -1599,8 +1614,8 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
   /* 「发送」跟着输入框走：不能再用 .mo-btn 的 44px 最小高度，否则比输入框高一截 */
   .mo-comment-form .mo-comment-submit {
     width: auto;
-    height: var(--mo-input-h);
-    min-height: var(--mo-input-h);
+    height: 38px;
+    min-height: 38px;
     margin-left: 0;
     padding: 0 12px;
     font-size: 12.5px;
@@ -1641,6 +1656,15 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
 
   /* 手机上主按钮点起来大一点（原来约 38px） */
   .mo-btn {
+    min-height: 44px;
+  }
+
+  .mo-composer {
+    min-height: 198px;
+  }
+
+  .mo-btn.mo-compose-publish {
+    height: 44px;
     min-height: 44px;
   }
 }

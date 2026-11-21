@@ -1,19 +1,44 @@
 (function () {
   "use strict";
 
-  var MAX_FILES = 3;
-  var MAX_FILE_BYTES = 5 * 1024 * 1024;
-  var MAX_TOTAL_BYTES = 15 * 1024 * 1024;
+  var MAX_ATTACHMENTS = 3;
+  var MAX_ATTACHMENT_BYTES = 500 * 1024 * 1024;
+  var MAX_ATTACHMENT_TOTAL_BYTES = 500 * 1024 * 1024;
+  var MAX_IMAGES = 9;
+  var MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+  var MAX_IMAGE_TOTAL_BYTES = 15 * 1024 * 1024;
   var IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
-  var FILE_EXTENSIONS = IMAGE_EXTENSIONS.concat([".pdf", ".txt", ".md"]);
-  var pendingFiles = [];
+  var FILE_EXTENSIONS = IMAGE_EXTENSIONS.concat([
+    ".7z",
+    ".apk",
+    ".bin",
+    ".brd",
+    ".csv",
+    ".elf",
+    ".exe",
+    ".gz",
+    ".hex",
+    ".json",
+    ".kicad_pcb",
+    ".kicad_sch",
+    ".md",
+    ".pdf",
+    ".pcb",
+    ".rar",
+    ".sch",
+    ".tar",
+    ".tgz",
+    ".txt",
+    ".xls",
+    ".xlsx",
+    ".zip",
+  ]);
+  var pendingAttachments = [];
+  var pendingImages = [];
   var toastTimer = null;
   var toastLeaveTimer = null;
   var canPost = false;
   var isAdmin = false;
-  // 自定义设备名称的权限点：管理员天然具备，普通账号由站长在账号权限里单独开
-  var DEVICE_NAME_PERMISSION = "site:device_name";
-  var canCustomDevice = false;
   var viewerLikeName = "";
   var freshTargets = {};
   var jumpFrame = null;
@@ -21,25 +46,60 @@
   var dailyLimit = 0;
   var lastMessageUnread = null;
   var messagePollBusy = false;
+  var messageContentInput = null;
+  var messageCharCount = null;
+
+  function updateMessageCharCount() {
+    if (!messageContentInput || !messageCharCount) return;
+    messageCharCount.textContent = String(messageContentInput.value.length);
+  }
 
   function applyUploadLimits() {
     if (!window.ErrorUploadLimits) return;
-    var limits = window.ErrorUploadLimits.get("message_file");
-    MAX_FILES = Number(limits.max_count) || MAX_FILES;
-    MAX_FILE_BYTES = Number(limits.max_file_bytes) || MAX_FILE_BYTES;
-    MAX_TOTAL_BYTES = Number(limits.max_total_bytes) || MAX_TOTAL_BYTES;
+    var attachmentLimits = window.ErrorUploadLimits.get("message_file");
+    var imageLimits = window.ErrorUploadLimits.get("message_image");
+    MAX_ATTACHMENTS = Number(attachmentLimits.max_count) || MAX_ATTACHMENTS;
+    MAX_ATTACHMENT_BYTES =
+      Number(attachmentLimits.max_file_bytes) || MAX_ATTACHMENT_BYTES;
+    MAX_ATTACHMENT_TOTAL_BYTES =
+      Number(attachmentLimits.max_total_bytes) || MAX_ATTACHMENT_TOTAL_BYTES;
+    MAX_IMAGES = Number(imageLimits.max_count) || MAX_IMAGES;
+    MAX_IMAGE_BYTES = Number(imageLimits.max_file_bytes) || MAX_IMAGE_BYTES;
+    MAX_IMAGE_TOTAL_BYTES =
+      Number(imageLimits.max_total_bytes) || MAX_IMAGE_TOTAL_BYTES;
     var hint = $("messageUploadHint");
     if (hint) {
       hint.textContent =
-        "文字、附件都行。单条最多 " + MAX_FILES + " 个附件，单个不超过 " +
-        window.ErrorUploadLimits.label(MAX_FILE_BYTES) +
-        "（合计 " + window.ErrorUploadLimits.label(MAX_TOTAL_BYTES) +
-        "）；支持图片、PDF、文本，普通留言直接发布，命中敏感词后才进入审核。";
+        "单条最多 " + MAX_ATTACHMENTS + " 个私有附件，单个不超过 " +
+        window.ErrorUploadLimits.label(MAX_ATTACHMENT_BYTES) +
+        "；配图最多 " + MAX_IMAGES + " 张，单张不超过 " +
+        window.ErrorUploadLimits.label(MAX_IMAGE_BYTES) +
+        "。私有附件仅上传者本人和管理员可下载。";
     }
   }
 
   function $(id) {
     return document.getElementById(id);
+  }
+
+  function bindVisibilityToggle(buttonId, checkboxId, label) {
+    var button = $(buttonId);
+    var checkbox = $(checkboxId);
+    if (!button || !checkbox) return;
+
+    function render() {
+      var visible = checkbox.checked;
+      var text = label + "：" + (visible ? "展示" : "不展示");
+      button.setAttribute("aria-pressed", visible ? "true" : "false");
+      button.title = text;
+      button.setAttribute("aria-label", text);
+    }
+
+    button.addEventListener("click", function () {
+      checkbox.checked = !checkbox.checked;
+      render();
+    });
+    render();
   }
 
   function el(tag, className, text) {
@@ -138,21 +198,6 @@
   function applyQuota(limit, remaining) {
     dailyLimit = Number(limit) || 0;
     dailyRemaining = Number(remaining);
-    var hint = $("messageQuota");
-    if (hint) {
-      if (!dailyLimit || isNaN(dailyRemaining)) {
-        hint.textContent = "";
-        hint.hidden = true;
-      } else {
-        // 今日可留言/回复次数：左边是今天还能发的条数，右边是每日上限
-        hint.textContent =
-          "今日可留言/回复次数 " +
-          Math.max(0, dailyRemaining) +
-          "/" +
-          dailyLimit;
-        hint.hidden = false;
-      }
-    }
     var full = !isNaN(dailyRemaining) && dailyRemaining <= 0;
     Array.prototype.forEach.call(
       document.querySelectorAll(".mg-send-btn"),
@@ -196,46 +241,63 @@
   applyTheme(themePreference, false);
 
   // ---- 附件选择 ----
-  function totalPendingBytes() {
-    return pendingFiles.reduce(function (sum, file) {
+  function collectionBytes(files) {
+    return files.reduce(function (sum, file) {
       return sum + file.size;
     }, 0);
   }
 
-  function addFiles(fileList) {
+  function pendingCount() {
+    return pendingAttachments.length + pendingImages.length;
+  }
+
+  function addFiles(fileList, purpose) {
     var incoming = Array.prototype.slice.call(fileList || []);
     if (!incoming.length) return;
+    var isImage = purpose === "image";
+    var target = isImage ? pendingImages : pendingAttachments;
+    var maxCount = isImage ? MAX_IMAGES : MAX_ATTACHMENTS;
+    var maxBytes = isImage ? MAX_IMAGE_BYTES : MAX_ATTACHMENT_BYTES;
+    var maxTotalBytes = isImage
+      ? MAX_IMAGE_TOTAL_BYTES
+      : MAX_ATTACHMENT_TOTAL_BYTES;
+    var label = isImage ? "配图" : "附件";
+    var allowedExtensions = isImage ? IMAGE_EXTENSIONS : FILE_EXTENSIONS;
     for (var i = 0; i < incoming.length; i += 1) {
       var file = incoming[i];
-      if (pendingFiles.length >= MAX_FILES) {
-        toast("单条留言最多上传 " + MAX_FILES + " 个附件。");
+      if (target.length >= maxCount) {
+        toast("单条留言最多上传 " + maxCount + " 个" + label + "。");
         break;
       }
-      if (FILE_EXTENSIONS.indexOf(extensionOf(file.name)) < 0) {
-        toast("不支持的附件类型：" + file.name);
+      if (allowedExtensions.indexOf(extensionOf(file.name)) < 0) {
+        toast("不支持的" + label + "类型：" + file.name);
         continue;
       }
-      if (file.size > MAX_FILE_BYTES) {
+      if (file.size > maxBytes) {
         toast(
-          "单个附件不能超过 " +
-            (window.ErrorUploadLimits ? window.ErrorUploadLimits.label(MAX_FILE_BYTES) : "5MB") +
+          "单个" + label + "不能超过 " +
+            (window.ErrorUploadLimits
+              ? window.ErrorUploadLimits.label(maxBytes)
+              : formatSize(maxBytes)) +
             "：" + file.name
         );
         continue;
       }
-      if (totalPendingBytes() + file.size > MAX_TOTAL_BYTES) {
+      if (collectionBytes(target) + file.size > maxTotalBytes) {
         toast(
-          "附件总大小不能超过 " +
-            (window.ErrorUploadLimits ? window.ErrorUploadLimits.label(MAX_TOTAL_BYTES) : "15MB") +
+          label + "总大小不能超过 " +
+            (window.ErrorUploadLimits
+              ? window.ErrorUploadLimits.label(maxTotalBytes)
+              : formatSize(maxTotalBytes)) +
             "。"
         );
         break;
       }
-      var duplicated = pendingFiles.some(function (item) {
+      var duplicated = target.some(function (item) {
         return item.name === file.name && item.size === file.size;
       });
       if (duplicated) continue;
-      pendingFiles.push(file);
+      target.push(file);
     }
     renderPending();
   }
@@ -243,35 +305,50 @@
   function renderPending() {
     var list = $("pendingList");
     list.innerHTML = "";
-    pendingFiles.forEach(function (file, index) {
-      var item = el("li", "mg-pending");
-      if (isImageFile(file.name)) {
-        var thumb = document.createElement("img");
-        thumb.src = URL.createObjectURL(file);
-        thumb.alt = file.name;
-        thumb.addEventListener("load", function () {
-          URL.revokeObjectURL(thumb.src);
+    function appendEntries(files, purpose) {
+      files.forEach(function (file, index) {
+        var item = el(
+          "li",
+          "mg-pending mg-pending-" + purpose
+        );
+        if (purpose === "image") {
+          var thumb = document.createElement("img");
+          thumb.src = URL.createObjectURL(file);
+          thumb.alt = file.name;
+          thumb.addEventListener("load", function () {
+            URL.revokeObjectURL(thumb.src);
+          });
+          item.appendChild(thumb);
+        } else {
+          item.classList.add("mg-pending-file");
+          var fileIcon = document.createElement("i");
+          fileIcon.setAttribute("data-lucide", "file");
+          item.appendChild(fileIcon);
+        }
+        item.appendChild(el("span", "mg-pending-name", file.name));
+        item.appendChild(el("span", "mg-file-size", formatSize(file.size)));
+        var remove = el("button", "mg-pending-remove", "×");
+        remove.type = "button";
+        remove.title = "移除";
+        remove.addEventListener("click", function () {
+          files.splice(index, 1);
+          renderPending();
         });
-        item.appendChild(thumb);
-      }
-      item.appendChild(el("span", "mg-pending-name", file.name));
-      item.appendChild(el("span", "mg-file-size", formatSize(file.size)));
-      var remove = el("button", "mg-pending-remove", "×");
-      remove.type = "button";
-      remove.title = "移除";
-      remove.addEventListener("click", function () {
-        pendingFiles.splice(index, 1);
-        renderPending();
+        item.appendChild(remove);
+        list.appendChild(item);
       });
-      item.appendChild(remove);
-      list.appendChild(item);
-    });
-    var hint = $("attachHint");
-    if (pendingFiles.length) {
-      hint.textContent = "已选 " + pendingFiles.length + " 个，共 " + formatSize(totalPendingBytes());
-    } else {
-      hint.textContent = "支持图片、PDF、TXT、MD（命中敏感词后进入审核）";
     }
+    appendEntries(pendingAttachments, "attachment");
+    appendEntries(pendingImages, "image");
+    var hint = $("attachHint");
+    if (pendingCount()) {
+      hint.textContent =
+        "附件 " + pendingAttachments.length + " 个 · 配图 " +
+        pendingImages.length + " 张";
+    } else {
+      hint.textContent = "附件仅上传者本人和管理员可下载";
+    }
+    refreshIcons();
   }
 
   function fileToBase64(file) {
@@ -290,8 +367,13 @@
   }
 
   $("fileInput").addEventListener("change", function () {
-    addFiles($("fileInput").files);
+    addFiles($("fileInput").files, "attachment");
     $("fileInput").value = "";
+  });
+
+  $("imageInput").addEventListener("change", function () {
+    addFiles($("imageInput").files, "image");
+    $("imageInput").value = "";
   });
 
   // 附件：点击 / 拖到留言框 / 拖文件夹（按留言附件上限取前几个）
@@ -300,8 +382,9 @@
     window.ErrorDropZone.attach($("pickFileBtn"), {
       input: $("fileInput"),
       dropTarget: messageForm || $("fileInput"),
+      accept: FILE_EXTENSIONS,
       maxCount: function () {
-        return Math.max(1, MAX_FILES - pendingFiles.length);
+        return Math.max(1, MAX_ATTACHMENTS - pendingAttachments.length);
       },
       multiple: true,
       pickerId: "errorjiang-message-file",
@@ -313,11 +396,42 @@
     });
   }
 
+  if (window.ErrorDropZone) {
+    window.ErrorDropZone.attach($("pickImageBtn"), {
+      input: $("imageInput"),
+      dropTarget: $("pickImageBtn"),
+      accept: ["image/*"].concat(IMAGE_EXTENSIONS),
+      maxCount: function () {
+        return Math.max(1, MAX_IMAGES - pendingImages.length);
+      },
+      multiple: true,
+      pickerId: "errorjiang-message-image",
+      toast: toast
+    });
+  } else {
+    $("pickImageBtn").addEventListener("click", function () {
+      $("imageInput").click();
+    });
+  }
+
   $("msgContent").addEventListener("paste", function (event) {
-    var pasted = (event.clipboardData && event.clipboardData.files) || [];
+    var pasted = Array.prototype.slice.call(
+      (event.clipboardData && event.clipboardData.files) || []
+    );
     if (pasted.length) {
       event.preventDefault();
-      addFiles(pasted);
+      addFiles(
+        pasted.filter(function (file) {
+          return file.type.indexOf("image/") === 0;
+        }),
+        "image"
+      );
+      addFiles(
+        pasted.filter(function (file) {
+          return file.type.indexOf("image/") !== 0;
+        }),
+        "attachment"
+      );
     }
   });
 
@@ -336,41 +450,24 @@
     return sendBusy.fill;
   }
 
-  /*
-   * 设备平台：「设备平台」勾选项对所有人开放（勾了才公开这条的设备来源，和「IP属地」同一套），
-   * 具体文案由后端按 UA 自动识别；只有管理员能额外填一个自定义名称，留空就回到自动识别。
-   */
-
-  function deviceInfoValue() {
-    var box = $("msgShowDevice");
-    var input = $("msgDeviceInput");
-    if (!canCustomDevice || !box || !input || !box.checked) return "";
-    return input.value.trim();
-  }
-
-  function resetDeviceInfoField() {
-    if ($("msgDeviceInput")) $("msgDeviceInput").value = "";
-  }
-
-  if ($("msgDeviceInput")) {
-    // 管理员填了自定义名称就自动勾上「设备平台」，省得再点一下
-    $("msgDeviceInput").addEventListener("input", function (event) {
-      if (event.target.value.trim() && $("msgShowDevice")) {
-        $("msgShowDevice").checked = true;
-      }
-    });
-  }
-
   $("messageForm").addEventListener("submit", function (event) {
     event.preventDefault();
     if (sendBusy.active) return;
     var content = $("msgContent").value.trim();
-    if (!content && !pendingFiles.length) {
+    if (!content && !pendingCount()) {
       toast("写点内容，或者加个附件吧。");
       return;
     }
     var button = $("submitBtn");
-    var queued = pendingFiles.slice();
+    var queued = pendingAttachments
+      .map(function (file) {
+        return { file: file, kind: "attachment" };
+      })
+      .concat(
+        pendingImages.map(function (file) {
+          return { file: file, kind: "image" };
+        })
+      );
     var withFiles = queued.length > 0;
     var fill = withFiles ? sendFill() : null;
     sendBusy.active = true;
@@ -384,9 +481,13 @@
       if (window.ErrorButtons) window.ErrorButtons.busy(button, "正在发布");
     }
     Promise.all(
-      queued.map(function (file) {
-        return fileToBase64(file).then(function (data) {
-          return { name: file.name, data_base64: data };
+      queued.map(function (item) {
+        return fileToBase64(item.file).then(function (data) {
+          return {
+            name: item.file.name,
+            data_base64: data,
+            kind: item.kind,
+          };
         });
       })
     ).then(function (files) {
@@ -394,12 +495,8 @@
         content: content,
         files: files,
         show_region: $("msgShowRegion").checked,
-        // 设备平台是否公开：对所有人开放的勾选项，默认不勾选
         show_device: $("msgShowDevice").checked,
       };
-      // 自定义设备名称：管理员或拿到 site:device_name 权限的账号才能带
-      // （空串 = 让后端按 UA 自动识别）
-      if (canCustomDevice) payload.device_info = deviceInfoValue();
       if (!withFiles) {
         return api("/api/site/messages", {
           method: "POST",
@@ -411,10 +508,10 @@
       var task = ErrorProgress.upload("/api/site/messages", {
         payload: payload,
         onProgress: function (ratio) {
-          fill.set(ratio, "取消发送 " + ErrorProgress.percentText(ratio));
+          fill.set(ratio, "发布");
         },
         onUploaded: function () {
-          fill.busy("发布中…");
+          fill.busy("发布");
         },
       });
       sendBusy.abort = task.abort;
@@ -422,8 +519,9 @@
     }).then(function (result) {
       if (window.ErrorButtons) window.ErrorButtons.success(button, { label: "已发布" });
       $("msgContent").value = "";
-      resetDeviceInfoField();
-      pendingFiles = [];
+      updateMessageCharCount();
+      pendingAttachments = [];
+      pendingImages = [];
       renderPending();
       toast(
         result && result.pending_review
@@ -663,6 +761,10 @@
         node.href = url;
         node.download = file.file_name;
         node.rel = "noopener";
+        if (file.private_attachment) {
+          node.classList.add("mg-file-private");
+          node.title = "私有附件，仅上传者本人和管理员可下载";
+        }
       } else {
         node = el("button", "mg-file mg-file-view");
         node.type = "button";
@@ -673,7 +775,10 @@
       }
       if (file.pending) node.classList.add("mg-file-pending");
       var icon = document.createElement("i");
-      icon.setAttribute("data-lucide", "file");
+      icon.setAttribute(
+        "data-lucide",
+        file.private_attachment ? "lock" : "file"
+      );
       node.appendChild(icon);
       node.appendChild(el("span", "mg-file-name", file.file_name));
       if (file.pending) {
@@ -681,6 +786,9 @@
       }
       node.appendChild(el("span", "mg-file-size", formatSize(file.file_size)));
       if (!canSave) node.appendChild(el("span", "mg-file-view-tag", "查看"));
+      else if (file.private_attachment) {
+        node.appendChild(el("span", "mg-file-view-tag", "下载"));
+      }
       chips.appendChild(node);
     });
     wrap.appendChild(chips);
@@ -1431,9 +1539,15 @@
   }
 
   renderPending();
+  messageContentInput = $("msgContent");
+  messageCharCount = $("messageCharCount");
+  messageContentInput.addEventListener("input", updateMessageCharCount);
+  updateMessageCharCount();
   setMessageFilter(new URLSearchParams(location.search).get("filter") || "all");
   $("msgShowRegion").checked = false;
   $("msgShowDevice").checked = false;
+  bindVisibilityToggle("msgShowRegionBtn", "msgShowRegion", "IP属地");
+  bindVisibilityToggle("msgShowDeviceBtn", "msgShowDevice", "设备平台");
   refreshIcons();
   if (window.ErrorUploadLimits) window.ErrorUploadLimits.apply(applyUploadLimits);
 
@@ -1521,16 +1635,10 @@
   api("/api/auth/status").then(function (status) {
     canPost = Boolean(status.authenticated);
     isAdmin = Boolean(status.admin || status.owner);
-    // 自定义设备名称：管理员天然可以，普通账号看「工作台 → 账号权限」里有没有开这一项
-    canCustomDevice =
-      isAdmin ||
-      (Array.isArray(status.permissions) &&
-        status.permissions.indexOf(DEVICE_NAME_PERMISSION) >= 0);
     viewerLikeName = status.owner
       ? "管理员"
       : String(status.username || status.nickname || "");
     $("messageComposerPanel").hidden = !canPost;
-    $("msgDeviceField").hidden = !canCustomDevice;
     if (canPost) {
       initMessageFilters();
       loadQuota();
@@ -1539,9 +1647,7 @@
   }).catch(function () {
     canPost = false;
     isAdmin = false;
-    canCustomDevice = false;
     $("messageComposerPanel").hidden = true;
-    $("msgDeviceField").hidden = true;
     return loadMessages();
   });
   document.addEventListener("visibilitychange", function () {
