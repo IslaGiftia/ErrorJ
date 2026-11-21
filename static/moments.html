@@ -37,16 +37,13 @@
   <div class="mo-app">
     <main class="mo-main">
       <form class="mo-card mo-composer" id="momentForm" hidden>
-        <textarea id="momentContent" maxlength="2000" placeholder="今天在折腾什么？记录一句，或者直接粘贴截图…"></textarea>
-        <div class="mo-tag-input">
-          <input id="momentTags" maxlength="200" placeholder="标签（可选，用逗号分隔，例如：单片机, 折腾记录）">
-        </div>
+        <textarea id="momentContent" maxlength="2000" aria-label="动态内容"></textarea>
         <ul class="mo-pending" id="pendingList"></ul>
         <div class="mo-composer-foot">
           <button class="mo-btn mo-btn-ghost" id="pickImageBtn" type="button">
             <i data-lucide="image-plus"></i><span>配图</span>
           </button>
-          <span class="mo-hint" id="imageHint">最多 9 张，单张 5MB</span>
+          <span class="mo-hint" id="imageHint" hidden></span>
           <button class="mo-btn mo-btn-primary" id="submitBtn" type="submit">
             <i data-lucide="send"></i><span>发布</span>
           </button>

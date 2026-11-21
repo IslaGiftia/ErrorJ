@@ -14,12 +14,22 @@
   var diagnosticsThreads = document.getElementById("agentDiagnosticThreads");
   var diagnosticsCounts = document.getElementById("agentDiagnosticCounts");
   var diagnosticsCleanup = document.getElementById("agentDiagnosticCleanup");
+  var diagnosticsMemoryInjections = document.getElementById(
+    "agentDiagnosticMemoryInjections"
+  );
+  var diagnosticsProactive = document.getElementById(
+    "agentDiagnosticProactive"
+  );
   var diagnosticsSearchResult = document.getElementById(
     "agentDiagnosticsSearchResult"
   );
   var groupMemberList = document.getElementById("agentGroupMemberList");
   var timelineList = document.getElementById("agentTimelineList");
   var timelineForm = document.getElementById("agentTimelineForm");
+  var reflectionList = document.getElementById("agentReflectionList");
+  var importantDates = document.getElementById("agentImportantDates");
+  var reflectionRun = document.getElementById("agentReflectionRun");
+  var reflectionStatus = document.getElementById("agentReflectionStatus");
   var stickerGrid = document.getElementById("agentStickerGrid");
   var stickerInput = document.getElementById("agentStickerInput");
   var stickerUploadBtn = document.getElementById("agentStickerUploadBtn");
@@ -615,6 +625,14 @@
           "settingGroupVisionInterval",
           settings.group_vision_interval_minutes
         );
+        settingValue(
+          "settingDailyReflectionEnabled",
+          settings.daily_reflection_enabled
+        );
+        settingValue(
+          "settingDailyReflectionTime",
+          settings.daily_reflection_time
+        );
         settingValue("settingProactiveMax", settings.proactive_max_per_day);
         settingValue("settingMorningTime", settings.morning_time);
         settingValue("settingNightTime", settings.night_time);
@@ -750,6 +768,12 @@
         Number(
           document.getElementById("settingGroupVisionInterval").value
         ) || 0,
+      daily_reflection_enabled: document.getElementById(
+        "settingDailyReflectionEnabled"
+      ).checked,
+      daily_reflection_time: document.getElementById(
+        "settingDailyReflectionTime"
+      ).value,
       proactive_max_per_day:
         Number(document.getElementById("settingProactiveMax").value) || 2,
       morning_time: document.getElementById("settingMorningTime").value,
@@ -966,6 +990,7 @@
       diagnosticsRow("私聊历史", String(counts.messages || 0) + " 条"),
       diagnosticsRow("群聊历史", String(counts.group_messages || 0) + " 条"),
       diagnosticsRow("长期记忆", String(counts.memories || 0) + " 条"),
+      diagnosticsRow("每日反思", String(counts.daily_reflections || 0) + " 天"),
       diagnosticsRow("待发送提醒", String(counts.pending_reminders || 0) + " 条"),
     ].join("");
 
@@ -983,6 +1008,116 @@
           ),
         ].join("")
       : diagnosticsRow("最近清理", "尚未运行");
+
+    var memoryDiagnostics = data.memory_diagnostics || {};
+    var injections = memoryDiagnostics.recent_injections || [];
+    diagnosticsMemoryInjections.innerHTML = injections.length
+      ? injections.slice(0, 8).map(function (item) {
+          var selected = item.selected || [];
+          var filtered = item.filtered || [];
+          return (
+            '<div class="agent-diagnostics-entry">' +
+              '<div><strong>' +
+                escapeHtml(item.query || "空查询") +
+              "</strong><span>" +
+                escapeHtml(
+                  "选中 " + selected.length +
+                  " 条 · 未入选 " + filtered.length + " 条"
+                ) +
+              "</span></div>" +
+              "<p>" +
+                escapeHtml(
+                  selected.length
+                    ? String(selected[0]).slice(0, 100)
+                    : "本轮没有注入长期记忆"
+                ) +
+              "</p>" +
+            "</div>"
+          );
+        }).join("")
+      : '<div class="agent-diagnostics-empty">还没有记忆注入记录。</div>';
+
+    var proactiveDiagnostics = data.proactive_diagnostics || {};
+    var candidates = proactiveDiagnostics.recent_candidates || [];
+    var groupRuns = proactiveDiagnostics.recent_group_runs || [];
+    var proactiveStatusLabel = function (value) {
+      return {
+        sent: "已发送",
+        selected: "已选中",
+        blocked: "已拦截",
+        skipped: "已跳过",
+        failed: "失败",
+        generated: "候选",
+        expired: "已过期",
+        cancelled: "已取消",
+        preview: "仅预览",
+        private_fallback: "私聊兜底",
+      }[value] || value;
+    };
+    var proactiveReasonLabel = function (value) {
+      return {
+        disabled: "主动聊天已关闭",
+        quiet_hours: "免打扰时段",
+        daily_limit: "今日次数已用完",
+        minimum_gap: "距上一条主动消息太近",
+        no_candidate: "本轮没有足够自然的候选",
+        duplicate_slot: "同一候选刚处理过",
+        empty_generation: "模型没有生成可用内容",
+        group_disabled: "这个群的主动聊天已关闭",
+        weekly_limit: "本周低频群主动次数已用完",
+        max_unanswered: "连续未回应达到上限",
+        group_still_active: "群里还在聊",
+        stale_schedule: "旧排期已过期",
+        initial_wait: "已进入随机等待",
+        scheduled_wait: "还在等待下一次判断",
+      }[value] || value;
+    };
+    var proactiveSourceLabel = function (value) {
+      return {
+        important_date: "重要日期",
+        timeline: "到期事件",
+        agenda: "日程节点",
+        greeting: "日常问候",
+        unfinished_thread: "未完话头",
+        emotion: "近期情绪",
+        memory: "长期记忆",
+        weather: "天气",
+        gate: "发送闸门",
+        group_idle_gate: "群主动闸门",
+      }[value] || value;
+    };
+    var proactiveRows = candidates.slice(0, 8).map(function (item) {
+      var status = proactiveStatusLabel(item.status);
+      return (
+        '<div class="agent-diagnostics-entry">' +
+          '<div><strong>' +
+            escapeHtml(item.title || item.source || "主动候选") +
+          "</strong><span>" +
+            escapeHtml(status + " · " + Number(item.score || 0).toFixed(0)) +
+          "</span></div>" +
+          "<p>" +
+            escapeHtml(
+              proactiveReasonLabel(item.blocked_reason) ||
+              proactiveSourceLabel(item.source) ||
+              "没有记录原因"
+            ) +
+          "</p>" +
+        "</div>"
+      );
+    });
+    groupRuns.slice(0, 4).forEach(function (item) {
+      proactiveRows.push(
+        '<div class="agent-diagnostics-entry">' +
+          "<div><strong>群主动 · " + escapeHtml(item.group_id || "") + "</strong><span>" +
+            escapeHtml(proactiveStatusLabel(item.status || "")) +
+          "</span></div><p>" +
+            escapeHtml(item.detail || item.trigger_reason || "没有记录原因") +
+          "</p></div>"
+      );
+    });
+    diagnosticsProactive.innerHTML = proactiveRows.length
+      ? proactiveRows.join("")
+      : '<div class="agent-diagnostics-empty">还没有主动候选记录。</div>';
 
     var check = data.search_check;
     if (check) {
@@ -1275,6 +1410,130 @@
       })
       .catch(function (error) {
         setSettingsStatus(error.message, settingsDirty);
+      });
+  }
+
+  function reflectionParagraph(label, value, className) {
+    if (!value) return null;
+    var block = document.createElement("div");
+    block.className = "agent-reflection-block " + (className || "");
+    var heading = document.createElement("strong");
+    heading.textContent = label;
+    var text = document.createElement("p");
+    text.textContent = value;
+    block.append(heading, text);
+    return block;
+  }
+
+  function renderReflections(data) {
+    var items = data.items || [];
+    var dates = data.important_dates || [];
+    document.getElementById("agentReflectionCount").textContent =
+      items.length + " 天";
+    reflectionList.innerHTML = "";
+    items.forEach(function (item) {
+      var article = document.createElement("article");
+      article.className = "agent-reflection-item";
+      var head = document.createElement("header");
+      var title = document.createElement("h4");
+      title.textContent = item.day || "未标日期";
+      var meta = document.createElement("span");
+      meta.textContent =
+        Number(item.source_count || 0) + " 条聊天素材";
+      head.append(title, meta);
+      article.appendChild(head);
+      [
+        reflectionParagraph("日记", item.diary, "is-diary"),
+        reflectionParagraph("梦", item.dream, "is-dream"),
+        reflectionParagraph("反思", item.reflection, "is-reflection"),
+      ].forEach(function (block) {
+        if (block) article.appendChild(block);
+      });
+      var agenda = item.agenda || [];
+      if (agenda.length) {
+        var agendaBlock = document.createElement("div");
+        agendaBlock.className = "agent-reflection-block";
+        var agendaTitle = document.createElement("strong");
+        agendaTitle.textContent = "日程节点";
+        var list = document.createElement("ul");
+        agenda.forEach(function (entry) {
+          var row = document.createElement("li");
+          row.textContent =
+            String(entry.date || "") + " " +
+            String(entry.time || "") + " · " +
+            String(entry.title || "");
+          list.appendChild(row);
+        });
+        agendaBlock.append(agendaTitle, list);
+        article.appendChild(agendaBlock);
+      }
+      reflectionList.appendChild(article);
+    });
+    if (!items.length) {
+      reflectionList.innerHTML =
+        '<div class="agent-timeline-empty">还没有日记。到生成时间会自动创建，也可以手动生成今天。</div>';
+    }
+
+    importantDates.innerHTML = "";
+    if (dates.length) {
+      var heading = document.createElement("h3");
+      heading.textContent = "重要日期";
+      var grid = document.createElement("div");
+      grid.className = "agent-important-date-grid";
+      dates.slice(0, 24).forEach(function (item) {
+        var card = document.createElement("div");
+        var date = document.createElement("strong");
+        date.textContent = item.month_day || "--";
+        var titleNode = document.createElement("span");
+        titleNode.textContent = item.title || "重要日子";
+        var copy = document.createElement("small");
+        copy.textContent = item.content || "";
+        card.append(date, titleNode, copy);
+        grid.appendChild(card);
+      });
+      importantDates.append(heading, grid);
+    }
+    refreshIcons();
+  }
+
+  var reflectionPlatform = "qqbot";
+
+  function loadReflections() {
+    reflectionStatus.textContent = "正在读取日记与反思…";
+    return fetch("/api/agent/web/reflections?limit=30", {
+      credentials: "same-origin",
+      cache: "no-store",
+    })
+      .then(readApiResponse)
+      .then(function (data) {
+        reflectionPlatform = data.platform || reflectionPlatform;
+        renderReflections(data);
+        reflectionStatus.textContent = "";
+      })
+      .catch(function (error) {
+        reflectionStatus.textContent = error.message;
+      });
+  }
+
+  function runReflectionNow() {
+    reflectionRun.disabled = true;
+    reflectionStatus.textContent = "正在生成日记、梦和反思…";
+    fetch("/api/agent/web/reflection-run", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform: reflectionPlatform }),
+    })
+      .then(readApiResponse)
+      .then(function () {
+        reflectionStatus.textContent = "已生成";
+        return loadReflections();
+      })
+      .catch(function (error) {
+        reflectionStatus.textContent = error.message;
+      })
+      .then(function () {
+        reflectionRun.disabled = false;
       });
   }
 
@@ -2439,6 +2698,7 @@
         addButton.disabled = false;
       });
   });
+  reflectionRun.addEventListener("click", runReflectionNow);
 
   refreshIcons();
   setupSectionNavigation();
@@ -2448,6 +2708,7 @@
   loadDiagnostics();
   loadGroupMembers();
   loadTimeline();
+  loadReflections();
   loadStickers();
   window.setInterval(loadStatus, 30000);
 })();

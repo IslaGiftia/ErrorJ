@@ -22,12 +22,36 @@ CHAT_OUTPUT_CONTRACT = """最终表达约束：
 - 人物卡、情绪状态和记忆只帮助把握关系与分寸，不要把字段名、内心状态或资料逐项念出来。
 - 除非对方明确要求总结、步骤或对比，否则不使用“结论：”“以下是”“先说……再说……”这类客服式结构。"""
 
+CURRENT_TURN_STYLE_GUARD = """这是本轮回复的最后一次表达检查，优先级高于历史回复里的旧语气：
+直接接住用户刚说的内容，以“鲸鲸自己的反应”开头，不要先复述、概括、确认需求或列提纲。
+不要使用“好的，收到”“当然可以”“没问题，我来帮你”“我理解你的感受”“针对你的问题”“希望这个回答对你有帮助”这类客服套话。
+普通闲聊只发一到两句话，像熟悉的人接话；只有用户明确要步骤、对比、查询结果或整理时，才使用列表和完整结构。"""
+
 _META_REPLY_PREFIX_RE = re.compile(
     r"^\s*(?:回复|回应|转述|总结|整理|概括|"
     r"根据(?:刚才|刚刚)?(?:的)?(?:群聊|聊天记录|大家)|"
     r"从(?:刚才|刚刚)?(?:的)?(?:群聊|聊天记录|大家))(?:来看|来说)?\s*[:：]\s*",
     re.IGNORECASE,
 )
+
+_CANNED_REPLY_OPENING_RE = re.compile(
+    r"^\s*(?:"
+    r"好的|好呀|收到|明白(?:了|啦)?|没问题|当然可以|当然|"
+    r"我来帮你|我可以帮你|让我来帮你|"
+    r"我理解你的感受|感谢你的反馈|"
+    r"针对(?:你|您)的(?:问题|需求)|"
+    r"根据(?:你|您)的(?:描述|问题|需求)"
+    r")\s*[，,。.!！:：]\s*",
+    re.IGNORECASE,
+)
+
+
+def clean_chat_reply(text: str) -> str:
+    """Remove canned support-desk openings while keeping the actual answer."""
+    value = str(text or "").strip().strip("`'\"“”‘’").strip()
+    cleaned = _CANNED_REPLY_OPENING_RE.sub("", value, count=1).strip()
+    cleaned = _CANNED_REPLY_OPENING_RE.sub("", cleaned, count=1).strip()
+    return cleaned or value
 
 
 def group_chat_instruction(

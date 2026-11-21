@@ -183,7 +183,7 @@ class Config:
             group_enabled=env_bool("ERRORJIANG_AGENT_GROUP_ENABLED", False),
             group_ids=frozenset(group_values),
             context_messages=max(
-                2, min(env_int("ERRORJIANG_AGENT_CONTEXT_MESSAGES", 8), 20)
+                2, min(env_int("ERRORJIANG_AGENT_CONTEXT_MESSAGES", 16), 20)
             ),
             context_char_limit=max(
                 4000,

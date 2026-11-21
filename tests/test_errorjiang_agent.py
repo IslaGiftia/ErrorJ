@@ -31,6 +31,8 @@ from errorjiang_agent.clients import DeepSeekClient, HotSearchClient
 from errorjiang_agent.config import Config
 from errorjiang_agent.context import ContextWindow, PromptBuilder
 from errorjiang_agent.conversation_style import (
+    CURRENT_TURN_STYLE_GUARD,
+    clean_chat_reply,
     GROUP_SKIP_MARKER,
     clean_group_reply,
     filter_group_history,
@@ -73,6 +75,11 @@ from errorjiang_agent.routing import (
     event_has_image_attachment,
 )
 from errorjiang_agent.research import WebResearchEngine
+from errorjiang_agent.reflection import (
+    agenda_near,
+    fallback_reflection,
+    parse_reflection_payload,
+)
 from errorjiang_agent.search_routing import route_search_intent
 from errorjiang_agent.search_evidence import assess_search_evidence
 from errorjiang_agent.service import (
@@ -471,6 +478,21 @@ class AgentStoreTests(unittest.TestCase):
             {"chat_human_delay": False},
         )
         self.assertFalse(updated["chat_human_delay"])
+
+    def test_daily_reflection_settings_default_and_persist(self):
+        settings = self.store.get_settings("qqbot", "admin-openid")
+        self.assertTrue(settings["daily_reflection_enabled"])
+        self.assertEqual(settings["daily_reflection_time"], "23:50")
+        updated = self.store.save_settings(
+            "qqbot",
+            "admin-openid",
+            {
+                "daily_reflection_enabled": False,
+                "daily_reflection_time": "22:40",
+            },
+        )
+        self.assertFalse(updated["daily_reflection_enabled"])
+        self.assertEqual(updated["daily_reflection_time"], "22:40")
 
     def test_group_reply_control_defaults_and_persist(self):
         settings = self.store.get_settings("qqbot", "admin-openid")
@@ -2423,7 +2445,7 @@ class AgentStoreTests(unittest.TestCase):
             AgentService.group_location_add_requested("刚才那个地方好玩吗")
         )
 
-    def test_group_auto_reply_requires_name_or_recent_conversation(self):
+    def test_group_auto_reply_continues_an_active_conversation(self):
         service = object.__new__(AgentService)
         service.store = self.store
 
@@ -2510,7 +2532,7 @@ class AgentStoreTests(unittest.TestCase):
                 event("还有呢", user_id="member-openid")
             )
         )
-        self.assertFalse(
+        self.assertTrue(
             service.group_message_wants_reply(event("哈哈哈哈"))
         )
         self.assertFalse(
@@ -2540,12 +2562,15 @@ class AgentStoreTests(unittest.TestCase):
         )
         self.assertEqual(len(submitted), 1)
         self.assertTrue(submitted[0][1][0].to_me)
-        service.schedule_qqbot_event(event("今天食堂排队好长"))
+        service.schedule_qqbot_event(
+            event("今天食堂排队好长", user_id="other-member")
+        )
         self.assertEqual(len(submitted), 1)
 
     def test_group_ambient_reply_density_and_fatigue(self):
         service = object.__new__(AgentService)
         service.store = self.store
+        service.group_policy = GroupConversationPolicy(self.store)
         service._group_ambient_lock = threading.Lock()
         service._group_ambient_state = {}
         service._group_runtime_settings = lambda _event: {
@@ -2637,6 +2662,43 @@ class AgentStoreTests(unittest.TestCase):
                     "group_conversation",
                 ),
                 "reply_density",
+            )
+        with patch(
+            "errorjiang_agent.store.time.time",
+            return_value=1400,
+        ):
+            self.store.add_group_message(
+                "qqbot",
+                "group-openid",
+                "member-openid",
+                "小明",
+                "user",
+                "接着聊刚才那个",
+                "group-active-user",
+            )
+            self.store.add_group_message(
+                "qqbot",
+                "group-openid",
+                "assistant",
+                "鲸鲸",
+                "assistant",
+                "那就继续说说",
+                "group-active-assistant",
+            )
+        with patch(
+            "errorjiang_agent.service.time.time",
+            return_value=1400,
+        ):
+            self.assertEqual(
+                service._group_auto_reply_suppression_reason(
+                    replace(
+                        event,
+                        text="那你觉得哪个好",
+                        message_id="active-continuation",
+                    ),
+                    "group_conversation",
+                ),
+                "",
             )
         self.assertEqual(
             service._group_auto_reply_suppression_reason(
@@ -4731,6 +4793,32 @@ class AgentStoreTests(unittest.TestCase):
             ),
             "hard_cutoff",
         )
+        service.group_policy = GroupConversationPolicy(self.store)
+        self.store.add_group_message(
+            "qqbot",
+            "group",
+            "member",
+            "小明",
+            "user",
+            "还在吗",
+            "hard-active-user",
+        )
+        self.store.add_group_message(
+            "qqbot",
+            "group",
+            "assistant",
+            "鲸鲸",
+            "assistant",
+            "在，继续",
+            "hard-active-assistant",
+        )
+        self.assertEqual(
+            service._group_auto_reply_suppression_reason(
+                replace(event, text="那接着说"),
+                "group_conversation",
+            ),
+            "",
+        )
         service._note_group_human_activity(replace(event, to_me=True))
         self.assertEqual(
             service._group_auto_reply_suppression_reason(
@@ -5370,6 +5458,241 @@ class AgentStoreTests(unittest.TestCase):
             item["topic"] for item in candidates if item["kind"] == "memory"
         ]
         self.assertEqual(memory_topics, ["几天前提到的约定"])
+
+    def test_daily_reflection_payload_and_agenda_window(self):
+        payload = parse_reflection_payload(
+            """
+            {
+              "diary": "今天一起整理了书架",
+              "dream": "梦见海边的书架",
+              "reflection": "下次可以慢慢聊",
+              "agenda": [
+                {"date": "2026-11-22", "time": "19:30", "title": "一起看展"},
+                {"date": "", "time": "bad", "title": "无效节点"}
+              ],
+              "important_dates": [
+                {"date": "11-22", "title": "第一次看展", "content": "约定过"}
+              ]
+            }
+            """,
+            "2026-11-21",
+        )
+        self.assertIsNotNone(payload)
+        self.assertEqual(len(payload["agenda"]), 1)
+        self.assertEqual(payload["agenda"][0]["date"], "2026-11-22")
+        self.assertEqual(payload["important_dates"][0]["month_day"], "11-22")
+        near = agenda_near(
+            payload,
+            datetime(2026, 11, 22, 19, 20),
+        )
+        self.assertEqual(near["title"], "一起看展")
+
+    def test_store_daily_reflection_and_important_dates(self):
+        saved = self.store.add_daily_reflection(
+            "qqbot",
+            "admin",
+            "2026-11-21",
+            {
+                "diary": "今天聊了很久",
+                "dream": "梦见潮声",
+                "reflection": "明天慢一点",
+                "agenda": [],
+                "important_dates": [
+                    {
+                        "month_day": "11-22",
+                        "title": "第一次看展",
+                        "content": "一起去了展馆",
+                    }
+                ],
+                "source_count": 8,
+            },
+        )
+        self.assertEqual(saved["day"], "2026-11-21")
+        self.assertEqual(saved["source_count"], 8)
+        self.assertEqual(
+            self.store.add_important_dates(
+                "qqbot",
+                "admin",
+                [
+                    {
+                        "month_day": "11-22",
+                        "title": "第一次看展",
+                        "content": "一起去了展馆",
+                    }
+                ],
+            ),
+            1,
+        )
+        self.assertEqual(
+            self.store.important_dates_for_day("qqbot", "admin", "11-22")[0][
+                "title"
+            ],
+            "第一次看展",
+        )
+        self.assertEqual(
+            self.store.diagnostic_counts()["daily_reflections"],
+            1,
+        )
+
+    def test_fallback_reflection_uses_real_topics_and_mood(self):
+        result = fallback_reflection(
+            "2026-11-21",
+            ["管理员：今天去看展", "鲸鲸：听起来不错"],
+            mood="被逗笑",
+            energy=7,
+        )
+        self.assertIn("今天去看展", result["diary"])
+        self.assertIn("海", result["dream"])
+        self.assertEqual(result["agenda"], [])
+
+    def test_daily_reflection_falls_back_without_model_output(self):
+        day = datetime.now().strftime("%Y-%m-%d")
+        self.store.add_message(
+            "qqbot",
+            "admin",
+            "user",
+            "今天去看了展，回来有点累",
+        )
+        self.store.add_message(
+            "qqbot",
+            "admin",
+            "assistant",
+            "那早点休息，别硬撑",
+        )
+
+        class FailingProvider:
+            name = "failing"
+
+            def chat(self, messages, tools):
+                del messages, tools
+                raise RuntimeError("model unavailable")
+
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.deepseek = FailingProvider()
+        reflection = service.run_daily_reflection(
+            "qqbot",
+            "admin",
+            day,
+            allow_empty=False,
+            now=datetime.now(),
+        )
+        self.assertEqual(reflection["day"], day)
+        self.assertIn("今天去看了展", reflection["diary"])
+        self.assertGreaterEqual(reflection["source_count"], 2)
+
+    def test_proactive_candidates_include_life_dates_agenda_and_emotion(self):
+        candidates = AgentService.proactive_candidates(
+            datetime(2026, 11, 22, 9, 5),
+            {"morning_time": "09:00", "night_time": "21:30"},
+            {
+                "idle_hours": 2,
+                "last_topic": "昨天没说完的话",
+                "mood": "有点吃醋",
+                "jealousy": 2,
+            },
+            [],
+            [],
+            reflection={
+                "agenda": [
+                    {
+                        "date": "2026-11-22",
+                        "time": "09:20",
+                        "title": "出门看展",
+                    }
+                ]
+            },
+            important_dates=[
+                {
+                    "id": 3,
+                    "title": "第一次见面",
+                    "content": "去年今天",
+                }
+            ],
+            weather="西安：晴，6~15℃",
+        )
+        kinds = {item["kind"] for item in candidates}
+        self.assertIn("important_date", kinds)
+        self.assertIn("agenda", kinds)
+        self.assertIn("emotion", kinds)
+        self.assertIn("weather", kinds)
+        self.assertEqual(
+            AgentService.choose_proactive_candidate(candidates)["kind"],
+            "important_date",
+        )
+
+    def test_diagnostics_records_memory_injections_and_candidates(self):
+        self.store.record_memory_injection(
+            "qqbot",
+            "admin",
+            "chat",
+            "看展",
+            ["她喜欢看展"],
+            [{"content": "她怕冷", "reason": "相关度不足"}],
+        )
+        candidate_id = self.store.record_proactive_candidate(
+            scope_type="private",
+            platform="qqbot",
+            owner_id="admin",
+            source="agenda",
+            title="出门看展",
+            score=88,
+            status="blocked",
+            blocked_reason="quiet_hours",
+        )
+        self.store.mark_proactive_candidate(
+            candidate_id,
+            "sent",
+        )
+        injection = self.store.list_memory_injections(1)[0]
+        self.assertEqual(injection["selected"], ["她喜欢看展"])
+        candidate = self.store.list_proactive_candidates(1)[0]
+        self.assertEqual(candidate["status"], "sent")
+        self.assertEqual(candidate["source"], "agenda")
+
+    def test_diagnostics_payload_exposes_memory_and_proactive_reasons(self):
+        self.store.add_daily_reflection(
+            "qqbot",
+            "admin",
+            "2026-11-21",
+            {"diary": "今天聊了展", "source_count": 3},
+        )
+        self.store.record_memory_injection(
+            "qqbot",
+            "admin",
+            "admin",
+            "展",
+            ["她喜欢看展"],
+            [],
+        )
+        self.store.record_proactive_candidate(
+            scope_type="private",
+            platform="qqbot",
+            owner_id="admin",
+            source="gate",
+            title="安静时段",
+            status="blocked",
+            blocked_reason="quiet_hours",
+        )
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.qqbot = None
+        service.started_at = int(time.time())
+        payload = service.diagnostics_payload()
+        self.assertIn(
+            "recent_injections",
+            payload["memory_diagnostics"],
+        )
+        self.assertIn(
+            "recent_candidates",
+            payload["proactive_diagnostics"],
+        )
+        self.assertEqual(
+            payload["proactive_diagnostics"]["recent_candidates"][0][
+                "blocked_reason"
+            ],
+            "quiet_hours",
+        )
 
 
 class OneBotParserTests(unittest.TestCase):
@@ -6857,6 +7180,51 @@ class AgentInfrastructureTests(unittest.TestCase):
             "本轮只由",
             PromptBuilder("base").build({"chat_type": "private"}),
         )
+
+    def test_chat_reply_cleaner_removes_support_desk_openings(self):
+        self.assertEqual(
+            clean_chat_reply("好的，收到。这个确实有点离谱"),
+            "这个确实有点离谱",
+        )
+        self.assertEqual(
+            clean_chat_reply("针对你的问题，我先查一下库存"),
+            "我先查一下库存",
+        )
+        self.assertEqual(clean_chat_reply("当然"), "当然")
+
+    def test_brain_repeats_style_guard_after_chat_history(self):
+        class RecordingProvider:
+            name = "recording"
+
+            def __init__(self):
+                self.messages = []
+
+            def chat(self, messages, tools):
+                del tools
+                self.messages = messages
+                return {"content": "好的，收到。这个我记下了"}
+
+        provider = RecordingProvider()
+        brain = AgentBrain(
+            provider,
+            SimpleNamespace(tool=lambda *args, **kwargs: {}),
+            lambda *args, **kwargs: {},
+        )
+        reply = brain.reply(
+            "刚才那个记住了吗",
+            [
+                {"role": "user", "content": "旧问题"},
+                {"role": "assistant", "content": "好的，收到。稍等"},
+            ],
+            {"chat_type": "private"},
+        )
+        self.assertEqual(reply, "这个我记下了")
+        self.assertEqual(provider.messages[-2]["role"], "system")
+        self.assertEqual(
+            provider.messages[-2]["content"],
+            CURRENT_TURN_STYLE_GUARD,
+        )
+        self.assertEqual(provider.messages[-1]["role"], "user")
 
     def test_system_prompt_lets_owner_address_override_public_name(self):
         self.assertNotIn("必须叫“星星”", SYSTEM_PROMPT)
@@ -9860,6 +10228,81 @@ class AgentTimelineApiTests(unittest.TestCase):
         self.assertTrue(payload["search_check"]["ok"])
         self.assertEqual(calls, ["", "search_check"])
 
+    def test_internal_reflection_api_lists_and_runs_daily_record(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        store = AgentStore(Path(temp.name) / "agent.db")
+        store.add_daily_reflection(
+            "qqbot",
+            "admin",
+            "2026-11-21",
+            {
+                "diary": "今天一起看展",
+                "dream": "梦里是海",
+                "reflection": "慢一点",
+                "source_count": 4,
+            },
+        )
+        calls = []
+
+        def run_daily_reflection(platform, owner_id, day, **kwargs):
+            calls.append((platform, owner_id, day, kwargs))
+            return {"day": day, "diary": "手动生成"}
+
+        service = SimpleNamespace(
+            config=SimpleNamespace(errorjiang_token="internal-token"),
+            store=store,
+            run_daily_reflection=run_daily_reflection,
+        )
+        server = AgentHttpServer(("127.0.0.1", 0), service)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+
+        def request(method, path, payload=None):
+            connection = http.client.HTTPConnection(
+                "127.0.0.1",
+                server.server_address[1],
+                timeout=5,
+            )
+            body = (
+                json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                if payload is not None
+                else None
+            )
+            try:
+                connection.request(
+                    method,
+                    path,
+                    body=body,
+                    headers={
+                        "X-ErrorJ-Agent-Token": "internal-token",
+                        "Content-Type": "application/json",
+                    },
+                )
+                response = connection.getresponse()
+                return response.status, json.loads(
+                    response.read().decode("utf-8")
+                )
+            finally:
+                connection.close()
+
+        status, listed = request(
+            "GET",
+            "/internal/reflections?platform=qqbot&owner_id=admin",
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(listed["items"][0]["diary"], "今天一起看展")
+        status, generated = request(
+            "POST",
+            "/internal/reflection-run",
+            {"platform": "qqbot", "owner_id": "admin"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(generated["reflection"]["diary"], "手动生成")
+        self.assertTrue(calls)
+
     def test_internal_sticker_upload_writes_tagged_global_sticker(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
@@ -10109,6 +10552,21 @@ class AgentConsoleUiTests(unittest.TestCase):
         self.assertIn('id="agentDiagnosticsCleanup"', html)
         self.assertIn("/api/agent/web/diagnostics", script)
         self.assertIn("function renderDiagnostics(data)", script)
+        self.assertIn('id="agentDiagnosticMemoryInjections"', html)
+        self.assertIn('id="agentDiagnosticProactive"', html)
+
+    def test_agent_exposes_daily_reflection_console(self):
+        html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
+        script = (app.STATIC_DIR / "agent.js").read_text(encoding="utf-8")
+        css = (app.STATIC_DIR / "agent.css").read_text(encoding="utf-8")
+        self.assertIn('id="settings-reflections"', html)
+        self.assertIn('id="settingDailyReflectionEnabled"', html)
+        self.assertIn('id="agentReflectionList"', html)
+        self.assertIn('id="agentImportantDates"', html)
+        self.assertIn("/api/agent/web/reflections", script)
+        self.assertIn("/api/agent/web/reflection-run", script)
+        self.assertIn(".agent-reflection-item", css)
+        self.assertIn(".agent-important-date-grid", css)
 
     def test_agent_settings_intro_has_no_eyebrow(self):
         html = (app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
@@ -10117,10 +10575,16 @@ class AgentConsoleUiTests(unittest.TestCase):
 
     def test_moment_log_toggle_has_stable_arrow_and_smaller_motion(self):
         css = (app.STATIC_DIR / "moments.css").read_text(encoding="utf-8")
+        script = (app.STATIC_DIR / "moments.js").read_text(encoding="utf-8")
+        self.assertIn('var head = el("div", "mo-log-head")', script)
+        self.assertIn('var toggle = el("button", "mo-log-toggle")', script)
+        self.assertIn("toggle.dataset.noButtonFx", script)
+        self.assertIn('toggle.addEventListener("click"', script)
+        self.assertNotIn('var btn = el("button", "mo-log-head")', script)
         self.assertIn("transform-box: fill-box", css)
         self.assertIn("transform-origin: center", css)
-        self.assertIn(".mo-log-head .mo-log-caret", css)
-        self.assertIn("position: absolute", css)
+        self.assertIn(".mo-log-toggle", css)
+        self.assertIn("flex: 0 0 32px", css)
         keyframes_start = css.index("@keyframes mo-log-open")
         keyframes_end = css.index("}", keyframes_start) + 1
         keyframes = css[keyframes_start:keyframes_end]
@@ -10193,7 +10657,7 @@ class AgentConsoleUiTests(unittest.TestCase):
         self.assertIn("/api/agent/web/sticker-rule", script)
         self.assertIn("/api/agent/web/sticker-candidate", script)
         self.assertIn("sticker_auto_collect_enabled", script)
-        self.assertEqual(html.count("data-console-section"), 10)
+        self.assertEqual(html.count("data-console-section"), 11)
         self.assertNotIn('id="agentMessages"', html)
         self.assertNotIn('id="agentForm"', html)
         self.assertNotIn('id="agentSettingsDialog"', html)

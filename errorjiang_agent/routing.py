@@ -96,6 +96,13 @@ class GroupConversationPolicy:
             return ""
         return ""
 
+    def is_continuing_conversation(self, event: MessageEvent) -> bool:
+        """True while the same member is replying inside an active exchange."""
+        member_id = str(event.user_id or "").strip()
+        if not member_id or event.mentions_other:
+            return False
+        return self.recent_assistant_member(event) == member_id
+
     def group_activity_level(self, event: MessageEvent) -> str:
         if not self.settings_provider:
             return "balanced"
@@ -186,15 +193,14 @@ class GroupConversationPolicy:
         recent_member = self.recent_assistant_member(event)
         if event.referenced and recent_member:
             return True
-        if not recent_member or len(text) < 3:
+        if not recent_member:
             return False
         if recent_member != str(event.user_id):
             return False
-        if "你" in text:
-            return True
-        if GROUP_FOLLOWUP_START_RE.match(text):
-            return True
-        return text.endswith(("?", "？", "吗", "呢", "么"))
+        # Once a one-to-one exchange is active, short reactions, jokes and
+        # follow-up statements are still part of the conversation. The rate
+        # limiter remains the hard stop for flooding.
+        return True
 
 
 @dataclass

@@ -50,7 +50,7 @@ class OpenAICompatibleProvider:
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
-            "temperature": 0.3,
+            "temperature": 0.6,
             "stream": False,
         }
         if tools:

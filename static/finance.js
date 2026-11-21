@@ -561,12 +561,12 @@
     if (!detail) {
       empty.hidden = false;
       view.hidden = true;
-      document.title = "计算器";
+      document.title = "财务";
       return;
     }
     empty.hidden = true;
     view.hidden = false;
-    document.title = "计算器";
+    document.title = "财务";
     $("eventTitle").textContent = detail.title;
     $("eventMeta").textContent =
       detail.member_count +

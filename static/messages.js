@@ -34,7 +34,7 @@
         "文字、附件都行。单条最多 " + MAX_FILES + " 个附件，单个不超过 " +
         window.ErrorUploadLimits.label(MAX_FILE_BYTES) +
         "（合计 " + window.ErrorUploadLimits.label(MAX_TOTAL_BYTES) +
-        "）；支持图片、PDF、文本，整条留言和附件审核通过后其他人才能看到。";
+        "）；支持图片、PDF、文本，普通留言直接发布，命中敏感词后才进入审核。";
     }
   }
 
@@ -270,7 +270,7 @@
     if (pendingFiles.length) {
       hint.textContent = "已选 " + pendingFiles.length + " 个，共 " + formatSize(totalPendingBytes());
     } else {
-      hint.textContent = "支持图片、PDF、TXT、MD（附件会先送审核）";
+      hint.textContent = "支持图片、PDF、TXT、MD（命中敏感词后进入审核）";
     }
   }
 

@@ -1158,7 +1158,7 @@
           <span class="wb-chip${data.enabled ? " wb-chip-approved" : ""}">${data.enabled ? "已开启" : "已关闭"}</span>
         </div>
         <div class="wb-panel-body">
-          <p class="wb-hint">新注册申请、待审核留言和内容举报会推送到你的手机或群机器人；站内的工作台呼吸提醒仍然保留。</p>
+          <p class="wb-hint">普通留言直接推送新留言通知；命中敏感词的留言只推送待审核通知。注册申请和内容举报照常提醒，站内的工作台呼吸提醒仍然保留。</p>
           <div class="wb-notify-grid">
             <label class="wb-perm-item"><input type="checkbox" id="notifyEnabled"${data.enabled ? " checked" : ""}><span>开启通知</span></label>
             <label class="wb-field"><span>渠道</span>

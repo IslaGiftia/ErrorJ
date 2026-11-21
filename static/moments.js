@@ -113,13 +113,6 @@
     return node;
   }
 
-  function hasTag(moment, tag) {
-    return String((moment && moment.tags) || "")
-      .split(/[,，]/)
-      .map(function (item) { return item.trim(); })
-      .indexOf(tag) >= 0;
-  }
-
   function fileToBase64(file) {
     return new Promise(function (resolve, reject) {
       var reader = new FileReader();
@@ -311,7 +304,6 @@
     ).then(function (images) {
       var payload = {
         content: content,
-        tags: $("momentTags").value.trim(),
         images: images,
         show_region: $("momentShowRegion").checked,
         // 设备平台是否公开：对所有人开放的勾选项，默认不勾选
@@ -341,7 +333,6 @@
     }).then(function () {
       if (window.ErrorButtons) window.ErrorButtons.success(button, { label: "已发布" });
       $("momentContent").value = "";
-      $("momentTags").value = "";
       resetDeviceInfoField();
       pendingImages = [];
       renderPending();
@@ -1121,15 +1112,6 @@
       body.appendChild(buildShareCard(moment.share));
     }
 
-    if (moment.tags) {
-      var tagWrap = el("div", "mo-tags");
-      String(moment.tags).split(",").forEach(function (tag) {
-        var text = tag.trim();
-        if (text) tagWrap.appendChild(el("span", "mo-tag", text));
-      });
-      if (tagWrap.childNodes.length) body.appendChild(tagWrap);
-    }
-
     body.appendChild(buildMomentLike(moment));
 
     var freshCommentIds = [];
@@ -1159,19 +1141,13 @@
       var area = document.createElement("textarea");
       area.maxLength = 2000;
       area.value = moment.content || "";
-      var tagInput = document.createElement("input");
-      tagInput.className = "mo-tag-input";
-      tagInput.maxLength = 200;
-      tagInput.value = moment.tags || "";
-      tagInput.placeholder = "标签（逗号分隔）";
-      tagInput.style.cssText = "width:100%;margin-top:8px;padding:8px 12px;border-radius:8px;border:1px solid var(--mo-border);background:var(--mo-bg);color:var(--mo-text);font:inherit;font-size:13px;";
       var row = el("div", "mo-edit-actions");
       var cancel = el("button", "mo-btn mo-btn-ghost", "取消");
       var save = el("button", "mo-btn mo-btn-primary", "保存");
       cancel.type = "button";
       save.type = "button";
       row.append(cancel, save);
-      box.append(area, tagInput, row);
+      box.append(area, row);
       body.appendChild(box);
       area.focus();
 
@@ -1183,7 +1159,7 @@
         api("/api/moments/" + moment.id, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: area.value, tags: tagInput.value }),
+          body: JSON.stringify({ content: area.value }),
         }).then(function () {
           toast("已保存");
           return loadMoments();
@@ -1583,21 +1559,27 @@
     order.forEach(function (date) {
       body.appendChild(el("h4", "mo-log-date", date));
       var ol = el("ol", "mo-log-rows");
-      byDate[date].forEach(function (row) {
+      byDate[date].forEach(function (row, rowIndex) {
         var parsed = parseLogRow(row);
         var li = el("li", "mo-log-row");
-        var btn = el("button", "mo-log-head");
-        btn.type = "button";
-        btn.setAttribute("aria-expanded", "false");
+        var head = el("div", "mo-log-head");
         var node = el("span", "mo-log-node");
         node.innerHTML = '<i data-lucide="git-commit-vertical"></i>';
         var time = el("time", "mo-log-time", String(row.created_at || "").slice(11, 16));
         var title = el("span", "mo-log-title", parsed.title);
-        var caret = el("span", "mo-log-caret");
-        caret.innerHTML = '<i data-lucide="chevron-down"></i>';
-        btn.append(node, time, title, caret);
+        var toggle = el("button", "mo-log-toggle");
+        toggle.type = "button";
+        toggle.dataset.noButtonFx = "";
+        toggle.setAttribute("aria-expanded", "false");
+        toggle.setAttribute("aria-label", "展开日志详情");
+        toggle.innerHTML = '<i data-lucide="chevron-down"></i>';
+        head.append(node, time, title, toggle);
         var detail = el("div", "mo-log-body");
+        detail.id =
+          "mo-log-detail-" +
+          String(row.id || date.replace(/-/g, "") + "-" + rowIndex);
         detail.hidden = true;
+        toggle.setAttribute("aria-controls", detail.id);
         if (canInteract) {
           // 明细只在登录账号下渲染：游客看得到日期和这条概述，但日志正文根本不进 DOM
           var ul = el("ul", "mo-log-items");
@@ -1606,8 +1588,8 @@
           });
           detail.appendChild(ul);
         }
-        li.append(btn, detail);
-        btn.addEventListener("click", function () {
+        li.append(head, detail);
+        toggle.addEventListener("click", function () {
           // 游客看得到日期和这条概述，但展开明细要先登录
           if (!canInteract) {
             toast("请登录后操作");
@@ -1616,7 +1598,8 @@
           var open = !li.classList.contains("is-open");
           li.classList.toggle("is-open", open);
           detail.hidden = !open;
-          btn.setAttribute("aria-expanded", open ? "true" : "false");
+          toggle.setAttribute("aria-expanded", open ? "true" : "false");
+          toggle.setAttribute("aria-label", open ? "收起日志详情" : "展开日志详情");
         });
         ol.appendChild(li);
       });

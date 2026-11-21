@@ -230,11 +230,11 @@ PERMISSION_GROUPS = (
     },
     {
         "key": "aa",
-        "label": "计算器",
+        "label": "财务",
         "items": (
             {
                 "key": "aa:view",
-                "label": "使用计算器（查看、创建账目、录入费用）",
+                "label": "使用财务（查看、创建账目、录入费用）",
             },
         ),
     },
@@ -903,6 +903,38 @@ def decode_footprint_candidate(reference):
 
 def today_text():
     return date.today().isoformat()
+
+
+PUBLIC_CHANGELOG_REWRITES = (
+    (
+        "2026-11-17 00:06:23",
+        "%人格提示词的长度上限从 7000 字提高到 24000 字%",
+        "【更新日志】2026-11-17　深海蓝鲸女仆人设完整预置，模型身份如实回答\n\n"
+        "· “深海蓝鲸女仆（完整版）”已内置完整角色资料和表达素材库，"
+        "人格提示词上限提高到 24000 字。\n"
+        "· 被问到底层模型时会如实说明当前配置为 DeepSeek（deepseek-chat）；"
+        "角色设定不冒充当前技术事实。",
+    ),
+    (
+        "2026-11-17 00:11:00",
+        "%手动群黑话候选、审核、存储和命中注入已下线%",
+        "【更新日志】2026-11-17　移除无效群黑话审核，补充专属称呼语义\n\n"
+        "· 手动群黑话的候选、审核和命中注入已下线，群聊继续使用最近上下文、"
+        "共享记忆、人物卡和本地热梗词典。\n"
+        "· 管理员允许的专属称呼会按亲属称谓理解，但只用于本人，"
+        "也不会成为固定日常称呼或特殊模式。",
+    ),
+)
+
+
+def migrate_public_changelog_copy(conn):
+    """Keep the two long 2026-11-17 release notes compact after upgrades."""
+    for created_at, old_text, content in PUBLIC_CHANGELOG_REWRITES:
+        conn.execute(
+            """UPDATE moments SET content = ?
+               WHERE kind = 'log' AND created_at = ? AND content LIKE ?""",
+            (content, created_at, old_text),
+        )
 
 
 def get_conn():
@@ -2056,6 +2088,7 @@ CREATE INDEX IF NOT EXISTS idx_moment_files_moment ON moment_files(moment_id);
                    WHERE text LIKE ?""",
                 (old_name, new_name, f"%{old_name}%"),
             )
+        migrate_public_changelog_copy(conn)
         activity_log_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(activity_log)").fetchall()
         }
@@ -6502,7 +6535,7 @@ def required_permission(path, method):
         return None
     if path.startswith("/api/workbench") or path.startswith("/api/prompts"):
         return None
-    # 计算器是独立的授权模块：一个权限点同时控制页面和全部业务接口，
+    # 财务是独立的授权模块：一个权限点同时控制页面和全部业务接口，
     # 默认不进入普通账号角色，只能在「工作台 → 账号权限」里按账号授予。
     if path in ("/aa", "/finance") or path == "/api/aa" or path.startswith("/api/aa/"):
         return AA_PERMISSION
@@ -10310,6 +10343,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_agent_web_group_members(query)
             elif path == "/api/agent/web/timeline":
                 self.api_agent_web_timeline(query)
+            elif path == "/api/agent/web/reflections":
+                self.api_agent_web_reflections(query)
             elif path == "/api/agent/web/stickers":
                 self.api_agent_web_stickers(query)
             elif path == "/api/agent/web/sticker-export":
@@ -10442,6 +10477,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 self.api_agent_web_timeline_status(payload)
             elif path == "/api/agent/web/timeline-delete":
                 self.api_agent_web_timeline_delete(payload)
+            elif path == "/api/agent/web/reflection-run":
+                self.api_agent_web_reflection_run(payload)
             elif path == "/api/agent/web/sticker-upload":
                 self.api_agent_web_sticker_upload(payload)
             elif path == "/api/agent/web/sticker-category-create":
@@ -11041,7 +11078,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     api_error(self, 400, "有参与人账号不存在或未通过审核。")
                     return None
                 if not self.aa_user_has_access(user_id):
-                    api_error(self, 400, "有参与人还没有被授予计算器权限。")
+                    api_error(self, 400, "有参与人还没有被授予财务权限。")
                     return None
             ids.add(user_id)
         if event_id is None:
@@ -11091,7 +11128,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         event_id = transaction(create)
         self.log_activity(
             "aa_event_create",
-            f"创建计算器账目：{title}",
+            f"创建财务账目：{title}",
             target_type="aa_event",
             target_id=event_id,
         )
@@ -11168,7 +11205,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         transaction(update)
         self.log_activity(
             "aa_event_update",
-            f"修改计算器账目：{title}",
+            f"修改财务账目：{title}",
             target_type="aa_event",
             target_id=event_id,
         )
@@ -11218,7 +11255,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
             remove_data_file(receipt_path)
         self.log_activity(
             "aa_event_delete",
-            f"删除计算器账目：{event['title']}",
+            f"删除财务账目：{event['title']}",
             target_type="aa_event",
             target_id=event_id,
         )
@@ -11314,7 +11351,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
         )
         self.log_activity(
             "aa_expense_create",
-            f"在计算器账目「{event['title']}」录入费用",
+            f"在财务账目「{event['title']}」录入费用",
             target_type="aa_event",
             target_id=event_id,
         )
@@ -12757,8 +12794,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def api_site_messages(self, params):
         """
-        留言板：游客也能看全部留言，但普通账号的名字只保留最后一个字，
-        回复区照常下发（同样脱敏），发布 / 回复 / 点赞 / 删除按钮由前端对游客隐藏。
+        留言板：公开留言对所有访客可见，待审核留言只返回给管理员和作者；
+        普通账号的名字只保留最后一个字，发布 / 回复 / 点赞 / 删除按钮由前端对游客隐藏。
         """
         identity = self.session_identity()
         viewer_signed_in = identity is not None
@@ -12950,8 +12987,6 @@ class InventoryHandler(BaseHTTPRequestHandler):
             extension = os.path.splitext(name)[1].lower()
             if extension not in MESSAGE_FILE_EXTENSIONS:
                 return None, f"不支持的附件类型：{name}"
-            if sensitive_contains(name):
-                return None, f"附件名包含不允许的词汇：{name}"
             try:
                 raw = base64.b64decode(str(item.get("data_base64") or ""), validate=True)
             except Exception:
@@ -13042,7 +13077,8 @@ class InventoryHandler(BaseHTTPRequestHandler):
             nickname = ""
         content = str(payload.get("content") or "").strip()
         parent_id = payload.get("parent_id")
-        if content and sensitive_contains(content):
+        content_has_sensitive = bool(content and sensitive_contains(content))
+        if parent_id and content_has_sensitive:
             maybe_alert_sensitive("留言内容", content, nickname)
             api_error(self, 400, "留言内容包含不允许的词汇，请修改后再发。")
             return
@@ -13053,6 +13089,18 @@ class InventoryHandler(BaseHTTPRequestHandler):
         if prepared is None:
             api_error(self, 400, error)
             return
+        attachment_has_sensitive = False
+        for name, raw, _mime, _stored in prepared:
+            if sensitive_contains(name):
+                attachment_has_sensitive = True
+                continue
+            if os.path.splitext(name)[1].lower() in (".txt", ".md"):
+                try:
+                    attachment_text = raw.decode("utf-8")
+                except UnicodeDecodeError:
+                    attachment_text = ""
+                if attachment_text and sensitive_contains(attachment_text):
+                    attachment_has_sensitive = True
         if not content and not prepared:
             api_error(self, 400, "留言内容和附件不能同时为空。")
             return
@@ -13097,8 +13145,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
             api_error(self, 400, str(exc))
             return
         uploader_id = user_id
-        message_status = "approved" if parent_id else "pending"
-        file_status = "approved" if parent_id else "pending"
+        needs_review = bool(
+            not parent_id
+            and (content_has_sensitive or attachment_has_sensitive)
+        )
+        message_status = "pending" if needs_review else "approved"
+        file_status = message_status
 
         def write(conn):
             cursor = conn.execute(
@@ -13187,11 +13239,19 @@ class InventoryHandler(BaseHTTPRequestHandler):
                     f"：{(content[:60] if content else '（仅附件）')}",
                 )
         else:
-            notify_async(
-                "message",
-                "Error酱：新的留言",
-                f"{nickname}：{(content[:60] if content else '（仅附件）')}，请到工作台「留言审核」处理。",
-            )
+            excerpt = content[:60] if content else "（仅附件）"
+            if needs_review:
+                notify_async(
+                    "attachment",
+                    "Error酱：新的待审核留言",
+                    f"{nickname} 提交了一条留言，请到工作台「留言审核」处理。",
+                )
+            else:
+                notify_async(
+                    "message",
+                    "Error酱：新的留言",
+                    f"{nickname}：{excerpt}",
+                )
         self.send_json(
             200,
             {
@@ -13527,10 +13587,14 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def moment_payload(self, payload, current=None):
         current = current or {}
         content = str(payload.get("content", current.get("content", "")) or "").strip()
-        tags = str(payload.get("tags", current.get("tags", "")) or "")
-        tags = tags.replace("，", ",").replace("、", ",").strip()[:200]
         if len(content) > MOMENT_CONTENT_MAX_CHARS:
             raise ValueError(f"说说内容不能超过 {MOMENT_CONTENT_MAX_CHARS} 字。")
+        # 动态不再提供用户标签功能；仅保留开发日志的内部标签。
+        tags = (
+            str(current.get("tags") or "").strip()[:200]
+            if current.get("kind") == "log"
+            else ""
+        )
         return content, (tags or None)
 
     def moment_images(self, payload):
@@ -17336,7 +17400,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def agent_require_aa(self, identity):
         if self.agent_has_permission(identity, AA_PERMISSION):
             return True
-        api_error(self, 403, "当前账号没有计算器权限。")
+        api_error(self, 403, "当前账号没有财务权限。")
         return False
 
     def agent_tool_aa_events_list(self, identity, args):
@@ -18698,6 +18762,79 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 timeout=60 if action == "search_check" else 20,
             )
         except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(200, data)
+
+    def api_agent_web_reflections(self, query):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以查看鲸鲸日记。")
+            return
+        limit = max(
+            1,
+            min(int((query.get("limit") or ["30"])[0] or 30), 100),
+        )
+        merged = []
+        important_dates = []
+        platform_used = ""
+        try:
+            for platform in ("qqbot", "qq"):
+                data = agent_internal_request(
+                    f"/internal/reflections?platform={platform}&owner_id=0&limit={limit}",
+                    timeout=10,
+                )
+                items = data.get("items") or []
+                if items:
+                    platform_used = platform
+                    merged = items
+                    important_dates = data.get("important_dates") or []
+                    break
+        except (HTTPError, URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            api_error(self, 502, str(exc)[:200])
+            return
+        self.send_json(
+            200,
+            {
+                "platform": platform_used,
+                "items": merged,
+                "important_dates": important_dates,
+            },
+        )
+
+    def api_agent_web_reflection_run(self, payload):
+        if not self.is_admin():
+            api_error(self, 403, "只有管理员可以生成鲸鲸日记。")
+            return
+        platform = str((payload or {}).get("platform") or "qqbot")
+        if platform not in ("qq", "qqbot"):
+            api_error(self, 400, "平台不正确。")
+            return
+        platforms = [platform]
+        fallback = "qq" if platform == "qqbot" else "qqbot"
+        platforms.append(fallback)
+        data = {}
+        try:
+            for candidate_platform in platforms:
+                data = agent_internal_request(
+                    "/internal/reflection-run",
+                    {
+                        "platform": candidate_platform,
+                        "owner_id": "0",
+                    },
+                    timeout=120,
+                )
+                if data.get("reflection"):
+                    break
+        except HTTPError as exc:
+            detail = "日记生成失败。"
+            try:
+                error_data = json.loads(exc.read().decode("utf-8"))
+                detail = str(error_data.get("error") or detail)
+            except Exception:
+                pass
+            api_error(self, 502, detail)
+            return
+        except (URLError, ValueError, OSError, RuntimeError, json.JSONDecodeError) as exc:
             api_error(self, 502, str(exc)[:200])
             return
         self.send_json(200, data)

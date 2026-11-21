@@ -146,7 +146,7 @@ class PromptBuilder:
             )
         if context.get("tools_enabled", "1") == "0":
             content += (
-                "\n当前群友只能闲聊，没有查询库存、笔记、计算器或执行操作的权限。"
+                "\n当前群友只能闲聊，没有查询库存、笔记、财务或执行操作的权限。"
                 "不要假装已经查询或执行。"
             )
         if owner_address:

@@ -10,6 +10,7 @@ BOOL_SETTINGS = frozenset(
         "memory_immediate_extraction_enabled",
         "memory_consolidation_enabled",
         "memory_decay_enabled",
+        "daily_reflection_enabled",
         "proactive_enabled",
         "sticker_enabled",
         "sticker_auto_collect_enabled",
@@ -58,6 +59,7 @@ TIME_SETTINGS = frozenset(
         "night_time",
         "group_proactive_time",
         "memory_consolidation_time",
+        "daily_reflection_time",
     }
 )
 

@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="/static/site/error-chan-favicon.png?v=4">
   <link rel="stylesheet" href="/static/site/site.css">
   <link rel="stylesheet" href="/static/fonts.css">
-  <link rel="stylesheet" href="/static/agent.css?v=16">
+  <link rel="stylesheet" href="/static/agent.css?v=17">
   <script>
     (function () {
       try {
@@ -86,6 +86,10 @@
         <a href="#settings-timeline" data-section-link="settings-timeline">
           <i data-lucide="calendar-clock"></i>
           <span>事件时间线</span>
+        </a>
+        <a href="#settings-reflections" data-section-link="settings-reflections">
+          <i data-lucide="notebook-pen"></i>
+          <span>日记与反思</span>
         </a>
         <a href="#settings-stickers" data-section-link="settings-stickers">
           <i data-lucide="images"></i>
@@ -381,7 +385,7 @@
           <label class="agent-setting-row">
             <span class="agent-setting-copy">
               <strong>连续接话硬收口</strong>
-              <small>鲸鲸连续自然接话过多后暂停，直到有人再次明确叫它</small>
+              <small>只暂停鲸鲸自行插话；用户接续当前对话时不会被暂停</small>
             </span>
             <span class="agent-switch">
               <input type="checkbox" id="settingGroupHardCutoffEnabled" data-setting-input>
@@ -483,7 +487,7 @@
                    min="0" max="120" data-setting-input>
           </label>
         </div>
-        <p class="agent-section-note">活跃模式会在多人正在聊、消息明显在提问或求推荐时更愿意接话，仍然不额外调用判断模型。接话节奏只约束自然加入话题；直接叫名字、@、命令和卡片仍立即处理。</p>
+        <p class="agent-section-note">活跃模式会在多人正在聊、消息明显在提问或求推荐时更愿意接话，仍然不额外调用判断模型。接话节奏只约束鲸鲸自行加入话题；直接叫名字、@、命令、卡片，以及用户接续当前对话都不受硬收口影响。</p>
         <p class="agent-section-note" id="agentGroupIdleStatus" aria-live="polite">正在读取冷场聊天状态…</p>
         <div class="agent-idle-groups" id="agentGroupIdleGroups"></div>
         <div class="agent-idle-preview" id="agentGroupIdlePreview" hidden
@@ -515,6 +519,16 @@
           <div>
             <h3>历史清理</h3>
             <div class="agent-diagnostics-list" id="agentDiagnosticCleanup"></div>
+          </div>
+          <div>
+            <h3>最近记忆注入</h3>
+            <div class="agent-diagnostics-list agent-diagnostics-events"
+                 id="agentDiagnosticMemoryInjections"></div>
+          </div>
+          <div>
+            <h3>主动消息候选</h3>
+            <div class="agent-diagnostics-list agent-diagnostics-events"
+                 id="agentDiagnosticProactive"></div>
           </div>
         </div>
         <p class="agent-section-note" id="agentDiagnosticsSearchResult" aria-live="polite"></p>
@@ -595,6 +609,42 @@
           </div>
         </form>
         <div class="agent-timeline-list" id="agentTimelineList"></div>
+      </section>
+
+      <section class="agent-console-section" id="settings-reflections" data-console-section>
+        <header class="agent-section-head">
+          <span class="agent-section-icon"><i data-lucide="notebook-pen"></i></span>
+          <div><h2>日记与反思</h2><p>每天沉淀鲸鲸自己的日记、梦境、反思、日程节点和重要日期。</p></div>
+          <span class="agent-section-count" id="agentReflectionCount">0 天</span>
+        </header>
+        <div class="agent-setting-list">
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
+              <strong>启用每日反思</strong>
+              <small>根据当天真实聊天生成日记、梦、反思和次日日程；没有足够素材时使用本地兜底</small>
+            </span>
+            <span class="agent-switch">
+              <input type="checkbox" id="settingDailyReflectionEnabled" data-setting-input>
+              <span aria-hidden="true"></span>
+            </span>
+          </label>
+          <label class="agent-setting-row">
+            <span class="agent-setting-copy">
+              <strong>生成时间</strong>
+              <small>到点后生成当天记录；服务错过时间会在之后的运行中补生成</small>
+            </span>
+            <input class="agent-compact-input" type="time"
+                   id="settingDailyReflectionTime" data-setting-input>
+          </label>
+        </div>
+        <div class="agent-reflection-actions">
+          <button type="button" id="agentReflectionRun">
+            <i data-lucide="sparkles"></i><span>生成今天的记录</span>
+          </button>
+          <span id="agentReflectionStatus" aria-live="polite"></span>
+        </div>
+        <div class="agent-reflection-list" id="agentReflectionList"></div>
+        <div class="agent-important-dates" id="agentImportantDates"></div>
       </section>
 
       <section class="agent-console-section" id="settings-stickers" data-console-section>
@@ -803,6 +853,6 @@
   </main>
 
   <script src="/static/vendor/lucide.min.js"></script>
-  <script src="/static/agent.js?v=18"></script>
+  <script src="/static/agent.js?v=19"></script>
 </body>
 </html>

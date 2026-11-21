@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import sqlite3
 import tempfile
 import time
 import unittest
@@ -1096,6 +1097,62 @@ class InteractionTests(unittest.TestCase):
             0,
         )
 
+    def test_moment_tags_are_removed_from_user_posts_but_kept_for_logs(self):
+        handler = object.__new__(app.InventoryHandler)
+        content, tags = handler.moment_payload(
+            {"content": "普通动态", "tags": "自定义,测试"}
+        )
+        self.assertEqual(content, "普通动态")
+        self.assertIsNone(tags)
+        content, tags = handler.moment_payload(
+            {"content": "日志正文"},
+            {"content": "旧日志", "kind": "log", "tags": "更新日志"},
+        )
+        self.assertEqual(content, "日志正文")
+        self.assertEqual(tags, "更新日志")
+
+    def test_message_and_moment_editors_hide_helper_copy_and_tags(self):
+        messages_html = (app.STATIC_DIR / "messages.html").read_text(
+            encoding="utf-8"
+        )
+        moments_html = (app.STATIC_DIR / "moments.html").read_text(
+            encoding="utf-8"
+        )
+        moments_js = (app.STATIC_DIR / "moments.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('id="messageUploadHint" hidden', messages_html)
+        self.assertIn('id="attachHint" hidden', messages_html)
+        self.assertNotIn(
+            'placeholder="想说的话，也可以直接把截图粘贴进来…"',
+            messages_html,
+        )
+        self.assertIn('aria-label="留言内容"', messages_html)
+        self.assertNotIn("momentTags", moments_html + moments_js)
+        self.assertNotIn("mo-tag-input", moments_html + moments_js)
+        self.assertNotIn(
+            'placeholder="今天在折腾什么？记录一句，或者直接粘贴截图…"',
+            moments_html,
+        )
+        self.assertIn('aria-label="动态内容"', moments_html)
+
+    def test_finance_module_uses_finance_name_across_visible_entry_points(self):
+        permission_group = next(
+            group for group in app.PERMISSION_GROUPS if group["key"] == "aa"
+        )
+        self.assertEqual(permission_group["label"], "财务")
+        self.assertIn("财务", permission_group["items"][0]["label"])
+        home = (app.STATIC_DIR / "site" / "site.html").read_text(
+            encoding="utf-8"
+        )
+        page = (app.STATIC_DIR / "finance.html").read_text(encoding="utf-8")
+        script = (app.STATIC_DIR / "finance.js").read_text(encoding="utf-8")
+        self.assertIn(">财务</span>", home)
+        self.assertIn("<title>财务</title>", page)
+        self.assertIn('aria-label="财务操作"', page)
+        self.assertIn('document.title = "财务"', script)
+        self.assertNotIn("计算器", home + page + script)
+
     def test_nested_reply_does_not_push_webhook(self):
         """楼中楼（回复某条回复）只在站内提醒，不推 Webhook；回复顶层留言照常推。"""
         stamp = app.now_text()
@@ -1143,15 +1200,101 @@ class InteractionTests(unittest.TestCase):
         )
 
     def test_top_level_message_still_pushes_webhook(self):
-        """顶层留言（含先审后发）照常推送，没被楼中楼那条规则误伤。"""
+        """没有敏感词的顶层留言直接公开，并推送新留言通知。"""
         handler, responses = self.make_handler(self.author_id, username="author1")
         with patch.object(app, "rate_allow", return_value=True), patch.object(
             app, "notify_async"
         ) as pushed:
             handler.api_site_message_create({"content": "新留言"})
         self.assertEqual(responses[-1][0], 200)
+        self.assertFalse(responses[-1][1]["pending_review"])
         self.assertEqual(pushed.call_count, 1)
+        self.assertEqual(pushed.call_args[0][0], "message")
         self.assertIn("新的留言", pushed.call_args[0][1])
+        row = app.query_one(
+            "SELECT status FROM site_messages WHERE id = ?",
+            (responses[-1][1]["id"],),
+        )
+        self.assertEqual(row["status"], "approved")
+
+    def test_sensitive_top_level_message_waits_for_review_and_only_pushes_pending(self):
+        handler, responses = self.make_handler(self.author_id, username="author1")
+        with patch.object(app, "rate_allow", return_value=True), patch.object(
+            app, "notify_async"
+        ) as pushed, patch.object(app, "maybe_alert_sensitive") as sensitive_alert:
+            handler.api_site_message_create({"content": "这里有赌博广告"})
+        self.assertEqual(responses[-1][0], 200)
+        self.assertTrue(responses[-1][1]["pending_review"])
+        message_id = responses[-1][1]["id"]
+        self.assertEqual(pushed.call_count, 1)
+        self.assertEqual(pushed.call_args[0][0], "attachment")
+        self.assertIn("待审核", pushed.call_args[0][1])
+        self.assertNotIn("赌博广告", pushed.call_args[0][2])
+        sensitive_alert.assert_not_called()
+
+        other, other_responses = self.make_handler(
+            self.other_id,
+            username="other1",
+        )
+        other.api_site_messages({})
+        self.assertNotIn(
+            message_id,
+            [row["id"] for row in other_responses[-1][1]],
+        )
+
+        handler.api_site_messages({})
+        own = [row for row in responses[-1][1] if row["id"] == message_id]
+        self.assertEqual(len(own), 1)
+        self.assertTrue(own[0]["pending_review"])
+
+        admin, admin_responses = self.make_handler(0, kind="owner", username="管理员")
+        admin.api_site_messages({})
+        self.assertIn(
+            message_id,
+            [row["id"] for row in admin_responses[-1][1]],
+        )
+
+    def test_sensitive_attachment_name_waits_for_review_instead_of_rejecting(self):
+        handler, responses = self.make_handler(self.author_id, username="author1")
+        encoded = base64.b64encode("普通附件内容".encode("utf-8")).decode("ascii")
+        with patch.object(app, "rate_allow", return_value=True), patch.object(
+            app, "notify_async"
+        ) as pushed:
+            handler.api_site_message_create(
+                {
+                    "files": [
+                        {
+                            "name": "赌博.txt",
+                            "data_base64": encoded,
+                        }
+                    ]
+                }
+            )
+        self.assertEqual(responses[-1][0], 200)
+        self.assertTrue(responses[-1][1]["pending_review"])
+        self.assertEqual(pushed.call_args[0][0], "attachment")
+
+    def test_sensitive_text_attachment_content_waits_for_review(self):
+        handler, responses = self.make_handler(self.author_id, username="author1")
+        encoded = base64.b64encode("这条附件里含赌博内容".encode("utf-8")).decode(
+            "ascii"
+        )
+        with patch.object(app, "rate_allow", return_value=True), patch.object(
+            app, "notify_async"
+        ) as pushed:
+            handler.api_site_message_create(
+                {
+                    "files": [
+                        {
+                            "name": "note.txt",
+                            "data_base64": encoded,
+                        }
+                    ]
+                }
+            )
+        self.assertEqual(responses[-1][0], 200)
+        self.assertTrue(responses[-1][1]["pending_review"])
+        self.assertEqual(pushed.call_args[0][0], "attachment")
 
     def test_deleting_message_does_not_push_webhook(self):
         """删除留言不推 Webhook（和「删除标记不推送」同一条规则），只留内容事件。"""
@@ -3442,6 +3585,34 @@ class ComplianceWorkflowTests(unittest.TestCase):
         self.assertNotIn("stamp[11:13]", script)
         self.assertIn("force_dates", script)
         self.assertIn("DELETE FROM moments", script)
+
+    def test_public_changelog_copy_is_rewritten_without_long_private_address(self):
+        conn = sqlite3.connect(":memory:")
+        conn.execute(
+            "CREATE TABLE moments (kind TEXT, created_at TEXT, content TEXT)"
+        )
+        conn.executemany(
+            "INSERT INTO moments(kind, created_at, content) VALUES ('log', ?, ?)",
+            (
+                (
+                    "2026-11-17 00:06:23",
+                    "【更新日志】旧内容\n\n人格提示词的长度上限从 7000 字提高到 24000 字。",
+                ),
+                (
+                    "2026-11-17 00:11:00",
+                    "【更新日志】旧内容\n\n手动群黑话候选、审核、存储和命中注入已下线。"
+                    "“爸爸”是管理员允许的称呼。",
+                ),
+            ),
+        )
+        app.migrate_public_changelog_copy(conn)
+        rows = conn.execute(
+            "SELECT content FROM moments ORDER BY created_at"
+        ).fetchall()
+        conn.close()
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all("爸爸" not in row[0] for row in rows))
+        self.assertNotIn("7000 字", rows[0][0])
 
     def test_moments_mobile_comment_layout_is_scoped(self):
         css = (app.STATIC_DIR / "moments.css").read_text(encoding="utf-8")

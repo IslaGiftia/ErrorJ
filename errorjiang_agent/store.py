@@ -421,6 +421,72 @@ class AgentStore:
                     ON timeline_events(
                         platform, owner_id, status, follow_up_at, last_used_at
                     );
+
+                CREATE TABLE IF NOT EXISTS daily_reflections (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    platform TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    day TEXT NOT NULL,
+                    diary TEXT NOT NULL DEFAULT '',
+                    dream TEXT NOT NULL DEFAULT '',
+                    reflection TEXT NOT NULL DEFAULT '',
+                    agenda_json TEXT NOT NULL DEFAULT '[]',
+                    important_dates_json TEXT NOT NULL DEFAULT '[]',
+                    source_count INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    UNIQUE(platform, owner_id, day)
+                );
+                CREATE INDEX IF NOT EXISTS idx_daily_reflections_day
+                    ON daily_reflections(day DESC, id DESC);
+
+                CREATE TABLE IF NOT EXISTS important_dates (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    platform TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    month_day TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    content TEXT NOT NULL DEFAULT '',
+                    source TEXT NOT NULL DEFAULT 'reflection',
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(platform, owner_id, month_day, title)
+                );
+                CREATE INDEX IF NOT EXISTS idx_important_dates_month_day
+                    ON important_dates(platform, owner_id, month_day);
+
+                CREATE TABLE IF NOT EXISTS proactive_candidates (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    scope_type TEXT NOT NULL DEFAULT 'private',
+                    platform TEXT NOT NULL,
+                    owner_id TEXT NOT NULL DEFAULT '',
+                    chat_id TEXT NOT NULL DEFAULT '',
+                    source TEXT NOT NULL DEFAULT '',
+                    title TEXT NOT NULL DEFAULT '',
+                    score REAL NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'generated',
+                    blocked_reason TEXT NOT NULL DEFAULT '',
+                    payload_json TEXT NOT NULL DEFAULT '{}',
+                    created_at INTEGER NOT NULL,
+                    decided_at INTEGER
+                );
+                CREATE INDEX IF NOT EXISTS idx_proactive_candidates_created
+                    ON proactive_candidates(
+                        scope_type, created_at DESC, id DESC
+                    );
+
+                CREATE TABLE IF NOT EXISTS memory_injection_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    platform TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    chat_id TEXT NOT NULL DEFAULT '',
+                    query TEXT NOT NULL DEFAULT '',
+                    selected_json TEXT NOT NULL DEFAULT '[]',
+                    filtered_json TEXT NOT NULL DEFAULT '[]',
+                    context_chars INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_memory_injection_created
+                    ON memory_injection_logs(created_at DESC, id DESC);
                 """
             )
             conn.execute(
@@ -2258,11 +2324,19 @@ class AgentStore:
                        (SELECT COUNT(*) FROM messages) AS messages,
                        (SELECT COUNT(*) FROM group_messages) AS group_messages,
                        (SELECT COUNT(*) FROM memories) AS memories,
+                       (SELECT COUNT(*) FROM daily_reflections)
+                           AS daily_reflections,
+                       (SELECT COUNT(*) FROM important_dates)
+                           AS important_dates,
                        (SELECT COUNT(*) FROM reminders
                         WHERE sent_at IS NULL AND cancelled_at IS NULL)
                            AS pending_reminders,
                        (SELECT COUNT(*) FROM group_proactive_state)
-                           AS proactive_groups"""
+                           AS proactive_groups,
+                       (SELECT COUNT(*) FROM proactive_candidates)
+                           AS proactive_candidates,
+                       (SELECT COUNT(*) FROM memory_injection_logs)
+                           AS memory_injections"""
             ).fetchone()
         return {
             key: int(row[key] or 0)
@@ -2270,10 +2344,421 @@ class AgentStore:
                 "messages",
                 "group_messages",
                 "memories",
+                "daily_reflections",
+                "important_dates",
                 "pending_reminders",
                 "proactive_groups",
+                "proactive_candidates",
+                "memory_injections",
             )
         }
+
+    def add_daily_reflection(
+        self,
+        platform: str,
+        owner_id: str,
+        day: str,
+        values: dict[str, Any],
+    ) -> dict[str, Any]:
+        now = int(time.time())
+        agenda_json = json.dumps(
+            values.get("agenda") or [],
+            ensure_ascii=False,
+        )
+        dates_json = json.dumps(
+            values.get("important_dates") or [],
+            ensure_ascii=False,
+        )
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """INSERT INTO daily_reflections
+                       (platform, owner_id, day, diary, dream, reflection,
+                        agenda_json, important_dates_json, source_count,
+                        created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(platform, owner_id, day) DO UPDATE SET
+                       diary = excluded.diary,
+                       dream = excluded.dream,
+                       reflection = excluded.reflection,
+                       agenda_json = excluded.agenda_json,
+                       important_dates_json = excluded.important_dates_json,
+                       source_count = excluded.source_count,
+                       updated_at = excluded.updated_at""",
+                (
+                    platform,
+                    str(owner_id),
+                    day,
+                    str(values.get("diary") or "")[:1600],
+                    str(values.get("dream") or "")[:1200],
+                    str(values.get("reflection") or "")[:1600],
+                    agenda_json,
+                    dates_json,
+                    max(0, int(values.get("source_count") or 0)),
+                    now,
+                    now,
+                ),
+            )
+            row = conn.execute(
+                """SELECT * FROM daily_reflections
+                   WHERE platform = ? AND owner_id = ? AND day = ?""",
+                (platform, str(owner_id), day),
+            ).fetchone()
+        return self._reflection_row(row)
+
+    @staticmethod
+    def _reflection_row(row: sqlite3.Row | None) -> dict[str, Any]:
+        if not row:
+            return {}
+        item = dict(row)
+        for key in ("agenda_json", "important_dates_json"):
+            try:
+                item[key[:-5]] = json.loads(item.pop(key) or "[]")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                item[key[:-5]] = []
+        return item
+
+    def get_daily_reflection(
+        self,
+        platform: str,
+        owner_id: str,
+        day: str,
+    ) -> dict[str, Any] | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                """SELECT * FROM daily_reflections
+                   WHERE platform = ? AND owner_id = ? AND day = ?""",
+                (platform, str(owner_id), day),
+            ).fetchone()
+        return self._reflection_row(row) or None
+
+    def latest_daily_reflection(
+        self,
+        platform: str,
+        owner_id: str,
+    ) -> dict[str, Any] | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                """SELECT * FROM daily_reflections
+                   WHERE platform = ? AND owner_id = ?
+                   ORDER BY day DESC, id DESC LIMIT 1""",
+                (platform, str(owner_id)),
+            ).fetchone()
+        return self._reflection_row(row) or None
+
+    def list_daily_reflections(
+        self,
+        platform: str,
+        owner_id: str,
+        limit: int = 30,
+    ) -> list[dict[str, Any]]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM daily_reflections
+                   WHERE platform = ? AND owner_id = ?
+                   ORDER BY day DESC, id DESC LIMIT ?""",
+                (
+                    platform,
+                    str(owner_id),
+                    max(1, min(int(limit), 100)),
+                ),
+            ).fetchall()
+        return [self._reflection_row(row) for row in rows]
+
+    def add_important_dates(
+        self,
+        platform: str,
+        owner_id: str,
+        values: list[dict[str, Any]],
+        source: str = "reflection",
+    ) -> int:
+        now = int(time.time())
+        added = 0
+        with self._lock, self._connection() as conn:
+            for item in values or []:
+                if not isinstance(item, dict):
+                    continue
+                month_day = str(item.get("month_day") or "").strip()[:5]
+                title = " ".join(str(item.get("title") or "").split()).strip()[:120]
+                content = " ".join(
+                    str(item.get("content") or "").split()
+                ).strip()[:240]
+                if not month_day or not title:
+                    continue
+                cursor = conn.execute(
+                    """INSERT OR IGNORE INTO important_dates
+                           (platform, owner_id, month_day, title, content,
+                            source, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        platform,
+                        str(owner_id),
+                        month_day,
+                        title,
+                        content or title,
+                        str(source or "reflection")[:40],
+                        now,
+                    ),
+                )
+                added += max(0, int(cursor.rowcount))
+        return added
+
+    def important_dates_for_day(
+        self,
+        platform: str,
+        owner_id: str,
+        month_day: str,
+    ) -> list[dict[str, Any]]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM important_dates
+                   WHERE platform = ? AND owner_id = ? AND month_day = ?
+                   ORDER BY id DESC""",
+                (platform, str(owner_id), month_day),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_important_dates(
+        self,
+        platform: str,
+        owner_id: str,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM important_dates
+                   WHERE platform = ? AND owner_id = ?
+                   ORDER BY month_day, id DESC LIMIT ?""",
+                (
+                    platform,
+                    str(owner_id),
+                    max(1, min(int(limit), 300)),
+                ),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def reflection_messages(
+        self,
+        platform: str,
+        owner_id: str,
+        start: int,
+        end: int,
+        limit: int = 120,
+    ) -> list[dict[str, Any]]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT role, content, created_at FROM messages
+                   WHERE platform = ? AND owner_id = ?
+                     AND created_at >= ? AND created_at < ?
+                   ORDER BY id DESC LIMIT ?""",
+                (
+                    platform,
+                    str(owner_id),
+                    int(start),
+                    int(end),
+                    max(1, min(int(limit), 300)),
+                ),
+            ).fetchall()
+        return [dict(row) for row in reversed(rows)]
+
+    def reflection_group_messages(
+        self,
+        platform: str,
+        start: int,
+        end: int,
+        limit: int = 120,
+    ) -> list[dict[str, Any]]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT group_id, member_id, display_name, role, content,
+                          created_at
+                   FROM group_messages
+                   WHERE platform = ? AND created_at >= ? AND created_at < ?
+                   ORDER BY id DESC LIMIT ?""",
+                (
+                    platform,
+                    int(start),
+                    int(end),
+                    max(1, min(int(limit), 300)),
+                ),
+            ).fetchall()
+        return [dict(row) for row in reversed(rows)]
+
+    def record_proactive_candidate(
+        self,
+        *,
+        scope_type: str,
+        platform: str,
+        owner_id: str = "",
+        chat_id: str = "",
+        source: str = "",
+        title: str = "",
+        score: float = 0,
+        status: str = "generated",
+        blocked_reason: str = "",
+        payload: dict[str, Any] | None = None,
+    ) -> int:
+        now = int(time.time())
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                "DELETE FROM proactive_candidates WHERE created_at < ?",
+                (now - 14 * 86400,),
+            )
+            if status == "blocked" and blocked_reason:
+                existing = conn.execute(
+                    """SELECT id FROM proactive_candidates
+                       WHERE scope_type = ? AND platform = ?
+                         AND owner_id = ? AND blocked_reason = ?
+                         AND created_at >= ?
+                       ORDER BY id DESC LIMIT 1""",
+                    (
+                        str(scope_type or "private")[:20],
+                        str(platform or "")[:30],
+                        str(owner_id or "")[:120],
+                        str(blocked_reason or "")[:120],
+                        now - 600,
+                    ),
+                ).fetchone()
+                if existing:
+                    return int(existing["id"])
+            cursor = conn.execute(
+                """INSERT INTO proactive_candidates
+                       (scope_type, platform, owner_id, chat_id, source, title,
+                        score, status, blocked_reason, payload_json,
+                        created_at, decided_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    str(scope_type or "private")[:20],
+                    str(platform or "")[:30],
+                    str(owner_id or "")[:120],
+                    str(chat_id or "")[:120],
+                    str(source or "")[:40],
+                    str(title or "")[:160],
+                    round(float(score or 0), 2),
+                    str(status or "generated")[:30],
+                    str(blocked_reason or "")[:120],
+                    json.dumps(payload or {}, ensure_ascii=False)[:8000],
+                    now,
+                    now if status != "generated" else None,
+                ),
+            )
+        return int(cursor.lastrowid or 0)
+
+    def mark_proactive_candidate(
+        self,
+        candidate_id: int,
+        status: str,
+        blocked_reason: str = "",
+    ) -> bool:
+        if int(candidate_id or 0) <= 0:
+            return False
+        with self._lock, self._connection() as conn:
+            cursor = conn.execute(
+                """UPDATE proactive_candidates
+                   SET status = ?, blocked_reason = ?, decided_at = ?
+                   WHERE id = ?""",
+                (
+                    str(status or "")[:30],
+                    str(blocked_reason or "")[:120],
+                    int(time.time()),
+                    int(candidate_id),
+                ),
+            )
+        return cursor.rowcount > 0
+
+    def list_proactive_candidates(
+        self,
+        limit: int = 30,
+        scope_type: str = "",
+    ) -> list[dict[str, Any]]:
+        clauses = []
+        params: list[Any] = []
+        if scope_type:
+            clauses.append("scope_type = ?")
+            params.append(scope_type)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        params.append(max(1, min(int(limit), 100)))
+        with self._connection() as conn:
+            rows = conn.execute(
+                f"""SELECT * FROM proactive_candidates{where}
+                    ORDER BY id DESC LIMIT ?""",
+                params,
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            try:
+                item["payload"] = json.loads(item.pop("payload_json") or "{}")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                item["payload"] = {}
+            result.append(item)
+        return result
+
+    def record_memory_injection(
+        self,
+        platform: str,
+        owner_id: str,
+        chat_id: str,
+        query: str,
+        selected: list[str],
+        filtered: list[dict[str, str]],
+    ) -> int:
+        now = int(time.time())
+        selected_values = [
+            str(item)[:500]
+            for item in selected
+            if str(item).strip()
+        ][:30]
+        filtered_values = [
+            {
+                "content": str(item.get("content") or "")[:240],
+                "reason": str(item.get("reason") or "")[:80],
+            }
+            for item in filtered
+            if isinstance(item, dict) and str(item.get("content") or "").strip()
+        ][:30]
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                "DELETE FROM memory_injection_logs WHERE created_at < ?",
+                (now - 7 * 86400,),
+            )
+            cursor = conn.execute(
+                """INSERT INTO memory_injection_logs
+                       (platform, owner_id, chat_id, query, selected_json,
+                        filtered_json, context_chars, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    str(platform or "")[:30],
+                    str(owner_id or "")[:120],
+                    str(chat_id or "")[:120],
+                    str(query or "")[:500],
+                    json.dumps(selected_values, ensure_ascii=False),
+                    json.dumps(filtered_values, ensure_ascii=False),
+                    sum(len(item) for item in selected_values),
+                    now,
+                ),
+            )
+        return int(cursor.lastrowid or 0)
+
+    def list_memory_injections(
+        self,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM memory_injection_logs
+                   ORDER BY id DESC LIMIT ?""",
+                (max(1, min(int(limit), 100)),),
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            for key in ("selected_json", "filtered_json"):
+                try:
+                    item[key[:-5]] = json.loads(item.pop(key) or "[]")
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    item[key[:-5]] = []
+            result.append(item)
+        return result
 
     def last_history_cleanup(self) -> dict | None:
         with self._connection() as conn:
@@ -2332,6 +2817,8 @@ class AgentStore:
             "memory_consolidation_enabled": True,
             "memory_consolidation_time": "03:30",
             "memory_decay_enabled": True,
+            "daily_reflection_enabled": True,
+            "daily_reflection_time": "23:50",
         }
         with self._connection() as conn:
             row = conn.execute(

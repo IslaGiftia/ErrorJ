@@ -36,11 +36,10 @@
     <main class="mg-main">
       <section class="mg-panel" id="messageComposerPanel" hidden>
         <h1>留言</h1>
-        <p class="mg-hint" id="messageUploadHint">文字、附件都行。单条最多 3 个附件，单个不超过 5MB；整条留言需要管理员审核通过后其他人才能看到。</p>
+        <p class="mg-hint" id="messageUploadHint" hidden></p>
         <form id="messageForm">
           <div class="mg-field">
-            <label for="msgContent">内容</label>
-            <textarea id="msgContent" maxlength="1000" placeholder="想说的话，也可以直接把截图粘贴进来…"></textarea>
+            <textarea id="msgContent" maxlength="1000" aria-label="留言内容"></textarea>
           </div>
           <input type="file" id="fileInput" multiple hidden>
           <!--
@@ -51,7 +50,7 @@
             <button class="mg-btn mg-btn-ghost" id="pickFileBtn" type="button">
               <i data-lucide="paperclip"></i><span>添加附件</span>
             </button>
-            <span class="mg-attach-hint" id="attachHint">支持图片、PDF、TXT、MD（附件会先送审核）</span>
+            <span class="mg-attach-hint" id="attachHint" hidden></span>
             <button class="mg-btn mg-btn-primary mg-send-btn" id="submitBtn" type="submit">
               <i data-lucide="send"></i><span>发布留言</span>
             </button>
