@@ -8488,7 +8488,8 @@ JSON        -> config/changelog-seed.json 解析通过
 ```text
 提交：ab90e52675a9b61263b7d597a998cf5b0c0d67a7
       feat: refine companion insights and simplify content UI
-      本地 = origin/main = 服务器功能提交 HEAD = ab90e52
+      功能提交 = ab90e52
+      文档记录提交随后推送
 seed：SCP 到 /tmp/errorjiang-changelog-seed.json
       本地 / 服务器 SHA256 =
       ce8bdd380c720990f8151cf0dc90bd93605b6033942a1273667e5798145fa00a
@@ -8505,7 +8506,7 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json
 ```text
 服务      -> errorjiang / errorjiang-agent / nginx active
 健康      -> 主站 {"ok":true}；Agent {"ok": true}
-版本      -> 本地 = origin/main = 服务器 HEAD = ab90e52
+版本      -> 功能提交 ab90e52；本地 / origin/main / 服务器均包含该提交
 备份      -> /data/errorjiang-backup/20261121-1046
 更新日志  -> 2026-11-21 10:48:00，id 827，kind=log
 静态文件  -> 本地 / 公网 SHA256 一致：
