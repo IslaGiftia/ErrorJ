@@ -269,6 +269,14 @@ body #messageComposerPanel #msgContent:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+.mg-char-count[hidden] {
+  display: none;
+}
+
+.mg-char-count[hidden] + .mg-send-btn {
+  margin-left: auto;
+}
+
 .mg-compose-toolbar .mg-send-btn {
   position: relative;
   flex: 0 0 68px;

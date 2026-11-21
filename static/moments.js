@@ -30,7 +30,10 @@
 
   function updateMomentCharCount() {
     if (!momentContentInput || !momentCharCount) return;
-    momentCharCount.textContent = String(momentContentInput.value.length);
+    var length = momentContentInput.value.length;
+    momentCharCount.textContent = String(length);
+    momentCharCount.hidden =
+      length === 0 && document.activeElement !== momentContentInput;
   }
 
   function applyUploadLimits() {
@@ -1689,6 +1692,8 @@
   momentContentInput = $("momentContent");
   momentCharCount = $("momentCharCount");
   momentContentInput.addEventListener("input", updateMomentCharCount);
+  momentContentInput.addEventListener("focus", updateMomentCharCount);
+  momentContentInput.addEventListener("blur", updateMomentCharCount);
   updateMomentCharCount();
   setMomentFilter(new URLSearchParams(location.search).get("filter") || "all");
   setMomentKind(new URLSearchParams(location.search).get("kind") || "post");

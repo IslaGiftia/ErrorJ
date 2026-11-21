@@ -51,7 +51,10 @@
 
   function updateMessageCharCount() {
     if (!messageContentInput || !messageCharCount) return;
-    messageCharCount.textContent = String(messageContentInput.value.length);
+    var length = messageContentInput.value.length;
+    messageCharCount.textContent = String(length);
+    messageCharCount.hidden =
+      length === 0 && document.activeElement !== messageContentInput;
   }
 
   function applyUploadLimits() {
@@ -1542,6 +1545,8 @@
   messageContentInput = $("msgContent");
   messageCharCount = $("messageCharCount");
   messageContentInput.addEventListener("input", updateMessageCharCount);
+  messageContentInput.addEventListener("focus", updateMessageCharCount);
+  messageContentInput.addEventListener("blur", updateMessageCharCount);
   updateMessageCharCount();
   setMessageFilter(new URLSearchParams(location.search).get("filter") || "all");
   $("msgShowRegion").checked = false;

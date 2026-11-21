@@ -214,6 +214,14 @@ body .mo-composer #momentContent:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+.mo-char-count[hidden] {
+  display: none;
+}
+
+.mo-char-count[hidden] + .mo-compose-publish {
+  margin-left: auto;
+}
+
 .mo-btn.mo-compose-publish {
   position: relative;
   flex: 0 0 68px;

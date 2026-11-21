@@ -1375,6 +1375,7 @@ class InteractionTests(unittest.TestCase):
         )
         for html in (moments_html, messages_html):
             self.assertIn('placeholder="键道万古如长夜，键来！"', html)
+            self.assertIn("hidden>0</span>", html)
         self.assertNotIn('maxlength="2000"', moments_html)
         for html in (moments_html, messages_html):
             self.assertIn('aria-haspopup="listbox"', html)
@@ -1395,6 +1396,10 @@ class InteractionTests(unittest.TestCase):
             self.assertNotIn('<i data-lucide="send"></i><span>发布', html)
         self.assertIn("momentContentInput.addEventListener", moments_js)
         self.assertIn("messageContentInput.addEventListener", messages_js)
+        self.assertIn("document.activeElement", moments_js)
+        self.assertIn("document.activeElement", messages_js)
+        self.assertIn('"blur", updateMomentCharCount', moments_js)
+        self.assertIn('"blur", updateMessageCharCount', messages_js)
         self.assertIn("bindVisibilityToggle", moments_js)
         self.assertIn("bindVisibilityToggle", messages_js)
         self.assertIn(".mo-compose-icon", moments_css)
@@ -1421,6 +1426,12 @@ class InteractionTests(unittest.TestCase):
         self.assertIn("outline: none !important", messages_css)
         self.assertIn("scrollbar-width: none", moments_css)
         self.assertIn("scrollbar-width: none", messages_css)
+        self.assertIn(".mo-char-count[hidden]", moments_css)
+        self.assertIn(".mg-char-count[hidden]", messages_css)
+        self.assertIn(
+            ".mo-char-count[hidden] + .mo-compose-publish", moments_css
+        )
+        self.assertIn(".mg-char-count[hidden] + .mg-send-btn", messages_css)
         progress_css = (app.STATIC_DIR / "site" / "progress.css").read_text(
             encoding="utf-8"
         )
@@ -1429,6 +1440,15 @@ class InteractionTests(unittest.TestCase):
             app.STATIC_DIR / "site" / "button-effects.css"
         ).read_text(encoding="utf-8")
         self.assertIn(":not(.pg-fill)", button_effects_css)
+
+    def test_homepage_intro_copy(self):
+        site_html = (app.STATIC_DIR / "site" / "site.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "Error酱是一个持续学习和迭代的平台，参考了很多项目，当然，Error酱也是开源的。",
+            site_html,
+        )
 
     def test_moment_comments_reuse_message_reply_layout(self):
         moments_js = (app.STATIC_DIR / "moments.js").read_text(encoding="utf-8")
@@ -1725,6 +1745,49 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(row[0]["tab"], "music")
         self.assertEqual(row[0]["href"], "/downloads?tab=music")
         self.assertEqual(row[0]["url"], f"/downloads?tab=music&focus={music_id}")
+
+    def test_sidebar_log_includes_map_places_created_by_all_users(self):
+        stamp = app.now_text()
+        place_id = app.execute(
+            """INSERT INTO map_places
+                   (name, lat, lng, created_by, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            ("普通账号标记", 34.34, 108.94, self.author_id, stamp, stamp),
+        )
+        app.execute(
+            """INSERT INTO activity_log
+                   (created_at, actor_kind, user_id, action, summary,
+                    target_type, target_id)
+               VALUES (?, 'member', ?, 'map_place_create', ?,
+                       'map_place', ?)""",
+            (stamp, self.author_id, "新增标记「普通账号标记」", place_id),
+        )
+        music_id = app.execute(
+            """INSERT INTO site_music
+                   (title, artist, source_type, source_id, sort_order, created_at)
+               VALUES (?, ?, 'url', ?, 0, ?)""",
+            ("普通账号上传的歌", "歌手", "https://example.com/member.mp3", stamp),
+        )
+        app.execute(
+            """INSERT INTO activity_log
+                   (created_at, actor_kind, user_id, action, summary,
+                    target_type, target_id)
+               VALUES (?, 'member', ?, 'music_upload', ?,
+                       'music', ?)""",
+            (stamp, self.author_id, "上传歌曲：普通账号上传的歌", music_id),
+        )
+
+        items = app.sidebar_activities()
+        self.assertTrue(
+            any(
+                item["action"] == "map_place_create"
+                and item["target"] == "普通账号标记"
+                for item in items
+            )
+        )
+        self.assertFalse(
+            any(item["target"] == "普通账号上传的歌" for item in items)
+        )
 
     def test_sidebar_user_card_prefers_recent_activity_over_password_login(self):
         """左下「注册账户」显示最近活跃，而不是只看输密码那一刻的登录时间。

@@ -6283,7 +6283,7 @@ def sidebar_last_views(user_ids):
 
 
 def sidebar_activities():
-    """右下更新日志卡片：只要管理员的上传 / 发布类更新，最新的若干条。
+    """右下更新日志卡片：管理员的上传 / 发布更新，以及所有账号新增的标记点。
 
     目标内容已经被删掉的条目直接不显示（站长要求「删了就是删了」），
     所以这里按「目标还查得到名称」过滤，并继续往下取到够 11 条为止。
@@ -6294,15 +6294,20 @@ def sidebar_activities():
         f"""SELECT a.id, a.action, a.actor_kind, a.created_at, a.target_type, a.target_id
             FROM activity_log a
             WHERE a.action IN ({placeholders})
+              AND (
+                a.action = 'map_place_create'
+                OR a.actor_kind IN ('owner', 'admin')
+              )
             ORDER BY a.id DESC
             LIMIT ?""",
         (*actions, SIDEBAR_ACTIVITY_SCAN),
     )
-    # 只留管理员的动作，并且目标还在（下面的名称解析会告诉我们哪个目标已经不在了）
+    # 新增标记点对所有账号可见；其他上传 / 发布类更新仍只展示管理员动作。
     candidates = [
         row
         for row in rows
-        if str(row.get("actor_kind") or "guest") in ("owner", "admin")
+        if row.get("action") == "map_place_create"
+        or str(row.get("actor_kind") or "guest") in ("owner", "admin")
     ]
     ids_by_type = {}
     for row in candidates:
