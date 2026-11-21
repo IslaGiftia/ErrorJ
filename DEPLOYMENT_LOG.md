@@ -8454,3 +8454,72 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json
 回滚      -> git reset --hard 29e62f2 后重启；旧群黑话表仍在，可直接恢复
 ```
 
+## 176. 2026-11-21 10:48:00 财务更名、内容页精简与鲸鲸主动日记升级
+
+来源：用户要求把“计算器”统一改为“财务”，隐藏留言与动态编辑区的小字和占位提示，彻底移除动态标签功能，并同时发布此前完成的留言审核、鲸鲸主动候选、日记反思和诊断升级。
+
+完成内容：
+
+- 首页入口、账号权限、财务页标题和鲸鲸提示统一使用“财务”；旧 `/aa` 地址和 `aa:view` 权限键保持兼容。
+- 留言改为无敏感词直接发布；正文、附件名或 TXT / MD 附件内容命中敏感词时才进入审核。普通留言推送新留言，待审留言只推送审核提醒，待审内容仅管理员和作者可见。
+- 留言编辑区隐藏上传说明、内容标签、正文占位和附件支持提示，只保留实际输入控件。
+- 动态移除标签输入、卡片展示、编辑框、提交字段和前端标签逻辑；开发日志内部“更新日志”标签保留，用于导入与历史分流。
+- 动态编辑区隐藏正文占位和图片数量提示，保持简洁布局。
+- 鲸鲸连续对话不再因三到四轮阈值进入静默；模型请求重复本轮表达约束，并清理客服式开头。
+- 主动消息新增候选管线，综合到期事件、未完话头、近期情绪、日程节点、重要日期和天气，并记录免打扰、每日上限、最小间隔、重复槽位等拦截原因。
+- 新增日记、梦、每日反思、次日日程和重要日期，默认每天 23:50 生成；模型失败时使用本地兜底，管理员可在“日记与反思”页查看和手动生成。
+- 运行诊断新增最近记忆注入、未入选原因、主动候选、群主动运行结果和每日反思数量。
+
+本地验证：
+```text
+单元测试    -> 469 项通过（120.9s）
+Python      -> app.py、Agent 全部改动文件编译通过
+JavaScript  -> messages / moments / finance / agent / books / activity 检查通过
+JSON        -> config/changelog-seed.json 解析通过
+差异检查    -> git diff --check 干净
+浏览器      -> 桌面 1365×900、手机 390×844：
+               留言隐藏说明/占位/附件提示；
+               动态无标签控件与标签展示；
+               首页入口和财务页标题均为“财务”；
+               日记、重要日期、记忆注入和主动候选无横向溢出
+```
+
+部署步骤：
+```text
+提交：ab90e52675a9b61263b7d597a998cf5b0c0d67a7
+      feat: refine companion insights and simplify content UI
+      本地 = origin/main = 服务器功能提交 HEAD = ab90e52
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json
+      本地 / 服务器 SHA256 =
+      ce8bdd380c720990f8151cf0dc90bd93605b6033942a1273667e5798145fa00a
+备份：/data/errorjiang-backup/20261121-1046
+      inventory.db、agent.db、auth.json、changelog-seed.json
+服务器：stop errorjiang-agent errorjiang -> 备份
+      -> git pull --ff-only -> ab90e52
+      -> app.init_db 新表迁移
+      -> seed 安装；import_changelog_moments.py --date 2026-11-21 --force
+      -> start errorjiang errorjiang-agent
+```
+
+最终验证：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> 主站 {"ok":true}；Agent {"ok": true}
+版本      -> 本地 = origin/main = 服务器 HEAD = ab90e52
+备份      -> /data/errorjiang-backup/20261121-1046
+更新日志  -> 2026-11-21 10:48:00，id 827，kind=log
+静态文件  -> 本地 / 公网 SHA256 一致：
+             finance.html 55341d2c、
+             messages.html 325f2929、
+             moments.html 535ed19b、
+             moments.js 80ce824e、
+             site.html d52c6ab0
+数据库    -> daily_reflections / important_dates /
+             proactive_candidates / memory_injection_logs = true
+线上页面  -> 390px 公网页面实测：
+             留言无占位及帮助小字；
+             动态无标签输入与标签展示；
+             财务标题正确，无横向溢出
+回滚      -> git reset --hard 7b1ed08 后重启；新增表和列可保留默认值
+```
+
