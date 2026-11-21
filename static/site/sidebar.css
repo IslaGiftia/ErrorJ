@@ -14,7 +14,7 @@
  */
 
 :root {
-  --sb-gap: 24px;
+  --sb-gap: 6px;
   --sb-pad: 12px;
   --sb-side-width: 260px;
   /* 中间内容列的宽度：三栏一起放大时按档位覆盖（页面里的「顶部」按钮也读这个变量定位） */
@@ -88,7 +88,7 @@
   :root {
     --sb-center-width: 880px;
     --sb-side-width: 300px;
-    --sb-gap: 28px;
+    --sb-gap: 7px;
     --sb-font: 15px;
   }
 
@@ -103,7 +103,7 @@
   :root {
     --sb-center-width: 1040px;
     --sb-side-width: 340px;
-    --sb-gap: 32px;
+    --sb-gap: 8px;
     --sb-font: 17px;
   }
 
@@ -118,7 +118,7 @@
   :root {
     --sb-center-width: 1200px;
     --sb-side-width: 380px;
-    --sb-gap: 36px;
+    --sb-gap: 9px;
     --sb-font: 18px;
   }
 
@@ -154,6 +154,14 @@
 }
 
 @media (min-width: 1280px) {
+  .sb-shell > .mg-app {
+    --mg-page-pad: 4px;
+  }
+
+  .sb-shell > .mo-app {
+    --mo-page-pad: 4px;
+  }
+
   .sb-side {
     display: flex;
     flex-direction: column;

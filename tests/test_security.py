@@ -1487,6 +1487,15 @@ class InteractionTests(unittest.TestCase):
         self.assertIn('el("div", "mg-item-social")', messages_js)
         self.assertIn("bottom: calc(100% + 6px)", moments_css)
 
+    def test_desktop_sidebar_gap_is_compact(self):
+        css = (app.STATIC_DIR / "site" / "sidebar.css").read_text(encoding="utf-8")
+        self.assertIn("--sb-gap: 6px;", css)
+        desktop_start = css.index("@media (min-width: 1280px)")
+        desktop_end = css.index("}", css.index(".sb-side {", desktop_start))
+        desktop_rule = css[desktop_start:desktop_end]
+        self.assertIn("--mg-page-pad: 4px;", desktop_rule)
+        self.assertIn("--mo-page-pad: 4px;", desktop_rule)
+
     def test_message_uploads_split_private_attachments_and_public_images(self):
         messages_html = (app.STATIC_DIR / "messages.html").read_text(
             encoding="utf-8"
