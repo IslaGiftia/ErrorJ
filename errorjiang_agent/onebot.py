@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 import hashlib
 import json
@@ -23,6 +24,25 @@ COORD_PAIR_RE = re.compile(
     r"(?<![\d.])(-?\d{1,3}(?:\.\d+)?)\s*[,，]\s*"
     r"(-?\d{1,3}(?:\.\d+)?)(?![\d.])"
 )
+QQ_FACE_TAG_RE = re.compile(
+    r'<faceType=(\d+),faceId="([^"]*)",ext="([^"]*)">',
+    re.IGNORECASE,
+)
+QQ_FACE_MARKER_RE = re.compile(r"\[QQ表情(?:元素)?[^\]]*\]")
+ADMIN_CITY_RE = re.compile(
+    r"(?:省|自治区|特别行政区)"
+    r"([^省市区县\s]{2,20}(?:市|自治州|地区|盟))"
+)
+CITY_PREFIX_RE = re.compile(
+    r"^([^省市区县\s]{2,20}(?:市|自治州|地区|盟))"
+)
+COUNTY_PREFIX_RE = re.compile(
+    r"^([^省市区县\s]{2,20}(?:县|区))"
+)
+PROVINCE_COUNTY_RE = re.compile(
+    r"(?:省|自治区)([^省市区县\s]{2,20}(?:县|区))"
+)
+DIRECT_CITY_RE = re.compile(r"^(北京市|上海市|天津市|重庆市)")
 
 
 @dataclass(frozen=True)
@@ -69,6 +89,54 @@ def _first_text(mapping: dict[str, Any], keys: tuple[str, ...]) -> str:
     return ""
 
 
+def location_city_from_address(address: str) -> str:
+    """从腾讯 / QQ 位置卡片的详细地址里提取城市，供高德按城搜索。"""
+    text = " ".join(str(address or "").split())
+    if not text:
+        return ""
+    direct = DIRECT_CITY_RE.search(text)
+    if direct:
+        return direct.group(1)
+    match = ADMIN_CITY_RE.search(text) or CITY_PREFIX_RE.search(text)
+    if match:
+        return match.group(1)
+    county = PROVINCE_COUNTY_RE.search(text) or COUNTY_PREFIX_RE.search(text)
+    return county.group(1) if county else ""
+
+
+def _qq_face_placeholder(match: re.Match[str]) -> str:
+    face_type = match.group(1)
+    face_id = match.group(2)
+    ext = match.group(3)
+    text = ""
+    if ext:
+        try:
+            padded = ext + "=" * (-len(ext) % 4)
+            payload = json.loads(
+                base64.urlsafe_b64decode(padded).decode("utf-8")
+            )
+            text = str(payload.get("text") or "").strip()
+        except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+            text = ""
+    if text:
+        return f"[QQ表情：{text[:40]}]"
+    return (
+        "[QQ表情元素，平台未提供图片内容"
+        f"（type={face_type}, id={face_id or '?'}）]"
+    )
+
+
+def normalize_qq_content(text: str) -> str:
+    return QQ_FACE_TAG_RE.sub(_qq_face_placeholder, str(text or ""))
+
+
+def qq_face_placeholder_only(text: str) -> bool:
+    source = str(text or "")
+    return bool(QQ_FACE_MARKER_RE.search(source)) and not QQ_FACE_MARKER_RE.sub(
+        "", source
+    ).strip()
+
+
 def _normalize_location(mapping: Any) -> dict[str, Any] | None:
     if not isinstance(mapping, dict):
         return None
@@ -81,7 +149,9 @@ def _normalize_location(mapping: Any) -> dict[str, Any] | None:
         return None
     title = _first_text(mapping, LOCATION_TITLE_KEYS)
     address = _first_text(mapping, LOCATION_ADDRESS_KEYS)
-    city = _first_text(mapping, LOCATION_CITY_KEYS)
+    city = _first_text(mapping, LOCATION_CITY_KEYS) or location_city_from_address(
+        address
+    )
     if not title and not address:
         title = "QQ 位置分享"
     return {
@@ -154,7 +224,7 @@ def _location_from_amap_nested(value: Any) -> dict[str, Any] | None:
             "lng": lng,
             "title": title[:120],
             "address": address[:300],
-            "city": "",
+            "city": location_city_from_address(address)[:60],
             "coord": "gcj02",
         }
     return None
@@ -209,7 +279,7 @@ def _location_from_url(value: Any) -> dict[str, Any] | None:
         "lng": lng,
         "title": title[:120],
         "address": address[:300],
-        "city": "",
+        "city": location_city_from_address(address)[:60],
         "coord": "gcj02",
     }
 
@@ -240,7 +310,9 @@ def _normalize_ark_map(mapping: Any) -> dict[str, Any] | None:
         return None
     title = _first_text(fields, LOCATION_TITLE_KEYS)
     address = _first_text(fields, LOCATION_ADDRESS_KEYS)
-    city = _first_text(fields, LOCATION_CITY_KEYS)
+    city = _first_text(fields, LOCATION_CITY_KEYS) or location_city_from_address(
+        address
+    )
     result: dict[str, Any] = {
         "source": "qq_ark_map",
         "title": title[:120],

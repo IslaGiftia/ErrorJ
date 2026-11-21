@@ -17,6 +17,7 @@ import random
 import re
 import socket
 import statistics
+import struct
 import sys
 import threading
 import time
@@ -25,6 +26,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 import zipfile
+import zlib
 
 from .adapters import AdapterRegistry, OneBotAdapter, QQBotAdapter
 from .agent_metrics import MeteredHotSearch, MeteredProvider
@@ -58,6 +60,8 @@ from .onebot import (
     MessageEvent,
     event_key,
     extract_location_event,
+    location_city_from_address,
+    qq_face_placeholder_only,
 )
 from .persona import compose_persona_prompt
 from .person_card import (
@@ -105,6 +109,76 @@ STICKER_SAVE_RE = re.compile(
     r"^\s*(?:保存|添加|存)(?:一个|一张)?(?:表情包?|图片)?"
     r"(?:\s*[：:]\s*|\s+)?(?P<usage>.+?)\s*$"
 )
+
+
+def _png_chunk(kind: bytes, data: bytes) -> bytes:
+    return (
+        struct.pack(">I", len(data))
+        + kind
+        + data
+        + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    )
+
+
+def qq_face_placeholder_sticker(token: str = "") -> bytes:
+    """生成仅用于人工审核的 QQ 表情占位图，不冒充真实表情画面。"""
+    width = 128
+    height = 128
+    background = (243, 240, 255, 255)
+    digest = hashlib.sha256(
+        str(token or "").encode("utf-8")
+    ).digest()
+    foreground = (
+        100 + digest[0] // 4,
+        70 + digest[1] // 5,
+        190 + digest[2] // 8,
+        255,
+    )
+    pixels = bytearray(background * (width * height))
+    glyph = (
+        "0111110",
+        "1100011",
+        "0000011",
+        "0000110",
+        "0001100",
+        "0011000",
+        "0011000",
+        "0000000",
+        "0011000",
+        "0011000",
+    )
+    scale = 8
+    glyph_width = len(glyph[0]) * scale
+    glyph_height = len(glyph) * scale
+    left = (width - glyph_width) // 2
+    top = (height - glyph_height) // 2
+    for row_index, row in enumerate(glyph):
+        for column_index, value in enumerate(row):
+            if value != "1":
+                continue
+            for y in range(
+                top + row_index * scale,
+                top + (row_index + 1) * scale,
+            ):
+                for x in range(
+                    left + column_index * scale,
+                    left + (column_index + 1) * scale,
+                ):
+                    offset = (y * width + x) * 4
+                    pixels[offset : offset + 4] = bytes(foreground)
+    raw = b"".join(
+        b"\x00" + bytes(pixels[y * width * 4 : (y + 1) * width * 4])
+        for y in range(height)
+    )
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(
+            b"IHDR",
+            struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0),
+        )
+        + _png_chunk(b"IDAT", zlib.compress(raw, 9))
+        + _png_chunk(b"IEND", b"")
+    )
 STICKER_USAGE_PREFIX_RE = re.compile(
     r"^\s*(?:用途|表情|标签)\s*[：:]\s*"
 )
@@ -2646,6 +2720,26 @@ class AgentService:
                 library_id,
             )
         return 0
+
+    def collect_qq_face_sticker_candidate(
+        self,
+        event: MessageEvent,
+        library_id: str,
+    ) -> int:
+        source_name = (
+            "QQ表情占位 "
+            + " ".join(str(event.text or "").split())
+        )[:180]
+        return int(
+            self.save_sticker_candidate_image(
+                qq_face_placeholder_sticker(source_name),
+                source_name,
+                library_id,
+                event.platform,
+                str(event.chat_id),
+                str(event.user_id),
+            )
+        )
 
     def sticker_auto_collect_target(
         self,
@@ -6091,12 +6185,21 @@ class AgentService:
             STICKER_SAVE_RE.fullmatch(event.text.strip())
             or STICKER_USAGE_PREFIX_RE.match(event.text.strip())
         )
-        auto_collected_stickers = 0
         has_sticker_images = self.event_has_sticker_images(event, payload)
-        if event.message_type == "group" and not activity_observed:
-            self._observe_group_activity(event)
         if self.store.seen_event(event_key(event)):
             return
+        if platform == "qqbot" and qq_face_placeholder_only(event.text):
+            _enabled, auto_collect, library_id = (
+                self.sticker_auto_collect_target(event)
+            )
+            if auto_collect:
+                self.collect_qq_face_sticker_candidate(
+                    event,
+                    library_id,
+                )
+            return
+        if event.message_type == "group" and not activity_observed:
+            self._observe_group_activity(event)
         if event.message_type == "group":
             if platform == "qq" and not self.config.group_enabled:
                 return
@@ -6176,22 +6279,6 @@ class AgentService:
             )
             and not event.shared_media
         ):
-            if (
-                auto_reply_reason != "group_vision"
-                and not explicit_sticker_save
-                and has_sticker_images
-            ):
-                _enabled, auto_collect, library_id = (
-                    self.sticker_auto_collect_target(event)
-                )
-                if auto_collect:
-                    auto_collected_stickers = (
-                        self.collect_event_sticker_candidates(
-                            event,
-                            payload,
-                            library_id,
-                        )
-                    )
             if auto_reply_reason != "group_vision":
                 return
         redeem_match = REDEEM_IDENTITY_BIND_CODE_RE.fullmatch(
@@ -6425,10 +6512,9 @@ class AgentService:
         sticker_owner_id = "0"
         saved_stickers = 0
         sticker_enabled = True
-        auto_collect = False
         sticker_library_id = "default"
-        if explicit_sticker_save or has_sticker_images:
-            sticker_enabled, auto_collect, sticker_library_id = (
+        if explicit_sticker_save:
+            sticker_enabled, _auto_collect, sticker_library_id = (
                 self.sticker_auto_collect_target(event)
             )
         if explicit_sticker_save and sticker_enabled:
@@ -6445,15 +6531,6 @@ class AgentService:
                     sticker_owner_id,
                     library_id=sticker_library_id,
                 )
-        elif auto_collect:
-            auto_collected_stickers = (
-                self.collect_event_sticker_candidates(
-                    event,
-                    payload,
-                    sticker_library_id,
-                )
-            )
-            saved_stickers = auto_collected_stickers
         if saved_stickers and explicit_sticker_save:
             usage = self.sticker_usage_from_text(event.text)
             self.send_reply(
@@ -6604,6 +6681,8 @@ class AgentService:
                 )
             arguments = {"keywords": keywords[:80]}
             city = str(location.get("city") or "").strip()
+            if not city:
+                city = location_city_from_address(address)
             if city:
                 arguments["city"] = city[:40]
             return client.tool("footprints.add", arguments)
@@ -6870,6 +6949,12 @@ class AgentService:
                     "当前消息包含图片，但图片读取失败或格式不受支持。"
                     "要明确告诉用户这次没有看到图片内容，不要猜测。"
                 )
+        if "平台未提供图片内容" in text:
+            memories.append(
+                "当前消息只有 QQ 表情元素的类型占位，没有图片 URL、画面或"
+                "可识别的表情名称。不要根据类型编号猜测“微笑”等情绪；"
+                "需要识别时应明确说明这次没有拿到表情图片。"
+            )
         media_context = self.shared_media_context(event)
         if media_context:
             memories.append(

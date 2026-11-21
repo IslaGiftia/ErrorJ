@@ -22,6 +22,7 @@ from .onebot import (
     MessageEvent,
     extract_attachment_event,
     extract_location_event,
+    normalize_qq_content,
 )
 from .onebot_ws import WS_GUID, _masked_frame, _read_frame
 
@@ -79,6 +80,7 @@ def parse_qqbot_event(
         "",
         str(payload.get("content") or ""),
     ).strip()
+    text = normalize_qq_content(text)
     if event_type in ("GROUP_AT_MESSAGE_CREATE", "GROUP_MESSAGE_CREATE"):
         user_id = str(author.get("member_openid") or "").strip()
         chat_id = str(payload.get("group_openid") or "").strip()

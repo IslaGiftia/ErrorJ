@@ -53,6 +53,8 @@ from errorjiang_agent.onebot import (
     MessageEvent,
     event_key,
     extract_location_event,
+    location_city_from_address,
+    normalize_qq_content,
     parse_message_event,
 )
 from errorjiang_agent.onebot_ws import _masked_frame, _read_frame
@@ -3005,8 +3007,7 @@ class AgentStoreTests(unittest.TestCase):
             platform="qqbot",
             location={
                 "title": "山里的咖啡店",
-                "address": "西安市长安区测试路",
-                "city": "西安",
+                "address": "陕西省西安市长安区测试路",
                 "coord": "gcj02",
             },
         )
@@ -3023,7 +3024,7 @@ class AgentStoreTests(unittest.TestCase):
                 "footprints.add",
                 {
                     "keywords": "山里的咖啡店",
-                    "city": "西安",
+                    "city": "西安市",
                 },
             ),
         )
@@ -5226,17 +5227,7 @@ class AgentStoreTests(unittest.TestCase):
             (service.sticker_dir / stickers[0]["ref"]).is_file()
         )
 
-    def test_unmentioned_group_image_is_collected_to_pending_only(self):
-        class FakeResponse:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self, _limit):
-                return b"\x89PNG\r\n\x1a\npending-image"
-
+    def test_unmentioned_group_image_is_not_auto_collected(self):
         service = object.__new__(AgentService)
         service.store = self.store
         service.sticker_dir = Path(self.temp.name) / "stickers"
@@ -5265,13 +5256,50 @@ class AgentStoreTests(unittest.TestCase):
         )
         with patch(
             "errorjiang_agent.service.urlopen",
-            return_value=FakeResponse(),
-        ):
+        ) as fetch:
             service._handle_message_event(event, activity_observed=True)
         self.assertEqual(self.store.list_stickers("0"), [])
+        self.assertEqual(self.store.list_sticker_candidates("0"), [])
+        fetch.assert_not_called()
+
+    def test_qq_face_placeholder_is_ignored_and_saved_as_pending_candidate(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.sticker_dir = Path(self.temp.name) / "stickers"
+        service.sticker_dir.mkdir()
+        service.config = SimpleNamespace(
+            group_enabled=True,
+            group_ids=frozenset(),
+            qqbot_group_ids=frozenset(),
+        )
+        replies = []
+        processed = []
+        observed = []
+        service.send_reply = lambda event, text: replies.append(text)
+        service._process_event = lambda *args, **kwargs: processed.append(
+            (args, kwargs)
+        )
+        service._observe_group_activity = lambda event: observed.append(event)
+        event = MessageEvent(
+            self_id="bot",
+            user_id="member-openid",
+            message_type="group",
+            chat_id="group-openid",
+            message_id="qq-face-ignore",
+            text="[QQ表情元素，平台未提供图片内容（type=6, id=0）]",
+            to_me=True,
+            platform="qqbot",
+        )
+        service._handle_message_event(event)
+        self.assertEqual(replies, [])
+        self.assertEqual(processed, [])
+        self.assertEqual(observed, [])
         candidates = self.store.list_sticker_candidates("0")
         self.assertEqual(len(candidates), 1)
-        self.assertEqual(candidates[0]["source_name"], "候选项.png")
+        self.assertIn("QQ表情占位", candidates[0]["source_name"])
+        self.assertTrue(
+            (service.sticker_dir / candidates[0]["ref"]).is_file()
+        )
 
     def test_qqbot_image_without_mime_uses_magic_and_usage(self):
         class FakeResponse:
@@ -6058,7 +6086,65 @@ class OneBotParserTests(unittest.TestCase):
         self.assertIsNotNone(event)
         self.assertEqual(event.location["title"], "山里的咖啡店")
         self.assertEqual(event.location["address"], "西安市长安区测试路")
+        self.assertEqual(event.location["city"], "西安市")
         self.assertNotIn("lat", event.location)
+
+    def test_qqbot_tencent_map_card_infers_city_from_address(self):
+        event = parse_qqbot_event(
+            "GROUP_MESSAGE_CREATE",
+            {
+                "id": "message-tencent-map-search",
+                "content": " ",
+                "group_openid": "group-openid",
+                "author": {
+                    "member_openid": "member-openid",
+                    "username": "依然",
+                },
+                "message_type": 3,
+                "ark_data": {
+                    "ark_type": "map",
+                    "ark_name": "位置卡片",
+                    "fields": {
+                        "desc": "城南小院饭庄",
+                        "address": "陕西省宝鸡市渭滨区石鼓镇石陵路6号",
+                    },
+                },
+            },
+            "bot-qq",
+        )
+        self.assertIsNotNone(event)
+        self.assertEqual(event.location["title"], "城南小院饭庄")
+        self.assertEqual(event.location["city"], "宝鸡市")
+        self.assertNotIn("lat", event.location)
+        self.assertEqual(location_city_from_address("陕西省千阳县测试路"), "千阳县")
+
+    def test_qqbot_face_element_does_not_invent_smile_semantics(self):
+        event = parse_qqbot_event(
+            "GROUP_MESSAGE_CREATE",
+            {
+                "id": "message-face-unknown",
+                "content": '<faceType=6,faceId="0",ext="eyJ0ZXh0IjoiIn0=">',
+                "group_openid": "group-openid",
+                "author": {
+                    "member_openid": "member-openid",
+                    "username": "Meteor",
+                },
+            },
+            "bot-qq",
+        )
+        self.assertIsNotNone(event)
+        self.assertIn("QQ表情元素", event.text)
+        self.assertIn("平台未提供图片内容", event.text)
+        self.assertNotIn("微笑", event.text)
+
+    def test_qqbot_face_ext_keeps_explicit_face_text(self):
+        encoded = base64.b64encode(
+            json.dumps({"text": "给你一拳"}, ensure_ascii=False).encode("utf-8")
+        ).decode("ascii")
+        text = normalize_qq_content(
+            f'<faceType=3,faceId="474",ext="{encoded}">'
+        )
+        self.assertEqual(text, "[QQ表情：给你一拳]")
 
     def test_qqbot_tuwen_amap_card_is_parsed_as_location(self):
         event = parse_qqbot_event(
@@ -6608,6 +6694,7 @@ class MediaLinkTests(unittest.TestCase):
             )
         )
         self.assertEqual(service.vision.called[0], 1)
+        self.assertEqual(self.store.list_sticker_candidates("0"), [])
 
     def test_service_injects_curated_meme_context(self):
         captured = {}
