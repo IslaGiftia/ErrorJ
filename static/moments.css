@@ -235,6 +235,11 @@ body .mo-composer #momentContent:focus-visible {
   overflow: hidden;
   line-height: 1;
   white-space: nowrap;
+  transition: opacity var(--dur-fast) ease, background var(--dur-fast) ease;
+}
+
+.mo-btn.mo-compose-publish.is-inactive {
+  opacity: 0.48;
 }
 
 /* 卡片头部：设备信息和时间同一套小灰字 */
@@ -1668,12 +1673,20 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
   }
 
   .mo-composer {
-    min-height: 198px;
+    min-height: 132px;
   }
 
   .mo-btn.mo-compose-publish {
-    height: 44px;
-    min-height: 44px;
+    flex-basis: 60px;
+    width: 60px;
+    min-width: 60px;
+    height: 36px;
+    min-height: 36px;
+  }
+
+  .mo-composer textarea {
+    min-height: 58px;
+    max-height: 160px;
   }
 }
 
@@ -1701,7 +1714,6 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
   font-size: 13px;
   font-weight: 600;
   text-align: left;
-  cursor: pointer;
 }
 
 .mo-log-month-num {
@@ -1711,7 +1723,7 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
   color: var(--mo-faint);
 }
 
-.mo-log-month-group.is-open .mo-log-month .mo-log-caret svg {
+.mo-log-month-group.is-open .mo-log-month-toggle svg {
   transform: rotate(180deg);
 }
 
@@ -1802,25 +1814,6 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
   text-overflow: ellipsis;
 }
 
-.mo-log-caret {
-  flex: 0 0 auto;
-  display: inline-flex;
-  width: 14px;
-  height: 14px;
-  align-items: center;
-  justify-content: center;
-  color: var(--mo-faint);
-}
-
-.mo-log-caret svg {
-  display: block;
-  width: 14px;
-  height: 14px;
-  transform-box: fill-box;
-  transform-origin: center;
-  transition: transform var(--dur-fast) ease-out;
-}
-
 .mo-log-toggle {
   flex: 0 0 32px;
   display: inline-flex;
@@ -1859,19 +1852,6 @@ body[data-notify-module="moments"] .site-back-top.is-pending {
   transform-box: fill-box;
   transform-origin: center;
   transition: transform var(--dur-fast) ease-out;
-}
-
-.mo-log-month {
-  position: relative;
-  padding-right: 24px;
-}
-
-.mo-log-month .mo-log-caret {
-  position: absolute;
-  top: 50%;
-  right: 2px;
-  margin-left: 0;
-  transform: translateY(-50%);
 }
 
 .mo-log-row.is-open .mo-log-toggle svg {

@@ -289,6 +289,11 @@ body #messageComposerPanel #msgContent:focus-visible {
   overflow: hidden;
   line-height: 1;
   white-space: nowrap;
+  transition: opacity var(--dur-fast) ease, background var(--dur-fast) ease;
+}
+
+.mg-compose-toolbar .mg-send-btn.is-inactive {
+  opacity: 0.48;
 }
 
 /* 卡片头部：设备信息和时间同一套小灰字 */
@@ -1504,12 +1509,20 @@ button.mg-file {
   }
 
   .mg-compose-toolbar .mg-send-btn {
-    height: 44px;
-    min-height: 44px;
+    flex-basis: 60px;
+    width: 60px;
+    min-width: 60px;
+    height: 36px;
+    min-height: 36px;
   }
 
   #messageComposerPanel {
-    min-height: 198px;
+    min-height: 132px;
+  }
+
+  .mg-field textarea {
+    min-height: 58px;
+    max-height: 160px;
   }
 }
 

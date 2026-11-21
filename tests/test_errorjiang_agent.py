@@ -10665,12 +10665,18 @@ class AgentConsoleUiTests(unittest.TestCase):
         script = (app.STATIC_DIR / "moments.js").read_text(encoding="utf-8")
         self.assertIn('var head = el("div", "mo-log-head")', script)
         self.assertIn('var toggle = el("button", "mo-log-toggle")', script)
+        self.assertIn(
+            'var toggle = el("button", "mo-log-toggle mo-log-month-toggle")',
+            script,
+        )
         self.assertIn("toggle.dataset.noButtonFx", script)
         self.assertIn('toggle.addEventListener("click"', script)
         self.assertNotIn('var btn = el("button", "mo-log-head")', script)
         self.assertIn("transform-box: fill-box", css)
         self.assertIn("transform-origin: center", css)
         self.assertIn(".mo-log-toggle", css)
+        self.assertIn(".mo-log-month-toggle svg", css)
+        self.assertIn(".mo-log-month-body:not([hidden])", css)
         self.assertIn("flex: 0 0 32px", css)
         keyframes_start = css.index("@keyframes mo-log-open")
         keyframes_end = css.index("}", keyframes_start) + 1

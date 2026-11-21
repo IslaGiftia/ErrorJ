@@ -1398,6 +1398,8 @@ class InteractionTests(unittest.TestCase):
         self.assertIn("messageContentInput.addEventListener", messages_js)
         self.assertIn("document.activeElement", moments_js)
         self.assertIn("document.activeElement", messages_js)
+        self.assertIn("updateMomentSubmitAppearance", moments_js)
+        self.assertIn("updateMessageSubmitAppearance", messages_js)
         self.assertIn('"blur", updateMomentCharCount', moments_js)
         self.assertIn('"blur", updateMessageCharCount', messages_js)
         self.assertIn("bindVisibilityToggle", moments_js)
@@ -1408,8 +1410,8 @@ class InteractionTests(unittest.TestCase):
         self.assertIn('.mg-compose-icon[aria-pressed="true"]', messages_css)
         self.assertIn("min-height: 186px", moments_css)
         self.assertIn("min-height: 186px", messages_css)
-        self.assertIn("min-height: 198px", moments_css)
-        self.assertIn("min-height: 198px", messages_css)
+        self.assertIn("min-height: 132px", moments_css)
+        self.assertIn("min-height: 132px", messages_css)
         self.assertIn(".mo-btn.mo-compose-publish", moments_css)
         self.assertIn("margin-left: 0", moments_css)
         self.assertIn("flex: 0 0 68px", moments_css)
@@ -1432,6 +1434,12 @@ class InteractionTests(unittest.TestCase):
             ".mo-char-count[hidden] + .mo-compose-publish", moments_css
         )
         self.assertIn(".mg-char-count[hidden] + .mg-send-btn", messages_css)
+        self.assertIn(".mo-compose-publish.is-inactive", moments_css)
+        self.assertIn(".mg-send-btn.is-inactive", messages_css)
+        self.assertIn("flex-basis: 60px", moments_css)
+        self.assertIn("flex-basis: 60px", messages_css)
+        self.assertIn("min-height: 58px", moments_css)
+        self.assertIn("min-height: 58px", messages_css)
         progress_css = (app.STATIC_DIR / "site" / "progress.css").read_text(
             encoding="utf-8"
         )

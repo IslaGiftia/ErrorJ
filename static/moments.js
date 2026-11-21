@@ -18,6 +18,16 @@
   var momentContentInput = null;
   var momentCharCount = null;
 
+  function updateMomentSubmitAppearance() {
+    var button = $("submitBtn");
+    if (!button) return;
+    button.classList.toggle(
+      "is-inactive",
+      !String(momentContentInput && momentContentInput.value || "").trim() &&
+        !pendingImages.length
+    );
+  }
+
   function imageLimitLabel() {
     return window.ErrorUploadLimits
       ? window.ErrorUploadLimits.label(MAX_IMAGE_BYTES)
@@ -34,6 +44,7 @@
     momentCharCount.textContent = String(length);
     momentCharCount.hidden =
       length === 0 && document.activeElement !== momentContentInput;
+    updateMomentSubmitAppearance();
   }
 
   function applyUploadLimits() {
@@ -225,6 +236,7 @@
     } else {
       hint.textContent = imageHintText();
     }
+    updateMomentSubmitAppearance();
   }
 
   $("imageInput").addEventListener("change", function () {
@@ -1595,7 +1607,11 @@
     }
     panel.section.classList.toggle("is-open", open);
     panel.body.hidden = !open;
-    panel.header.setAttribute("aria-expanded", open ? "true" : "false");
+    panel.toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    panel.toggle.setAttribute(
+      "aria-label",
+      open ? "收起本月日志" : "展开本月日志"
+    );
     logMonthOpen[panel.key] = open;
   }
 
@@ -1617,24 +1633,35 @@
     var panels = [];
     order.forEach(function (key) {
       var section = el("section", "mo-log-month-group");
-      var header = el("button", "mo-log-month");
-      header.type = "button";
+      var header = el("div", "mo-log-month");
       header.append(
         el("span", "mo-log-month-label", logMonthLabel(key)),
         el("em", "mo-log-month-num", "共 " + byMonth[key].length + " 条")
       );
-      var caret = el("span", "mo-log-caret");
-      caret.innerHTML = '<i data-lucide="chevron-down"></i>';
-      header.appendChild(caret);
+      var toggle = el("button", "mo-log-toggle mo-log-month-toggle");
+      toggle.type = "button";
+      toggle.dataset.noButtonFx = "";
+      toggle.setAttribute("aria-expanded", "false");
+      toggle.setAttribute("aria-label", "展开本月日志");
+      toggle.innerHTML = '<i data-lucide="chevron-down"></i>';
+      header.appendChild(toggle);
       var body = el("div", "mo-log-month-body");
       body.id = "mo-log-month-" + key;
-      header.setAttribute("aria-controls", body.id);
+      toggle.setAttribute("aria-controls", body.id);
       section.append(header, body);
       list.appendChild(section);
 
-      var panel = { key: key, section: section, header: header, body: body, rows: byMonth[key], built: false };
+      var panel = {
+        key: key,
+        section: section,
+        header: header,
+        toggle: toggle,
+        body: body,
+        rows: byMonth[key],
+        built: false,
+      };
       panels.push(panel);
-      header.addEventListener("click", function () {
+      toggle.addEventListener("click", function () {
         applyLogMonth(panel, !section.classList.contains("is-open"));
       });
     });

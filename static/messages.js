@@ -49,12 +49,23 @@
   var messageContentInput = null;
   var messageCharCount = null;
 
+  function updateMessageSubmitAppearance() {
+    var button = $("submitBtn");
+    if (!button) return;
+    button.classList.toggle(
+      "is-inactive",
+      !String(messageContentInput && messageContentInput.value || "").trim() &&
+        !pendingCount()
+    );
+  }
+
   function updateMessageCharCount() {
     if (!messageContentInput || !messageCharCount) return;
     var length = messageContentInput.value.length;
     messageCharCount.textContent = String(length);
     messageCharCount.hidden =
       length === 0 && document.activeElement !== messageContentInput;
+    updateMessageSubmitAppearance();
   }
 
   function applyUploadLimits() {
@@ -351,6 +362,7 @@
     } else {
       hint.textContent = "附件仅上传者本人和管理员可下载";
     }
+    updateMessageSubmitAppearance();
     refreshIcons();
   }
 
