@@ -8671,3 +8671,19 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json
 版本      -> 服务器 HEAD = bf0247a
 ```
 
+第二次热修（2026-11-23 19:31:57）：
+```text
+复测      -> 图片已成功识别 390 字，但主模型仍回复“图没过来”
+原因      -> 仅放在系统提示中的 image_context 权重仍不足；
+             历史里上一轮失败回复会继续影响本轮
+修复      -> 图片观察同时附到本轮 user message 末尾，
+             明确标记“回答时必须优先使用”，不再只依赖系统提示
+测试      -> 491 项通过
+提交      -> 6287b623e52db99e55e6e81cb30b1a582a6de146
+             fix: attach image observations to current turn
+备份      -> /data/errorjiang-backup/20261123-193157（agent.db / WAL / SHM）
+部署      -> 仅 stop / pull / start errorjiang-agent
+状态      -> errorjiang / errorjiang-agent / nginx active
+版本      -> 服务器 HEAD = 6287b62
+```
+
