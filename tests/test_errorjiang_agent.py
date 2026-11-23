@@ -7433,6 +7433,40 @@ class AgentInfrastructureTests(unittest.TestCase):
         )
         self.assertEqual(provider.messages[-1]["role"], "user")
 
+    def test_brain_appends_image_context_to_current_user_turn(self):
+        class RecordingProvider:
+            name = "recording"
+
+            def __init__(self):
+                self.messages = []
+
+            def chat(self, messages, tools):
+                del tools
+                self.messages = messages
+                return {"content": "看到了，是一只橘猫"}
+
+        provider = RecordingProvider()
+        brain = AgentBrain(
+            provider,
+            SimpleNamespace(tool=lambda *args, **kwargs: {}),
+            lambda *args, **kwargs: {},
+        )
+        brain.reply(
+            "帮我看看这张图片",
+            [],
+            {
+                "chat_type": "private",
+                "image_context": (
+                    "图片里是一只戴蓝色围巾的橘猫，窗外正在下雪。"
+                ),
+            },
+        )
+        current = provider.messages[-1]
+        self.assertEqual(current["role"], "user")
+        self.assertIn("帮我看看这张图片", current["content"])
+        self.assertIn("本轮图片识别结果", current["content"])
+        self.assertIn("戴蓝色围巾的橘猫", current["content"])
+
     def test_system_prompt_lets_owner_address_override_public_name(self):
         self.assertNotIn("必须叫“星星”", SYSTEM_PROMPT)
         self.assertIn("不要叫回“星星”", SYSTEM_PROMPT)

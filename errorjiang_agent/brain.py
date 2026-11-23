@@ -1144,6 +1144,14 @@ class AgentBrain:
                 auto_reply=(tool_context or {}).get("group_auto_reply") == "1",
                 batch=group_batch if isinstance(group_batch, list) else [],
             )
+        image_context = str(
+            (tool_context or {}).get("image_context") or ""
+        ).strip()
+        if image_context:
+            current_content += (
+                "\n\n【本轮图片识别结果，回答时必须优先使用】\n"
+                + image_context[:3500]
+            )
         messages.append({"role": "user", "content": current_content})
         available_tools = self.tool_registry.available(tool_context)
         for _ in range(self.max_tool_rounds):

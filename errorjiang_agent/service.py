@@ -7137,6 +7137,11 @@ class AgentService:
             target_user_id,
         )
         brain = self.build_brain(errorjiang)
+        if image_context:
+            print(
+                f"[Vision] 当前轮图片上下文已注入：chars={len(image_context)}",
+                flush=True,
+            )
         try:
             reply = brain.reply(
                 text,
