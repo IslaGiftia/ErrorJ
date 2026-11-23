@@ -1,10 +1,24 @@
 from __future__ import annotations
 
 import base64
+from io import BytesIO
 from typing import Any
 
 from .clients import post_json
 from .errors import AgentError
+
+try:
+    from PIL import Image, ImageOps
+except ImportError:  # pragma: no cover - requirements installs Pillow.
+    Image = None
+    ImageOps = None
+else:
+    Image.MAX_IMAGE_PIXELS = 40_000_000
+
+try:
+    from pillow_heif import register_heif_opener
+except ImportError:  # pragma: no cover - requirements installs pillow-heif.
+    register_heif_opener = None
 
 
 SUPPORTED_IMAGE_MIME_TYPES = (
@@ -13,6 +27,27 @@ SUPPORTED_IMAGE_MIME_TYPES = (
     "image/gif",
     "image/webp",
 )
+CONVERTIBLE_IMAGE_FORMATS = {
+    "AVIF",
+    "AVIFS",
+    "BMP",
+    "CUR",
+    "DDS",
+    "DIB",
+    "HEIC",
+    "HEIF",
+    "ICO",
+    "JP2",
+    "JPEG2000",
+    "QOI",
+    "TGA",
+    "TIFF",
+}
+VISION_MAX_IMAGE_BYTES = 8 * 1024 * 1024
+VISION_MAX_DIMENSION = 4096
+
+if register_heif_opener is not None:
+    register_heif_opener()
 
 
 def image_mime_type(raw: bytes, declared: str = "") -> str | None:
@@ -28,6 +63,69 @@ def image_mime_type(raw: bytes, declared: str = "") -> str | None:
     if raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
         return "image/webp"
     return None
+
+
+def _encode_vision_image(image: Any, max_bytes: int) -> tuple[bytes, str] | None:
+    has_alpha = image.mode in ("RGBA", "LA") or (
+        image.mode == "P" and "transparency" in image.info
+    )
+    for max_dimension in (
+        VISION_MAX_DIMENSION,
+        3072,
+        2048,
+        1536,
+        1024,
+    ):
+        candidate = image.copy()
+        candidate.thumbnail(
+            (max_dimension, max_dimension),
+            Image.Resampling.LANCZOS,
+        )
+        output = BytesIO()
+        if has_alpha:
+            candidate.convert("RGBA").save(
+                output,
+                format="PNG",
+                optimize=True,
+            )
+            mime = "image/png"
+        else:
+            candidate.convert("RGB").save(
+                output,
+                format="JPEG",
+                quality=90,
+                optimize=True,
+            )
+            mime = "image/jpeg"
+        data = output.getvalue()
+        if data and len(data) <= max_bytes:
+            return data, mime
+    return None
+
+
+def normalize_image_for_vision(
+    raw: bytes,
+    declared: str = "",
+    max_bytes: int = VISION_MAX_IMAGE_BYTES,
+) -> tuple[bytes, str] | None:
+    """Return model-ready bytes, converting other common formats to PNG/JPEG."""
+    direct = image_mime_type(raw, declared)
+    if direct:
+        return raw, direct
+    if not raw or len(raw) > max_bytes or Image is None:
+        return None
+    try:
+        with Image.open(BytesIO(raw)) as source:
+            source_format = str(source.format or "").upper()
+            if source_format not in CONVERTIBLE_IMAGE_FORMATS:
+                return None
+            if getattr(source, "n_frames", 1) > 1:
+                source.seek(0)
+            source.load()
+            image = ImageOps.exif_transpose(source)
+            return _encode_vision_image(image, max_bytes)
+    except Exception:
+        return None
 
 
 class DeepSeekVisionClient:

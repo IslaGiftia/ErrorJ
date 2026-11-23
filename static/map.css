@@ -694,6 +694,15 @@ body {
   outline: none;
 }
 
+/*
+ * 展开后输入框会自动聚焦，全站 focus-visible 的 2px outline 会贴在
+ * 透明 input 自己身上，形成一个直角紫色内框。聚焦状态已由外层
+ * .mp-search-bar:focus-within 的圆角边框表达，这里不再重复画框。
+ */
+#mapPoiSearch:focus-visible {
+  outline: none !important;
+}
+
 /* 结果面板：从输入框下方平滑展开，而不是硬生生出现 */
 .mp-search-flyout .mp-poi-list {
   max-height: 0;

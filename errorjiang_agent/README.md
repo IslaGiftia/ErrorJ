@@ -21,7 +21,7 @@
 - 多图库、群聊 / 人格 / 默认选图规则与图片自动收集待审核
 - 机器人可调用 `sticker_list` / `sticker_update` 查看和整理图库
 - 人格预设、自定义表达偏好、DeepSeek 网页搜索 / 抓取、本地领域检索路由与微博 / B站 / 抖音热搜
-- JPG / PNG / GIF / WebP 图片理解：独立 `deepseek-flash` 视觉转写、截图 OCR 和当前对话注入
+- 常见图片格式理解：独立 `deepseek-flash` 视觉转写、截图 OCR 和当前对话注入
 - 英雄联盟 / LPL / LCK / S 赛时效路由：赛季年份、官方赛程赛果优先、旧赛季降权
 - 本地中文网络梗词典与 `web_meme_lookup`，未覆盖或需要最新用法时再走网页搜索
 - B站、抖音、微博、网易云音乐、小红书分享链接与 QQ 卡片元数据识别
@@ -68,7 +68,8 @@
 没有单独的 DeepSeek Key 时会复用主 `LLM_BASE_URL` / `LLM_API_KEY`。这样主聊天仍可用
 `deepseek-chat` 或 `deepseek-v4-pro`，不必为了看图整体切换模型；
 `deepseek-v4-pro` 本身不支持图片输入。一次最多读取 4 张图，单张 8MB、
-总计 16MB，支持 JPEG / PNG / GIF / WebP。
+  总计 16MB。JPEG / PNG / GIF / WebP 直接送入模型；BMP / TIFF / AVIF /
+  JPEG 2000 / ICO / HEIC / HEIF 等先在本机转成 PNG / JPEG 再识别。
 
 网页搜索分两档：`deepseek_web_search` 只做一次快速搜索；
 `deepseek_web_research` 用于最新进展、复杂事件、原因分析和多来源核验，

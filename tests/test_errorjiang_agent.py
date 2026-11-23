@@ -92,7 +92,10 @@ from errorjiang_agent.service import (
 from errorjiang_agent.settings_schema import normalize_settings_update
 from errorjiang_agent.store import AgentStore
 from errorjiang_agent.tools import ToolRegistry
-from errorjiang_agent.vision import DeepSeekVisionClient
+from errorjiang_agent.vision import (
+    DeepSeekVisionClient,
+    normalize_image_for_vision,
+)
 
 
 class AgentStoreTests(unittest.TestCase):
@@ -4991,6 +4994,44 @@ class AgentStoreTests(unittest.TestCase):
             )
         )
 
+    def test_vision_normalizes_common_extra_image_formats(self):
+        from PIL import Image, features
+
+        cases = [("BMP", "image/jpeg"), ("TIFF", "image/jpeg")]
+        if features.check("avif"):
+            cases.append(("AVIF", "image/jpeg"))
+        for image_format, expected_mime in cases:
+            with self.subTest(image_format=image_format):
+                source = io.BytesIO()
+                Image.new("RGB", (32, 24), (120, 60, 200)).save(
+                    source,
+                    format=image_format,
+                )
+                normalized = normalize_image_for_vision(source.getvalue())
+                self.assertIsNotNone(normalized)
+                raw, mime = normalized
+                self.assertEqual(mime, expected_mime)
+                with Image.open(io.BytesIO(raw)) as converted:
+                    self.assertEqual(converted.size, (32, 24))
+
+    def test_vision_normalizes_heic(self):
+        from PIL import Image
+        from pillow_heif import from_pillow
+
+        image = Image.new("RGB", (36, 28), (20, 90, 140))
+        heif = from_pillow(image)
+        source = io.BytesIO()
+        heif.save(source)
+        normalized = normalize_image_for_vision(
+            source.getvalue(),
+            "image/heic",
+        )
+        self.assertIsNotNone(normalized)
+        raw, mime = normalized
+        self.assertEqual(mime, "image/jpeg")
+        with Image.open(io.BytesIO(raw)) as converted:
+            self.assertEqual(converted.size, (36, 28))
+
     def test_vision_client_can_reuse_primary_llm_credentials(self):
         base, key, model = vision_client_options(
             SimpleNamespace(
@@ -5301,6 +5342,32 @@ class AgentStoreTests(unittest.TestCase):
             (service.sticker_dir / candidates[0]["ref"]).is_file()
         )
 
+    def test_qq_face_placeholder_with_image_attachment_is_not_ignored(self):
+        service = object.__new__(AgentService)
+        event = MessageEvent(
+            self_id="bot",
+            user_id="member-openid",
+            message_type="group",
+            chat_id="group-openid",
+            message_id="qq-face-with-image",
+            text="[QQ表情元素，平台未提供图片内容（type=6, id=0）]",
+            to_me=True,
+            platform="qqbot",
+            attachments=(
+                {
+                    "content_type": "image/png",
+                    "filename": "actual-image.png",
+                    "url": "https://example.com/actual-image.png",
+                },
+            ),
+        )
+        self.assertFalse(service.should_ignore_qq_face_placeholder(event))
+        self.assertTrue(
+            service.should_ignore_qq_face_placeholder(
+                replace(event, attachments=())
+            )
+        )
+
     def test_qqbot_image_without_mime_uses_magic_and_usage(self):
         class FakeResponse:
             def __enter__(self):
@@ -5343,6 +5410,46 @@ class AgentStoreTests(unittest.TestCase):
         self.assertTrue(
             (service.sticker_dir / sticker["ref"]).is_file()
         )
+
+    def test_download_vision_image_converts_bmp_to_model_format(self):
+        from PIL import Image
+
+        source = io.BytesIO()
+        Image.new("RGB", (24, 16), (40, 80, 120)).save(
+            source,
+            format="BMP",
+        )
+        raw = source.getvalue()
+
+        class FakeResponse:
+            headers = {"Content-Length": str(len(raw))}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self, _limit):
+                return raw
+
+        service = object.__new__(AgentService)
+        with patch(
+            "errorjiang_agent.service.urlopen",
+            return_value=FakeResponse(),
+        ):
+            normalized = service.download_vision_image(
+                {
+                    "filename": "photo.bmp",
+                    "content_type": "image/bmp",
+                    "url": "https://example.com/photo.bmp",
+                }
+            )
+        self.assertIsNotNone(normalized)
+        output, mime = normalized
+        self.assertEqual(mime, "image/jpeg")
+        with Image.open(io.BytesIO(output)) as converted:
+            self.assertEqual(converted.size, (24, 16))
 
     def test_qqbot_config_is_loaded_when_enabled(self):
         with patch.dict(
@@ -7612,6 +7719,34 @@ class AgentInfrastructureTests(unittest.TestCase):
         self.assertTrue(pending[1])
         self.assertTrue(timers[0].cancelled)
         self.assertEqual(len(timers), 2)
+
+    def test_group_merge_preserves_image_attachments(self):
+        first = MessageEvent(
+            self_id="bot",
+            user_id="u1",
+            message_type="group",
+            chat_id="group",
+            message_id="20",
+            text="",
+            to_me=True,
+            platform="qqbot",
+            attachments=(
+                {
+                    "content_type": "image/png",
+                    "filename": "screen.png",
+                    "url": "https://example.com/screen.png",
+                },
+            ),
+        )
+        second = replace(
+            first,
+            user_id="u2",
+            message_id="21",
+            text="你看看这个",
+            attachments=(),
+        )
+        merged = AgentService._merge_group_attachments(first, second)
+        self.assertEqual(merged, first.attachments)
 
     def test_group_style_hint_describes_rhythm_without_replaying_messages(self):
         history = [

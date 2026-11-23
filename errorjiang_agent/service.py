@@ -89,7 +89,7 @@ from .settings_schema import (
     MAX_GROUP_MERGE_SECONDS,
 )
 from .store import AgentStore
-from .vision import DeepSeekVisionClient, image_mime_type
+from .vision import DeepSeekVisionClient, normalize_image_for_vision
 
 
 NOTE_IMPORT_MAX_BYTES = 20 * 1024 * 1024
@@ -2948,12 +2948,32 @@ class AgentService:
             for attachment in event.attachments[:8]
         )
 
+    def should_ignore_qq_face_placeholder(self, event: MessageEvent) -> bool:
+        return (
+            event.platform == "qqbot"
+            and qq_face_placeholder_only(event.text)
+            and not self.event_has_vision_images(event)
+        )
+
     def download_vision_image(
         self,
         attachment: dict[str, Any],
     ) -> tuple[bytes, str] | None:
         source = str(attachment.get("url") or "").strip()
+        filename = Path(
+            str(
+                attachment.get("filename")
+                or attachment.get("file_name")
+                or attachment.get("name")
+                or "image"
+            )
+        ).name[:120]
+        content_type = str(attachment.get("content_type") or "").strip()[:120]
         if not self.attachment_url_allowed(source):
+            print(
+                f"[Vision] 图片地址不可访问：filename={filename!r}",
+                flush=True,
+            )
             return None
         try:
             request = Request(
@@ -2963,18 +2983,42 @@ class AgentService:
             with urlopen(request, timeout=30) as response:
                 length = response.headers.get("Content-Length")
                 if length and int(length) > VISION_MAX_IMAGE_BYTES:
+                    print(
+                        f"[Vision] 图片超过 8MB：filename={filename!r} "
+                        f"bytes={length}",
+                        flush=True,
+                    )
                     return None
                 raw = response.read(VISION_MAX_IMAGE_BYTES + 1)
         except Exception as exc:
             print(f"[Vision] 图片下载失败：{exc}", flush=True)
             return None
-        if not raw or len(raw) > VISION_MAX_IMAGE_BYTES:
+        if not raw:
+            print(
+                f"[Vision] 图片内容为空：filename={filename!r} "
+                f"declared={content_type!r}",
+                flush=True,
+            )
             return None
-        mime = image_mime_type(
+        if len(raw) > VISION_MAX_IMAGE_BYTES:
+            print(
+                f"[Vision] 图片超过 8MB：filename={filename!r} "
+                f"bytes={len(raw)}",
+                flush=True,
+            )
+            return None
+        image = normalize_image_for_vision(
             raw,
-            str(attachment.get("content_type") or ""),
+            content_type,
+            VISION_MAX_IMAGE_BYTES,
         )
-        return (raw, mime) if mime else None
+        if image is None:
+            print(
+                f"[Vision] 图片格式不支持：filename={filename!r} "
+                f"declared={content_type!r} bytes={len(raw)}",
+                flush=True,
+            )
+        return image
 
     def describe_event_images(
         self,
@@ -2983,6 +3027,7 @@ class AgentService:
     ) -> str:
         vision = getattr(self, "vision", None)
         if not vision:
+            print("[Vision] 视觉客户端未配置，跳过图片识别。", flush=True)
             return ""
         images: list[tuple[bytes, str]] = []
         total_bytes = 0
@@ -3000,9 +3045,13 @@ class AgentService:
             if len(images) >= VISION_MAX_IMAGES:
                 break
         if not images:
+            print("[Vision] 没有可送入模型的图片。", flush=True)
             return ""
         try:
-            return vision.describe(images, question).strip()[:3000]
+            description = vision.describe(images, question).strip()[:3000]
+            if not description:
+                print("[Vision] 视觉模型返回空结果。", flush=True)
+            return description
         except AgentError as exc:
             print(f"[Vision] 图片识别失败：{exc}", flush=True)
         except Exception as exc:
@@ -5700,6 +5749,8 @@ class AgentService:
             f"[QQBot] 接收 {event.message_type} "
             f"user={event.user_id} chat={event.chat_id}"
             + (" location=1" if event.location else "")
+            + f" attachments={len(event.attachments)}"
+            + (" image=1" if self.event_has_vision_images(event) else "")
             + (" auto_reply=1" if auto_reply else ""),
             flush=True,
         )
@@ -5826,6 +5877,22 @@ class AgentService:
                 deduped.append(item)
         return tuple(deduped[-8:])
 
+    @staticmethod
+    def _merge_group_attachments(
+        previous: MessageEvent | None,
+        event: MessageEvent,
+    ) -> tuple[dict[str, Any], ...]:
+        merged: list[dict[str, Any]] = []
+        sources = (
+            (previous.attachments if previous else ())
+            + tuple(event.attachments)
+        )
+        for attachment in sources:
+            if not isinstance(attachment, dict) or attachment in merged:
+                continue
+            merged.append(dict(attachment))
+        return tuple(merged[:8])
+
     def _submit_message_event(
         self,
         event: MessageEvent,
@@ -5865,7 +5932,16 @@ class AgentService:
                 else None
             )
             batch = self._merge_group_batch(previous_event, event)
-            event = replace(event, group_batch=batch)
+            event = replace(
+                event,
+                group_batch=batch,
+                attachments=self._merge_group_attachments(
+                    previous_event,
+                    event,
+                ),
+                location=event.location
+                or (previous_event.location if previous_event else None),
+            )
             if previous_pending:
                 activity_observed = bool(
                     previous_pending[1] or activity_observed
@@ -6188,7 +6264,7 @@ class AgentService:
         has_sticker_images = self.event_has_sticker_images(event, payload)
         if self.store.seen_event(event_key(event)):
             return
-        if platform == "qqbot" and qq_face_placeholder_only(event.text):
+        if self.should_ignore_qq_face_placeholder(event):
             _enabled, auto_collect, library_id = (
                 self.sticker_auto_collect_target(event)
             )
@@ -6713,6 +6789,7 @@ class AgentService:
         text = event.text.strip()
         original_text = text
         has_vision_images = self.event_has_vision_images(event)
+        face_placeholder_only = qq_face_placeholder_only(text)
         if (
             not text
             and not event.location
@@ -6730,7 +6807,9 @@ class AgentService:
             return
         if not text and event.shared_media:
             text = "分享了一个内容卡片"
-        if not text and has_vision_images:
+        if has_vision_images and face_placeholder_only:
+            text = "帮我看看这张图片"
+        elif not text and has_vision_images:
             text = "帮我看看这张图片"
         if text.lower() in ("/reset", "重置对话", "清空上下文"):
             self.store.clear_messages(platform, str(event.user_id))
@@ -6936,7 +7015,7 @@ class AgentService:
         if has_vision_images:
             image_description = self.describe_event_images(
                 event,
-                original_text,
+                "" if face_placeholder_only else original_text,
             )
             if image_description:
                 memories.append(
