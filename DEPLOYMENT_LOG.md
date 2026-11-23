@@ -8654,3 +8654,20 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json
              数据库与 agent 数据库均已备份
 ```
 
+后续热修（2026-11-23 19:23:54）：
+```text
+反馈      -> 发布后新群图片仍被鲸鲸回复“没有收到”
+日志      -> attachments=1 image=1；视觉请求实际完成，但主模型没看到结果
+原因      -> 图片观察被放进通用背景记忆，提示词只保留前 20 条，
+             当前轮图片可能被其他记忆挤出上下文
+修复      -> 图片观察移到 image_context，作为当前轮高优先级上下文，
+             不再参与背景记忆截断；补充识别开始 / 完成日志
+测试      -> 490 项通过
+提交      -> bf0247abb54167be6aa3a7edcfb7e3b8e08ce193
+             fix: prioritize current image observations
+备份      -> /data/errorjiang-backup/20261123-192354（agent.db / WAL / SHM）
+部署      -> 仅 stop / pull / start errorjiang-agent
+状态      -> errorjiang / errorjiang-agent / nginx active
+版本      -> 服务器 HEAD = bf0247a
+```
+
