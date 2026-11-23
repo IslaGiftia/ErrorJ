@@ -8590,3 +8590,67 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json
              purpose 列可保留，数据库与 Nginx 配置已备份
 ```
 
+## 178. 2026-11-23 18:57:09 扩展鲸鲸识图格式并清理足迹搜索焦点框
+
+来源：用户反馈足迹右上角搜索展开后出现紫色直角焦点框，要求 PC 与手机一并清理；同时要求扩展鲸鲸识图格式，并排查当天 14:04 的群图片失败。
+
+完成内容：
+
+- 足迹地点搜索保留按钮、输入框和结果列表，只移除透明 input 自身由全局 `focus-visible` 叠加的紫色直角 outline；外层圆角搜索条与主题色聚焦边框保留。
+- 鲸鲸视觉入口改为直接支持 JPEG / PNG / GIF / WebP；BMP / TIFF / AVIF / JPEG 2000 / ICO / HEIC / HEIF 等先由本机转成 PNG / JPEG 再送入视觉模型。
+- 新增 EXIF 方向修正、最长边 4096 缩放、40MP 解码上限和输出 8MB 限制；新增 Pillow 12.3.0 与 pillow-heif 1.8.1。
+- 视觉失败日志补齐附件数量、图片标记、文件名、声明 MIME、实际字节数，以及地址不可访问、超过 8MB、内容为空、格式不支持、模型空结果等具体原因。
+- 带真实图片附件的 QQ 表情占位不会再被提前丢弃；群消息合并时保留先前图片附件与位置。
+
+14:04 故障定位：
+```text
+QQBot      -> 全量群消息已收到
+附件       -> 已识别为图片，正文转为“帮我看看这张图片”
+模型       -> 未发起视觉请求
+结论       -> 旧代码在格式判定阶段静默丢弃；
+              旧版未记录 MIME，无法反推原文件后缀
+```
+
+本地验证：
+```text
+单元测试    -> 489 项通过（154.5s）
+Python      -> app / vision / service / tests 编译通过
+JavaScript  -> books / messages / moments / activity / map 语法通过
+JSON        -> config/changelog-seed.json 解析通过
+真实模型    -> 本地 BMP、HEIC 转 JPEG 后均由 deepseek-flash 正确读图
+```
+
+部署步骤：
+```text
+提交：7604056ba87cf57a6a681335430bede18cb0c25c
+      feat: expand Jingjing vision formats
+seed：SCP 到 /tmp/errorjiang-changelog-seed.json
+      本地 / 服务器 SHA256 =
+      e657014162e9830531382eb2a5edab6f2f93702d4fe1cf48adf3a922adc03e66
+备份：/data/errorjiang-backup/20261123-185709
+      inventory.db / agent.db、对应 WAL / SHM、changelog-seed.json
+服务器：stop errorjiang-agent / errorjiang -> 备份
+      -> git pull --ff-only -> 7604056
+      -> pip install Pillow 12.3.0 / pillow-heif 1.8.1
+      -> 安装 seed 并导入 2026-11-23
+      -> start errorjiang / errorjiang-agent
+```
+
+最终验证：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> https://zhexiyan.cc/api/health = {"ok": true}
+版本      -> 本地 = origin/main = 服务器 HEAD = 7604056
+依赖      -> Pillow 12.3.0 / pillow-heif 1.8.1
+线上识图  -> 服务器生成 HEIC，转 image/jpeg 后 deepseek-flash
+             正确返回“矩形颜色：红色；文字：LIVE HEIC TEST57”
+更新日志  -> 2026-11-23 18:57:09，id 830，kind=log
+静态文件  -> 线上 map.css Git blob =
+             1ecedbabfdc3d6a7665ef3e74f494c8e4eeaf0dc，与本机 HEAD 一致
+线上页面  -> 1440×900 / 390×844 展开搜索并聚焦：
+             input outline-style = none；
+             外层搜索条 6px 圆角、主题色边框正常
+回滚      -> git reset --hard ebfaa46 后重启；
+             数据库与 agent 数据库均已备份
+```
+
