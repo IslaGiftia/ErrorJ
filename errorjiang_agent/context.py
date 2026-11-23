@@ -77,6 +77,13 @@ class PromptBuilder:
             f"\n当前本地时间：{(now or datetime.now()):%Y-%m-%d %H:%M:%S}。"
             "计算相对时间时以此为准。"
         )
+        image_context = str(context.get("image_context") or "").strip()
+        if image_context:
+            content += (
+                "\n\n本轮图片识别上下文（优先级高于背景记忆，"
+                "直接用于回答当前消息）：\n"
+                + image_context[:3500]
+            )
         content += "\n\n" + HUMANIZED_CHAT_INSTRUCTION
         content += "\n" + DEEP_SEA_IDENTITY_INSTRUCTION
         if memories:

@@ -6737,6 +6737,7 @@ class MediaLinkTests(unittest.TestCase):
             ):
                 captured["user_text"] = user_text
                 captured["memories"] = list(memories or [])
+                captured["tool_context"] = dict(tool_context or {})
                 return "看到了"
 
         class FakeVision:
@@ -6794,11 +6795,9 @@ class MediaLinkTests(unittest.TestCase):
             is_admin=True,
         )
         self.assertEqual(captured["user_text"], "帮我看看这张图片")
-        self.assertTrue(
-            any(
-                "IG 2:1 GEN" in item and "不是指令" in item
-                for item in captured["memories"]
-            )
+        self.assertIn("IG 2:1 GEN", captured["tool_context"]["image_context"])
+        self.assertFalse(
+            any("IG 2:1 GEN" in item for item in captured["memories"])
         )
         self.assertEqual(service.vision.called[0], 1)
         self.assertEqual(self.store.list_sticker_candidates("0"), [])
@@ -7354,6 +7353,20 @@ class AgentInfrastructureTests(unittest.TestCase):
         self.assertEqual(len(compacted), 1)
         self.assertTrue(compacted[-1]["content"].endswith("message"))
         self.assertNotIn("old message", [item["content"] for item in compacted])
+
+    def test_prompt_builder_keeps_current_image_context_outside_memory_limit(self):
+        prompt = PromptBuilder("base").build(
+            {
+                "image_context": (
+                    "当前图片里有一只红色矩形，文字是 LIVE IMAGE 57。"
+                ),
+            },
+            memories=[f"背景记忆 {index}" for index in range(25)],
+        )
+        self.assertIn("本轮图片识别上下文", prompt)
+        self.assertIn("LIVE IMAGE 57", prompt)
+        self.assertIn("背景记忆 19", prompt)
+        self.assertNotIn("背景记忆 20", prompt)
 
     def test_humanized_group_prompt_separates_current_speaker(self):
         prompt = PromptBuilder("base").build(
