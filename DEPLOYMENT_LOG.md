@@ -8739,3 +8739,18 @@ seed：SHA256 =
              数据库与 agent 数据库均已备份
 ```
 
+后续热修（2026-11-28 16:42:10）：
+```text
+复测      -> 默认模式仍会生成“黄脸 / 拳头 / 毛绒一团 / 配字”等画面描述
+原因      -> 第一版内部摘要虽然要求不复述，但视觉模型仍可能返回视觉细节
+修复      -> 默认摘要固定为“情绪 / 聊天意图 / 接话方向”三行；
+             服务端只保留这三行，额外物体、颜色、OCR、位置等行直接丢弃
+测试      -> 494 项通过
+提交      -> caa689ff7c5461174f354a2cf26e5b6761c638bb
+             fix: constrain image reference summaries
+备份      -> /data/errorjiang-backup/20261128-164210（agent.db / WAL / SHM）
+部署      -> 仅 stop / pull / start errorjiang-agent
+状态      -> errorjiang / errorjiang-agent / nginx active
+版本      -> 服务器 HEAD = caa689f
+```
+
