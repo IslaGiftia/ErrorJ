@@ -8687,3 +8687,55 @@ seed：SCP 到 /tmp/errorjiang-changelog-seed.json
 版本      -> 服务器 HEAD = 6287b62
 ```
 
+## 179. 2026-11-28 10:44:39 鲸鲸默认不再复述图片和表情包识图内容
+
+来源：用户反馈鲸鲸看到图片后会先机械复述画面和 OCR，再补自己的反应；要求默认把图片和表情包当作普通聊天上下文，只有群友或管理员明确要求描述时才复述图片内容。
+
+完成内容：
+
+- 默认视觉调用改为生成 120 字以内的内部语义摘要，只概括图片或表情包在聊天里的情绪、梗意和社交作用，不输出画面清单或逐字 OCR。
+- `image_reply_mode` 区分 `reference` 与 `describe`；默认禁止“图片里 / 图中 / 我识别到”等识图报告句式。
+- 用户明确说“描述 / 识别 / 复述 / 图里写了什么 / 这是什么表情”时切换为完整视觉观察，并且仍只回答用户所问。
+- `image_context` 同时进入系统提示和本轮用户消息，但默认标题明确为内部参考，不得复述。
+- 明确的否定指令如“不要描述图片，直接接话”不会误触发完整描述模式。
+
+真实模型对照：
+```text
+默认图片  -> 内部摘要“无奈 / 疑问情绪”；
+             主回复“这表情……是看到什么离谱东西了吗”，未复述画面
+明确描述  -> “描述一下这张图片”才返回橘猫、围巾、雪景等完整观察
+表情包    -> 默认输出情绪型接话，不再先说“熊猫头 + 无语二字”
+```
+
+本地验证：
+```text
+单元测试    -> 493 项通过（134.9s）
+Python      -> vision / service / context / brain / tests 编译通过
+API         -> 线上 /api/moments 新增 id 831，kind=log
+```
+
+部署步骤：
+```text
+提交：985efaf9dd26cacd3ad0045652ff81313e1cc5e6
+      feat: use image observations silently by default
+seed：SHA256 =
+      a85150daad678039e5c80bc3cb3183687c87a375b47e6177b3f3a53830e944bd
+备份：/data/errorjiang-backup/20261128-104439
+      inventory.db / agent.db、对应 WAL / SHM、changelog-seed.json
+服务器：stop errorjiang-agent / errorjiang -> 备份
+      -> git pull --ff-only -> 985efaf
+      -> 导入 2026-11-28 -> daemon-reload
+      -> start errorjiang / errorjiang-agent
+```
+
+最终验证：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> {"ok": true}
+版本      -> 服务器 HEAD = 985efaf
+更新日志  -> 2026-11-28 10:44:39，id 831，kind=log
+公网页    -> 参考项目页已显示本轮识图表达说明
+回滚      -> git reset --hard 8108dd3 后重启；
+             数据库与 agent 数据库均已备份
+```
+
