@@ -70,6 +70,8 @@
 `deepseek-v4-pro` 本身不支持图片输入。一次最多读取 4 张图，单张 8MB、
   总计 16MB。JPEG / PNG / GIF / WebP 直接送入模型；BMP / TIFF / AVIF /
   JPEG 2000 / ICO / HEIC / HEIF 等先在本机转成 PNG / JPEG 再识别。
+  默认只生成用于自然接话的内部语义摘要，不向用户复述画面、颜色、构图或
+  OCR 内容；用户明确要求描述、识别、复述或询问图片内容时才输出完整观察。
 
 网页搜索分两档：`deepseek_web_search` 只做一次快速搜索；
 `deepseek_web_research` 用于最新进展、复杂事件、原因分析和多来源核验，

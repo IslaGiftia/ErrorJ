@@ -4987,12 +4987,35 @@ class AgentStoreTests(unittest.TestCase):
         self.assertEqual(payload["model"], "deepseek-flash")
         content = payload["messages"][0]["content"]
         self.assertEqual(content[0]["type"], "text")
+        self.assertIn("内部语义摘要", content[0]["text"])
+        self.assertNotIn("完整转录", content[0]["text"])
         self.assertEqual(content[1]["type"], "image_url")
         self.assertTrue(
             content[1]["image_url"]["url"].startswith(
                 "data:image/png;base64,"
             )
         )
+
+    def test_deepseek_vision_detailed_prompt_only_for_explicit_request(self):
+        client = DeepSeekVisionClient(
+            "https://api.deepseek.com",
+            "test-key",
+            "deepseek-flash",
+        )
+        with patch(
+            "errorjiang_agent.vision.post_json",
+            return_value={
+                "choices": [{"message": {"content": "图片主体是一只橘猫"}}]
+            },
+        ) as request:
+            client.describe(
+                [(b"\x89PNG\r\n\x1a\nimage", "image/png")],
+                "描述一下这张图片",
+                detailed=True,
+            )
+        prompt = request.call_args.args[1]["messages"][0]["content"][0]["text"]
+        self.assertIn("用户明确要求", prompt)
+        self.assertIn("客观观察", prompt)
 
     def test_vision_normalizes_common_extra_image_formats(self):
         from PIL import Image, features
@@ -5367,6 +5390,32 @@ class AgentStoreTests(unittest.TestCase):
                 replace(event, attachments=())
             )
         )
+
+    def test_image_description_request_detection(self):
+        requests = (
+            "描述一下这张图片",
+            "图里写了什么",
+            "这是什么表情",
+            "帮我看看这张截图",
+            "read the text in this image",
+        )
+        references = (
+            "",
+            "这个更好看",
+            "好喜欢",
+            "别看图了",
+            "不要描述图片，直接接话",
+        )
+        for text in requests:
+            with self.subTest(text=text):
+                self.assertTrue(
+                    AgentService.image_description_requested(text)
+                )
+        for text in references:
+            with self.subTest(text=text):
+                self.assertFalse(
+                    AgentService.image_description_requested(text)
+                )
 
     def test_qqbot_image_without_mime_uses_magic_and_usage(self):
         class FakeResponse:
@@ -6741,8 +6790,8 @@ class MediaLinkTests(unittest.TestCase):
                 return "看到了"
 
         class FakeVision:
-            def describe(self, images, question=""):
-                self.called = (len(images), question)
+            def describe(self, images, question="", *, detailed=False):
+                self.called = (len(images), question, detailed)
                 return "截图写着：IG 2:1 GEN，比赛日期 2026-11-08。"
 
         service = object.__new__(AgentService)
@@ -6796,10 +6845,18 @@ class MediaLinkTests(unittest.TestCase):
         )
         self.assertEqual(captured["user_text"], "帮我看看这张图片")
         self.assertIn("IG 2:1 GEN", captured["tool_context"]["image_context"])
+        self.assertEqual(
+            captured["tool_context"]["image_reply_mode"],
+            "reference",
+        )
+        self.assertIn(
+            "不要把识别资料复述给用户",
+            captured["tool_context"]["image_context"],
+        )
         self.assertFalse(
             any("IG 2:1 GEN" in item for item in captured["memories"])
         )
-        self.assertEqual(service.vision.called[0], 1)
+        self.assertEqual(service.vision.called, (1, "", False))
         self.assertEqual(self.store.list_sticker_candidates("0"), [])
 
     def test_service_injects_curated_meme_context(self):
@@ -7365,8 +7422,18 @@ class AgentInfrastructureTests(unittest.TestCase):
         )
         self.assertIn("本轮图片识别上下文", prompt)
         self.assertIn("LIVE IMAGE 57", prompt)
+        self.assertIn("默认不要复述识别结果", prompt)
         self.assertIn("背景记忆 19", prompt)
         self.assertNotIn("背景记忆 20", prompt)
+
+        describe_prompt = PromptBuilder("base").build(
+            {
+                "image_context": "图片里是一只戴蓝色围巾的橘猫。",
+                "image_reply_mode": "describe",
+            }
+        )
+        self.assertIn("用户本轮明确要求", describe_prompt)
+        self.assertNotIn("默认不要复述识别结果", describe_prompt)
 
     def test_humanized_group_prompt_separates_current_speaker(self):
         prompt = PromptBuilder("base").build(
@@ -7443,7 +7510,7 @@ class AgentInfrastructureTests(unittest.TestCase):
             def chat(self, messages, tools):
                 del tools
                 self.messages = messages
-                return {"content": "看到了，是一只橘猫"}
+                return {"content": "这猫好拽"}
 
         provider = RecordingProvider()
         brain = AgentBrain(
@@ -7464,8 +7531,22 @@ class AgentInfrastructureTests(unittest.TestCase):
         current = provider.messages[-1]
         self.assertEqual(current["role"], "user")
         self.assertIn("帮我看看这张图片", current["content"])
-        self.assertIn("本轮图片识别结果", current["content"])
+        self.assertIn("本轮图片内部参考", current["content"])
+        self.assertIn("默认不得复述", current["content"])
         self.assertIn("戴蓝色围巾的橘猫", current["content"])
+
+        brain.reply(
+            "描述一下这张图片",
+            [],
+            {
+                "chat_type": "private",
+                "image_context": "图片里是一只橘猫。",
+                "image_reply_mode": "describe",
+            },
+        )
+        describe_current = provider.messages[-1]["content"]
+        self.assertIn("可按用户要求简要引用", describe_current)
+        self.assertNotIn("默认不得复述", describe_current)
 
     def test_system_prompt_lets_owner_address_override_public_name(self):
         self.assertNotIn("必须叫“星星”", SYSTEM_PROMPT)

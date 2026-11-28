@@ -79,9 +79,22 @@ class PromptBuilder:
         )
         image_context = str(context.get("image_context") or "").strip()
         if image_context:
+            if context.get("image_reply_mode") == "describe":
+                image_rule = (
+                    "用户本轮明确要求查看或描述图片。只回答用户所问，"
+                    "除非明确要求完整描述，否则不要机械罗列画面。"
+                )
+            else:
+                image_rule = (
+                    "这是内部参考，不是回复模板。默认不要复述识别结果，"
+                    "不要逐项描述画面、文字、颜色或表情识别过程；"
+                    "像理解普通群聊一样直接接话。只有用户明确要求描述、"
+                    "识别、复述或询问图片内容时才展开。"
+                )
             content += (
-                "\n\n本轮图片识别上下文（优先级高于背景记忆，"
-                "直接用于回答当前消息）：\n"
+                "\n\n本轮图片识别上下文（优先级高于背景记忆）：\n"
+                + image_rule
+                + "\n"
                 + image_context[:3500]
             )
         content += "\n\n" + HUMANIZED_CHAT_INSTRUCTION

@@ -1148,8 +1148,16 @@ class AgentBrain:
             (tool_context or {}).get("image_context") or ""
         ).strip()
         if image_context:
+            if (tool_context or {}).get("image_reply_mode") == "describe":
+                image_heading = (
+                    "【本轮图片识别结果，可按用户要求简要引用】"
+                )
+            else:
+                image_heading = (
+                    "【本轮图片内部参考，仅用于理解；默认不得复述】"
+                )
             current_content += (
-                "\n\n【本轮图片识别结果，回答时必须优先使用】\n"
+                f"\n\n{image_heading}\n"
                 + image_context[:3500]
             )
         messages.append({"role": "user", "content": current_content})
