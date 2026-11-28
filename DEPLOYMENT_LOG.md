@@ -8754,3 +8754,47 @@ seed：SHA256 =
 版本      -> 服务器 HEAD = caa689f
 ```
 
+## 180. 2026-11-28 16:51:33 鲸鲸收到表情包优先发送图库回应表情
+
+来源：用户要求收到的表情包只作为上下文，不允许鲸鲸描述表情包内容；优先检索本地表情包库并回一个合适的表情，没有匹配时才正常聊天。
+
+完成内容：
+
+- `event_is_sticker_image` 识别 QQ 表情占位或带表情子类型的图片附件。
+- 表情包先走内部摘要，只保留情绪、聊天意图和接话方向，用于本地图库检索。
+- 命中图库时直接发送回应表情，不调用主模型，也不生成文字回复。
+- 未命中图库时主模型只收到“对方发来一个表情包”的中性上下文，`image_context` 保持为空，完全接触不到原表情包画面和 OCR。
+- 明确要求“描述 / 识别 / 图里写了什么”时跳过表情优先回复，进入完整识图模式。
+- 修复 QQ 表情占位文本中的“图片内容”误触发描述请求的问题。
+
+本地验证：
+```text
+单元测试    -> 496 项通过（148.6s）
+图库命中    -> 直接发送 matched sticker，主模型调用次数不增加
+图库未命中  -> user_text = 对方发来一个表情包；image_context = 空
+线上图库    -> 56 个图片表情，1 个启用图库
+```
+
+部署步骤：
+```text
+提交：45d8abe
+      feat: reply to stickers from the sticker library
+seed：SHA256 =
+      5636319530c94a0b335aa3f0228fe7a21bce29e2a0b4447ee8b5fcfc9376460c
+备份：/data/errorjiang-backup/20261128-165133
+      inventory.db / agent.db、对应 WAL / SHM、changelog-seed.json
+服务器：stop errorjiang-agent / errorjiang -> 备份
+      -> git pull --ff-only -> 45d8abe
+      -> 导入 2026-11-28 -> start errorjiang / errorjiang-agent
+```
+
+最终验证：
+```text
+服务      -> errorjiang / errorjiang-agent / nginx active
+健康      -> {"ok": true}
+版本      -> 服务器 HEAD = 45d8abe
+更新日志  -> 2026-11-28 16:51:33，id 833，kind=log
+回滚      -> git reset --hard caa689f 后重启；
+             数据库与 agent 数据库均已备份
+```
+
