@@ -5452,6 +5452,57 @@ class AgentStoreTests(unittest.TestCase):
                     AgentService.image_description_requested(text)
                 )
 
+    def test_incoming_sticker_matches_library_without_random_fallback(self):
+        service = object.__new__(AgentService)
+        service.store = self.store
+        self.store.add_sticker(
+            "0",
+            "image",
+            "confused.png",
+            category="无语",
+            mood="confused",
+        )
+        event = MessageEvent(
+            self_id="bot",
+            user_id="member-openid",
+            message_type="group",
+            chat_id="group-openid",
+            message_id="incoming-sticker",
+            text="[QQ表情元素，平台未提供图片内容（type=6, id=0）]",
+            to_me=True,
+            platform="qqbot",
+            attachments=(
+                {
+                    "content_type": "image/png",
+                    "filename": "sticker.png",
+                    "url": "https://example.com/sticker.png",
+                },
+            ),
+        )
+        context = {
+            "platform": "qqbot",
+            "chat_type": "group",
+            "chat_id": "group-openid",
+            "persona_preset": "",
+        }
+        chosen = service.choose_incoming_sticker_reply(
+            event,
+            context,
+            "情绪：疑惑且无语\n聊天意图：想表达强烈疑惑\n接话方向：先接住疑惑",
+        )
+        self.assertIsNotNone(chosen)
+        self.assertEqual(chosen["ref"], "confused.png")
+        self.assertTrue(service.event_is_sticker_image(event))
+
+        self.store.delete_sticker("0", int(chosen["id"]))
+        self.assertIsNone(
+            service.choose_incoming_sticker_reply(
+                event,
+                context,
+                "情绪：无语",
+            )
+        )
+
     def test_qqbot_image_without_mime_uses_magic_and_usage(self):
         class FakeResponse:
             def __enter__(self):
@@ -6893,6 +6944,109 @@ class MediaLinkTests(unittest.TestCase):
         )
         self.assertEqual(service.vision.called, (1, "", False))
         self.assertEqual(self.store.list_sticker_candidates("0"), [])
+
+    def test_incoming_sticker_never_passes_visual_details_to_main_model(self):
+        captured = {}
+
+        class FakeBrain:
+            last_used_tools = []
+
+            def reply(self, user_text, history, tool_context, memories=None):
+                captured["brain_calls"] = captured.get("brain_calls", 0) + 1
+                captured["user_text"] = user_text
+                captured["tool_context"] = dict(tool_context or {})
+                return "哈哈，懂了"
+
+        class FakeVision:
+            def describe(self, images, question="", *, detailed=False):
+                self.called = (len(images), question, detailed)
+                return (
+                    "情绪：疑惑且无语\n"
+                    "聊天意图：想表达强烈疑惑\n"
+                    "接话方向：先接住疑惑再反问"
+                )
+
+        service = object.__new__(AgentService)
+        service.store = self.store
+        service.config = SimpleNamespace(
+            context_messages=8,
+            errorjiang_base_url="http://127.0.0.1:8000",
+            errorjiang_token="test-token",
+        )
+        service.vision = FakeVision()
+        service.relationship_context = lambda *_args: {}
+        service.timeline_context = lambda *_args: []
+        service.relationship_prompt = lambda *_args: ""
+        service.persona_prompt = lambda *_args: ""
+        service.shared_media_context = lambda _event: ""
+        service.download_vision_image = lambda _attachment: (
+            b"\x89PNG\r\n\x1a\nimage",
+            "image/png",
+        )
+        service.should_humanize_chat_delay = lambda *_args: False
+        service.should_send_casual_sticker = lambda *_args: False
+        service.selected_sticker = lambda *_args: None
+        service.send_reply = lambda *_args, **_kwargs: None
+        service.update_relationship_after_exchange = lambda *_args: None
+        service.remember_exchange = lambda *_args: None
+        service.executor = SimpleNamespace(
+            submit=lambda *_args, **_kwargs: None
+        )
+        service.build_brain = lambda _client: FakeBrain()
+        event = MessageEvent(
+            self_id="bot",
+            user_id="member-openid",
+            message_type="group",
+            chat_id="group-openid",
+            message_id="incoming-sticker-context",
+            text="[QQ表情元素，平台未提供图片内容（type=6, id=0）]",
+            to_me=True,
+            platform="qqbot",
+            attachments=(
+                {
+                    "url": "https://example.com/sticker.png",
+                    "filename": "sticker.png",
+                    "content_type": "image/png",
+                },
+            ),
+        )
+        service._process_event(
+            event,
+            target_user_id=0,
+            is_admin=False,
+        )
+        self.assertEqual(captured["user_text"], "对方发来一个表情包")
+        self.assertEqual(captured["tool_context"]["image_context"], "")
+        self.assertEqual(
+            captured["tool_context"]["image_reply_mode"],
+            "sticker",
+        )
+        self.assertEqual(service.vision.called, (1, "", False))
+        self.assertEqual(captured["brain_calls"], 1)
+
+        self.store.add_sticker(
+            "0",
+            "image",
+            "confused.png",
+            category="无语",
+            mood="confused",
+        )
+        sent = []
+        service.send_sticker_only = lambda _event, sticker: (
+            sent.append(sticker) or True
+        )
+        second = replace(
+            event,
+            message_id="incoming-sticker-matched",
+        )
+        service._process_event(
+            second,
+            target_user_id=0,
+            is_admin=False,
+        )
+        self.assertEqual(captured["brain_calls"], 1)
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0]["ref"], "confused.png")
 
     def test_service_injects_curated_meme_context(self):
         captured = {}
