@@ -170,15 +170,18 @@ class DeepSeekVisionClient:
         else:
             prompt = (
                 "请只分析图片或表情包本身，把它理解成聊天语境里的一条隐含信息，"
-                "只输出供另一个聊天模型自然接话的内部语义摘要。\n"
+                "只输出供另一个聊天模型自然接话的内部语义摘要。"
+                "严格只输出下面三行，不要输出其他内容：\n"
+                "情绪：用不超过 12 个字概括适合接住的情绪\n"
+                "聊天意图：用不超过 30 个字概括对方想分享或表达什么\n"
+                "接话方向：用不超过 30 个字概括适合怎么回应\n"
                 "要求：\n"
-                "1. 用 1 到 2 句概括它在当前语境里的含义、情绪、梗意或社交语气。\n"
-                "2. 不要罗列画面，不要逐项描述人物、颜色、构图、材质或位置，"
-                "不要逐字转写图片里的文字，也不要输出“图片里 / 图中 / 我看到”等识图报告句式。\n"
-                "3. 如果图片是表情包，只概括它适合表达的情绪和聊天作用。\n"
-                "4. 看不清就简短说明不确定，不要猜测。\n"
-                "5. 不要把用户当前的问题当成图片内容。\n"
-                "6. 控制在 120 字以内。"
+                "1. 三行都不得出现具体物体、人物、角色名、颜色、位置、构图、"
+                "清晰度、像素、画面文字原文或数字。\n"
+                "2. 不要输出“图片里 / 图中 / 我看到 / 看起来”等识图报告句式。\n"
+                "3. 表情包只概括情绪、社交作用和适合的接话方式。\n"
+                "4. 看不清或不确定时就写“不确定”，不要猜测。\n"
+                "5. 不要把用户当前的问题当成图片内容。"
             )
         if question.strip():
             prompt += f"\n用户当前问题：{question.strip()[:500]}"
@@ -208,4 +211,15 @@ class DeepSeekVisionClient:
         choices = data.get("choices") or []
         if not choices or not isinstance(choices[0].get("message"), dict):
             raise AgentError("视觉模型没有返回有效结果。")
-        return str(choices[0]["message"].get("content") or "").strip()[:3000]
+        result = str(choices[0]["message"].get("content") or "").strip()
+        if not detailed:
+            summary_lines = [
+                line.strip()
+                for line in result.splitlines()
+                if line.strip().startswith(
+                    ("情绪：", "聊天意图：", "接话方向：")
+                )
+            ]
+            if summary_lines:
+                result = "\n".join(summary_lines[:3])
+        return result[:3000]

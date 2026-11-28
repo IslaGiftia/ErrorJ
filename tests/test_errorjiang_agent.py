@@ -4988,6 +4988,10 @@ class AgentStoreTests(unittest.TestCase):
         content = payload["messages"][0]["content"]
         self.assertEqual(content[0]["type"], "text")
         self.assertIn("内部语义摘要", content[0]["text"])
+        self.assertIn("情绪：", content[0]["text"])
+        self.assertIn("聊天意图：", content[0]["text"])
+        self.assertIn("接话方向：", content[0]["text"])
+        self.assertIn("不得出现具体物体", content[0]["text"])
         self.assertNotIn("完整转录", content[0]["text"])
         self.assertEqual(content[1]["type"], "image_url")
         self.assertTrue(
@@ -5016,6 +5020,37 @@ class AgentStoreTests(unittest.TestCase):
         prompt = request.call_args.args[1]["messages"][0]["content"][0]["text"]
         self.assertIn("用户明确要求", prompt)
         self.assertIn("客观观察", prompt)
+
+    def test_vision_default_summary_discards_visual_extra_lines(self):
+        client = DeepSeekVisionClient(
+            "https://api.deepseek.com",
+            "test-key",
+            "deepseek-flash",
+        )
+        with patch(
+            "errorjiang_agent.vision.post_json",
+            return_value={
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                "情绪：无语\n"
+                                "聊天意图：想表达强烈疑惑\n"
+                                "接话方向：先接住疑惑再反问\n"
+                                "补充：左边是巨大的红色矩形"
+                            )
+                        }
+                    }
+                ]
+            },
+        ):
+            summary = client.describe(
+                [(b"\x89PNG\r\n\x1a\nimage", "image/png")]
+            )
+        self.assertIn("情绪：", summary)
+        self.assertIn("接话方向：", summary)
+        self.assertNotIn("红色矩形", summary)
+        self.assertNotIn("补充：", summary)
 
     def test_vision_normalizes_common_extra_image_formats(self):
         from PIL import Image, features
